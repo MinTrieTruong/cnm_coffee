@@ -1,0 +1,216 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+/// Cấu hình chung (1 dòng): VAT, quy đổi điểm
+model StoreSettings {
+  id                Int @id @default(1)
+  vatRatePercent    Int @default(10) @map("VAT_Rate_Percent")
+  /// Legacy — không dùng cho công thức tích điểm mới
+  pointPerVnd       Int @default(10000) @map("Point_Per_VND")
+  /// 1 điểm đổi được bao nhiêu VND giảm trừ (1 = 1 điểm = 1đ)
+  pointValueVnd     Int @default(1) @map("Point_Value_VND")
+  cashRoundTo       Int @default(1000) @map("Cash_Round_To")
+  /// Cứ mỗi N VND thành tiền thanh toán → cộng `pointEarnEach` điểm
+  pointEarnEveryVnd Int @default(1000) @map("Point_Earn_Every_VND")
+  pointEarnEach     Int @default(100) @map("Point_Earn_Each")
+
+  @@map("Store_Settings")
+}
+
+model Category {
+  id        Int       @id @map("Category_ID")
+  name      String    @map("Category_Name") @db.VarChar(255)
+  sortOrder Int       @default(0) @map("Sort_Order")
+  products  Product[]
+
+  @@map("Categories")
+}
+
+model InventoryItem {
+  id        Int     @id @map("Item_ID")
+  name      String  @map("Item_Name") @db.VarChar(255)
+  skuCode   String? @unique @map("SKU_Code") @db.VarChar(50)
+  unit      String? @map("Unit") @db.VarChar(20)
+  stockQty  Int     @map("Stock_Qty")
+  minLevel  Int     @map("Min_Level")
+  supplier  String? @map("Supplier") @db.VarChar(100)
+  requests  InventoryRequest[]
+
+  @@map("Inventory")
+}
+
+model Product {
+  id          Int      @id @map("Product_ID")
+  categoryId  Int      @map("Category_ID")
+  sku         String?  @unique @map("SKU") @db.VarChar(20)
+  name        String   @map("Product_Name") @db.VarChar(255)
+  costPrice   Int      @map("Cost_Price")
+  sellPrice   Int      @map("Sell_Price")
+  isActive    Boolean  @map("Is_Active")
+  outOfStock  Boolean  @default(false) @map("Out_Of_Stock")
+  imageUrl    String?  @map("Image_URL") @db.VarChar(1024)
+  category    Category @relation(fields: [categoryId], references: [id])
+  orderLines  OrderDetail[]
+
+  @@map("Products")
+}
+
+model CafeTable {
+  id       Int     @id @map("Table_ID")
+  name     String  @map("Table_Name") @db.VarChar(64)
+  location String? @map("Location") @db.VarChar(100)
+  capacity Int     @default(4) @map("Capacity")
+  qrCode   String? @map("QR_Code") @db.VarChar(512)
+  status   String  @default("Empty") @map("Status") @db.VarChar(32)
+  orders   Order[]
+
+  @@map("Tables")
+}
+
+/// Khách hàng — đăng nhập bằng SĐT hoặc Email + mật khẩu (theo cmn.md)
+model Customer {
+  id           Int       @id @map("Customer_ID")
+  phone        String?   @unique @map("Phone") @db.VarChar(15)
+  passwordHash String?   @map("Password_Hash") @db.VarChar(255)
+  fullName     String    @map("Customer_Name") @db.VarChar(255)
+  email        String?   @map("Email") @db.VarChar(100)
+  dob          DateTime? @map("DOB")
+  gender       String?   @map("Gender") @db.VarChar(10)
+  avatarUrl    String?   @map("Avatar_URL") @db.VarChar(255)
+  points       Int       @default(0) @map("Points")
+  rankTier     String    @default("Dong") @map("Rank_Tier") @db.VarChar(20)
+  createdAt    DateTime  @default(now()) @map("Created_At")
+  lastLogin    DateTime? @map("Last_Login")
+  orders       Order[]
+  reviews      Review[]
+
+  @@map("Customers")
+}
+
+model Staff {
+  id           Int      @id @map("Staff_ID")
+  username     String?  @unique @map("Username") @db.VarChar(50)
+  passwordHash String?  @map("Password_Hash") @db.VarChar(255)
+  fullName     String   @map("Staff_Name") @db.VarChar(100)
+  phone        String?  @map("Phone") @db.VarChar(15)
+  cccd         String?  @unique @map("CCCD") @db.VarChar(20)
+  role         String   @map("Role") @db.VarChar(20)
+  baseSalary   Int      @default(0) @map("Base_Salary")
+  hireDate     DateTime @default(now()) @map("Hire_Date")
+  status       String   @default("Active") @map("Status") @db.VarChar(20)
+  orders       Order[]
+  shifts       Shift[]
+  requestsMade InventoryRequest[] @relation("RequestByStaff")
+  requestsApproved InventoryRequest[] @relation("ApprovedByStaff")
+  reviewsReply Review[]
+
+  @@map("Staff")
+}
+
+model Shift {
+  id            Int       @id @default(autoincrement()) @map("Shift_ID")
+  staffId       Int       @map("Staff_ID")
+  startTime     DateTime  @map("Start_Time")
+  endTime       DateTime? @map("End_Time")
+  startingCash  Int       @map("Starting_Cash")
+  expectedCash  Int?      @map("Expected_Cash")
+  actualCash    Int?      @map("Actual_Cash")
+  differenceAmt Int?      @map("Difference")
+  note          String?   @map("Note") @db.VarChar(255)
+  staff         Staff     @relation(fields: [staffId], references: [id])
+  payments      Payment[]
+
+  @@map("Shifts")
+}
+
+model Order {
+  id            Int       @id @map("Order_ID")
+  tableId       Int?      @map("Table_ID")
+  customerId    Int?      @map("Customer_ID")
+  staffId       Int?      @map("Staff_ID")
+  sessionId     String?   @map("Session_ID") @db.VarChar(50)
+  orderType     String    @map("Order_Type") @db.VarChar(32)
+  subTotal      Int       @map("Sub_Total")
+  discountAmt   Int       @default(0) @map("Discount_Amt")
+  vatAmount     Int       @default(0) @map("VAT_Amount")
+  totalAmount   Int       @map("Total_Amount")
+  status        String    @default("Pending_Grace") @map("Status") @db.VarChar(32)
+  cancelReason  String?   @map("Cancel_Reason") @db.VarChar(255)
+  graceEndsAt   DateTime? @map("Grace_Ends_At")
+  createdAt     DateTime  @default(now()) @map("Created_At")
+  table         CafeTable? @relation(fields: [tableId], references: [id])
+  customer      Customer?  @relation(fields: [customerId], references: [id])
+  staff         Staff?     @relation(fields: [staffId], references: [id])
+  details       OrderDetail[]
+  payments      Payment[]
+  reviews       Review[]
+
+  @@map("Orders")
+}
+
+model OrderDetail {
+  id          Int    @id @map("Detail_ID")
+  orderId     Int    @map("Order_ID")
+  productId   Int    @map("Product_ID")
+  quantity    Int    @map("Quantity")
+  unitPrice   Int    @map("Unit_Price")
+  customNotes String? @map("Custom_Notes") @db.VarChar(512)
+  kdsStatus   String  @default("Hold") @map("KDS_Status") @db.VarChar(32)
+  priority    Boolean @default(false) @map("Priority_Flag")
+  order       Order   @relation(fields: [orderId], references: [id])
+  product     Product @relation(fields: [productId], references: [id])
+
+  @@map("Order_Details")
+}
+
+model Payment {
+  id          Int      @id @default(autoincrement()) @map("Payment_ID")
+  orderId     Int      @map("Order_ID")
+  shiftId     Int?     @map("Shift_ID")
+  method      String   @map("Method") @db.VarChar(20)
+  amount      Int      @map("Amount")
+  transCode   String?  @map("Trans_Code") @db.VarChar(100)
+  paymentTime DateTime @default(now()) @map("Payment_Time")
+  order       Order    @relation(fields: [orderId], references: [id])
+  shift       Shift?   @relation(fields: [shiftId], references: [id])
+
+  @@map("Payments")
+}
+
+model Review {
+  id         Int      @id @default(autoincrement()) @map("Review_ID")
+  orderId    Int      @map("Order_ID")
+  customerId Int      @map("Customer_ID")
+  rating     Int      @map("Rating")
+  comment    String?  @map("Comment") @db.VarChar(500)
+  adminReply String?  @map("Admin_Reply") @db.VarChar(500)
+  replyById  Int?     @map("Reply_By")
+  hidden     Boolean  @default(false) @map("Hidden")
+  createdAt  DateTime @default(now()) @map("Created_At")
+  order      Order    @relation(fields: [orderId], references: [id])
+  customer   Customer @relation(fields: [customerId], references: [id])
+  replyBy    Staff?   @relation(fields: [replyById], references: [id])
+
+  @@map("Reviews")
+}
+
+model InventoryRequest {
+  id          Int    @id @default(autoincrement()) @map("Request_ID")
+  staffId     Int    @map("Staff_ID")
+  itemId      Int    @map("Item_ID")
+  requestQty  Int    @map("Request_Qty")
+  status      String @default("Pending") @map("Status") @db.VarChar(20)
+  approvedById Int?  @map("Approved_By")
+  note        String? @map("Note") @db.VarChar(255)
+  staff       Staff  @relation("RequestByStaff", fields: [staffId], references: [id])
+  item        InventoryItem @relation(fields: [itemId], references: [id])
+  approvedBy  Staff? @relation("ApprovedByStaff", fields: [approvedById], references: [id])
+
+  @@map("Requests")
+}
