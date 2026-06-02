@@ -2,16 +2,18 @@ import { Router } from "express";
 import type { Request } from "express";
 import type { PrismaClient } from "@prisma/client";
 import { customerAuth } from "../middleware/customer.js";
+import { saveDataUrlImage } from "../lib/uploadImage.js";
 
 export function reviewsRouter(prisma: PrismaClient) {
   const r = Router();
 
   r.post("/reviews", customerAuth, async (req, res) => {
     const customerId = (req as Request & { customerId?: number }).customerId!;
-    const { orderId, rating, comment } = req.body as {
+    const { orderId, rating, comment, imageUrl } = req.body as {
       orderId?: number;
       rating?: number;
       comment?: string;
+      imageUrl?: string;
     };
     if (!orderId || typeof rating !== "number" || rating < 1 || rating > 5) {
       return res.status(400).json({ error: "Thiếu orderId hoặc rating 1–5." });
@@ -29,6 +31,7 @@ export function reviewsRouter(prisma: PrismaClient) {
         customerId,
         rating,
         comment: comment?.trim() || null,
+        imageUrl: imageUrl ?? null,
       },
     });
     res.status(201).json(rev);
@@ -67,6 +70,19 @@ export function reviewsRouter(prisma: PrismaClient) {
       include: { customer: { select: { fullName: true } } },
     });
     res.json(rows);
+  });
+
+  r.post("/reviews/upload-image", customerAuth, async (req, res) => {
+    try {
+      const { dataUrl } = req.body as { dataUrl?: string };
+      if (!dataUrl?.startsWith("data:")) {
+        return res.status(400).json({ error: "Thiếu dataUrl (ảnh base64)." });
+      }
+      const url = await saveDataUrlImage(dataUrl);
+      res.json({ url });
+    } catch (e) {
+      res.status(400).json({ error: e instanceof Error ? e.message : "Không lưu được ảnh." });
+    }
   });
 
   return r;

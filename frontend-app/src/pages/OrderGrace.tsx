@@ -13,7 +13,7 @@ export function OrderGrace() {
   const { id } = useParams();
   const nav = useNavigate();
   const [order, setOrder] = useState<OrderPayload | null>(null);
-  const [left, setLeft] = useState(60);
+  const [left, setLeft] = useState(15);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -41,7 +41,21 @@ export function OrderGrace() {
       setLeft(sec);
       if (sec <= 0) {
         clearCartBackup();
-        nav("/menu", { replace: true });
+        void (async () => {
+          for (let i = 0; i < 8; i++) {
+            try {
+              const o = await api<{ status: string }>(`/api/orders/${id}`);
+              if (o.status === "Confirmed") {
+                nav(`/order/${id}/success`, { replace: true });
+                return;
+              }
+            } catch {
+              /* retry */
+            }
+            await new Promise((r) => setTimeout(r, 400));
+          }
+          nav(`/order/${id}/success`, { replace: true });
+        })();
       }
     };
     tick();
@@ -62,7 +76,7 @@ export function OrderGrace() {
 
   if (err && !order) {
     return (
-      <div className="app-shell">
+      <div className="site-page">
         <p style={{ color: "var(--danger)" }}>{err}</p>
         <Link to="/menu">Menu</Link>
       </div>
@@ -71,7 +85,7 @@ export function OrderGrace() {
 
   if (!order) {
     return (
-      <div className="app-shell">
+      <div className="site-page">
         <p className="subtle">Đang tải…</p>
       </div>
     );
@@ -79,7 +93,7 @@ export function OrderGrace() {
 
   if (order.status !== "Pending_Grace") {
     return (
-      <div className="app-shell">
+      <div className="site-page">
         <p className="subtle">Đơn đã xác nhận hoặc kết thúc ân hạn.</p>
         <Link to="/menu">Menu</Link>
       </div>
@@ -87,9 +101,9 @@ export function OrderGrace() {
   }
 
   return (
-    <div className="app-shell" style={{ textAlign: "center" }}>
+    <div className="site-page" style={{ textAlign: "center" }}>
       <h1 className="page-title">Ân hạn chỉnh sửa</h1>
-      <p className="subtle">QTNV-01: Trong 60 giây có thể hủy đơn; sau đó lệnh xuống bếp (KDS).</p>
+      <p className="subtle">QTNV-01: Trong 15 giây có thể hủy đơn; sau đó lệnh xuống bếp (KDS).</p>
       <div
         style={{
           margin: "2rem auto",

@@ -39,13 +39,18 @@ export function posRouter(prisma: PrismaClient, io: Server) {
   r.get("/pos/pending-orders", ...cashier, async (_req, res) => {
     const orders = await prisma.order.findMany({
       where: {
-        status: "Confirmed",
-        payments: { none: {} },
+        OR: [
+          { status: "Confirmed" },
+          { status: "Pending_Grace" },
+          { status: "Waiting_Pay" },
+          { status: "Paid", payments: { some: { shiftId: null } } },
+        ]
       },
       include: {
         details: { include: { product: true } },
         table: true,
         customer: { select: { id: true, fullName: true, phone: true, points: true } },
+        payments: true,
       },
       orderBy: { id: "asc" },
     });
@@ -81,23 +86,41 @@ export function posRouter(prisma: PrismaClient, io: Server) {
     }
 
     const settings = await getStoreSettings(prisma);
+
+    // --- Xử lý điểm ---
+    // Ưu tiên: điểm đã được khách áp dụng sẵn (qua /redeem-points) hoặc POS nhập tay
+    const savedPointsUsed = order.pointsUsed ?? 0;
     const maxPts = order.customer
       ? Math.min(
           order.customer.points,
           Math.floor(Math.max(0, order.subTotal - order.discountAmt) / settings.pointValueVnd),
         )
       : 0;
-    const pointsToUse = Math.min(rawPts ?? 0, maxPts);
+    const pointsToUse = savedPointsUsed > 0
+      ? savedPointsUsed
+      : Math.min(rawPts ?? 0, maxPts);
+    const pointsRedeemAmt = pointsToUse * settings.pointValueVnd;
 
-    const { vatAmount, totalAmount, pointsDiscount } = computeBill(
+    // --- Xử lý Voucher ---
+    let voucherCode = null;
+    let voucherDiscount = 0;
+    if (order.cancelReason && order.cancelReason.startsWith("VOUCHER:")) {
+      const parts = order.cancelReason.split(":");
+      voucherCode = parts[1];
+      voucherDiscount = Number(parts[2]) || 0;
+    }
+
+    // Tính bill cuối cùng (bao gồm cả giảm trừ điểm và voucher vào discountAmt)
+    const effectiveDiscount = order.discountAmt + pointsRedeemAmt + voucherDiscount;
+    const { vatAmount, totalAmount } = computeBill(
       order.subTotal,
-      order.discountAmt,
-      pointsToUse,
+      effectiveDiscount,
+      0,
       settings.pointValueVnd,
       settings.vatRatePercent,
     );
-    const discountAmt = order.discountAmt + pointsDiscount;
 
+    // Tiền thực tế phải trả bằng tiền mặt/chuyển khoản (sau khi trừ điểm)
     const displayTotal =
       method === "Cash" ? roundCashAmount(totalAmount, settings.cashRoundTo) : totalAmount;
 
@@ -109,6 +132,7 @@ export function posRouter(prisma: PrismaClient, io: Server) {
       change = cashGiven - displayTotal;
     }
 
+    // Điểm cộng thêm chỉ tính trên tiền thực thu (không tính phần điểm đổi)
     const pointsEarned = computePointsEarned(
       displayTotal,
       settings.pointEarnEveryVnd,
@@ -116,6 +140,19 @@ export function posRouter(prisma: PrismaClient, io: Server) {
     );
 
     await prisma.$transaction(async (tx) => {
+      // Tạo Payment cho phần điểm đổi (nếu có)
+      if (pointsToUse > 0) {
+        await tx.payment.create({
+          data: {
+            orderId,
+            shiftId: shift.id,
+            method: "Points",
+            amount: pointsRedeemAmt,
+            transCode: `PTS-${orderId}-${pointsToUse}pts`,
+          },
+        });
+      }
+      // Tạo Payment cho phần tiền thật
       await tx.payment.create({
         data: {
           orderId,
@@ -124,15 +161,27 @@ export function posRouter(prisma: PrismaClient, io: Server) {
           amount: displayTotal,
         },
       });
+      // Cập nhật Order
       await tx.order.update({
         where: { id: orderId },
         data: {
           status: "Paid",
           vatAmount,
-          discountAmt,
-          totalAmount: displayTotal,
+          discountAmt: effectiveDiscount,
+          totalAmount: displayTotal + pointsRedeemAmt, // tổng bill gốc (không thay đổi doanh thu gộp)
+          pointsUsed: pointsToUse,
+          pointsRedeemAmt,
+          cancelReason: null,
         },
       });
+      // Consume voucher if applied
+      if (voucherCode) {
+        await tx.voucher.updateMany({
+          where: { code: voucherCode },
+          data: { usedCount: { increment: 1 } },
+        });
+      }
+      // Cập nhật điểm + rank khách
       if (order.customerId && order.customer) {
         const prevPaid = await tx.order.aggregate({
           where: { customerId: order.customerId, status: "Paid" },
@@ -151,20 +200,193 @@ export function posRouter(prisma: PrismaClient, io: Server) {
       if (order.tableId) {
         await tx.cafeTable.update({
           where: { id: order.tableId },
-          data: { status: "Empty" },
+          // Cleaning = đã thanh toán, khách có thể còn ngồi — nhân viên bấm "Báo trống" khi khách đi
+          data: { status: "Cleaning" },
         });
       }
     });
 
     io.to("pos").emit("payment:done", { orderId });
+    io.to(`order:${orderId}`).emit("payment:success", {
+      orderId,
+      totalAmount: displayTotal,
+      pointsEarned,
+      change: method === "Cash" ? change : null,
+    });
+
+    // Sau thanh toán: đẩy các món còn Hold (đơn payNow / mang về) vào bếp
+    const holdDetails = await prisma.orderDetail.findMany({
+      where: { orderId, kdsStatus: "Hold" },
+    });
+    console.log(`[POS PAY] orderId=${orderId} holdDetails=${holdDetails.length}`);
+    if (holdDetails.length > 0) {
+      await prisma.orderDetail.updateMany({
+        where: { orderId, kdsStatus: "Hold" },
+        data: { kdsStatus: "Waiting" },
+      });
+      const kdsDetails = await prisma.orderDetail.findMany({
+        where: { orderId },
+        include: { product: true, order: { include: { table: true } } },
+      });
+      console.log(`[POS PAY] emitting order:new to kds, details=${kdsDetails.length}`);
+      io.to("kds").emit("order:new", { orderId, details: kdsDetails });
+    }
+
     res.json({
       ok: true,
       totalAmount: displayTotal,
       vatAmount,
-      discountAmt,
+      discountAmt: effectiveDiscount,
       pointsUsed: pointsToUse,
+      pointsRedeemAmt,
       pointsEarned,
       change: method === "Cash" ? change : null,
+    });
+  });
+
+  /**
+   * POST /pos/ack-online
+   * Xác nhận đơn đã thanh toán online (gắn shiftId vào payment).
+   */
+  r.post("/pos/ack-online", ...cashier, async (req, res) => {
+    const staff = (req as StaffRequest).staffRow!;
+    const { orderId } = req.body as { orderId?: number };
+
+    if (!orderId) return res.status(400).json({ error: "Missing orderId" });
+
+    // Lấy ca đang mở
+    const shift = await prisma.shift.findFirst({
+      where: { staffId: staff.id, endTime: null },
+    });
+    if (!shift) return res.status(400).json({ error: "Chưa mở ca làm việc." });
+
+    // Cập nhật payment
+    await prisma.payment.updateMany({
+      where: { orderId, shiftId: null },
+      data: { shiftId: shift.id },
+    });
+
+    // Báo cho các POS khác làm mới danh sách
+    io.to("pos").emit("payment:request", { orderId });
+
+    res.json({ ok: true });
+  });
+
+
+  /**
+   * GET /pos/bills?date=YYYY-MM-DD
+   * Lịch sử bill trong ngày (chỉ cho phép 20 ngày gần nhất).
+   * Trả về tất cả đơn Paid trong ngày đó kèm chi tiết đầy đủ.
+   */
+  r.get("/pos/bills", ...cashier, async (req, res) => {
+    const dateStr = (req.query.date as string | undefined)?.trim();
+
+    // Tính giới hạn 20 ngày gần nhất
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    const oldest = new Date();
+    oldest.setDate(oldest.getDate() - 19);
+    oldest.setHours(0, 0, 0, 0);
+
+    let dayStart: Date;
+    let dayEnd: Date;
+
+    if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      dayStart = new Date(`${dateStr}T00:00:00`);
+      dayEnd = new Date(`${dateStr}T23:59:59.999`);
+      // Validate trong 20 ngày
+      if (dayStart < oldest || dayStart > today) {
+        return res.status(400).json({ error: "Chỉ xem được lịch sử trong vòng 20 ngày gần nhất." });
+      }
+    } else {
+      // Mặc định hôm nay
+      dayStart = new Date();
+      dayStart.setHours(0, 0, 0, 0);
+      dayEnd = new Date();
+      dayEnd.setHours(23, 59, 59, 999);
+    }
+
+    const orders = await prisma.order.findMany({
+      where: {
+        status: "Paid",
+        createdAt: { gte: dayStart, lte: dayEnd },
+      },
+      include: {
+        details: { include: { product: true }, orderBy: { id: "asc" } },
+        table: true,
+        customer: { select: { id: true, fullName: true, phone: true } },
+        payments: { orderBy: { id: "desc" }, take: 1 },
+      },
+      orderBy: { id: "desc" },
+    });
+
+    res.json(
+      orders.map((o) => ({
+        id: o.id,
+        createdAt: o.createdAt,
+        orderType: o.orderType,
+        tableName: o.table?.name ?? null,
+        customerName: o.customer?.fullName ?? null,
+        customerPhone: o.customer?.phone ?? null,
+        subTotal: o.subTotal,
+        discountAmt: o.discountAmt,
+        vatAmount: o.vatAmount,
+        totalAmount: o.totalAmount,
+        payMethod: o.payments[0]?.method ?? null,
+        paidAt: o.payments[0]?.paymentTime ?? null,
+        items: o.details.map((d) => ({
+          id: d.id,
+          name: d.product.name,
+          quantity: d.quantity,
+          unitPrice: d.unitPrice,
+          lineTotal: d.unitPrice * d.quantity,
+          customNotes: d.customNotes,
+        })),
+      })),
+    );
+  });
+
+  /**
+   * GET /api/pos/bills/:id
+   * Lấy 1 bill cụ thể theo ID để in lại (rất hữu ích cho thanh toán online)
+   */
+  r.get("/pos/bills/:id", async (req, res) => {
+    const orderId = Number(req.params.id);
+    if (Number.isNaN(orderId)) return res.status(400).json({ error: "Invalid ID" });
+
+    const o = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        details: { include: { product: true }, orderBy: { id: "asc" } },
+        table: true,
+        customer: { select: { id: true, fullName: true, phone: true } },
+        payments: { orderBy: { id: "desc" }, take: 1 },
+      },
+    });
+
+    if (!o) return res.status(404).json({ error: "Order not found" });
+
+    res.json({
+      id: o.id,
+      createdAt: o.createdAt,
+      orderType: o.orderType,
+      tableName: o.table?.name ?? null,
+      customerName: o.customer?.fullName ?? null,
+      customerPhone: o.customer?.phone ?? null,
+      subTotal: o.subTotal,
+      discountAmt: o.discountAmt,
+      vatAmount: o.vatAmount,
+      totalAmount: o.totalAmount,
+      payMethod: o.payments[0]?.method ?? null,
+      paidAt: o.payments[0]?.paymentTime ?? null,
+      items: o.details.map((d) => ({
+        id: d.id,
+        name: d.product.name,
+        quantity: d.quantity,
+        unitPrice: d.unitPrice,
+        lineTotal: d.unitPrice * d.quantity,
+        customNotes: d.customNotes,
+      })),
     });
   });
 

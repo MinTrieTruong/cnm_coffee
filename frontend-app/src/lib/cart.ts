@@ -38,20 +38,39 @@ export function addToCart(
   opts: Omit<CartItem, "productId" | "name" | "unitPrice" | "imageUrl">,
 ) {
   const items = load();
-  const line: CartItem = {
-    productId: product.id,
-    name: product.name,
-    unitPrice: product.sellPrice,
-    imageUrl: product.imageUrl,
-    ...opts,
-  };
-  items.push(line);
+  // Gộp nếu trùng product + size + đá + đường + notes
+  const key = `${product.id}|${opts.size}|${opts.icePct}|${opts.sugar}|${opts.notes}`;
+  const existing = items.find(
+    (i) => `${i.productId}|${i.size}|${i.icePct}|${i.sugar}|${i.notes}` === key,
+  );
+  if (existing) {
+    existing.quantity += opts.quantity;
+  } else {
+    items.push({
+      productId: product.id,
+      name: product.name,
+      unitPrice: product.sellPrice,
+      imageUrl: product.imageUrl,
+      ...opts,
+    });
+  }
   save(items);
 }
 
 export function removeLine(index: number) {
   const items = load();
   items.splice(index, 1);
+  save(items);
+}
+
+/** Cập nhật số lượng; nếu qty <= 0 thì xóa dòng đó */
+export function updateQty(index: number, qty: number) {
+  const items = load();
+  if (qty <= 0) {
+    items.splice(index, 1);
+  } else {
+    items[index].quantity = qty;
+  }
   save(items);
 }
 

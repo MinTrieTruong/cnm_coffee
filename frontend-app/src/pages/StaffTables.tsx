@@ -1,6 +1,32 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { io, Socket } from "socket.io-client";
+import { apiBase, apiOrigin } from "../lib/api";
+import { mapFetchError } from "../lib/net";
 import { getStaffInfo, staffApi } from "../lib/staffApi";
+
+/** Phát âm thanh ding khi món sẵn sàng phục vụ. */
+function playReadySound() {
+  try {
+    const ctx = new AudioContext();
+    const playNote = (freq: number, time: number, dur: number) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, time);
+      gain.gain.setValueAtTime(0.5, time);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
+      osc.start(time);
+      osc.stop(time + dur);
+    };
+    const now = ctx.currentTime;
+    playNote(784, now, 0.18);        // G5
+    playNote(1047, now + 0.22, 0.4); // C6
+    setTimeout(() => ctx.close(), 2000);
+  } catch { /* */ }
+}
 
 type TableRow = {
   id: number;
@@ -10,7 +36,8 @@ type TableRow = {
   orders: { id: number; status: string; totalAmount: number }[];
 };
 
-type ProductRow = { id: number; name: string; sellPrice: number; isActive: boolean; outOfStock: boolean };
+type ProductRow = { id: number; name: string; sellPrice: number; isActive: boolean; outOfStock: boolean; imageUrl: string | null; categoryId: number; };
+type MenuCategory = { id: number; name: string };
 type DetailRow = {
   id: number;
   quantity: number;
@@ -23,6 +50,7 @@ type ActiveOrder = {
   id: number;
   createdAt: string;
   subTotal: number;
+  status?: string;
   customer: { id: number; fullName: string; phone: string | null; points: number } | null;
   details: DetailRow[];
 };
@@ -30,27 +58,14 @@ type TableContext = {
   table: { id: number; name: string; status: string; location: string | null };
   activeOrder: ActiveOrder | null;
 };
-type BillPreview = {
-  orderId: number;
-  tableName: string | null;
-  customerName: string;
-  customerPhone: string | null;
-  inAt: string;
-  outAt: string;
-  subTotal: number;
-  vatAmount: number;
-  totalAmount: number;
-  method: string | null;
-  items: { id: number; name: string; quantity: number; unitPrice: number; amount: number }[];
-};
-
 function formatVnd(n: number) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
 function tableStatusMeta(status: string) {
-  if (status === "Occupied") return { cls: "table-tile-occupied", label: "Có khách" };
-  if (status === "Waiting_Pay") return { cls: "table-tile-paying", label: "Đang thanh toán" };
+  if (status === "Occupied")    return { cls: "table-tile-occupied", label: "Có khách" };
+  if (status === "Waiting_Pay") return { cls: "table-tile-paying",   label: "Đang thanh toán" };
+  if (status === "Cleaning")   return { cls: "table-tile-cleaning",  label: "Vừa thanh toán" };
   return { cls: "table-tile-empty", label: "Trống" };
 }
 
@@ -62,19 +77,27 @@ export function StaffTables() {
   const [mergeFrom, setMergeFrom] = useState("");
   const [mergeTo, setMergeTo] = useState("");
   const [products, setProducts] = useState<ProductRow[]>([]);
+  const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [selectedTable, setSelectedTable] = useState<number | null>(null);
   const [ctx, setCtx] = useState<TableContext | null>(null);
-  const [addingProductId, setAddingProductId] = useState<number | "">("");
-  const [addingQty, setAddingQty] = useState("1");
-  const [addingNotes, setAddingNotes] = useState("");
+  const [activeCat, setActiveCat] = useState<number | null>(null);
+  type LineState = { qty: number; note: string; showNote: boolean };
+  const [menuLines, setMenuLines] = useState<Record<number, LineState>>({});
   const [customerPhone, setCustomerPhone] = useState("");
-  const [bill, setBill] = useState<BillPreview | null>(null);
+  type ReadyNotif = { productName: string; quantity: number; tableName: string; orderId: number };
+  const [readyNotifs, setReadyNotifs] = useState<ReadyNotif[]>([]);
+  const [clearingIds, setClearingIds] = useState<Set<number>>(new Set());
 
   const load = useCallback(async () => {
     try {
       setErr(null);
-      const base = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
-      const res = await fetch(`${base}/api/pos/tables`);
+      const base = apiBase();
+      let res: Response;
+      try {
+        res = await fetch(`${base}/api/pos/tables`);
+      } catch (e) {
+        throw mapFetchError(e);
+      }
       if (!res.ok) throw new Error("Không tải được bàn");
       setTables((await res.json()) as TableRow[]);
     } catch (e) {
@@ -89,17 +112,47 @@ export function StaffTables() {
   useEffect(() => {
     void (async () => {
       try {
-        const rows = await staffApi<ProductRow[]>("/api/products");
-        setProducts(rows.filter((p) => p.isActive && !p.outOfStock));
+        const data = await staffApi<{ categories: MenuCategory[]; products: ProductRow[] }>("/api/menu");
+        setProducts(data.products.filter((p) => p.isActive && !p.outOfStock));
+        setCategories(data.categories);
+        if (data.categories.length > 0) setActiveCat(data.categories[0].id);
       } catch {
         setProducts([]);
       }
     })();
   }, []);
 
+  // Socket: nhận thông báo từ backend
+  useEffect(() => {
+    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"] });
+    socket.emit("join", "staff");
+    socket.emit("join", "pos"); // nhận luôn payment:done để refresh sơ đồ bàn
+
+    // Món sẵn sàng phục vụ
+    socket.on("kds:ready", (data: { productName: string; quantity: number; tableName: string; orderId: number }) => {
+      playReadySound();
+      setReadyNotifs((prev) => [...prev, data]);
+      setTimeout(() => {
+        setReadyNotifs((prev) => prev.filter((n) => n !== data));
+      }, 12000);
+    });
+
+    // POS xác nhận thanh toán xong → refresh sơ đồ bàn
+    socket.on("payment:done", () => { void load(); });
+
+    // Ai đó yêu cầu thanh toán → refresh sơ đồ bàn
+    socket.on("payment:request", () => { void load(); });
+
+    // Nhân viên báo trống → refresh sơ đồ bàn
+    socket.on("table:cleared", () => { void load(); });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [load]);
+
   const openTable = useCallback(async (tableId: number) => {
     setSelectedTable(tableId);
-    setBill(null);
     setErr(null);
     try {
       const data = await staffApi<TableContext>(`/api/staff/tables/${tableId}/context`);
@@ -117,24 +170,8 @@ export function StaffTables() {
         method: "POST",
         body: JSON.stringify({ orderId }),
       });
-      setMsg("Đã gửi yêu cầu thanh tới quầy.");
+      setMsg("Đã gửi yêu cầu thanh toán tới quầy.");
       setTimeout(() => setMsg(null), 2400);
-      void load();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Lỗi");
-    }
-  }
-
-  async function requestPaymentWithMethod(orderId: number, method: "Cash" | "Transfer_QR") {
-    try {
-      setErr(null);
-      const resp = await staffApi<{ ok: boolean; bill: BillPreview }>("/api/staff/orders/request-payment", {
-        method: "POST",
-        body: JSON.stringify({ orderId, method }),
-      });
-      setBill(resp.bill);
-      setMsg("Đã gửi yêu cầu thanh toán tới thu ngân.");
-      setTimeout(() => setMsg(null), 2600);
       await load();
       if (selectedTable) await openTable(selectedTable);
     } catch (e) {
@@ -142,35 +179,28 @@ export function StaffTables() {
     }
   }
 
-  async function addItemToTable() {
-    if (!selectedTable || addingProductId === "") {
-      setErr("Chọn món trước khi thêm.");
-      return;
-    }
-    const quantity = Number(addingQty);
-    if (!quantity || quantity <= 0) {
-      setErr("Số lượng không hợp lệ.");
-      return;
-    }
+  async function sendOrder() {
+    if (!selectedTable) return;
+    const lines = Object.entries(menuLines)
+      .filter(([, v]) => v.qty > 0)
+      .map(([k, v]) => ({ productId: Number(k), quantity: v.qty, customNotes: v.note.trim() || undefined }));
+    if (lines.length === 0) { setErr("Chưa chọn món nào."); return; }
     try {
       setErr(null);
-      await staffApi(`/api/staff/tables/${selectedTable}/items`, {
-        method: "POST",
-        body: JSON.stringify({
-          productId: addingProductId,
-          quantity,
-          customNotes: addingNotes,
-          customerPhone: customerPhone.trim() || undefined,
-        }),
-      });
-      setAddingNotes("");
-      setAddingQty("1");
-      setMsg("Đã thêm món cho bàn.");
-      setTimeout(() => setMsg(null), 2000);
+      // Gửi từng món (API hiện tại nhận 1 món/lần)
+      for (const line of lines) {
+        await staffApi(`/api/staff/tables/${selectedTable}/items`, {
+          method: "POST",
+          body: JSON.stringify({ ...line, customerPhone: customerPhone.trim() || undefined }),
+        });
+      }
+      setMenuLines({});
+      setMsg(`Đã gửi ${lines.length} món cho bàn.`);
+      setTimeout(() => setMsg(null), 2200);
       await load();
       await openTable(selectedTable);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Lỗi thêm món");
+      setErr(e instanceof Error ? e.message : "Lỗi gửi món");
     }
   }
 
@@ -187,27 +217,21 @@ export function StaffTables() {
     }
   }
 
-  async function markTableCleaned(tableId: number) {
+  async function clearTable(tableId: number) {
+    setClearingIds((prev) => new Set(prev).add(tableId));
     try {
       setErr(null);
-      await staffApi(`/api/staff/tables/${tableId}/clean`, { method: "POST" });
-      setMsg("Đã dọn xong, bàn chuyển về trống.");
-      setTimeout(() => setMsg(null), 2400);
+      await staffApi(`/api/staff/tables/${tableId}/clear`, { method: "POST" });
+      setMsg("Đã báo trống bàn.");
+      setTimeout(() => setMsg(null), 2000);
       await load();
-      if (selectedTable === tableId) {
-        setSelectedTable(null);
-        setCtx(null);
-        setBill(null);
-      }
+      if (selectedTable === tableId) setSelectedTable(null);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Lỗi dọn bàn");
+      setErr(e instanceof Error ? e.message : "Lỗi báo trống");
+    } finally {
+      setClearingIds((prev) => { const s = new Set(prev); s.delete(tableId); return s; });
     }
   }
-
-  const selectedProductPrice = useMemo(() => {
-    if (addingProductId === "") return 0;
-    return products.find((p) => p.id === addingProductId)?.sellPrice ?? 0;
-  }, [addingProductId, products]);
 
   async function mergeOrders() {
     const a = Number(mergeFrom);
@@ -232,9 +256,9 @@ export function StaffTables() {
     }
   }
 
-  if (!info || (info.role !== "Waiter" && info.role !== "Admin")) {
+  if (!info || !["Waiter", "Admin", "Cashier"].includes(info.role)) {
     return (
-      <div className="app-shell" style={{ maxWidth: 720 }}>
+      <div className="staff-page-inner">
         <p className="subtle">Trang dành cho phục vụ hoặc quản lý.</p>
         <Link to="/staff/login" className="btn btn-primary">
           Đăng nhập
@@ -244,22 +268,74 @@ export function StaffTables() {
   }
 
   return (
-    <div className="app-shell" style={{ maxWidth: 800 }}>
-      <div className="nav-top">
+    <div className="staff-page-inner staff-page-wide">
+      <div className="staff-page-head">
         <h1 className="page-title" style={{ margin: 0 }}>
           Sơ đồ bàn (phục vụ)
         </h1>
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          <button type="button" className="btn btn-ghost" style={{ padding: "0.5rem 0.85rem", fontSize: "0.9rem" }} onClick={() => void load()}>
-            Làm mới
-          </button>
-          <Link to="/staff/login" className="btn btn-ghost" style={{ padding: "0.5rem 0.85rem", fontSize: "0.9rem" }}>
-            Nhân sự
-          </Link>
-        </div>
+        <button type="button" className="btn btn-ghost staff-btn-light" onClick={() => void load()}>
+          Làm mới
+        </button>
       </div>
       <p className="subtle">Yêu cầu thanh toán (bàn chuyển sang chờ thu) và gộp đơn chưa thanh toán.</p>
       {msg && <p style={{ color: "var(--accent)" }}>{msg}</p>}
+
+      {/* Popup stack thông báo món sẵn sàng */}
+      {readyNotifs.length > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            top: "1rem",
+            right: "1rem",
+            zIndex: 60,
+            display: "flex",
+            flexDirection: "column",
+            gap: "0.6rem",
+            maxWidth: 320,
+          }}
+        >
+          {readyNotifs.map((n, i) => (
+            <div
+              key={i}
+              style={{
+                background: "linear-gradient(135deg, #1a2e1a 0%, #0f3d1f 100%)",
+                border: "2px solid #4ade80",
+                borderRadius: 14,
+                padding: "1rem 1.1rem",
+                boxShadow: "0 8px 32px rgba(74,222,128,0.3)",
+                animation: "slide-in-right 0.35s cubic-bezier(.22,1,.36,1)",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.35rem",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
+                <div style={{ fontWeight: 800, fontSize: "0.88rem", color: "#4ade80", letterSpacing: "0.05em" }}>
+                  ✅ MÓN SẴN SÀNG
+                </div>
+                <button
+                  type="button"
+                  style={{ background: "none", border: "none", color: "#4ade80", cursor: "pointer", fontSize: "1.1rem", lineHeight: 1, padding: 0 }}
+                  onClick={() => setReadyNotifs((prev) => prev.filter((_, j) => j !== i))}
+                  aria-label="Đóng"
+                >
+                  ×
+                </button>
+              </div>
+              <div style={{ fontWeight: 700, fontSize: "1.05rem", color: "#fff" }}>
+                {n.productName} <span style={{ color: "#86efac" }}>× {n.quantity}</span>
+              </div>
+              <div style={{ fontSize: "0.88rem", color: "#86efac" }}>
+                📍 {n.tableName} · Đơn #{n.orderId}
+              </div>
+              <div style={{ fontSize: "0.8rem", color: "#4ade80", marginTop: "0.2rem" }}>
+                Vui lòng ra bê nước cho khách!
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
 
       <section className="card" style={{ padding: "1rem", marginBottom: "1rem" }}>
@@ -295,6 +371,9 @@ export function StaffTables() {
             <span className="table-legend-item">
               <span className="table-status-dot table-tile-paying" /> Đang thanh toán
             </span>
+            <span className="table-legend-item">
+              <span className="table-status-dot table-tile-cleaning" /> Vừa thanh toán (còn ngồi)
+            </span>
           </div>
           <div className="table-grid">
             {tables.map((t) => {
@@ -325,12 +404,26 @@ export function StaffTables() {
                       type="button"
                       className="btn btn-ghost"
                       style={{ marginTop: "0.4rem", width: "100%", padding: "0.3rem 0.5rem", fontSize: "0.74rem" }}
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        void requestPayment(o.id);
-                      }}
+                      onClick={(ev) => { ev.stopPropagation(); void requestPayment(o.id); }}
                     >
                       Thanh toán
+                    </button>
+                  )}
+                  {/* Nút Báo trống khi khách đã thanh toán nhưng còn ngồi */}
+                  {t.status === "Cleaning" && (
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      disabled={clearingIds.has(t.id)}
+                      style={{
+                        marginTop: "0.4rem", width: "100%",
+                        padding: "0.3rem 0.5rem", fontSize: "0.74rem",
+                        background: "#7c3aed", borderColor: "#7c3aed",
+                        opacity: clearingIds.has(t.id) ? 0.6 : 1,
+                      }}
+                      onClick={(ev) => { ev.stopPropagation(); void clearTable(t.id); }}
+                    >
+                      {clearingIds.has(t.id) ? "Đang xử lý..." : "Báo trống"}
                     </button>
                   )}
                 </div>
@@ -340,162 +433,192 @@ export function StaffTables() {
         </>
       )}
 
+      {/* ── Modal chi tiết bàn ── */}
       {selectedTable && ctx && (
-        <section className="card" style={{ padding: "1rem", marginTop: "1rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", alignItems: "center" }}>
-            <h2 style={{ margin: 0, fontSize: "1.03rem" }}>
-              {ctx.table.name} {ctx.table.location ? `· ${ctx.table.location}` : ""}
-            </h2>
-            <button type="button" className="btn btn-ghost" style={{ padding: "0.35rem 0.75rem", fontSize: "0.82rem" }} onClick={() => setSelectedTable(null)}>
-              Đóng
-            </button>
-          </div>
-
-          <div style={{ marginTop: "0.65rem", fontSize: "0.9rem" }}>
-            {ctx.activeOrder ? (
-              <>
-                <div>
-                  Khách: <strong>{ctx.activeOrder.customer?.fullName ?? "Vãng lai"}</strong>
-                  {ctx.activeOrder.customer?.phone ? ` · ${ctx.activeOrder.customer.phone}` : ""}
-                </div>
-                <div className="subtle" style={{ marginBottom: "0.45rem" }}>
-                  Mã đơn #{ctx.activeOrder.id} · Giờ vào {new Date(ctx.activeOrder.createdAt).toLocaleTimeString("vi-VN")}
-                </div>
-              </>
-            ) : (
-              <div className="subtle" style={{ marginBottom: "0.45rem" }}>
-                Bàn chưa có đơn mở.
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed", inset: 0, zIndex: 200,
+            background: "rgba(0,0,0,0.55)",
+            backdropFilter: "blur(3px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: "1rem",
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) { setSelectedTable(null); setMenuLines({}); } }}
+        >
+          <div style={{
+            background: "#fff",
+            borderRadius: 16,
+            width: "100%",
+            maxWidth: 520,
+            maxHeight: "90dvh",
+            overflowY: "auto",
+            boxShadow: "0 24px 64px rgba(0,0,0,0.35)",
+            display: "flex",
+            flexDirection: "column",
+          }}>
+            {/* Modal header */}
+            <div style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "1rem 1.25rem",
+              borderBottom: "1px solid #e5ddd5",
+              position: "sticky", top: 0, background: "#fff", zIndex: 1,
+              borderRadius: "16px 16px 0 0",
+            }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: "1.05rem", color: "#1a120d", fontWeight: 700 }}>
+                  {ctx.table.name}{ctx.table.location ? ` · ${ctx.table.location}` : ""}
+                </h2>
+                {ctx.activeOrder ? (
+                  <div style={{ fontSize: "0.82rem", color: "#6b5e55", marginTop: "0.1rem" }}>
+                    Khách: <strong style={{ color: "#1a120d" }}>{ctx.activeOrder.customer?.fullName ?? "Vãng lai"}</strong>
+                    {ctx.activeOrder.customer?.phone ? ` · ${ctx.activeOrder.customer.phone}` : ""}
+                    &nbsp;·&nbsp;Đơn #{ctx.activeOrder.id} · {new Date(ctx.activeOrder.createdAt).toLocaleTimeString("vi-VN")}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: "0.82rem", color: "#6b5e55", marginTop: "0.1rem" }}>Bàn chưa có đơn mở.</div>
+                )}
               </div>
-            )}
-          </div>
-
-          <div className="field">
-            <label className="label" htmlFor="cp">
-              SĐT khách (nếu có)
-            </label>
-            <input id="cp" className="input" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="Để trống nếu vãng lai" />
-          </div>
-
-          <div className="field">
-            <label className="label">Order món cho khách</label>
-            <select
-              className="input"
-              value={addingProductId === "" ? "" : String(addingProductId)}
-              onChange={(e) => setAddingProductId(e.target.value ? Number(e.target.value) : "")}
-            >
-              <option value="">Chọn món</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} · {formatVnd(p.sellPrice)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div style={{ display: "flex", gap: "0.55rem", alignItems: "flex-end", marginBottom: "0.6rem" }}>
-            <div className="field" style={{ margin: 0, flex: 1 }}>
-              <label className="label">Số lượng</label>
-              <input className="input" value={addingQty} onChange={(e) => setAddingQty(e.target.value)} />
+              <button
+                type="button"
+                onClick={() => { setSelectedTable(null); setMenuLines({}); }}
+                style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.4rem", color: "#6b5e55", lineHeight: 1, padding: "0.2rem 0.4rem" }}
+                aria-label="Đóng"
+              >×</button>
             </div>
-            <div className="field" style={{ margin: 0, flex: 2 }}>
-              <label className="label">Ghi chú</label>
-              <input className="input" value={addingNotes} onChange={(e) => setAddingNotes(e.target.value)} placeholder="Ít đá, ít ngọt..." />
-            </div>
-          </div>
-          <div className="subtle" style={{ marginBottom: "0.5rem" }}>
-            Tạm tính món thêm: {formatVnd((Number(addingQty) || 0) * selectedProductPrice)}
-          </div>
-          <button type="button" className="btn btn-primary" onClick={() => void addItemToTable()}>
-            Thêm món
-          </button>
 
-          {ctx.activeOrder && (
-            <>
-              <hr style={{ borderColor: "rgba(255,255,255,0.08)", margin: "1rem 0" }} />
-              <h3 style={{ margin: "0 0 0.55rem", fontSize: "0.95rem" }}>Món đã gọi</h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
-                {ctx.activeOrder.details.map((d) => (
-                  <div key={d.id} className="card" style={{ padding: "0.55rem 0.75rem" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "0.6rem", alignItems: "center" }}>
-                      <div>
-                        <strong>{d.product.name}</strong> · x{d.quantity}
-                        <div style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{d.customNotes ?? ""}</div>
+            {/* Modal body */}
+            <div style={{ padding: "1rem 1.25rem", display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+
+              {/* SĐT khách */}
+              <div className="field" style={{ marginBottom: 0 }}>
+                <label className="label" htmlFor="cp" style={{ color: "#6b5e55" }}>SĐT khách (nếu có)</label>
+                <input id="cp" className="input" value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  placeholder="Để trống nếu vãng lai"
+                  style={{ maxWidth: 220 }} />
+              </div>
+
+              {/* Tab danh mục */}
+              <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
+                {categories.map((cat) => (
+                  <button key={cat.id} type="button"
+                    className={activeCat === cat.id ? "btn btn-primary" : "btn btn-ghost staff-btn-light"}
+                    style={{ padding: "0.3rem 0.85rem", fontSize: "0.85rem" }}
+                    onClick={() => setActiveCat(cat.id)}>
+                    {cat.name}
+                  </button>
+                ))}
+              </div>
+
+              {/* Danh sách món */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem", maxHeight: 280, overflowY: "auto" }}>
+                {products.filter((p) => activeCat === null || p.categoryId === activeCat).map((p) => {
+                  const line = menuLines[p.id];
+                  const qty = line?.qty ?? 0;
+                  const imgUrl = p.imageUrl ? (p.imageUrl.startsWith("http") ? p.imageUrl : `http://localhost:4000${p.imageUrl}`) : null;
+                  return (
+                    <div key={p.id} style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.5rem 0.6rem", background: qty > 0 ? "#f0faf4" : "#faf8f5", borderRadius: 10, border: qty > 0 ? "1px solid #86efac" : "1px solid #e5ddd5", transition: "all 0.15s" }}>
+                      <div style={{ width: 48, height: 48, borderRadius: 8, flexShrink: 0, background: "#f5f0eb", overflow: "hidden" }}>
+                        {imgUrl
+                          ? <img src={imgUrl} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#b8a99a", fontSize: "0.7rem" }}>—</div>
+                        }
                       </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div>{formatVnd(d.unitPrice * d.quantity)}</div>
-                        <button
-                          type="button"
-                          className="btn btn-ghost"
-                          style={{ marginTop: "0.25rem", padding: "0.25rem 0.55rem", fontSize: "0.74rem" }}
-                          onClick={() => void cancelItem(ctx.activeOrder!.id, d.id)}
-                        >
-                          Hủy món (&lt;1 phút)
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: "0.9rem", color: "#1a120d", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                        <div style={{ fontSize: "0.8rem", color: "#6b5e55" }}>{formatVnd(p.sellPrice)}</div>
+                        {line?.showNote && (
+                          <input type="text" className="input" placeholder="Ít đá, ít ngọt..." value={line.note}
+                            onChange={(e) => setMenuLines((prev) => ({ ...prev, [p.id]: { ...prev[p.id], note: e.target.value } }))}
+                            style={{ marginTop: "0.3rem", padding: "0.25rem 0.5rem", fontSize: "0.82rem" }}
+                            autoFocus />
+                        )}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.25rem", flexShrink: 0 }}>
+                        {qty > 0 && (
+                          <button type="button" className="btn btn-ghost staff-btn-light" style={{ padding: "0.2rem 0.55rem", fontSize: "1rem", lineHeight: 1 }}
+                            onClick={() => setMenuLines((prev) => { const next = { ...prev }; if ((next[p.id]?.qty ?? 0) <= 1) { delete next[p.id]; } else { next[p.id] = { ...next[p.id], qty: next[p.id].qty - 1 }; } return next; })}>−</button>
+                        )}
+                        {qty > 0 && <span style={{ minWidth: 22, textAlign: "center", fontWeight: 700, color: "#1a120d", fontSize: "0.95rem" }}>{qty}</span>}
+                        <button type="button" className="btn btn-ghost staff-btn-light" style={{ padding: "0.2rem 0.55rem", fontSize: "1rem", lineHeight: 1 }}
+                          onClick={() => setMenuLines((prev) => ({ ...prev, [p.id]: { qty: (prev[p.id]?.qty ?? 0) + 1, note: prev[p.id]?.note ?? "", showNote: prev[p.id]?.showNote ?? false } }))}>+</button>
+                        <button type="button" title="Ghi chú" className="btn btn-ghost staff-btn-light" style={{ padding: "0.2rem 0.5rem", fontSize: "0.9rem", lineHeight: 1 }}
+                          onClick={() => setMenuLines((prev) => ({ ...prev, [p.id]: { qty: prev[p.id]?.qty ?? 0, note: prev[p.id]?.note ?? "", showNote: !(prev[p.id]?.showNote) } }))}>
+                          ···
                         </button>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
-              <div style={{ marginTop: "0.65rem", fontWeight: 700 }}>Tạm tính: {formatVnd(ctx.activeOrder.subTotal)}</div>
 
-              <div style={{ marginTop: "0.9rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                <button type="button" className="btn btn-primary" onClick={() => void requestPaymentWithMethod(ctx.activeOrder!.id, "Cash")}>
-                  Yêu cầu thanh toán · Tiền mặt
-                </button>
-                <button type="button" className="btn btn-primary" onClick={() => void requestPaymentWithMethod(ctx.activeOrder!.id, "Transfer_QR")}>
-                  Yêu cầu thanh toán · Chuyển khoản
-                </button>
-                <button type="button" className="btn btn-ghost" onClick={() => void markTableCleaned(ctx.table.id)}>
-                  Dọn xong
-                </button>
-              </div>
-            </>
-          )}
-
-          {bill && (
-            <div className="card" style={{ marginTop: "1rem", padding: "0.85rem 1rem" }}>
-              <h3 style={{ marginTop: 0 }}>Bill tạm tính #{bill.orderId}</h3>
-              <div style={{ fontSize: "0.88rem" }}>
-                Khách: <strong>{bill.customerName}</strong>
-                {bill.customerPhone ? ` · ${bill.customerPhone}` : ""}
-                <br />
-                Giờ vào: {new Date(bill.inAt).toLocaleTimeString("vi-VN")} · Giờ ra: {new Date(bill.outAt).toLocaleTimeString("vi-VN")}
-              </div>
-              <ul style={{ margin: "0.55rem 0", paddingLeft: "1rem", fontSize: "0.88rem" }}>
-                {bill.items.map((i) => (
-                  <li key={i.id}>
-                    {i.name} x{i.quantity} = {formatVnd(i.amount)}
-                  </li>
-                ))}
-              </ul>
-              <div style={{ fontSize: "0.9rem" }}>
-                Tạm tính: {formatVnd(bill.subTotal)}
-                <br />
-                Thuế VAT: {formatVnd(bill.vatAmount)}
-                <br />
-                <strong>Tổng tiền: {formatVnd(bill.totalAmount)}</strong>
-              </div>
-              {bill.method === "Transfer_QR" && (
-                <div style={{ marginTop: "0.65rem" }}>
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
-                      `CMN|ORDER:${bill.orderId}|AMOUNT:${bill.totalAmount}`,
-                    )}`}
-                    alt="QR thanh toán"
-                    style={{ width: 180, height: 180, borderRadius: 8 }}
-                  />
-                  <p className="subtle" style={{ marginTop: "0.35rem", marginBottom: 0 }}>
-                    Khách quét mã để chuyển đúng {formatVnd(bill.totalAmount)}, sau đó thu ngân xác nhận thanh toán.
-                  </p>
+              {/* Tóm tắt giỏ */}
+              {Object.values(menuLines).some((l) => l.qty > 0) && (
+                <div style={{ background: "#f9f6f2", borderRadius: 10, padding: "0.75rem", border: "1px solid #e5ddd5" }}>
+                  <div style={{ fontWeight: 600, fontSize: "0.88rem", color: "#1a120d", marginBottom: "0.4rem" }}>Món sắp gửi:</div>
+                  {Object.entries(menuLines).filter(([, v]) => v.qty > 0).map(([pid, v]) => {
+                    const pr = products.find((x) => x.id === Number(pid));
+                    return (
+                      <div key={pid} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", color: "#1a120d", padding: "0.15rem 0" }}>
+                        <span>{pr?.name} x{v.qty}{v.note ? ` (${v.note})` : ""}</span>
+                        <span style={{ fontWeight: 600 }}>{formatVnd((pr?.sellPrice ?? 0) * v.qty)}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-              {bill.method === "Cash" && (
-                <p className="subtle" style={{ marginTop: "0.35rem", marginBottom: 0 }}>
-                  Đã gửi yêu cầu thu ngân chuẩn bị bill tiền mặt.
-                </p>
+
+              {/* Buttons hành động */}
+              <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+                <button type="button" className="btn btn-primary"
+                  disabled={!Object.values(menuLines).some((l) => l.qty > 0)}
+                  onClick={() => void sendOrder()}>
+                  Gửi món cho bàn
+                </button>
+                {ctx.activeOrder && ctx.activeOrder.status !== "Paid" && (
+                  <button type="button" className="btn btn-ghost staff-btn-light"
+                    onClick={() => void requestPayment(ctx.activeOrder!.id)}>
+                    Yêu cầu thanh toán
+                  </button>
+                )}
+              </div>
+
+              {/* Món đã gọi */}
+              {ctx.activeOrder && ctx.activeOrder.details.length > 0 && (
+                <>
+                  <hr style={{ borderColor: "#e5ddd5", margin: "0.25rem 0" }} />
+                  <h3 style={{ margin: 0, fontSize: "0.95rem", color: "#1a120d" }}>
+                    Món đã gọi {ctx.activeOrder.status === "Paid" && <span style={{ color: "#d7aa2d", fontSize: "0.8rem", marginLeft: "0.4rem", fontWeight: 600 }}>(Đã thanh toán)</span>}
+                  </h3>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                    {ctx.activeOrder.details.map((d) => (
+                      <div key={d.id} style={{ display: "flex", justifyContent: "space-between", gap: "0.6rem", alignItems: "center", padding: "0.45rem 0.6rem", background: "#faf8f5", borderRadius: 8, border: "1px solid #e5ddd5" }}>
+                        <div>
+                          <span style={{ fontWeight: 600, color: "#1a120d" }}>{d.product.name}</span>
+                          <span style={{ color: "#6b5e55", fontSize: "0.85rem" }}> x{d.quantity}</span>
+                          {d.customNotes && <div style={{ fontSize: "0.8rem", color: "#6b5e55", fontStyle: "italic" }}>{d.customNotes}</div>}
+                        </div>
+                        <div style={{ textAlign: "right", flexShrink: 0 }}>
+                          <div style={{ fontWeight: 600, color: "#1a120d" }}>{formatVnd(d.unitPrice * d.quantity)}</div>
+                          {ctx.activeOrder!.status !== "Paid" && (
+                            <button type="button" className="btn btn-ghost staff-btn-light"
+                              style={{ marginTop: "0.2rem", padding: "0.2rem 0.5rem", fontSize: "0.72rem", color: "#c94c4c" }}
+                              onClick={() => void cancelItem(ctx.activeOrder!.id, d.id)}>
+                              Hủy
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontWeight: 700, color: "#1a120d" }}>Tạm tính: {formatVnd(ctx.activeOrder.subTotal)}</div>
+                </>
               )}
             </div>
-          )}
-        </section>
+          </div>
+        </div>
       )}
     </div>
   );

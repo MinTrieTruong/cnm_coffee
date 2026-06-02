@@ -6,6 +6,15 @@ const AI_URL = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
 export function menuRouter(prisma: PrismaClient) {
   const r = Router();
 
+  r.get("/store-config", async (req, res) => {
+    const s = await prisma.storeSettings.findUnique({ where: { id: 1 } });
+    res.json({
+      storeLat: s?.storeLat ?? null,
+      storeLng: s?.storeLng ?? null,
+      gpsRadius: s?.gpsRadius ?? 0,
+    });
+  });
+
   r.get("/menu", async (req, res) => {
     const customerId = req.query.customerId ? Number(req.query.customerId) : undefined;
     const categories = await prisma.category.findMany({

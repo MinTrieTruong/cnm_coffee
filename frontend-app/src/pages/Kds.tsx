@@ -1,8 +1,34 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { io, Socket } from "socket.io-client";
-import { apiOrigin } from "../lib/api";
+import { apiOrigin, mediaUrl } from "../lib/api";
 import { getStaffInfo, staffApi } from "../lib/staffApi";
+
+/** Phát âm thanh ting ting bằng Web Audio API (không cần file âm thanh). */
+function playNewOrderSound() {
+  try {
+    const ctx = new AudioContext();
+    const playTing = (time: number) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(1047, time);   // C6
+      osc.frequency.exponentialRampToValueAtTime(880, time + 0.12); // A5
+      gain.gain.setValueAtTime(0.55, time);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.55);
+      osc.start(time);
+      osc.stop(time + 0.6);
+    };
+    const now = ctx.currentTime;
+    playTing(now);
+    playTing(now + 0.28);
+    setTimeout(() => ctx.close(), 2000);
+  } catch {
+    /* nếu trình duyệt block AudioContext thì bỏ qua */
+  }
+}
 
 type KdsRow = {
   id: number;
@@ -12,6 +38,7 @@ type KdsRow = {
   unitPrice: number;
   customNotes: string | null;
   kdsStatus: string;
+  priority: boolean;
   product: { id: number; name: string; imageUrl: string | null };
   order: { id: number; tableId: number | null; orderType: string; table: { name: string } | null };
 };
@@ -20,7 +47,9 @@ export function Kds() {
   const info = getStaffInfo();
   const [rows, setRows] = useState<KdsRow[]>([]);
   const [toast, setToast] = useState<string | null>(null);
+  const [newOrderFlash, setNewOrderFlash] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const audioUnlocked = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -40,12 +69,27 @@ export function Kds() {
     const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"] });
     socket.emit("join", "kds");
     socket.on("order:new", () => {
+      playNewOrderSound();
+      setNewOrderFlash(true);
+      setTimeout(() => setNewOrderFlash(false), 3000);
       void load();
     });
     return () => {
       socket.disconnect();
     };
   }, [load]);
+
+  // Unlock AudioContext sau tương tác đầu tiên
+  useEffect(() => {
+    const unlock = () => {
+      if (!audioUnlocked.current) {
+        audioUnlocked.current = true;
+        try { const c = new AudioContext(); void c.resume().then(() => c.close()); } catch { /* */ }
+      }
+    };
+    window.addEventListener("pointerdown", unlock, { once: true });
+    return () => window.removeEventListener("pointerdown", unlock);
+  }, []);
 
   async function setStatus(id: number, kdsStatus: string) {
     try {
@@ -63,14 +107,18 @@ export function Kds() {
     }
   }
 
-  const waiting = rows.filter((r) => r.kdsStatus === "Waiting");
-  const doing = rows.filter((r) => r.kdsStatus === "Cooking");
+  const waiting = rows
+    .filter((r) => r.kdsStatus === "Waiting")
+    .sort((a, b) => Number(b.priority) - Number(a.priority));
+  const doing = rows
+    .filter((r) => r.kdsStatus === "Cooking")
+    .sort((a, b) => Number(b.priority) - Number(a.priority));
 
   if (!info || (info.role !== "Kitchen" && info.role !== "Admin")) {
     return (
-      <div className="app-shell" style={{ maxWidth: 700 }}>
-        <h1 className="page-title">Khu bếp</h1>
-        <p className="subtle">Bạn cần đăng nhập tài khoản bếp hoặc quản lý để vào màn hình này.</p>
+      <div className="staff-page-inner">
+        <h1 className="page-title">Pha chế</h1>
+        <p className="subtle">Bạn cần đăng nhập tài khoản pha chế hoặc quản lý để vào màn hình này.</p>
         <Link to="/staff/login" className="btn btn-primary">
           Đăng nhập nhân sự
         </Link>
@@ -79,17 +127,42 @@ export function Kds() {
   }
 
   return (
-    <div className="app-shell" style={{ maxWidth: 960 }}>
-      <div className="nav-top">
+    <div className="staff-page-inner staff-page-wide">
+      <div className="staff-page-head">
         <h1 className="page-title" style={{ margin: 0 }}>
-          KDS Bếp
+          Pha chế
         </h1>
-        <Link to="/" className="btn btn-ghost" style={{ padding: "0.5rem 0.85rem", fontSize: "0.9rem" }}>
-          Khách
+        <Link to="/staff/inventory" className="btn btn-ghost staff-btn-light">
+          Kiểm kho
         </Link>
       </div>
       <p className="subtle">Chạm thẻ: Chờ làm → Đang làm → Hoàn thành</p>
       {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
+
+      {/* Flash banner khi có đơn mới */}
+      {newOrderFlash && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 50,
+            background: "linear-gradient(90deg, #c9a227, #e8b84a)",
+            color: "#1a120d",
+            fontWeight: 800,
+            fontSize: "1.15rem",
+            textAlign: "center",
+            padding: "0.85rem 1rem",
+            letterSpacing: "0.04em",
+            animation: "kds-flash 0.5s ease-in-out 3",
+            boxShadow: "0 4px 24px rgba(201,162,39,0.45)",
+          }}
+        >
+          🔔 ĐƠN MỚI — CẦN PHA CHẾ!
+        </div>
+      )}
+
       {toast && (
         <div
           style={{
@@ -144,12 +217,29 @@ export function Kds() {
                       flexShrink: 0,
                       minHeight: 80,
                       background: "#1a120d",
-                      backgroundImage: r.product.imageUrl ? `url(${r.product.imageUrl})` : undefined,
+                      backgroundImage: mediaUrl(r.product.imageUrl) ? `url(${mediaUrl(r.product.imageUrl)})` : undefined,
                       backgroundSize: "cover",
                       backgroundPosition: "center",
                     }}
                   />
                   <div style={{ padding: "0.65rem 0.65rem 0.65rem 0" }}>
+                    {(r.priority || r.order.orderType === "Takeaway") && (
+                      <span
+                        style={{
+                          display: "inline-block",
+                          fontSize: "0.68rem",
+                          fontWeight: 800,
+                          letterSpacing: "0.06em",
+                          color: "#1a120d",
+                          background: "linear-gradient(90deg, #c9a227, #e8b84a)",
+                          padding: "0.2rem 0.45rem",
+                          borderRadius: 6,
+                          marginBottom: "0.35rem",
+                        }}
+                      >
+                        MANG VỀ
+                      </span>
+                    )}
                     <div style={{ fontWeight: 700 }}>{r.product.name}</div>
                     <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "0.25rem" }}>
                       {r.customNotes}
@@ -191,12 +281,29 @@ export function Kds() {
                       flexShrink: 0,
                       minHeight: 80,
                       background: "#1a120d",
-                      backgroundImage: r.product.imageUrl ? `url(${r.product.imageUrl})` : undefined,
+                      backgroundImage: mediaUrl(r.product.imageUrl) ? `url(${mediaUrl(r.product.imageUrl)})` : undefined,
                       backgroundSize: "cover",
                       backgroundPosition: "center",
                     }}
                   />
                   <div style={{ padding: "0.65rem 0.65rem 0.65rem 0" }}>
+                    {(r.priority || r.order.orderType === "Takeaway") && (
+                      <span
+                        style={{
+                          display: "inline-block",
+                          fontSize: "0.68rem",
+                          fontWeight: 800,
+                          letterSpacing: "0.06em",
+                          color: "#1a120d",
+                          background: "linear-gradient(90deg, #c9a227, #e8b84a)",
+                          padding: "0.2rem 0.45rem",
+                          borderRadius: 6,
+                          marginBottom: "0.35rem",
+                        }}
+                      >
+                        MANG VỀ
+                      </span>
+                    )}
                     <div style={{ fontWeight: 700 }}>{r.product.name}</div>
                     <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "0.25rem" }}>
                       {r.customNotes}

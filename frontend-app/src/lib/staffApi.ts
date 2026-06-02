@@ -1,3 +1,6 @@
+import { mapFetchError } from "./net";
+import { apiBase } from "./api";
+
 const STAFF_TOKEN_KEY = "cmn_staff_token";
 
 export function getStaffToken(): string | null {
@@ -19,15 +22,25 @@ export function getStaffInfo(): { id: number; role: string; fullName?: string } 
   }
 }
 
-const base = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
-
 export async function staffApi<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "application/json");
   const t = getStaffToken();
   if (t) headers.set("Authorization", `Bearer ${t}`);
-  const res = await fetch(`${base}${path}`, { ...init, headers });
+  const base = apiBase();
+  let res: Response;
+  try {
+    res = await fetch(`${base}${path}`, { ...init, headers });
+  } catch (e) {
+    throw mapFetchError(e);
+  }
   if (!res.ok) {
+    // Token hết hạn (12h) hoặc không hợp lệ — xóa session và redirect về login
+    if (res.status === 401) {
+      clearStaffSession();
+      window.location.href = "/staff/login";
+      throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+    }
     let msg = res.statusText;
     try {
       const j = (await res.json()) as { error?: string };
@@ -48,7 +61,13 @@ export async function staffDownloadBlob(path: string): Promise<Blob> {
   const t = getStaffToken();
   const headers = new Headers();
   if (t) headers.set("Authorization", `Bearer ${t}`);
-  const res = await fetch(`${base}${path}`, { headers });
+  const base = apiBase();
+  let res: Response;
+  try {
+    res = await fetch(`${base}${path}`, { headers });
+  } catch (e) {
+    throw mapFetchError(e);
+  }
   if (!res.ok) {
     let msg = res.statusText;
     try {
@@ -60,4 +79,13 @@ export async function staffDownloadBlob(path: string): Promise<Blob> {
     throw new Error(msg);
   }
   return res.blob();
+}
+
+/** Upload ảnh (data URL từ FileReader). Trả về path /uploads/... để lưu vào DB. */
+export async function staffUploadImage(dataUrl: string): Promise<string> {
+  const r = await staffApi<{ url: string }>("/api/admin/upload-image", {
+    method: "POST",
+    body: JSON.stringify({ dataUrl }),
+  });
+  return r.url;
 }

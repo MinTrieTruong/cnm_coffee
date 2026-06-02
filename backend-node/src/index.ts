@@ -1,10 +1,11 @@
 import "dotenv/config";
+import path from "path";
 import express from "express";
 import cors from "cors";
 import { createServer } from "http";
 import { Server } from "socket.io";
-import { PrismaClient } from "@prisma/client";
 import { authRouter } from "./routes/auth.js";
+import { prisma } from "./db.js";
 import { staffAuthRouter } from "./routes/staffAuth.js";
 import { catalogRouter } from "./routes/catalog.js";
 import { menuRouter } from "./routes/menu.js";
@@ -14,30 +15,54 @@ import { chatRouter } from "./routes/chat.js";
 import { reviewsRouter } from "./routes/reviews.js";
 import { posRouter } from "./routes/pos.js";
 import { adminRouter } from "./routes/admin.js";
-import { staffOpsRouter } from "./routes/staffOps.js";
+import { staffOpsRouter, takeawayRouter } from "./routes/staffOps.js";
+import { formulaRouter } from "./routes/formula.js";
+import { vnpayRouter } from "./routes/vnpay.js";
+import { momoRouter } from "./routes/momo.js";
+import { sepayRouter } from "./routes/sepay.js";
+import { supplierRouter } from "./routes/supplier.js";
+import { auditRouter } from "./routes/auditLog.js";
+import { reportsRouter } from "./routes/reports.js";
+import { vouchersRouter } from "./routes/vouchers.js";
+import { postsRouter } from "./routes/posts.js";
+import { scheduleRouter } from "./routes/schedule.js";
 import { registerSocketHandlers } from "./socket/handlers.js";
 import { startGraceWorker } from "./graceWorker.js";
 
-const prisma = new PrismaClient();
 const app = express();
 const httpServer = createServer(app);
 
-const corsOrigin = process.env.CORS_ORIGIN ?? "http://localhost:5173";
 const io = new Server(httpServer, {
-  cors: { origin: corsOrigin, methods: ["GET", "POST"] },
+  cors: { origin: true, methods: ["GET", "POST"] },
 });
 
-app.use(cors({ origin: corsOrigin, credentials: true }));
-app.use(express.json());
+app.use(cors({ origin: true, credentials: true }));
+app.use(express.json({ limit: "6mb" }));
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, service: "cmn-coffee-backend" });
+app.get("/api/health", async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ ok: true, service: "cmn-coffee-backend", database: "up" });
+  } catch (err) {
+    console.error("[health] database unreachable:", err);
+    res.status(503).json({
+      ok: false,
+      service: "cmn-coffee-backend",
+      database: "down",
+      hint: "Kiểm tra MySQL (docker compose up -d) và DATABASE_URL trong backend-node/.env",
+    });
+  }
 });
 
 app.use("/api/auth", authRouter(prisma));
 app.use("/api", staffAuthRouter(prisma));
 app.use("/api", shiftsRouter(prisma));
 app.use("/api/admin", adminRouter(prisma));
+app.use("/api/admin", supplierRouter());
+app.use("/api/admin", auditRouter());
+app.use("/api/admin", reportsRouter());
+app.use("/api", formulaRouter(prisma));
 app.use("/api", catalogRouter(prisma));
 app.use("/api", menuRouter(prisma));
 app.use("/api", ordersRouter(prisma, io));
@@ -45,11 +70,42 @@ app.use("/api", chatRouter(prisma, io));
 app.use("/api", reviewsRouter(prisma));
 app.use("/api", posRouter(prisma, io));
 app.use("/api", staffOpsRouter(prisma, io));
+app.use("/api", takeawayRouter());
+app.use("/api", vnpayRouter(prisma, io));
+app.use("/api", momoRouter(prisma));
+app.use("/api", sepayRouter(prisma, io));
+
+app.use("/api", vouchersRouter(prisma, io));
+app.use("/api", postsRouter(prisma));
+app.use("/api", scheduleRouter(prisma, io));
 
 registerSocketHandlers(io);
 startGraceWorker(prisma, io);
 
 const port = Number(process.env.PORT) || 4000;
-httpServer.listen(port, () => {
-  console.log(`API + Socket.io: http://localhost:${port}`);
-});
+
+async function bootstrap() {
+  try {
+    await prisma.$connect();
+    console.log("Database: connected");
+  } catch (err) {
+    console.error("Database: connection failed — is MySQL running? (docker compose up -d)");
+    console.error(err);
+    process.exit(1);
+  }
+
+  httpServer.listen(port, () => {
+    console.log(`API + Socket.io: http://localhost:${port}`);
+  });
+}
+
+const shutdown = async (signal: string) => {
+  console.log(`\n${signal}: shutting down…`);
+  await prisma.$disconnect();
+  httpServer.close(() => process.exit(0));
+};
+
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
+void bootstrap();

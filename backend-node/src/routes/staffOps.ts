@@ -1,20 +1,41 @@
 import { Router } from "express";
+import { randomUUID } from "crypto";
 import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
 import { attachStaff, requireRoles, type StaffRequest } from "../middleware/staff.js";
 import { computeBill, getStoreSettings } from "../lib/pricing.js";
 
+/**
+ * GET /api/takeaway/new
+ * Mỗi lần quét QR → sinh UUID session mới → redirect về /cart?session={uuid}&orderType=Takeaway
+ * Không cần auth — đây là endpoint công khai dành cho khách quét QR.
+ */
+export function takeawayRouter() {
+  const r = Router();
+  r.get("/takeaway/new", (req, res) => {
+    const session = randomUUID();
+    const frontendOrigin = (req.headers.origin as string | undefined)
+      ?? process.env.FRONTEND_URL
+      ?? "http://localhost:5173";
+    // Redirect về frontend cart với session và orderType mang về
+    res.redirect(`${frontendOrigin}/cart?session=${session}&orderType=Takeaway`);
+  });
+  return r;
+}
+
+
+
 export function staffOpsRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
   const auth = attachStaff(prisma);
-  const waiterOps = [auth, requireRoles("Waiter", "Admin")];
+  const waiterOps = [auth, requireRoles("Waiter", "Admin", "Cashier")];
 
   r.get("/staff/tables/:id/context", ...waiterOps, async (req, res) => {
     const tableId = Number(req.params.id);
     if (!tableId) return res.status(400).json({ error: "Bàn không hợp lệ." });
     const table = await prisma.cafeTable.findUnique({ where: { id: tableId } });
     if (!table) return res.status(404).json({ error: "Không tìm thấy bàn." });
-    const activeOrder = await prisma.order.findFirst({
+    let activeOrder = await prisma.order.findFirst({
       where: { tableId, status: "Confirmed", payments: { none: {} } },
       include: {
         customer: { select: { id: true, fullName: true, phone: true, points: true } },
@@ -22,6 +43,19 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
       },
       orderBy: { id: "desc" },
     });
+    
+    // Nếu không có đơn đang mở nhưng bàn đang Cleaning, trả về đơn vừa thanh toán để nhân viên có thể check lại món
+    if (!activeOrder && table.status === "Cleaning") {
+      activeOrder = await prisma.order.findFirst({
+        where: { tableId, status: "Paid" },
+        include: {
+          customer: { select: { id: true, fullName: true, phone: true, points: true } },
+          details: { include: { product: true }, orderBy: { id: "asc" } },
+        },
+        orderBy: { id: "desc" },
+      });
+    }
+
     res.json({ table, activeOrder });
   });
 
@@ -119,8 +153,8 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
       return res.status(400).json({ error: "Đơn đã xử lý thanh toán, không thể hủy món." });
     }
     const ageMs = Date.now() - detail.order.createdAt.getTime();
-    if (ageMs > 60_000) {
-      return res.status(400).json({ error: "Chỉ hủy món trong vòng 1 phút sau khi gọi." });
+    if (ageMs > 20_000) {
+      return res.status(400).json({ error: "Chỉ hủy món trong vòng 20 giây sau khi gọi." });
     }
     if (!["Hold", "Waiting"].includes(detail.kdsStatus)) {
       return res.status(400).json({ error: "Món đã vào pha chế, không thể hủy." });
@@ -133,7 +167,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
       if (left.length === 0) {
         await tx.order.update({
           where: { id: orderId },
-          data: { status: "Cancelled", cancelReason: "Nhân viên hủy toàn bộ trong 1 phút", subTotal: 0, totalAmount: 0 },
+          data: { status: "Cancelled", cancelReason: "Nhân viên hủy toàn bộ trong 20 giây", subTotal: 0, totalAmount: 0 },
         });
         if (detail.order.tableId) {
           await tx.cafeTable.update({ where: { id: detail.order.tableId }, data: { status: "Empty" } });
@@ -222,6 +256,26 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
     res.json({ ok: true, table });
   });
 
+  /**
+   * POST /staff/tables/:id/clear
+   * Nhân viên báo bàn trống sau khi khách đã thanh toán và rời đi.
+   * Chỉ hoạt động khi bàn đang trạng thái Cleaning (đã thanh toán, khách còn ngồi).
+   */
+  r.post("/staff/tables/:id/clear", ...waiterOps, async (req, res) => {
+    const tableId = Number(req.params.id);
+    if (!tableId) return res.status(400).json({ error: "Bàn không hợp lệ." });
+    const t = await prisma.cafeTable.findUnique({ where: { id: tableId } });
+    if (!t) return res.status(404).json({ error: "Không tìm thấy bàn." });
+    if (t.status !== "Cleaning") {
+      return res.status(400).json({ error: "Bàn không ở trạng thái chờ báo trống." });
+    }
+    const table = await prisma.cafeTable.update({ where: { id: tableId }, data: { status: "Empty" } });
+    io.to("pos").emit("table:cleared", { tableId });
+    io.to("staff").emit("table:cleared", { tableId });
+    res.json({ ok: true, table });
+  });
+
+
   r.post("/staff/orders/merge", auth, requireRoles("Waiter", "Admin"), async (req, res) => {
     const { fromOrderId, toOrderId } = req.body as { fromOrderId?: number; toOrderId?: number };
     if (!fromOrderId || !toOrderId || fromOrderId === toOrderId) {
@@ -268,6 +322,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
         staffId: staff.id,
         itemId,
         requestQty,
+        type: "Kitchen",
         note: note ?? null,
       },
       include: { item: true },
@@ -275,6 +330,138 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
     io.to("pos").emit("inventory:request", { id: row.id });
     res.status(201).json(row);
   });
+
+  /**
+   * POST /staff/inventory/requests
+   * Tạo phiếu nhập hàng — nhận mảng items để tạo nhiều dòng cùng lúc.
+   * Body: { items: [{ itemId, requestQty, note? }], note?: string }
+   */
+  r.post(
+    "/staff/inventory/requests",
+    auth,
+    requireRoles("Cashier", "Waiter", "Admin", "Kitchen"),
+    async (req, res) => {
+      const staff = (req as StaffRequest).staffRow!;
+      const { items, note: globalNote } = req.body as {
+        items?: { itemId: number; requestQty: number; note?: string }[];
+        note?: string;
+      };
+
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: "Cần ít nhất 1 nguyên liệu trong phiếu." });
+      }
+
+      // Validate từng dòng
+      for (const it of items) {
+        if (!it.itemId || typeof it.requestQty !== "number" || it.requestQty <= 0) {
+          return res.status(400).json({ error: "Số lượng phải > 0 cho tất cả nguyên liệu." });
+        }
+      }
+
+      // Tạo tất cả records trong 1 transaction
+      const created = await prisma.$transaction(
+        items.map((it) =>
+          prisma.inventoryRequest.create({
+            data: {
+              staffId: staff.id,
+              itemId: it.itemId,
+              requestQty: it.requestQty,
+              type: "Restock",
+              note: it.note?.trim() || globalNote?.trim() || null,
+            },
+            include: { item: { select: { name: true, unit: true } } },
+          }),
+        ),
+      );
+
+      // Notify admin
+      io.to("pos").emit("inventory:restock_request", {
+        count: created.length,
+        itemNames: created.map((r) => r.item.name).join(", "),
+      });
+
+      res.status(201).json(created);
+    },
+  );
+
+  /**
+   * GET /staff/inventory/requests
+   * Nhân viên xem danh sách phiếu nhập hàng của chính mình.
+   */
+  r.get(
+    "/staff/inventory/requests",
+    auth,
+    requireRoles("Cashier", "Waiter", "Admin", "Kitchen"),
+    async (req, res) => {
+      const staff = (req as StaffRequest).staffRow!;
+      const rows = await prisma.inventoryRequest.findMany({
+        where: { staffId: staff.id },
+        orderBy: { id: "desc" },
+        take: 50,
+        include: {
+          item: { select: { name: true, unit: true } },
+          approvedBy: { select: { fullName: true } },
+        },
+      });
+      res.json(rows);
+    },
+  );
+
+  /**
+   * GET /staff/order-items/live
+   * Nhân viên phục vụ xem tất cả món đang hoạt động: Waiting, Cooking, Ready
+   * kèm số bàn, mã bill — dùng cho màn hình trạng thái món.
+   */
+  r.get(
+    "/staff/order-items/live",
+    auth,
+    requireRoles("Waiter", "Admin", "Cashier", "Kitchen"),
+    async (_req, res) => {
+      const items = await prisma.orderDetail.findMany({
+        where: {
+          kdsStatus: { in: ["Waiting", "Cooking", "Ready"] },
+          order: { status: { in: ["Confirmed", "Paid"] } },
+        },
+        include: {
+          product: { select: { id: true, name: true, imageUrl: true } },
+          order: {
+            include: {
+              table: { select: { id: true, name: true } },
+            },
+          },
+        },
+        orderBy: [{ priority: "desc" }, { orderId: "asc" }, { id: "asc" }],
+      });
+      res.json(items);
+    },
+  );
+
+  /**
+   * POST /staff/order-items/:id/served
+   * Nhân viên xác nhận đã bê món ra cho khách → kdsStatus = Served.
+   * Món sẽ biến khỏi live board vì không còn trong [Waiting, Cooking, Ready].
+   */
+  r.post(
+    "/staff/order-items/:id/served",
+    auth,
+    requireRoles("Waiter", "Admin", "Cashier"),
+    async (req, res) => {
+      const id = Number(req.params.id);
+      if (!id) return res.status(400).json({ error: "ID không hợp lệ." });
+      const detail = await prisma.orderDetail.findUnique({ where: { id } });
+      if (!detail) return res.status(404).json({ error: "Không tìm thấy món." });
+      if (detail.kdsStatus !== "Ready") {
+        return res.status(400).json({ error: "Chỉ xác nhận bê khi món đã sẵn sàng (Ready)." });
+      }
+      const updated = await prisma.orderDetail.update({
+        where: { id },
+        data: { kdsStatus: "Served" },
+      });
+      // Thông báo cho các màn hình staff biết món đã được bê
+      io.to("staff").emit("kds:served", { detailId: id });
+      res.json(updated);
+    },
+  );
 
   return r;
 }

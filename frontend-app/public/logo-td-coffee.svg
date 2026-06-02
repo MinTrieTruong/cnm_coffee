@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none" aria-hidden="true">
+  <defs>
+    <linearGradient id="tdg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e8c547"/>
+      <stop offset="100%" stop-color="#c9a227"/>
+    </linearGradient>
+    <linearGradient id="tdb" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4a3228"/>
+      <stop offset="100%" stop-color="#2a1810"/>
+    </linearGradient>
+  </defs>
+  <!-- outer rings -->
+  <circle cx="60" cy="60" r="56" stroke="url(#tdg)" stroke-width="3" fill="none" opacity="0.95"/>
+  <circle cx="60" cy="60" r="50" stroke="url(#tdb)" stroke-width="2" fill="#faf6f0"/>
+  <path d="M60 18a42 42 0 0 1 0 84" stroke="url(#tdg)" stroke-width="1.5" stroke-dasharray="2 4" fill="none" opacity="0.6"/>
+  <!-- steam -->
+  <path d="M52 28c4-6 8-6 10-2s-2 8-4 12c-2 4-2 8 2 10" stroke="url(#tdg)" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+  <path d="M60 24c3-5 7-5 9-1s-1 7-3 11" stroke="url(#tdg)" stroke-width="2" stroke-linecap="round" fill="none"/>
+  <path d="M68 26c3-5 6-5 8-1s-1 6-2 9" stroke="#d4af37" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+  <!-- cup body (T/D subtle silhouette) -->
+  <path d="M38 78c0-16 8-28 22-30h8c14 2 22 14 22 30v8H38v-8z" fill="url(#tdb)"/>
+  <path d="M42 56h36c6 0 10 5 10 12v4H42v-4c0-7 4-12 10-12z" fill="#3d2a22"/>
+  <!-- bean -->
+  <ellipse cx="60" cy="64" rx="7" ry="10" fill="url(#tdg)" transform="rotate(-12 60 64)"/>
+  <path d="M57 60c4 2 6 6 5 10" stroke="#8b6914" stroke-width="1" stroke-linecap="round" fill="none" opacity="0.5"/>
+  <!-- saucer -->
+  <ellipse cx="60" cy="88" rx="28" ry="5" fill="url(#tdb)" opacity="0.85"/>
+  <ellipse cx="60" cy="86" rx="24" ry="3" fill="#5c4033" opacity="0.35"/>
+</svg>

@@ -1,6 +1,20 @@
 import type { Request, Response, NextFunction } from "express";
 import { verifyToken, type CustomerPayload } from "../lib/jwt.js";
 
+/** Gắn `customerId` nếu có Bearer hợp lệ; không thì bỏ qua (route tự kiểm tra session/bàn). */
+export function optionalCustomerAuth(req: Request, _res: Response, next: NextFunction) {
+  const h = req.headers.authorization;
+  const token = h?.startsWith("Bearer ") ? h.slice(7) : null;
+  if (!token) return next();
+  try {
+    const p = verifyToken<CustomerPayload>(token);
+    if (p.typ === "cust") (req as Request & { customerId?: number }).customerId = p.sub;
+  } catch {
+    /* ignore invalid optional token */
+  }
+  next();
+}
+
 export function customerAuth(req: Request, res: Response, next: NextFunction) {
   const h = req.headers.authorization;
   const token = h?.startsWith("Bearer ") ? h.slice(7) : null;

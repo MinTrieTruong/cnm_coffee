@@ -1,5 +1,17 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
+import { apiBase } from "../lib/api";
+import { mapFetchError } from "../lib/net";
+import { getStaffInfo, getStaffToken } from "../lib/staffApi";
+import { Lock } from "lucide-react";
+
+function defaultRouteForRole(role: string): string {
+  if (role === "Admin") return "/admin";
+  if (role === "Kitchen") return "/kds";
+  if (role === "Cashier") return "/pos";
+  if (role === "Waiter") return "/staff/tables";
+  return "/menu";
+}
 
 const STAFF_TOKEN = "cmn_staff_token";
 const STAFF_INFO = "cmn_staff_info";
@@ -11,27 +23,43 @@ export function StaffLogin() {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function onSubmit(e: React.FormEvent) {
+  const existingToken = getStaffToken();
+  const existingInfo = getStaffInfo();
+  if (existingToken && existingInfo) {
+    return <Navigate to={defaultRouteForRole(existingInfo.role)} replace />;
+  }
+
+  async function onLogin(e: React.FormEvent) {
     e.preventDefault();
+    const cleanUsername = username.trim();
+    if (!cleanUsername || !password) {
+      setErr("Nhập tên đăng nhập và mật khẩu.");
+      return;
+    }
     setErr(null);
     setLoading(true);
     try {
-      const base = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
-      const res = await fetch(`${base}/api/staff/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
-      const data = (await res.json()) as { token?: string; staff?: { role: string }; error?: string };
+      const base = apiBase();
+      let res: Response;
+      try {
+        res = await fetch(`${base}/api/staff/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: cleanUsername, password }),
+        });
+      } catch (e) {
+        throw mapFetchError(e);
+      }
+      const data = (await res.json()) as {
+        token?: string;
+        staff?: { role: string };
+        error?: string;
+      };
       if (!res.ok) throw new Error(data.error ?? "Đăng nhập thất bại");
       if (data.token && data.staff) {
         localStorage.setItem(STAFF_TOKEN, data.token);
         localStorage.setItem(STAFF_INFO, JSON.stringify(data.staff));
-        if (data.staff.role === "Kitchen") nav("/kds", { replace: true });
-        else if (data.staff.role === "Admin") nav("/admin", { replace: true });
-        else if (data.staff.role === "Cashier") nav("/pos", { replace: true });
-        else if (data.staff.role === "Waiter") nav("/staff/tables", { replace: true });
-        else nav("/menu", { replace: true });
+        nav(defaultRouteForRole(data.staff.role), { replace: true });
       }
     } catch (e2) {
       setErr(e2 instanceof Error ? e2.message : "Lỗi");
@@ -41,33 +69,51 @@ export function StaffLogin() {
   }
 
   return (
-    <div className="app-shell">
-      <div className="nav-top">
-        <Link to="/" className="btn btn-ghost" style={{ padding: "0.5rem 0.85rem", fontSize: "0.9rem" }}>
-          ← Khách
-        </Link>
-      </div>
-      <h1 className="page-title">Đăng nhập nhân sự</h1>
-      <p className="subtle">Đăng nhập bằng tài khoản nhân sự để vào đúng khu vực làm việc.</p>
-      <div className="card" style={{ padding: "1.35rem" }}>
-        <form onSubmit={onSubmit}>
-          <div className="field">
-            <label className="label" htmlFor="u">
-              Username
-            </label>
-            <input id="u" className="input" value={username} onChange={(e) => setUsername(e.target.value)} required />
+    <div className="auth-page staff-bg">
+      <div className="auth-content">
+        <div style={{ textAlign: "center", marginBottom: "2.5rem" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 64, height: 64, borderRadius: "50%", background: "rgba(201,162,39,0.15)", border: "1px solid rgba(201,162,39,0.4)", marginBottom: "1rem" }}>
+            <Lock size={32} color="var(--accent)" />
           </div>
-          <div className="field">
-            <label className="label" htmlFor="p">
-              Mật khẩu
-            </label>
-            <input id="p" type="password" className="input" value={password} onChange={(e) => setPassword(e.target.value)} required />
-          </div>
-          {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
-          <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
-            {loading ? "…" : "Đăng nhập"}
-          </button>
-        </form>
+          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "2rem", margin: "0 0 0.5rem", color: "#fff", textShadow: "0 2px 10px rgba(0,0,0,0.5)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Hệ thống Nội bộ</h1>
+          <p style={{ color: "rgba(255,255,255,0.6)", margin: 0, fontSize: "0.95rem" }}>Đăng nhập bằng tài khoản được cấp</p>
+        </div>
+
+        <div className="glass-box" style={{ background: "rgba(0,0,0,0.4)" }}>
+          <form onSubmit={(e) => void onLogin(e)}>
+            <div className="field">
+              <label className="label" style={{ color: "rgba(255,255,255,0.5)" }} htmlFor="u">Tên đăng nhập</label>
+              <input
+                id="u"
+                type="text"
+                className="input"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                autoFocus
+                placeholder="VD: TN_tram"
+                style={{ fontSize: "1.05rem", fontWeight: 500 }}
+              />
+            </div>
+            <div className="field" style={{ marginBottom: "2rem" }}>
+              <label className="label" style={{ color: "rgba(255,255,255,0.5)" }} htmlFor="p">Mật khẩu</label>
+              <input
+                id="p"
+                type="password"
+                className="input"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                placeholder="••••••••"
+                style={{ fontSize: "1.05rem", fontWeight: 500, letterSpacing: "0.1em" }}
+              />
+            </div>
+            {err && <p style={{ color: "#ef4444", fontSize: "0.9rem", margin: "0 0 1rem", textAlign: "center" }}>{err}</p>}
+            <button type="submit" className="auth-btn" style={{ borderRadius: 6, textTransform: "uppercase", letterSpacing: "0.05em" }} disabled={loading}>
+              {loading ? "Đang xác thực…" : "Đăng nhập"}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );

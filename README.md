@@ -1,4 +1,4 @@
-# Hệ thống quán cà phê CMN
+# Hệ thống quán cà phê TD Coffee (demo)
 
 Web app đặt món (mobile-first), API Node.js + Prisma (MySQL), gợi ý món qua Python FastAPI, Docker (MySQL + Redis). Luồng **QR**: trỏ tới trang chủ (`/`) — đăng nhập / đăng ký hoặc **Tiếp tục không đăng nhập** → `/menu`.
 
@@ -22,106 +22,131 @@ Web app đặt món (mobile-first), API Node.js + Prisma (MySQL), gợi ý món 
 - **Chat bot tối thiểu (YCCN-KH06):** `/api/chat` (wifi, WC; còn lại escalate socket `chat:escalate`).
 - **Đánh giá (API):** `POST /api/reviews` (sau khi đơn `Paid`).
 
-**Giao diện:** `/admin` (Admin — thống kê, CRUD, kho, phiếu NL, đánh giá, cài đặt VAT/điểm, CSV), `/pos` (Cashier/Admin — ca, thanh toán VAT/điểm), `/staff/tables` (Waiter — yêu cầu thanh, gộp đơn), chat nổi trên `/menu`.
+## 🚀 CHẠY PROJECT — ĐỌC CÁI NÀY TRƯỚC
 
-**Có thể mở rộng:** VietQR thật, tách bàn phức tạp, OTP quên mật khẩu, báo cáo Excel ngoài CSV, v.v.
-
-## Chạy project (dễ thao tác)
-
-### 0) Yêu cầu
-- Cài Docker Desktop (khuyến nghị), Node.js 20+.
-- Mở Docker Desktop trước khi chạy lệnh.
-
-### 1) Chạy lần đầu (copy-paste theo thứ tự)
-
-**Terminal 1 - database (MySQL + Redis):**
-```bash
-cd d:\cmn-cs
-docker compose up -d
-docker ps
+### Thư mục gốc
+```
+d:\cmn-cs - Copy\
 ```
 
-**Terminal 2 - backend:**
+---
+
+## ▶️ Chạy hằng ngày (3 terminal)
+
+> Mở **Docker Desktop** trước, đợi trạng thái "Running".
+
+**Terminal 1 — Khởi động MySQL (database):**
 ```bash
-cd d:\cmn-cs\backend-node
-copy .env.example .env
+cd "d:\cmn-cs - Copy"
+docker start cmn-mysql cmn-redis
+```
+> ⚠️ **KHÔNG dùng `docker rm -f`** — sẽ xóa hết dữ liệu DB!  
+> Nếu báo "container not found", chạy lần đầu thay bằng: `docker compose up -d`
+
+**Terminal 2 — Backend (API):**
+```bash
+cd "d:\cmn-cs - Copy\backend-node"
+npm run dev
+```
+> Thành công khi thấy: `API + Socket.io: http://localhost:4000`
+
+**Terminal 3 — Frontend (giao diện):**
+```bash
+cd "d:\cmn-cs - Copy\frontend-app"
+npm run dev
+```
+> Mở trình duyệt: **http://localhost:5173**
+
+---
+
+## 🆕 Lần đầu chạy (hoặc sau khi cập nhật schema DB)
+
+```bash
+# 1. Chạy docker trước
+cd "d:\cmn-cs - Copy"
+docker compose up -d
+
+# 2. Cài dependencies + sync DB + seed dữ liệu mẫu
+cd "d:\cmn-cs - Copy\backend-node"
 npm install
 npx prisma generate
 npx prisma db push
 npm run db:seed
 npm run dev
-```
 
-**Terminal 3 - frontend:**
-```bash
-cd d:\cmn-cs\frontend-app
-copy .env.example .env
+# 3. Frontend (terminal khác)
+cd "d:\cmn-cs - Copy\frontend-app"
 npm install
 npm run dev
 ```
 
-Mở: `http://localhost:5173`
+---
 
-### 2) Chạy hằng ngày (sau lần đầu)
+## 🔑 Tài khoản demo
 
-**Terminal 1:**
+| Loại | Tài khoản | Mật khẩu | Vào trang |
+|------|-----------|----------|-----------|
+| Khách hàng | `0900000000` | `123456` | `/menu` |
+| Admin | `admin` | `staff123` | `/admin` |
+| Thu ngân | `cashier` | `staff123` | `/pos` |
+| Phục vụ | `waiter` | `staff123` | `/staff/tables` |
+| Bếp | `kitchen` | `staff123` | `/kds` |
+
+---
+
+## 🗺️ Các trang chính
+
+| URL | Ai dùng | Mô tả |
+|-----|---------|-------|
+| `/` | Khách | Trang chủ / QR |
+| `/menu` | Khách | Đặt món |
+| `/pos` | Thu ngân | Thanh toán, mở/đóng ca |
+| `/staff/inventory` | **Nhân viên** | **Kiểm kho mở/kết ca, tạo phiếu nhập hàng** |
+| `/staff/tables` | Phục vụ | Sơ đồ bàn |
+| `/kds` | Bếp | Màn hình bếp |
+| `/admin` | Admin | Quản trị toàn bộ |
+
+---
+
+## 🛠️ Lỗi thường gặp
+
+**API không kết nối / trang trắng:**
 ```bash
-cd d:\cmn-cs
-docker compose up -d
+# Kiểm tra health
+curl http://localhost:4000/api/health
+# Phải thấy: {"ok":true,"database":"up"}
 ```
 
-**Terminal 2:**
+**Không đăng nhập được:**
 ```bash
-cd d:\cmn-cs\backend-node
-npm run dev
-```
-
-**Terminal 3:**
-```bash
-cd d:\cmn-cs\frontend-app
-npm run dev
-```
-
-### 3) Tài khoản demo
-
-- **Khách hàng:** `0900000000` / `123456`
-- **Nhân sự (mật khẩu chung):** `staff123`
-  - `admin` -> `/admin`
-  - `cashier` -> `/pos`
-  - `waiter` -> `/staff/tables`
-  - `kitchen` -> `/kds`
-
-### 4) Nếu không đăng nhập được `admin`
-
-Chạy lại seed để reset tài khoản demo:
-```bash
-cd d:\cmn-cs\backend-node
+cd "d:\cmn-cs - Copy\backend-node"
 npm run db:seed
 ```
+Rồi xóa localStorage trên trình duyệt: DevTools → Application → Local Storage → xóa `cmn_staff_token` + `cmn_staff_info`.
 
-Nếu vẫn lỗi, xóa dữ liệu đăng nhập cũ trên trình duyệt:
-- DevTools -> Application -> Local Storage -> `http://localhost:5173`
-- Xóa `cmn_staff_token` và `cmn_staff_info`, rồi đăng nhập lại.
+**Docker không chạy được:**
+Mở Docker Desktop, đợi icon taskbar chuyển xanh rồi chạy lại `docker compose up -d`.
 
-### 5) AI service (tùy chọn)
+---
 
-Chỉ cần khi muốn gợi ý món từ service Python:
-```bash
-cd d:\cmn-cs\ai-service-python
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
-```
+## 📝 Ghi chú kỹ thuật
 
-Thêm vào `backend-node/.env`:
-```bash
-AI_SERVICE_URL=http://localhost:8000
-```
+- MySQL cổng host: **3307** (map → 3306 trong container)
+- Backend: **http://localhost:4000**
+- Frontend dev (Vite proxy): **http://localhost:5173**
+- Ảnh upload lưu tại: `backend-node/uploads/`
+- Schema DB thay đổi → chạy lại: `npx prisma db push` (trong `backend-node/`)
 
-### 6) Ghi chú nhanh
+---
 
-- MySQL dùng cổng host `3307` (mapping `3307 -> 3306`).
-- Nếu Docker báo `dockerDesktopLinuxEngine` hoặc không kết nối được: mở Docker Desktop và chờ trạng thái running.
-- Nếu máy đã có MySQL riêng ở cổng `3306`, cứ giữ nguyên vì project dùng cổng `3307`.
+## Cấu trúc thư mục
+
+| Thư mục | Vai trò |
+|---------|---------|
+| `frontend-app/` | Vite + React (giao diện) |
+| `backend-node/` | Express + Prisma + Socket.io (API) |
+| `ai-service-python/` | Gợi ý món (tuỳ chọn, cổng 8000) |
+| `docs/cmn.md` | Tài liệu đề tài |
 
 ## QR code
 
