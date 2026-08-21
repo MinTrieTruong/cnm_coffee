@@ -109,6 +109,7 @@ export function StaffShell() {
           {(role === "Admin" || role === "Waiter") && (
             <StaffNavItem to="/staff/order-status" label="Trạng thái món" onClick={closeSider} />
           )}
+          <StaffNavItem to="/staff/attendance" label="Chấm công" onClick={closeSider} />
         </nav>
 
         <div className="staff-sider-footer">
@@ -187,6 +188,7 @@ export function StaffShell() {
           {(role === "Admin" || role === "Waiter") && (
             <MobileNavItem to="/staff/order-status" icon="" label="Mon" />
           )}
+          <MobileNavItem to="/staff/attendance" icon="📍" label="Chấm công" />
         </nav>
       </div>
     </div>

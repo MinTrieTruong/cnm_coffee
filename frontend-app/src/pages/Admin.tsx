@@ -6,6 +6,7 @@ import { mediaUrl } from "../lib/api";
 import { clearStaffSession, getStaffInfo, staffApi, staffDownloadBlob, staffUploadImage } from "../lib/staffApi";
 import { PostEditor } from "../components/PostEditor";
 import { PostViewModal, type PostPreview } from "../components/PostViewModal";
+import { AdminStoreSettings } from "../components/AdminStoreSettings";
 
 type ProductRow = {
   id: number;
@@ -98,6 +99,7 @@ export function Admin() {
       address: string | null;
       dob: string | null;
       hireDate: string;
+      hasFaceData?: boolean;
     }>
   >([]);
   const [customerRows, setCustomerRows] = useState<
@@ -138,6 +140,11 @@ export function Admin() {
     cashRoundTo: number;
     pointEarnEveryVnd?: number;
     pointEarnEach?: number;
+    storeLat?: number | null;
+    storeLng?: number | null;
+    storeAddress?: string | null;
+    allowedRadius?: number;
+    faceMatchThreshold?: number;
   } | null>(null);
   const [revenueReport, setRevenueReport] = useState<{ total: number; pointsRedeemTotal: number; grandTotal: number; byDay: Record<string, { cash: number; points: number }> } | null>(null);
   const [topProducts, setTopProducts] = useState<Array<{ name: string; quantity: number; revenue: number }>>([]);
@@ -873,11 +880,16 @@ export function Admin() {
           })()}
 
           {tab === "settings" && settings && (
-            <SettingsForm
+            <AdminStoreSettings
               settings={{
                 ...settings,
                 pointEarnEveryVnd: settings.pointEarnEveryVnd ?? 1000,
                 pointEarnEach: settings.pointEarnEach ?? 100,
+                storeLat: settings.storeLat ?? null,
+                storeLng: settings.storeLng ?? null,
+                storeAddress: settings.storeAddress ?? null,
+                allowedRadius: settings.allowedRadius ?? 50,
+                faceMatchThreshold: settings.faceMatchThreshold ?? 0.5,
               }}
               onSaved={loadSettings}
               onErr={setErr}
@@ -1398,6 +1410,7 @@ function StaffManager({
     address: string | null;
     dob: string | null;
     hireDate: string;
+    hasFaceData?: boolean;
   }>;
   onReload: () => Promise<void>;
   onErr: (s: string | null) => void;
@@ -1453,6 +1466,17 @@ function StaffManager({
     if (!window.confirm("Khóa nhân viên này?")) return;
     try {
       await staffApi(`/api/admin/staff/${id}`, { method: "DELETE" });
+      await onReload();
+    } catch (e) {
+      onErr(e instanceof Error ? e.message : "Lỗi");
+    }
+  }
+
+  async function resetFaceID(s: typeof rows[0]) {
+    if (!window.confirm(`Bạn chắc chắn muốn xóa dữ liệu khuôn mặt của [${s.fullName}]? Nhân viên sẽ phải đăng ký lại.`)) return;
+    try {
+      await staffApi(`/api/admin/staff/${s.id}/reset-face`, { method: "PATCH" });
+      alert("Đã xóa dữ liệu khuôn mặt thành công!");
       await onReload();
     } catch (e) {
       onErr(e instanceof Error ? e.message : "Lỗi");
@@ -1557,6 +1581,16 @@ function StaffManager({
                     </button>
                     <button type="button" className="btn btn-ghost admin-btn-compact text-danger" onClick={() => void deactivate(s.id)}>
                       Khóa
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost admin-btn-compact"
+                      style={{ filter: !s.hasFaceData ? "grayscale(100%) opacity(0.5)" : "none", cursor: !s.hasFaceData ? "not-allowed" : "pointer" }}
+                      disabled={!s.hasFaceData}
+                      title="Xóa dữ liệu FaceID"
+                      onClick={() => void resetFaceID(s)}
+                    >
+                      🔄 Reset Face
                     </button>
                   </div>
                 </td>
@@ -2917,86 +2951,4 @@ function ReviewAdminCard({
   );
 }
 
-function SettingsForm({
-  settings,
-  onSaved,
-  onErr,
-}: {
-  settings: {
-    vatRatePercent: number;
-    pointPerVnd: number;
-    pointValueVnd: number;
-    cashRoundTo: number;
-    pointEarnEveryVnd: number;
-    pointEarnEach: number;
-  };
-  onSaved: () => Promise<void>;
-  onErr: (s: string | null) => void;
-}) {
-  const [vat, setVat] = useState(String(settings.vatRatePercent));
-  const [earnEvery, setEarnEvery] = useState(String(settings.pointEarnEveryVnd));
-  const [earnEach, setEarnEach] = useState(String(settings.pointEarnEach));
-  const [pval, setPval] = useState(String(settings.pointValueVnd));
-  const [round, setRound] = useState(String(settings.cashRoundTo));
-
-  useEffect(() => {
-    setVat(String(settings.vatRatePercent));
-    setEarnEvery(String(settings.pointEarnEveryVnd));
-    setEarnEach(String(settings.pointEarnEach));
-    setPval(String(settings.pointValueVnd));
-    setRound(String(settings.cashRoundTo));
-  }, [settings]);
-
-  async function save(e: FormEvent) {
-    e.preventDefault();
-    onErr(null);
-    try {
-      await staffApi("/api/admin/settings", {
-        method: "PATCH",
-        body: JSON.stringify({
-          vatRatePercent: Number(vat),
-          pointValueVnd: Number(pval),
-          cashRoundTo: Number(round),
-          pointEarnEveryVnd: Number(earnEvery),
-          pointEarnEach: Number(earnEach),
-        }),
-      });
-      await onSaved();
-    } catch (err) {
-      onErr(err instanceof Error ? err.message : "Lỗi");
-    }
-  }
-
-  return (
-    <form className="card" style={{ padding: "1rem" }} onSubmit={(e) => void save(e)}>
-      <h3 style={{ marginTop: 0, fontSize: "1rem" }}>VAT, tích điểm, làm tròn tiền mặt</h3>
-      <div className="field">
-        <label className="label">VAT (%)</label>
-        <input className="input" value={vat} onChange={(e) => setVat(e.target.value)} />
-      </div>
-      <div className="field">
-        <label className="label">Cứ mỗi (VND) thanh toán thực tế</label>
-        <input className="input" value={earnEvery} onChange={(e) => setEarnEvery(e.target.value)} placeholder="1000" />
-      </div>
-      <div className="field">
-        <label className="label">…thì cộng (điểm)</label>
-        <input className="input" value={earnEach} onChange={(e) => setEarnEach(e.target.value)} placeholder="100" />
-      </div>
-      <p className="subtle" style={{ margin: "-0.35rem 0 0.5rem", fontSize: "0.85rem" }}>
-        Ví dụ 1.000đ → 100 điểm. Đổi điểm: 1 điểm = số đồng bên dưới.
-      </p>
-      <div className="field">
-        <label className="label">1 điểm quy đổi (VND giảm trừ)</label>
-        <input className="input" value={pval} onChange={(e) => setPval(e.target.value)} />
-      </div>
-      <div className="field">
-        <label className="label">Làm tròn tiền mặt (đơn vị)</label>
-        <input className="input" value={round} onChange={(e) => setRound(e.target.value)} />
-      </div>
-      <button type="submit" className="btn btn-primary">
-        Lưu
-      </button>
-    </form>
-  );
-}
 

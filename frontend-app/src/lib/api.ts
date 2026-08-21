@@ -3,9 +3,9 @@ import { mapFetchError } from "./net";
 
 
 export function apiBase(): string {
-  if (import.meta.env.DEV) return "";
-  const v = (import.meta.env.VITE_API_URL ?? "").trim();
-  return v || "http://localhost:4000";
+  if (import.meta.env.DEV) return ""; // Dùng Vite proxy (tránh lỗi Mixed Content trên điện thoại)
+  const API_URL = import.meta.env.VITE_API_URL;
+  return API_URL ? API_URL.trim() : "http://localhost:4000";
 }
 
 export function apiOrigin(): string {

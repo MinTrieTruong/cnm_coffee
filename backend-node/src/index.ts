@@ -26,6 +26,7 @@ import { reportsRouter } from "./routes/reports.js";
 import { vouchersRouter } from "./routes/vouchers.js";
 import { postsRouter } from "./routes/posts.js";
 import { scheduleRouter } from "./routes/schedule.js";
+import { attendanceRouter } from "./routes/attendance.js";
 import { registerSocketHandlers } from "./socket/handlers.js";
 import { startGraceWorker } from "./graceWorker.js";
 
@@ -78,6 +79,7 @@ app.use("/api", sepayRouter(prisma, io));
 app.use("/api", vouchersRouter(prisma, io));
 app.use("/api", postsRouter(prisma));
 app.use("/api", scheduleRouter(prisma, io));
+app.use("/api", attendanceRouter(prisma));
 
 registerSocketHandlers(io);
 startGraceWorker(prisma, io);

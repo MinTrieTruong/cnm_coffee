@@ -25,6 +25,7 @@ import { AdminSchedule } from "./pages/AdminSchedule";
 import { StaffChat } from "./pages/StaffChat";
 import { StaffOrderStatus } from "./pages/StaffOrderStatus";
 import { QrGenerator } from "./pages/QrGenerator";
+import { Attendance } from "./pages/Attendance";
 import { getStaffInfo } from "./lib/staffApi";
 
 function StaffRoute({
@@ -68,6 +69,7 @@ export default function App() {
           <Route path="/staff/schedule" element={<WorkSchedule />} />
           <Route path="/staff/chat" element={<StaffChat />} />
           <Route path="/staff/order-status" element={<StaffOrderStatus />} />
+          <Route path="/staff/attendance" element={<Attendance />} />
         </Route>
 
         <Route path="/admin" element={<StaffRoute allow={["Admin"]} element={<Admin />} />} />

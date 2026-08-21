@@ -177,6 +177,18 @@ export function adminRouter(prisma: PrismaClient) {
     res.status(204).send();
   });
 
+  r.patch("/staff/:id/reset-face", ...admin, async (req, res) => {
+    const id = Number(req.params.id);
+    const staff = await prisma.staff.findUnique({ where: { id } });
+    if (!staff) return res.status(404).json({ error: "Không tìm thấy nhân viên." });
+    
+    await prisma.staff.update({
+      where: { id },
+      data: { faceDescriptor: null },
+    });
+    res.json({ message: "Đã xóa dữ liệu khuôn mặt" });
+  });
+
   r.post("/upload-image", ...admin, async (req, res) => {
     try {
       const { dataUrl } = req.body as { dataUrl?: string };
@@ -204,9 +216,10 @@ export function adminRouter(prisma: PrismaClient) {
         status: true,
         hireDate: true,
         baseSalary: true,
+        faceDescriptor: true,
       },
     });
-    res.json(rows);
+    res.json(rows.map(r => ({ ...r, hasFaceData: !!r.faceDescriptor, faceDescriptor: undefined })));
   });
 
   r.post("/staff", ...admin, async (req, res) => {
@@ -593,6 +606,11 @@ export function adminRouter(prisma: PrismaClient) {
         cashRoundTo: 1000,
         pointEarnEveryVnd: 1000,
         pointEarnEach: 100,
+        storeLat: 10.7769,
+        storeLng: 106.7009,
+        storeAddress: null,
+        allowedRadius: 50,
+        faceMatchThreshold: 0.5,
       },
       update: {},
     });
@@ -609,7 +627,9 @@ export function adminRouter(prisma: PrismaClient) {
       pointEarnEach: number;
       storeLat: number | null;
       storeLng: number | null;
-      gpsRadius: number;
+      storeAddress: string | null;
+      allowedRadius: number;
+      faceMatchThreshold: number;
     }>;
     res.json(
       await prisma.storeSettings.upsert({
@@ -622,9 +642,11 @@ export function adminRouter(prisma: PrismaClient) {
           cashRoundTo: b.cashRoundTo ?? 1000,
           pointEarnEveryVnd: b.pointEarnEveryVnd ?? 1000,
           pointEarnEach: b.pointEarnEach ?? 100,
-          storeLat: b.storeLat ?? null,
-          storeLng: b.storeLng ?? null,
-          gpsRadius: b.gpsRadius ?? 0,
+          storeLat: b.storeLat ?? 10.7769,
+          storeLng: b.storeLng ?? 106.7009,
+          storeAddress: b.storeAddress ?? null,
+          allowedRadius: b.allowedRadius ?? 50,
+          faceMatchThreshold: b.faceMatchThreshold ?? 0.5,
         },
         update: b,
       }),

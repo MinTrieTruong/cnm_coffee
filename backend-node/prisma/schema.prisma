@@ -19,6 +19,16 @@ model StoreSettings {
   /// Cứ mỗi N VND thành tiền thanh toán → cộng `pointEarnEach` điểm
   pointEarnEveryVnd Int @default(1000) @map("Point_Earn_Every_VND")
   pointEarnEach     Int @default(100) @map("Point_Earn_Each")
+  /// Vĩ độ quán (GPS chấm công)
+  storeLat          Float @default(10.7769) @map("Store_Lat")
+  /// Kinh độ quán (GPS chấm công)
+  storeLng          Float @default(106.7009) @map("Store_Lng")
+  /// Địa chỉ quán
+  storeAddress      String? @map("Store_Address") @db.VarChar(255)
+  /// Bán kính cho phép chấm công (mét)
+  allowedRadius     Int   @default(50) @map("Allowed_Radius")
+  /// Độ nhạy nhận diện khuôn mặt (FaceID) - càng thấp càng khắt khe
+  faceMatchThreshold Float @default(0.5) @map("Face_Match_Threshold")
 
   @@map("Store_Settings")
 }
@@ -141,6 +151,8 @@ model Staff {
   baseSalary   Int      @default(0) @map("Base_Salary")
   hireDate     DateTime @default(now()) @map("Hire_Date")
   status       String   @default("Active") @map("Status") @db.VarChar(20)
+  /// Face descriptor JSON (128-d Float32Array) cho nhận diện khuôn mặt
+  faceDescriptor String? @map("Face_Descriptor") @db.Text
   orders         Order[]
   shifts         Shift[]
   workSchedules  WorkSchedule[]
@@ -408,6 +420,16 @@ model WorkSchedule {
   staffNote   String?              @map("Staff_Note") @db.VarChar(500)
   managerNote String?              @map("Manager_Note") @db.VarChar(500)
   reviewedBy  Int?                 @map("Reviewed_By")
+  /// Thời gian check-in thực tế
+  actualCheckIn  DateTime?         @map("Actual_Check_In")
+  /// Thời gian check-out thực tế
+  actualCheckOut DateTime?         @map("Actual_Check_Out")
+  /// Cờ: nhân viên có xin tăng ca không
+  isOvertime     Boolean           @default(false) @map("Is_Overtime")
+  /// Số phút tăng ca được quản lý duyệt
+  overtimeMinutes Int?             @map("Overtime_Minutes")
+  /// Ghi chú xin tăng ca của nhân viên
+  overtimeNote   String?           @map("Overtime_Note") @db.VarChar(500)
   createdAt   DateTime             @default(now()) @map("Created_At")
   updatedAt   DateTime             @updatedAt @map("Updated_At")
 
