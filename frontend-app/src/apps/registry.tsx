@@ -64,6 +64,9 @@ const StockForm = L(() => import("../modules/inventory/Stock"), "StockForm");
 const RequestList = L(() => import("../modules/inventory/Requests"), "RequestList");
 const RequestForm = L(() => import("../modules/inventory/Requests"), "RequestForm");
 
+const SupplierList = L(() => import("../modules/purchase/Suppliers"), "SupplierList");
+const SupplierForm = L(() => import("../modules/purchase/Suppliers"), "SupplierForm");
+
 // Tab cũ của Admin.tsx (tạm thời, sẽ chuyển sang modules/)
 const LegacyAdmin = L(() => import("../pages/Admin"), "Admin");
 
@@ -173,7 +176,7 @@ export const APPS: AppDef[] = [
     icon: ShoppingCart,
     menus: [
       { id: "orders", label: "Mua hàng", roles: ["Admin", "Purchasing", "Manager"], component: ProcurementAdmin, props: { embedded: true }, layout: "legacy" },
-      legacy("suppliers", "suppliers", "Nhà cung cấp"),
+      { id: "suppliers", label: "Nhà cung cấp", roles: ADMIN, component: SupplierList, form: SupplierForm, layout: "erp" },
     ],
   },
   {
