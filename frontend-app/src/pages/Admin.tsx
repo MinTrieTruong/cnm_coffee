@@ -146,7 +146,7 @@ type ReviewAdminRow = {
   replyBy: { fullName: string } | null;
 };
 
-type Tab =
+export type Tab =
   | "dash"
   | "products"
   | "categories"
@@ -257,11 +257,12 @@ function formatVnd(n: number) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
-export function Admin() {
+/** Tạm thời: AppShell nhúng từng tab cũ (embeddedTab) trong lúc chuyển sang modules/. */
+export function Admin({ embeddedTab }: { embeddedTab?: Tab } = {}) {
   const info = getStaffInfo();
   const [params, setParams] = useSearchParams();
   const rawTab = params.get("tab");
-  const tab: Tab = isTab(rawTab) ? rawTab : "dash";
+  const tab: Tab = embeddedTab ?? (isTab(rawTab) ? rawTab : "dash");
   const [siderOpen, setSiderOpen] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   /** Nhớ mục con mở gần nhất của từng phân hệ để quay lại đúng chỗ */
@@ -500,6 +501,961 @@ export function Admin() {
   const bottomModules = ADMIN_MODULES.filter((m) => BOTTOM_MODULE_IDS.includes(m.id));
   const activeInBottom = BOTTOM_MODULE_IDS.includes(activeModule.id);
 
+  const body = (
+  <div className="admin-main-body" ref={bodyRef}>
+    {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
+
+    {tab === "formulas" && <IngredientFormula embedded />}
+    {tab === "qr" && <QrGenerator embedded />}
+    {tab === "schedule" && <AdminSchedule embedded />}
+    {tab === "payroll" && <AdminPayroll />}
+    {tab === "procurement" && <ProcurementAdmin embedded />}
+    {tab === "dash" && stats && (
+      <>
+        <h2 className="admin-dash-heading">Doanh thu & đơn đã thanh toán</h2>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
+            gap: "0.75rem",
+            marginBottom: "1.35rem",
+          }}
+        >
+          <div className="card" style={{ padding: "1rem" }}>
+            <div className="subtle" style={{ fontSize: "0.85rem" }}>
+              Hôm nay — số đơn
+            </div>
+            <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{stats.todayOrders}</div>
+          </div>
+          <div className="card" style={{ padding: "1rem" }}>
+            <div className="subtle" style={{ fontSize: "0.85rem" }}>
+              Doanh thu hôm nay
+            </div>
+            <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{formatVnd(stats.todayRevenue)}</div>
+          </div>
+          <div className="card" style={{ padding: "1rem" }}>
+            <div className="subtle" style={{ fontSize: "0.85rem" }}>
+              7 ngày — số đơn
+            </div>
+            <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{stats.weekOrders}</div>
+          </div>
+          <div className="card" style={{ padding: "1rem" }}>
+            <div className="subtle" style={{ fontSize: "0.85rem" }}>
+              Doanh thu 7 ngày
+            </div>
+            <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{formatVnd(stats.weekRevenue)}</div>
+          </div>
+          <div className="card" style={{ padding: "1rem" }}>
+            <div className="subtle" style={{ fontSize: "0.85rem" }}>
+              Tháng này — số đơn
+            </div>
+            <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{stats.monthOrders}</div>
+          </div>
+          <div className="card" style={{ padding: "1rem" }}>
+            <div className="subtle" style={{ fontSize: "0.85rem" }}>
+              Doanh thu tháng này
+            </div>
+            <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{formatVnd(stats.monthRevenue)}</div>
+          </div>
+        </div>
+        <h2 className="admin-dash-heading">Vận hành cửa hàng</h2>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "0.75rem" }}>
+          <div className="card" style={{ padding: "1rem" }}>
+            <div className="subtle" style={{ fontSize: "0.85rem" }}>
+              Món trong menu
+            </div>
+            <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{stats.products}</div>
+          </div>
+          <div className="card" style={{ padding: "1rem" }}>
+            <div className="subtle" style={{ fontSize: "0.85rem" }}>
+              Bàn
+            </div>
+            <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{stats.tables}</div>
+          </div>
+          <div className="card" style={{ padding: "1rem" }}>
+            <div className="subtle" style={{ fontSize: "0.85rem" }}>
+              NV hoạt động
+            </div>
+            <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{stats.staff}</div>
+          </div>
+          <div className="card" style={{ padding: "1rem" }}>
+            <div className="subtle" style={{ fontSize: "0.85rem" }}>
+              Phiếu NL chờ duyệt
+            </div>
+            <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{stats.pendingRequests}</div>
+          </div>
+        </div>
+      </>
+    )}
+
+    {tab === "products" && (
+      <section>
+        <ProductAddForm
+          categories={categories}
+          onCreated={async () => {
+            await loadProducts();
+            await loadCategories();
+          }}
+          onErr={setErr}
+        />
+        <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          {products.map((p) => {
+            const img = mediaUrl(p.imageUrl);
+            return (
+              <div
+                key={p.id}
+                className="card"
+                style={{
+                  padding: "0.75rem 1rem",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "1rem",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                }}
+              >
+                <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flex: "1 1 220px" }}>
+                  <div
+                    style={{
+                      width: 56,
+                      height: 56,
+                      borderRadius: 8,
+                      flexShrink: 0,
+                      background: "var(--surface)",
+                      backgroundImage: img ? `url(${img})` : undefined,
+                      backgroundSize: "cover",
+                      backgroundPosition: "center",
+                    }}
+                  />
+                  <div>
+                    <strong>{p.name}</strong>
+                    <span className="subtle" style={{ marginLeft: "0.5rem" }}>
+                      {p.category?.name}
+                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.2rem" }}>
+                      <div style={{ color: "var(--accent)", fontWeight: 600 }}>{formatVnd(p.sellPrice)}</div>
+                      {p.discountPercent != null && p.discountPercent > 0 && (
+                        <span style={{ background: "var(--danger)", color: "#fff", padding: "0.1rem 0.4rem", borderRadius: 4, fontSize: "0.75rem", fontWeight: 700 }}>
+                          -{p.discountPercent}%
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", flexWrap: "wrap" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.9rem" }}>
+                    <input
+                      type="checkbox"
+                      checked={p.isActive}
+                      onChange={async (e) => {
+                        try {
+                          await staffApi(`/api/admin/products/${p.id}`, {
+                            method: "PATCH",
+                            body: JSON.stringify({ isActive: e.target.checked }),
+                          });
+                          await loadProducts();
+                        } catch (ex) {
+                          setErr(ex instanceof Error ? ex.message : "Lỗi");
+                        }
+                      }}
+                    />
+                    Đang bán
+                  </label>
+                  <button type="button" className="btn btn-ghost" style={{ padding: "0.35rem 0.75rem", fontSize: "0.88rem" }} onClick={() => setEditProduct(p)}>
+                    Sửa món
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {editProduct && (
+          <ProductEditModal
+            product={editProduct}
+            categories={categories}
+            onClose={() => setEditProduct(null)}
+            onSaved={async () => {
+              await loadProducts();
+              setEditProduct(null);
+            }}
+            onErr={setErr}
+          />
+        )}
+      </section>
+    )}
+
+    {tab === "categories" && (
+      <CategoryManager categories={categories} onSaved={loadCategories} onErr={setErr} />
+    )}
+
+    {tab === "combos" && (
+      <AdminCombos />
+    )}
+
+    {tab === "staff" && (
+      <StaffManager
+        rows={staffRows}
+        onReload={async () => {
+          await loadStaff();
+          await loadDash();
+        }}
+        onErr={setErr}
+      />
+    )}
+
+    {tab === "hrRequests" && (
+      <AdminHrRequests />
+    )}
+
+    {tab === "customers" && (
+      <CustomerManager
+        rows={customerRows}
+        onReload={loadCustomers}
+        onErr={setErr}
+      />
+    )}
+
+    {tab === "tables" && (
+      <AdminZones />
+    )}
+
+    {tab === "inventory" && (
+      <InventoryPanel
+        items={inventory}
+        onRefresh={loadInventory}
+        onErr={setErr}
+        onOpenDetail={setInvDetail}
+      />
+    )}
+    {invDetail && (
+      <InventoryDetailModal
+        item={invDetail}
+        onClose={() => setInvDetail(null)}
+        onSaved={loadInventory}
+        onErr={setErr}
+      />
+    )}
+
+    {tab === "requests" && (() => {
+      const pending = requests.filter((r) => r.status === "Pending").length;
+      const approved = requests.filter((r) => r.status === "Approved").length;
+      const rejected = requests.filter((r) => r.status === "Rejected").length;
+      const filtered = requestFilter === "all" ? requests : requests.filter((r) => r.status === requestFilter);
+      const statusColor = (s: string) =>
+        s === "Pending" ? "var(--accent)" : s === "Approved" ? "#15803d" : "var(--danger)";
+      const statusLabel = (s: string) =>
+        s === "Pending" ? "Chờ duyệt" : s === "Approved" ? "Đã duyệt" : "Từ chối";
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+          {/* Stats */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(130px,1fr))", gap: "0.6rem" }}>
+            <div className="card" style={{ padding: "0.65rem 1rem" }}>
+              <div className="subtle" style={{ fontSize: "0.8rem" }}>Tổng phiếu</div>
+              <div style={{ fontSize: "1.3rem", fontWeight: 700 }}>{requests.length}</div>
+            </div>
+            <div className="card" style={{ padding: "0.65rem 1rem" }}>
+              <div className="subtle" style={{ fontSize: "0.8rem" }}>Chờ duyệt</div>
+              <div style={{ fontSize: "1.3rem", fontWeight: 700, color: pending ? "var(--accent)" : undefined }}>{pending}</div>
+            </div>
+            <div className="card" style={{ padding: "0.65rem 1rem" }}>
+              <div className="subtle" style={{ fontSize: "0.8rem" }}>Đã duyệt</div>
+              <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#15803d" }}>{approved}</div>
+            </div>
+            <div className="card" style={{ padding: "0.65rem 1rem" }}>
+              <div className="subtle" style={{ fontSize: "0.8rem" }}>Từ chối</div>
+              <div style={{ fontSize: "1.3rem", fontWeight: 700, color: rejected ? "var(--danger)" : undefined }}>{rejected}</div>
+            </div>
+          </div>
+          {/* Filter chips */}
+          <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}>
+            {(["all", "Pending", "Approved", "Rejected"] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                className={requestFilter === f ? "btn btn-primary" : "btn btn-ghost"}
+                style={{ padding: "0.3rem 0.85rem", fontSize: "0.85rem" }}
+                onClick={() => setRequestFilter(f)}
+              >
+                {f === "all" ? "Tất cả" : f === "Pending" ? "Chờ duyệt" : f === "Approved" ? "Đã duyệt" : "Từ chối"}
+              </button>
+            ))}
+          </div>
+          {filtered.length === 0 && (
+            <div className="card" style={{ padding: "2rem", textAlign: "center", color: "var(--muted)" }}>
+              {requests.length === 0 ? "Chưa có phiếu xin nguyên liệu nào." : "Không có phiếu nào ở trạng thái này."}
+            </div>
+          )}
+          {filtered.map((r) => (
+            <div key={r.id} className="card" style={{ padding: "1rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                    <span style={{ color: "var(--muted)", fontSize: "0.82rem" }}>Phiếu #{r.id}</span>
+                    <span style={{
+                      padding: "0.1rem 0.5rem", borderRadius: 99, fontSize: "0.75rem", fontWeight: 600,
+                      background: r.type === "Restock" ? "#3b82f622" : "#8b5cf622",
+                      color: r.type === "Restock" ? "#3b82f6" : "#8b5cf6",
+                      border: `1px solid ${r.type === "Restock" ? "#3b82f644" : "#8b5cf644"}`,
+                    }}>
+                      {r.type === "Restock" ? "Nhập hàng" : "Xin NL pha chế"}
+                    </span>
+                    <span style={{ color: "var(--muted)", fontSize: "0.78rem" }}>
+                      {new Date(r.createdAt).toLocaleString("vi-VN")}
+                    </span>
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: "1rem", marginTop: "0.15rem" }}>{r.item.name}</div>
+                  <div style={{ fontSize: "0.88rem", marginTop: "0.25rem" }}>
+                    Số lượng: <strong>{r.requestQty}</strong>{r.item.unit ? ` ${r.item.unit}` : ""}
+                  </div>
+                  <div style={{ fontSize: "0.88rem", color: "var(--muted)", marginTop: "0.15rem" }}>
+                    Yêu cầu bởi: <strong>{r.staff.fullName}</strong>
+                  </div>
+                  {r.note && (
+                    <div style={{ fontSize: "0.88rem", marginTop: "0.25rem", fontStyle: "italic", color: "var(--muted)" }}>
+                      Ghi chú: {r.note}
+                    </div>
+                  )}
+                  {r.approvedBy && r.status !== "Pending" && (
+                    <div style={{ fontSize: "0.82rem", color: "var(--muted)", marginTop: "0.2rem" }}>
+                      {r.status === "Approved" ? "Duyệt bởi" : "Từ chối bởi"}: {r.approvedBy.fullName}
+                    </div>
+                  )}
+                </div>
+                <span style={{
+                  padding: "0.25rem 0.75rem",
+                  borderRadius: 99,
+                  fontSize: "0.82rem",
+                  fontWeight: 600,
+                  background: statusColor(r.status) + "22",
+                  color: statusColor(r.status),
+                  border: `1px solid ${statusColor(r.status)}44`,
+                  whiteSpace: "nowrap",
+                }}>
+                  {statusLabel(r.status)}
+                </span>
+              </div>
+              {r.status === "Pending" && (
+                <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem" }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ padding: "0.4rem 1rem", fontSize: "0.88rem" }}
+                    onClick={async () => {
+                      try {
+                        await staffApi(`/api/admin/requests/${r.id}`, {
+                          method: "PATCH",
+                          body: JSON.stringify({ status: "Approved" }),
+                        });
+                        await loadRequests();
+                        await loadDash();
+                      } catch (e) {
+                        setErr(e instanceof Error ? e.message : "Lỗi");
+                      }
+                    }}
+                  >
+                    Duyệt
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ padding: "0.4rem 1rem", fontSize: "0.88rem", color: "var(--danger)" }}
+                    onClick={async () => {
+                      try {
+                        await staffApi(`/api/admin/requests/${r.id}`, {
+                          method: "PATCH",
+                          body: JSON.stringify({ status: "Rejected" }),
+                        });
+                        await loadRequests();
+                      } catch (e) {
+                        setErr(e instanceof Error ? e.message : "Lỗi");
+                      }
+                    }}
+                  >
+                    Từ chối
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    })()}
+
+    {tab === "reviews" && (() => {
+      const filtered = reviews.filter((r) => reviewFilterRating === null || r.rating === reviewFilterRating);
+      const avgRating = reviews.length
+        ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1)
+        : null;
+      const starCounts = [5, 4, 3, 2, 1].map((s) => ({ star: s, count: reviews.filter((r) => r.rating === s).length }));
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+          {/* Stats */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(130px,1fr))", gap: "0.6rem" }}>
+            <div className="card" style={{ padding: "0.65rem 1rem" }}>
+              <div className="subtle" style={{ fontSize: "0.8rem" }}>Tổng đánh giá</div>
+              <div style={{ fontSize: "1.3rem", fontWeight: 700 }}>{reviews.length}</div>
+            </div>
+            {avgRating && (
+              <div className="card" style={{ padding: "0.65rem 1rem" }}>
+                <div className="subtle" style={{ fontSize: "0.8rem" }}>Trung bình</div>
+                <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#b45309" }}>★ {avgRating}</div>
+              </div>
+            )}
+            <div className="card" style={{ padding: "0.65rem 1rem" }}>
+              <div className="subtle" style={{ fontSize: "0.8rem" }}>Đã phản hồi</div>
+              <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#15803d" }}>{reviews.filter((r) => !!r.adminReply).length}</div>
+            </div>
+            <div className="card" style={{ padding: "0.65rem 1rem" }}>
+              <div className="subtle" style={{ fontSize: "0.8rem" }}>Đang ẩn</div>
+              <div style={{ fontSize: "1.3rem", fontWeight: 700 }}>{reviews.filter((r) => r.hidden).length}</div>
+            </div>
+          </div>
+          {/* Filter by stars */}
+          <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap", alignItems: "center" }}>
+            <span className="subtle" style={{ fontSize: "0.85rem" }}>Lọc:</span>
+            <button
+              type="button"
+              className={reviewFilterRating === null ? "btn btn-primary" : "btn btn-ghost"}
+              style={{ padding: "0.3rem 0.75rem", fontSize: "0.85rem" }}
+              onClick={() => setReviewFilterRating(null)}
+            >
+              Tất cả
+            </button>
+            {starCounts.map(({ star, count }) => (
+              <button
+                key={star}
+                type="button"
+                className={reviewFilterRating === star ? "btn btn-primary" : "btn btn-ghost"}
+                style={{ padding: "0.3rem 0.75rem", fontSize: "0.85rem" }}
+                onClick={() => setReviewFilterRating(star)}
+              >
+                {"★".repeat(star)} ({count})
+              </button>
+            ))}
+          </div>
+          {filtered.length === 0 && (
+            <div className="card" style={{ padding: "2rem", textAlign: "center", color: "var(--muted)" }}>
+              {reviews.length === 0 ? "Chưa có đánh giá nào." : "Không có đánh giá với bộ lọc này."}
+            </div>
+          )}
+          {filtered.map((r) => (
+            <ReviewAdminCard key={r.id} row={r} onUpdated={loadReviews} onErr={setErr} />
+          ))}
+        </div>
+      );
+    })()}
+
+    {tab === "settings" && settings && (
+      <AdminStoreSettings
+        settings={{
+          ...settings,
+          pointEarnEveryVnd: settings.pointEarnEveryVnd ?? 1000,
+          pointEarnEach: settings.pointEarnEach ?? 100,
+          storeLat: settings.storeLat ?? null,
+          storeLng: settings.storeLng ?? null,
+          storeAddress: settings.storeAddress ?? null,
+          allowedRadius: settings.allowedRadius ?? 50,
+          faceMatchThreshold: settings.faceMatchThreshold ?? 0.5,
+        }}
+        onSaved={loadSettings}
+        onErr={setErr}
+      />
+    )}
+
+    {tab === "reports" && revenueReport && (
+      <section>
+        <div className="card" style={{ padding: "1rem", marginBottom: "1rem" }}>
+          <div style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: "0.75rem" }}>30 ngày gần nhất</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(180px,1fr))", gap: "0.65rem", marginBottom: "1rem" }}>
+            <div className="card" style={{ padding: "0.85rem", border: "1px solid #e5e7eb" }}>
+              <div className="subtle" style={{ fontSize: "0.78rem", marginBottom: "0.25rem" }}>💵 Tiền thực thu</div>
+              <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "#16a34a" }}>{formatVnd(revenueReport.total)}</div>
+            </div>
+            <div className="card" style={{ padding: "0.85rem", border: "1px solid #e5e7eb" }}>
+              <div className="subtle" style={{ fontSize: "0.78rem", marginBottom: "0.25rem" }}>🎁 Điểm đã đổi</div>
+              <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "#d97706" }}>{formatVnd(revenueReport.pointsRedeemTotal)}</div>
+            </div>
+            <div className="card" style={{ padding: "0.85rem", border: "1px solid #e5e7eb" }}>
+              <div className="subtle" style={{ fontSize: "0.78rem", marginBottom: "0.25rem" }}>📊 Doanh thu gộp</div>
+              <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "#2563eb" }}>{formatVnd(revenueReport.grandTotal)}</div>
+            </div>
+          </div>
+          <p style={{ margin: "0.75rem 0 0.5rem", fontSize: "0.88rem", color: "#9ca3af" }}>
+            Hiển thị cột báo cáo doanh thu theo ngày:
+          </p>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", marginRight: "1rem" }}>
+            <input type="checkbox" checked={repColDay} onChange={(e) => setRepColDay(e.target.checked)} />
+            Ngày
+          </label>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+            <input type="checkbox" checked={repColRev} onChange={(e) => setRepColRev(e.target.checked)} />
+            Doanh thu
+          </label>
+          <div style={{ overflowX: "auto", marginTop: "0.75rem" }}>
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: "0.9rem",
+              }}
+            >
+              <thead>
+                <tr style={{ textAlign: "left", borderBottom: "2px solid #e5e7eb", background: "#f9fafb" }}>
+                  {repColDay && <th style={{ padding: "0.45rem 0.5rem", color: "#374151", fontWeight: 700 }}>Ngày</th>}
+                  {repColRev && <th style={{ padding: "0.45rem 0.5rem", color: "#374151", fontWeight: 700 }}>Doanh thu</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(revenueReport.byDay).map(([day, val], idx) => (
+                  <tr key={day} style={{ borderBottom: "1px solid #f0f0f0", background: idx % 2 === 0 ? "#fff" : "#fafafa" }}>
+                    {repColDay && <td style={{ padding: "0.4rem 0.5rem", color: "#374151" }}>{day}</td>}
+                    {repColRev && <td style={{ padding: "0.4rem 0.5rem", color: "#111827", fontWeight: 600 }}>{typeof val === "object" ? formatVnd(val.cash) : formatVnd(val as unknown as number)}</td>}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ marginTop: "0.75rem" }}
+            onClick={async () => {
+              try {
+                const blob = await staffDownloadBlob("/api/admin/export/revenue.csv");
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "revenue.csv";
+                a.click();
+                URL.revokeObjectURL(url);
+              } catch (e) {
+                setErr(e instanceof Error ? e.message : "Lỗi tải CSV");
+              }
+            }}
+          >
+            Tải CSV doanh thu (đầy đủ cột)
+          </button>
+        </div>
+        <h3 style={{ fontSize: "1rem", color: "#111827" }}>Món bán chạy (doanh thu)</h3>
+        <p style={{ margin: "0.35rem 0 0.65rem", fontSize: "0.88rem", color: "#6b7280" }}>
+          Chọn cột hiển thị:
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.65rem" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", color: "#374151", fontSize: "0.88rem" }}>
+            <input type="checkbox" checked={repTopName} onChange={(e) => setRepTopName(e.target.checked)} />
+            Tên món
+          </label>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", color: "#374151", fontSize: "0.88rem" }}>
+            <input type="checkbox" checked={repTopQty} onChange={(e) => setRepTopQty(e.target.checked)} />
+            Số lượng
+          </label>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", color: "#374151", fontSize: "0.88rem" }}>
+            <input type="checkbox" checked={repTopRev} onChange={(e) => setRepTopRev(e.target.checked)} />
+            Doanh thu
+          </label>
+        </div>
+        <div style={{ overflowX: "auto", background: "#fff", borderRadius: 10, border: "1px solid #e5e7eb" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem" }}>
+            <thead>
+              <tr style={{ textAlign: "left", borderBottom: "2px solid #e5e7eb", background: "#f9fafb" }}>
+                {repTopName && <th style={{ padding: "0.45rem 0.5rem", color: "#374151", fontWeight: 700 }}>Tên</th>}
+                {repTopQty && <th style={{ padding: "0.45rem 0.5rem", color: "#374151", fontWeight: 700 }}>SL</th>}
+                {repTopRev && <th style={{ padding: "0.45rem 0.5rem", color: "#374151", fontWeight: 700 }}>Doanh thu</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {topProducts.map((p, idx) => (
+                <tr key={p.name} style={{ borderBottom: "1px solid #f0f0f0", background: idx % 2 === 0 ? "#fff" : "#fafafa" }}>
+                  {repTopName && <td style={{ padding: "0.4rem 0.5rem", color: "#111827", fontWeight: 500 }}>{p.name}</td>}
+                  {repTopQty && <td style={{ padding: "0.4rem 0.5rem", color: "#374151" }}>{p.quantity}</td>}
+                  {repTopRev && <td style={{ padding: "0.4rem 0.5rem", color: "#16a34a", fontWeight: 600 }}>{formatVnd(p.revenue)}</td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    )}
+
+    {/* ── Tab: Nhà cung cấp ── */}
+    {tab === "suppliers" && (
+      <SuppliersTab
+        suppliers={suppliers}
+        onReload={() => void loadSuppliers()}
+        onErr={setErr}
+      />
+    )}
+
+    {/* ── Tab: Lợi nhuận ── */}
+    {tab === "profit" && <ProfitTab formatVnd={formatVnd} />}
+
+    {/* ── Tab: Audit Log ── */}
+    {tab === "audit" && <AuditLogTab />}
+
+    {/* ── Tab: Voucher ── */}
+    {tab === "vouchers" && (
+      <section style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+        {/* FORM TẠO VOUCHER */}
+        <div className="card" style={{ padding: "1.15rem" }}>
+          <h3 style={{ margin: "0 0 0.85rem", fontSize: "1rem" }}>🎫 Tạo voucher mới</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.65rem" }}>
+            <div>
+              <label className="admin-label">Mã voucher *</label>
+              <input className="admin-input" placeholder="VD: COFFEE2026" value={voucherForm.code}
+                onChange={(e) => setVoucherForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} />
+            </div>
+            <div>
+              <label className="admin-label">Giảm giá (VND) *</label>
+              <input className="admin-input" type="number" min={1000} placeholder="20000"
+                value={voucherForm.discountValue}
+                onChange={(e) => setVoucherForm(f => ({ ...f, discountValue: e.target.value }))} />
+            </div>
+            <div>
+              <label className="admin-label">Hóa đơn tối thiểu</label>
+              <input className="admin-input" type="number" min={0} value={voucherForm.minBillValue}
+                onChange={(e) => setVoucherForm(f => ({ ...f, minBillValue: e.target.value }))} />
+            </div>
+            <div>
+              <label className="admin-label">Số lượng (-1 = không giới hạn) *</label>
+              <input className="admin-input" type="number" value={voucherForm.quantity}
+                onChange={(e) => setVoucherForm(f => ({ ...f, quantity: e.target.value }))} />
+            </div>
+            <div>
+              <label className="admin-label">Hết hạn *</label>
+              <input className="admin-input" type="date" value={voucherForm.endDate}
+                onChange={(e) => setVoucherForm(f => ({ ...f, endDate: e.target.value }))} />
+            </div>
+            <div>
+              <label className="admin-label">Loại</label>
+              <select className="admin-input" value={voucherForm.voucherType}
+                onChange={(e) => setVoucherForm(f => ({ ...f, voucherType: e.target.value }))}>
+                <option value="public">Public — ai cũng dùng được</option>
+                <option value="personal">Personal — phải lưu vào ví</option>
+              </select>
+            </div>
+            <div>
+              <label className="admin-label">Giờ vàng từ (0–23, để trống = cả ngày)</label>
+              <input className="admin-input" type="number" min={0} max={23} placeholder="14"
+                value={voucherForm.goldHourStart}
+                onChange={(e) => setVoucherForm(f => ({ ...f, goldHourStart: e.target.value }))} />
+            </div>
+            <div>
+              <label className="admin-label">Giờ vàng đến (0–23)</label>
+              <input className="admin-input" type="number" min={0} max={23} placeholder="17"
+                value={voucherForm.goldHourEnd}
+                onChange={(e) => setVoucherForm(f => ({ ...f, goldHourEnd: e.target.value }))} />
+            </div>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <label className="admin-label">Mô tả</label>
+              <input className="admin-input" placeholder="Chương trình tri ân khách hàng..."
+                value={voucherForm.description}
+                onChange={(e) => setVoucherForm(f => ({ ...f, description: e.target.value }))} />
+            </div>
+            <div style={{ gridColumn: "1 / -1", display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.88rem" }}>
+                <input type="checkbox" checked={voucherForm.autoGift}
+                  onChange={(e) => setVoucherForm(f => ({ ...f, autoGift: e.target.checked }))} />
+                Tự động tặng cho tất cả khách hiện tại
+              </label>
+              <button type="button" className="btn btn-primary" style={{ padding: "0.5rem 1.35rem" }}
+                onClick={async () => {
+                  try {
+                    setErr(null);
+                    await staffApi("/api/vouchers/admin", {
+                      method: "POST",
+                      body: JSON.stringify({
+                        code: voucherForm.code,
+                        description: voucherForm.description || null,
+                        discountValue: Number(voucherForm.discountValue),
+                        minBillValue: Number(voucherForm.minBillValue),
+                        endDate: voucherForm.endDate,
+                        quantity: Number(voucherForm.quantity),
+                        voucherType: voucherForm.voucherType,
+                        goldHourStart: voucherForm.goldHourStart ? Number(voucherForm.goldHourStart) : null,
+                        goldHourEnd: voucherForm.goldHourEnd ? Number(voucherForm.goldHourEnd) : null,
+                        autoGift: voucherForm.autoGift,
+                      }),
+                    });
+                    setVoucherForm({ code: "", description: "", discountValue: "", minBillValue: "0", endDate: "", quantity: "100", voucherType: "public", goldHourStart: "", goldHourEnd: "", autoGift: false });
+                    await loadVouchers();
+                  } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi tạo voucher"); }
+                }}>
+                Tạo voucher
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* DANH SÁCH VOUCHER */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+          {vouchers.length === 0 && (
+            <div className="card" style={{ padding: "2rem", textAlign: "center", color: "var(--muted)" }}>
+              Chưa có voucher nào. Tạo voucher đầu tiên ở trên.
+            </div>
+          )}
+          {vouchers.map((v) => {
+            const now = new Date();
+            const expired = new Date(v.endDate) < now;
+            const exhausted = v.quantity !== -1 && v.usedCount >= v.quantity;
+            const statusColor = !v.isActive ? "var(--danger)" : expired || exhausted ? "var(--muted)" : "#15803d";
+            const statusLabel = !v.isActive ? "Đã khóa" : expired ? "Hết hạn" : exhausted ? "Hết lượt" : "Đang chạy";
+            return (
+              <div key={v.id} className="card" style={{ padding: "1rem", opacity: (!v.isActive || expired) ? 0.65 : 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.05rem", background: "rgba(146,64,14,0.12)", padding: "0.1rem 0.5rem", borderRadius: 6, border: "1px solid rgba(146,64,14,0.3)" }}>{v.code}</span>
+                      <span style={{ fontWeight: 700, color: "var(--accent)", fontSize: "1rem" }}>-{formatVnd(v.discountValue)}</span>
+                      <span style={{ padding: "0.1rem 0.5rem", borderRadius: 99, fontSize: "0.75rem", fontWeight: 600, background: statusColor + "22", color: statusColor, border: `1px solid ${statusColor}44` }}>{statusLabel}</span>
+                      <span style={{ padding: "0.1rem 0.5rem", borderRadius: 99, fontSize: "0.75rem", background: v.voucherType === "personal" ? "#8b5cf622" : "#3b82f622", color: v.voucherType === "personal" ? "#8b5cf6" : "#3b82f6", border: `1px solid ${v.voucherType === "personal" ? "#8b5cf644" : "#3b82f644"}` }}>
+                        {v.voucherType === "personal" ? "Cá nhân" : "Công khai"}
+                      </span>
+                    </div>
+                    {v.description && <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "0.2rem" }}>{v.description}</div>}
+                    <div style={{ fontSize: "0.82rem", color: "var(--muted)", marginTop: "0.3rem", display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+                      <span>Tối thiểu: {formatVnd(v.minBillValue)}</span>
+                      <span>Đã dùng: {v.usedCount}/{v.quantity === -1 ? "∞" : v.quantity}</span>
+                      <span>Đã lưu ví: {v._count?.userVouchers ?? 0}</span>
+                      <span>Hết hạn: {new Date(v.endDate).toLocaleDateString("vi-VN")}</span>
+                      {v.goldHourStart !== null && v.goldHourEnd !== null && (
+                        <span style={{ color: "#b45309" }}>⏰ Giờ vàng: {v.goldHourStart}h–{v.goldHourEnd}h</span>
+                      )}
+                    </div>
+                  </div>
+                  <button type="button"
+                    className={v.isActive ? "btn btn-ghost" : "btn btn-primary"}
+                    style={{ padding: "0.3rem 0.85rem", fontSize: "0.82rem" }}
+                    onClick={async () => {
+                      try {
+                        await staffApi(`/api/vouchers/admin/${v.id}`, {
+                          method: "PATCH",
+                          body: JSON.stringify({ isActive: !v.isActive }),
+                        });
+                        await loadVouchers();
+                      } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi"); }
+                    }}>
+                    {v.isActive ? "🔒 Khóa" : "🔓 Mở khóa"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    )}
+
+    {/* ── Tab: Bài đăng ── */}
+    {tab === "posts" && (
+      <section>
+        <h3 style={{ margin: "0 0 1rem", fontSize: "1rem", color: "#111827" }}>📢 Quản lý bài đăng / Khuyến mãi</h3>
+
+        {/* Form tạo / sửa bài */}
+        <div className="card" style={{ padding: "1.1rem", marginBottom: "1.5rem" }}>
+          <h4 style={{ margin: "0 0 0.85rem", fontSize: "0.95rem" }}>
+            {editPostId ? "✏️ Chỉnh sửa bài" : "➕ Tạo bài mới"}
+          </h4>
+          <div className="field">
+            <label className="admin-label">Tiêu đề *</label>
+            <input className="admin-input" placeholder="VD: Khuyến mãi mùa hè 2026" value={postForm.title}
+              onChange={(e) => setPostForm((f) => ({ ...f, title: e.target.value }))} />
+          </div>
+          <div className="field">
+            <label className="admin-label">Nội dung * <span style={{ fontSize: "0.75rem", color: "#9ca3af", fontWeight: 400 }}>(WYSIWYG — chèn ảnh, định dạng như Word)</span></label>
+            <PostEditor
+              key={editPostId ?? "new"}
+              content={postForm.body}
+              onChange={(html) => setPostForm((f) => ({ ...f, body: html }))}
+              height="360px"
+              theme="light"
+            />
+          </div>
+          <div style={{ display: "flex", gap: "1.5rem", margin: "0.65rem 0" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.45rem", cursor: "pointer", fontSize: "0.88rem" }}>
+              <input type="checkbox" checked={postForm.pinned}
+                onChange={(e) => setPostForm((f) => ({ ...f, pinned: e.target.checked }))} />
+              📌 Ghim nổi bật
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.45rem", cursor: "pointer", fontSize: "0.88rem" }}>
+              <input type="checkbox" checked={postForm.isPublished}
+                onChange={(e) => setPostForm((f) => ({ ...f, isPublished: e.target.checked }))} />
+              👁 Đã xuất bản
+            </label>
+          </div>
+          <div style={{ display: "flex", gap: "0.65rem" }}>
+            <button type="button" className="btn btn-primary"
+              disabled={!postForm.title.trim() || !postForm.body.trim()}
+              onClick={async () => {
+                try {
+                  if (editPostId) {
+                    await staffApi(`/api/posts/${editPostId}`, { method: "PATCH", body: JSON.stringify(postForm) });
+                  } else {
+                    await staffApi("/api/posts", { method: "POST", body: JSON.stringify(postForm) });
+                  }
+                  setPostForm({ title: "", body: "", imageUrl: "", pinned: false, isPublished: true });
+                  setEditPostId(null);
+                  await loadPosts();
+                } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi"); }
+              }}
+            >
+              {editPostId ? "Lưu thay đổi" : "Đăng bài"}
+            </button>
+            {editPostId && (
+              <button type="button" className="btn btn-ghost"
+                onClick={() => { setEditPostId(null); setPostForm({ title: "", body: "", imageUrl: "", pinned: false, isPublished: true }); }}>
+                Huỷ
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Danh sách bài */}
+        {posts.length === 0 && <p className="subtle">Chưa có bài đăng nào.</p>}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+          {posts.map((p) => (
+            <div key={p.id} className="card" style={{ padding: "1rem", opacity: p.isPublished ? 1 : 0.6 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap", marginBottom: "0.3rem" }}>
+                    {p.pinned && <span style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", background: "rgba(var(--accent-rgb),0.15)", color: "var(--accent)", borderRadius: 999, padding: "0.1rem 0.45rem", border: "1px solid rgba(var(--accent-rgb),0.3)" }}>📌 Ghim</span>}
+                    {!p.isPublished && <span style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", background: "rgba(100,100,100,0.2)", color: "var(--muted)", borderRadius: 999, padding: "0.1rem 0.45rem" }}>Ẩn</span>}
+                    <strong style={{ fontSize: "0.95rem" }}>{p.title}</strong>
+                  </div>
+                  <p style={{ margin: "0 0 0.3rem", fontSize: "0.85rem", color: "#6b7280", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                    {p.body.replace(/<[^>]*>/g, "").slice(0, 100)}
+                  </p>
+                  {p.imageUrl && <p style={{ margin: 0, fontSize: "0.75rem", color: "#9ca3af" }}>🖼 {p.imageUrl}</p>}
+                  <p style={{ margin: "0.3rem 0 0", fontSize: "0.75rem", color: "#9ca3af" }}>
+                    {new Date(p.createdAt).toLocaleString("vi-VN")}
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: "0.4rem", flexShrink: 0, alignItems: "flex-start", flexWrap: "wrap" }}>
+                  <button type="button" className="btn btn-ghost admin-btn-compact"
+                    onClick={() => {
+                      setEditPostId(p.id);
+                      setPostForm({ title: p.title, body: p.body, imageUrl: p.imageUrl ?? "", pinned: p.pinned, isPublished: p.isPublished });
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}>
+                    ✏️ Sửa
+                  </button>
+                  <button type="button" className="btn btn-ghost admin-btn-compact"
+                    onClick={() => setAdminPreviewPost(p)}>
+                    👁 Xem
+                  </button>
+                  <button type="button" className="btn btn-ghost admin-btn-compact"
+                    onClick={async () => {
+                      try {
+                        await staffApi(`/api/posts/${p.id}`, { method: "PATCH", body: JSON.stringify({ pinned: !p.pinned }) });
+                        await loadPosts();
+                      } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi"); }
+                    }}>
+                    {p.pinned ? "📌 Bỏ ghim" : "📌 Ghim"}
+                  </button>
+                  <button type="button" className="btn btn-ghost admin-btn-compact"
+                    onClick={async () => {
+                      try {
+                        await staffApi(`/api/posts/${p.id}`, { method: "PATCH", body: JSON.stringify({ isPublished: !p.isPublished }) });
+                        await loadPosts();
+                      } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi"); }
+                    }}>
+                    {p.isPublished ? "👁 Ẩn" : "👁 Hiện"}
+                  </button>
+                  <button type="button" className="btn btn-ghost admin-btn-compact"
+                    style={{ color: "#b91c1c" }}
+                    onClick={async () => {
+                      if (!confirm("Xóa bài này?")) return;
+                      try {
+                        await staffApi(`/api/posts/${p.id}`, { method: "DELETE" });
+                        await loadPosts();
+                      } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi"); }
+                    }}>
+                    🗑 Xóa
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {/* Modal xem bài trong Admin */}
+    {adminPreviewPost && (
+      <PostViewModal post={adminPreviewPost} onClose={() => setAdminPreviewPost(null)} />
+    )}
+
+    {/* ── Export đơn hàng chi tiết (nút trong tab reports) ── */}
+    {tab === "reports" && (
+      <div style={{ marginTop: "1rem" }}>
+        <div className="card" style={{ padding: "0.85rem 1rem", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+          <label className="label" style={{ margin: 0 }}>Export đơn hàng — Từ:</label>
+          <input type="date" className="input" value={repFrom} onChange={e => setRepFrom(e.target.value)} style={{ width: 155 }} />
+          <label className="label" style={{ margin: 0 }}>Đến:</label>
+          <input type="date" className="input" value={repTo} onChange={e => setRepTo(e.target.value)} style={{ width: 155 }} />
+          <button className="btn btn-primary" style={{ padding: "0.4rem 1rem" }}
+            onClick={async () => {
+              try {
+                const blob = await staffDownloadBlob(`/api/admin/reports/orders/export?from=${repFrom}&to=${repTo}`);
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url; a.download = `donhang_${repFrom}_${repTo}.csv`; a.click();
+                URL.revokeObjectURL(url);
+              } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi tải CSV"); }
+            }}>
+            📥 Export CSV đầy đủ
+          </button>
+          <button className="btn btn-ghost staff-btn-light" style={{ padding: "0.4rem 1rem" }}
+            onClick={() => void loadDetailOrders(repFrom, repTo)}>
+            Xem danh sách đơn
+          </button>
+        </div>
+        {detailOrders.length > 0 && (
+          <div style={{ marginTop: "0.75rem", overflowX: "auto" }}>
+            <div style={{ marginBottom: "0.5rem", fontSize: "0.85rem", color: "var(--muted)" }}>
+              Hiển thị {detailOrders.length} / {detailOrdersTotal} đơn hàng
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid var(--border)", textAlign: "left" }}>
+                  {["Mã ĐH", "Thời gian", "Loại", "Bàn", "Nhân viên", "Món", "Tổng tiền", "Thanh toán", "Trạng thái"].map(h => (
+                    <th key={h} style={{ padding: "0.35rem 0.5rem", color: "#4a3f38", whiteSpace: "nowrap" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {detailOrders.map(o => (
+                  <tr key={o.id} style={{ borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
+                    <td style={{ padding: "0.35rem 0.5rem", color: "#6b5e55" }}>#{o.id}</td>
+                    <td style={{ padding: "0.35rem 0.5rem", whiteSpace: "nowrap", fontSize: "0.78rem" }}>{new Date(o.createdAt).toLocaleString("vi-VN")}</td>
+                    <td style={{ padding: "0.35rem 0.5rem" }}>{o.orderType}</td>
+                    <td style={{ padding: "0.35rem 0.5rem" }}>{o.table?.name ?? "Mang về"}</td>
+                    <td style={{ padding: "0.35rem 0.5rem" }}>{o.staff?.fullName ?? "—"}</td>
+                    <td style={{ padding: "0.35rem 0.5rem", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {o.details.map(d => `${d.product.name} ×${d.quantity}`).join(", ")}
+                    </td>
+                    <td style={{ padding: "0.35rem 0.5rem", fontWeight: 700 }}>{formatVnd(o.totalAmount)}</td>
+                    <td style={{ padding: "0.35rem 0.5rem", fontSize: "0.78rem" }}>
+                      {o.payments.map(p => `${p.method}`).join(", ")}
+                    </td>
+                    <td style={{ padding: "0.35rem 0.5rem" }}>
+                      <span style={{
+                        padding: "0.1rem 0.45rem", borderRadius: 99, fontSize: "0.75rem", fontWeight: 600,
+                        background: o.status === "Paid" ? "#22c55e22" : "#f59e0b22",
+                        color: o.status === "Paid" ? "#15803d" : "#b45309"
+                      }}>{o.status}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    )}
+
+  </div>
+  );
+  if (embeddedTab) return body;
+
   return (
     <div className="admin-layout">
       {/* Mobile top bar: tên phân hệ + mục con hiện tại */}
@@ -624,957 +1580,7 @@ export function Admin() {
           </nav>
         )}
 
-        <div className="admin-main-body" ref={bodyRef}>
-          {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
-
-          {tab === "formulas" && <IngredientFormula embedded />}
-          {tab === "qr" && <QrGenerator embedded />}
-          {tab === "schedule" && <AdminSchedule embedded />}
-          {tab === "payroll" && <AdminPayroll />}
-          {tab === "procurement" && <ProcurementAdmin embedded />}
-          {tab === "dash" && stats && (
-            <>
-              <h2 className="admin-dash-heading">Doanh thu & đơn đã thanh toán</h2>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
-                  gap: "0.75rem",
-                  marginBottom: "1.35rem",
-                }}
-              >
-                <div className="card" style={{ padding: "1rem" }}>
-                  <div className="subtle" style={{ fontSize: "0.85rem" }}>
-                    Hôm nay — số đơn
-                  </div>
-                  <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{stats.todayOrders}</div>
-                </div>
-                <div className="card" style={{ padding: "1rem" }}>
-                  <div className="subtle" style={{ fontSize: "0.85rem" }}>
-                    Doanh thu hôm nay
-                  </div>
-                  <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{formatVnd(stats.todayRevenue)}</div>
-                </div>
-                <div className="card" style={{ padding: "1rem" }}>
-                  <div className="subtle" style={{ fontSize: "0.85rem" }}>
-                    7 ngày — số đơn
-                  </div>
-                  <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{stats.weekOrders}</div>
-                </div>
-                <div className="card" style={{ padding: "1rem" }}>
-                  <div className="subtle" style={{ fontSize: "0.85rem" }}>
-                    Doanh thu 7 ngày
-                  </div>
-                  <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{formatVnd(stats.weekRevenue)}</div>
-                </div>
-                <div className="card" style={{ padding: "1rem" }}>
-                  <div className="subtle" style={{ fontSize: "0.85rem" }}>
-                    Tháng này — số đơn
-                  </div>
-                  <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{stats.monthOrders}</div>
-                </div>
-                <div className="card" style={{ padding: "1rem" }}>
-                  <div className="subtle" style={{ fontSize: "0.85rem" }}>
-                    Doanh thu tháng này
-                  </div>
-                  <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{formatVnd(stats.monthRevenue)}</div>
-                </div>
-              </div>
-              <h2 className="admin-dash-heading">Vận hành cửa hàng</h2>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "0.75rem" }}>
-                <div className="card" style={{ padding: "1rem" }}>
-                  <div className="subtle" style={{ fontSize: "0.85rem" }}>
-                    Món trong menu
-                  </div>
-                  <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{stats.products}</div>
-                </div>
-                <div className="card" style={{ padding: "1rem" }}>
-                  <div className="subtle" style={{ fontSize: "0.85rem" }}>
-                    Bàn
-                  </div>
-                  <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{stats.tables}</div>
-                </div>
-                <div className="card" style={{ padding: "1rem" }}>
-                  <div className="subtle" style={{ fontSize: "0.85rem" }}>
-                    NV hoạt động
-                  </div>
-                  <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{stats.staff}</div>
-                </div>
-                <div className="card" style={{ padding: "1rem" }}>
-                  <div className="subtle" style={{ fontSize: "0.85rem" }}>
-                    Phiếu NL chờ duyệt
-                  </div>
-                  <div style={{ fontSize: "1.35rem", fontWeight: 700 }}>{stats.pendingRequests}</div>
-                </div>
-              </div>
-            </>
-          )}
-
-          {tab === "products" && (
-            <section>
-              <ProductAddForm
-                categories={categories}
-                onCreated={async () => {
-                  await loadProducts();
-                  await loadCategories();
-                }}
-                onErr={setErr}
-              />
-              <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                {products.map((p) => {
-                  const img = mediaUrl(p.imageUrl);
-                  return (
-                    <div
-                      key={p.id}
-                      className="card"
-                      style={{
-                        padding: "0.75rem 1rem",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: "1rem",
-                        flexWrap: "wrap",
-                        alignItems: "center",
-                      }}
-                    >
-                      <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flex: "1 1 220px" }}>
-                        <div
-                          style={{
-                            width: 56,
-                            height: 56,
-                            borderRadius: 8,
-                            flexShrink: 0,
-                            background: "var(--surface)",
-                            backgroundImage: img ? `url(${img})` : undefined,
-                            backgroundSize: "cover",
-                            backgroundPosition: "center",
-                          }}
-                        />
-                        <div>
-                          <strong>{p.name}</strong>
-                          <span className="subtle" style={{ marginLeft: "0.5rem" }}>
-                            {p.category?.name}
-                          </span>
-                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.2rem" }}>
-                            <div style={{ color: "var(--accent)", fontWeight: 600 }}>{formatVnd(p.sellPrice)}</div>
-                            {p.discountPercent != null && p.discountPercent > 0 && (
-                              <span style={{ background: "var(--danger)", color: "#fff", padding: "0.1rem 0.4rem", borderRadius: 4, fontSize: "0.75rem", fontWeight: 700 }}>
-                                -{p.discountPercent}%
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", flexWrap: "wrap" }}>
-                        <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.9rem" }}>
-                          <input
-                            type="checkbox"
-                            checked={p.isActive}
-                            onChange={async (e) => {
-                              try {
-                                await staffApi(`/api/admin/products/${p.id}`, {
-                                  method: "PATCH",
-                                  body: JSON.stringify({ isActive: e.target.checked }),
-                                });
-                                await loadProducts();
-                              } catch (ex) {
-                                setErr(ex instanceof Error ? ex.message : "Lỗi");
-                              }
-                            }}
-                          />
-                          Đang bán
-                        </label>
-                        <button type="button" className="btn btn-ghost" style={{ padding: "0.35rem 0.75rem", fontSize: "0.88rem" }} onClick={() => setEditProduct(p)}>
-                          Sửa món
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              {editProduct && (
-                <ProductEditModal
-                  product={editProduct}
-                  categories={categories}
-                  onClose={() => setEditProduct(null)}
-                  onSaved={async () => {
-                    await loadProducts();
-                    setEditProduct(null);
-                  }}
-                  onErr={setErr}
-                />
-              )}
-            </section>
-          )}
-
-          {tab === "categories" && (
-            <CategoryManager categories={categories} onSaved={loadCategories} onErr={setErr} />
-          )}
-
-          {tab === "combos" && (
-            <AdminCombos />
-          )}
-
-          {tab === "staff" && (
-            <StaffManager
-              rows={staffRows}
-              onReload={async () => {
-                await loadStaff();
-                await loadDash();
-              }}
-              onErr={setErr}
-            />
-          )}
-
-          {tab === "hrRequests" && (
-            <AdminHrRequests />
-          )}
-
-          {tab === "customers" && (
-            <CustomerManager
-              rows={customerRows}
-              onReload={loadCustomers}
-              onErr={setErr}
-            />
-          )}
-
-          {tab === "tables" && (
-            <AdminZones />
-          )}
-
-          {tab === "inventory" && (
-            <InventoryPanel
-              items={inventory}
-              onRefresh={loadInventory}
-              onErr={setErr}
-              onOpenDetail={setInvDetail}
-            />
-          )}
-          {invDetail && (
-            <InventoryDetailModal
-              item={invDetail}
-              onClose={() => setInvDetail(null)}
-              onSaved={loadInventory}
-              onErr={setErr}
-            />
-          )}
-
-          {tab === "requests" && (() => {
-            const pending = requests.filter((r) => r.status === "Pending").length;
-            const approved = requests.filter((r) => r.status === "Approved").length;
-            const rejected = requests.filter((r) => r.status === "Rejected").length;
-            const filtered = requestFilter === "all" ? requests : requests.filter((r) => r.status === requestFilter);
-            const statusColor = (s: string) =>
-              s === "Pending" ? "var(--accent)" : s === "Approved" ? "#15803d" : "var(--danger)";
-            const statusLabel = (s: string) =>
-              s === "Pending" ? "Chờ duyệt" : s === "Approved" ? "Đã duyệt" : "Từ chối";
-            return (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
-                {/* Stats */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(130px,1fr))", gap: "0.6rem" }}>
-                  <div className="card" style={{ padding: "0.65rem 1rem" }}>
-                    <div className="subtle" style={{ fontSize: "0.8rem" }}>Tổng phiếu</div>
-                    <div style={{ fontSize: "1.3rem", fontWeight: 700 }}>{requests.length}</div>
-                  </div>
-                  <div className="card" style={{ padding: "0.65rem 1rem" }}>
-                    <div className="subtle" style={{ fontSize: "0.8rem" }}>Chờ duyệt</div>
-                    <div style={{ fontSize: "1.3rem", fontWeight: 700, color: pending ? "var(--accent)" : undefined }}>{pending}</div>
-                  </div>
-                  <div className="card" style={{ padding: "0.65rem 1rem" }}>
-                    <div className="subtle" style={{ fontSize: "0.8rem" }}>Đã duyệt</div>
-                    <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#15803d" }}>{approved}</div>
-                  </div>
-                  <div className="card" style={{ padding: "0.65rem 1rem" }}>
-                    <div className="subtle" style={{ fontSize: "0.8rem" }}>Từ chối</div>
-                    <div style={{ fontSize: "1.3rem", fontWeight: 700, color: rejected ? "var(--danger)" : undefined }}>{rejected}</div>
-                  </div>
-                </div>
-                {/* Filter chips */}
-                <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}>
-                  {(["all", "Pending", "Approved", "Rejected"] as const).map((f) => (
-                    <button
-                      key={f}
-                      type="button"
-                      className={requestFilter === f ? "btn btn-primary" : "btn btn-ghost"}
-                      style={{ padding: "0.3rem 0.85rem", fontSize: "0.85rem" }}
-                      onClick={() => setRequestFilter(f)}
-                    >
-                      {f === "all" ? "Tất cả" : f === "Pending" ? "Chờ duyệt" : f === "Approved" ? "Đã duyệt" : "Từ chối"}
-                    </button>
-                  ))}
-                </div>
-                {filtered.length === 0 && (
-                  <div className="card" style={{ padding: "2rem", textAlign: "center", color: "var(--muted)" }}>
-                    {requests.length === 0 ? "Chưa có phiếu xin nguyên liệu nào." : "Không có phiếu nào ở trạng thái này."}
-                  </div>
-                )}
-                {filtered.map((r) => (
-                  <div key={r.id} className="card" style={{ padding: "1rem" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", alignItems: "flex-start" }}>
-                      <div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                          <span style={{ color: "var(--muted)", fontSize: "0.82rem" }}>Phiếu #{r.id}</span>
-                          <span style={{
-                            padding: "0.1rem 0.5rem", borderRadius: 99, fontSize: "0.75rem", fontWeight: 600,
-                            background: r.type === "Restock" ? "#3b82f622" : "#8b5cf622",
-                            color: r.type === "Restock" ? "#3b82f6" : "#8b5cf6",
-                            border: `1px solid ${r.type === "Restock" ? "#3b82f644" : "#8b5cf644"}`,
-                          }}>
-                            {r.type === "Restock" ? "Nhập hàng" : "Xin NL pha chế"}
-                          </span>
-                          <span style={{ color: "var(--muted)", fontSize: "0.78rem" }}>
-                            {new Date(r.createdAt).toLocaleString("vi-VN")}
-                          </span>
-                        </div>
-                        <div style={{ fontWeight: 700, fontSize: "1rem", marginTop: "0.15rem" }}>{r.item.name}</div>
-                        <div style={{ fontSize: "0.88rem", marginTop: "0.25rem" }}>
-                          Số lượng: <strong>{r.requestQty}</strong>{r.item.unit ? ` ${r.item.unit}` : ""}
-                        </div>
-                        <div style={{ fontSize: "0.88rem", color: "var(--muted)", marginTop: "0.15rem" }}>
-                          Yêu cầu bởi: <strong>{r.staff.fullName}</strong>
-                        </div>
-                        {r.note && (
-                          <div style={{ fontSize: "0.88rem", marginTop: "0.25rem", fontStyle: "italic", color: "var(--muted)" }}>
-                            Ghi chú: {r.note}
-                          </div>
-                        )}
-                        {r.approvedBy && r.status !== "Pending" && (
-                          <div style={{ fontSize: "0.82rem", color: "var(--muted)", marginTop: "0.2rem" }}>
-                            {r.status === "Approved" ? "Duyệt bởi" : "Từ chối bởi"}: {r.approvedBy.fullName}
-                          </div>
-                        )}
-                      </div>
-                      <span style={{
-                        padding: "0.25rem 0.75rem",
-                        borderRadius: 99,
-                        fontSize: "0.82rem",
-                        fontWeight: 600,
-                        background: statusColor(r.status) + "22",
-                        color: statusColor(r.status),
-                        border: `1px solid ${statusColor(r.status)}44`,
-                        whiteSpace: "nowrap",
-                      }}>
-                        {statusLabel(r.status)}
-                      </span>
-                    </div>
-                    {r.status === "Pending" && (
-                      <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem" }}>
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          style={{ padding: "0.4rem 1rem", fontSize: "0.88rem" }}
-                          onClick={async () => {
-                            try {
-                              await staffApi(`/api/admin/requests/${r.id}`, {
-                                method: "PATCH",
-                                body: JSON.stringify({ status: "Approved" }),
-                              });
-                              await loadRequests();
-                              await loadDash();
-                            } catch (e) {
-                              setErr(e instanceof Error ? e.message : "Lỗi");
-                            }
-                          }}
-                        >
-                          Duyệt
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-ghost"
-                          style={{ padding: "0.4rem 1rem", fontSize: "0.88rem", color: "var(--danger)" }}
-                          onClick={async () => {
-                            try {
-                              await staffApi(`/api/admin/requests/${r.id}`, {
-                                method: "PATCH",
-                                body: JSON.stringify({ status: "Rejected" }),
-                              });
-                              await loadRequests();
-                            } catch (e) {
-                              setErr(e instanceof Error ? e.message : "Lỗi");
-                            }
-                          }}
-                        >
-                          Từ chối
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            );
-          })()}
-
-          {tab === "reviews" && (() => {
-            const filtered = reviews.filter((r) => reviewFilterRating === null || r.rating === reviewFilterRating);
-            const avgRating = reviews.length
-              ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1)
-              : null;
-            const starCounts = [5, 4, 3, 2, 1].map((s) => ({ star: s, count: reviews.filter((r) => r.rating === s).length }));
-            return (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
-                {/* Stats */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(130px,1fr))", gap: "0.6rem" }}>
-                  <div className="card" style={{ padding: "0.65rem 1rem" }}>
-                    <div className="subtle" style={{ fontSize: "0.8rem" }}>Tổng đánh giá</div>
-                    <div style={{ fontSize: "1.3rem", fontWeight: 700 }}>{reviews.length}</div>
-                  </div>
-                  {avgRating && (
-                    <div className="card" style={{ padding: "0.65rem 1rem" }}>
-                      <div className="subtle" style={{ fontSize: "0.8rem" }}>Trung bình</div>
-                      <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#b45309" }}>★ {avgRating}</div>
-                    </div>
-                  )}
-                  <div className="card" style={{ padding: "0.65rem 1rem" }}>
-                    <div className="subtle" style={{ fontSize: "0.8rem" }}>Đã phản hồi</div>
-                    <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#15803d" }}>{reviews.filter((r) => !!r.adminReply).length}</div>
-                  </div>
-                  <div className="card" style={{ padding: "0.65rem 1rem" }}>
-                    <div className="subtle" style={{ fontSize: "0.8rem" }}>Đang ẩn</div>
-                    <div style={{ fontSize: "1.3rem", fontWeight: 700 }}>{reviews.filter((r) => r.hidden).length}</div>
-                  </div>
-                </div>
-                {/* Filter by stars */}
-                <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap", alignItems: "center" }}>
-                  <span className="subtle" style={{ fontSize: "0.85rem" }}>Lọc:</span>
-                  <button
-                    type="button"
-                    className={reviewFilterRating === null ? "btn btn-primary" : "btn btn-ghost"}
-                    style={{ padding: "0.3rem 0.75rem", fontSize: "0.85rem" }}
-                    onClick={() => setReviewFilterRating(null)}
-                  >
-                    Tất cả
-                  </button>
-                  {starCounts.map(({ star, count }) => (
-                    <button
-                      key={star}
-                      type="button"
-                      className={reviewFilterRating === star ? "btn btn-primary" : "btn btn-ghost"}
-                      style={{ padding: "0.3rem 0.75rem", fontSize: "0.85rem" }}
-                      onClick={() => setReviewFilterRating(star)}
-                    >
-                      {"★".repeat(star)} ({count})
-                    </button>
-                  ))}
-                </div>
-                {filtered.length === 0 && (
-                  <div className="card" style={{ padding: "2rem", textAlign: "center", color: "var(--muted)" }}>
-                    {reviews.length === 0 ? "Chưa có đánh giá nào." : "Không có đánh giá với bộ lọc này."}
-                  </div>
-                )}
-                {filtered.map((r) => (
-                  <ReviewAdminCard key={r.id} row={r} onUpdated={loadReviews} onErr={setErr} />
-                ))}
-              </div>
-            );
-          })()}
-
-          {tab === "settings" && settings && (
-            <AdminStoreSettings
-              settings={{
-                ...settings,
-                pointEarnEveryVnd: settings.pointEarnEveryVnd ?? 1000,
-                pointEarnEach: settings.pointEarnEach ?? 100,
-                storeLat: settings.storeLat ?? null,
-                storeLng: settings.storeLng ?? null,
-                storeAddress: settings.storeAddress ?? null,
-                allowedRadius: settings.allowedRadius ?? 50,
-                faceMatchThreshold: settings.faceMatchThreshold ?? 0.5,
-              }}
-              onSaved={loadSettings}
-              onErr={setErr}
-            />
-          )}
-
-          {tab === "reports" && revenueReport && (
-            <section>
-              <div className="card" style={{ padding: "1rem", marginBottom: "1rem" }}>
-                <div style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: "0.75rem" }}>30 ngày gần nhất</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(180px,1fr))", gap: "0.65rem", marginBottom: "1rem" }}>
-                  <div className="card" style={{ padding: "0.85rem", border: "1px solid #e5e7eb" }}>
-                    <div className="subtle" style={{ fontSize: "0.78rem", marginBottom: "0.25rem" }}>💵 Tiền thực thu</div>
-                    <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "#16a34a" }}>{formatVnd(revenueReport.total)}</div>
-                  </div>
-                  <div className="card" style={{ padding: "0.85rem", border: "1px solid #e5e7eb" }}>
-                    <div className="subtle" style={{ fontSize: "0.78rem", marginBottom: "0.25rem" }}>🎁 Điểm đã đổi</div>
-                    <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "#d97706" }}>{formatVnd(revenueReport.pointsRedeemTotal)}</div>
-                  </div>
-                  <div className="card" style={{ padding: "0.85rem", border: "1px solid #e5e7eb" }}>
-                    <div className="subtle" style={{ fontSize: "0.78rem", marginBottom: "0.25rem" }}>📊 Doanh thu gộp</div>
-                    <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "#2563eb" }}>{formatVnd(revenueReport.grandTotal)}</div>
-                  </div>
-                </div>
-                <p style={{ margin: "0.75rem 0 0.5rem", fontSize: "0.88rem", color: "#9ca3af" }}>
-                  Hiển thị cột báo cáo doanh thu theo ngày:
-                </p>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", marginRight: "1rem" }}>
-                  <input type="checkbox" checked={repColDay} onChange={(e) => setRepColDay(e.target.checked)} />
-                  Ngày
-                </label>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
-                  <input type="checkbox" checked={repColRev} onChange={(e) => setRepColRev(e.target.checked)} />
-                  Doanh thu
-                </label>
-                <div style={{ overflowX: "auto", marginTop: "0.75rem" }}>
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse: "collapse",
-                      fontSize: "0.9rem",
-                    }}
-                  >
-                    <thead>
-                      <tr style={{ textAlign: "left", borderBottom: "2px solid #e5e7eb", background: "#f9fafb" }}>
-                        {repColDay && <th style={{ padding: "0.45rem 0.5rem", color: "#374151", fontWeight: 700 }}>Ngày</th>}
-                        {repColRev && <th style={{ padding: "0.45rem 0.5rem", color: "#374151", fontWeight: 700 }}>Doanh thu</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(revenueReport.byDay).map(([day, val], idx) => (
-                        <tr key={day} style={{ borderBottom: "1px solid #f0f0f0", background: idx % 2 === 0 ? "#fff" : "#fafafa" }}>
-                          {repColDay && <td style={{ padding: "0.4rem 0.5rem", color: "#374151" }}>{day}</td>}
-                          {repColRev && <td style={{ padding: "0.4rem 0.5rem", color: "#111827", fontWeight: 600 }}>{typeof val === "object" ? formatVnd(val.cash) : formatVnd(val as unknown as number)}</td>}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  style={{ marginTop: "0.75rem" }}
-                  onClick={async () => {
-                    try {
-                      const blob = await staffDownloadBlob("/api/admin/export/revenue.csv");
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement("a");
-                      a.href = url;
-                      a.download = "revenue.csv";
-                      a.click();
-                      URL.revokeObjectURL(url);
-                    } catch (e) {
-                      setErr(e instanceof Error ? e.message : "Lỗi tải CSV");
-                    }
-                  }}
-                >
-                  Tải CSV doanh thu (đầy đủ cột)
-                </button>
-              </div>
-              <h3 style={{ fontSize: "1rem", color: "#111827" }}>Món bán chạy (doanh thu)</h3>
-              <p style={{ margin: "0.35rem 0 0.65rem", fontSize: "0.88rem", color: "#6b7280" }}>
-                Chọn cột hiển thị:
-              </p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.65rem" }}>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", color: "#374151", fontSize: "0.88rem" }}>
-                  <input type="checkbox" checked={repTopName} onChange={(e) => setRepTopName(e.target.checked)} />
-                  Tên món
-                </label>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", color: "#374151", fontSize: "0.88rem" }}>
-                  <input type="checkbox" checked={repTopQty} onChange={(e) => setRepTopQty(e.target.checked)} />
-                  Số lượng
-                </label>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", color: "#374151", fontSize: "0.88rem" }}>
-                  <input type="checkbox" checked={repTopRev} onChange={(e) => setRepTopRev(e.target.checked)} />
-                  Doanh thu
-                </label>
-              </div>
-              <div style={{ overflowX: "auto", background: "#fff", borderRadius: 10, border: "1px solid #e5e7eb" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem" }}>
-                  <thead>
-                    <tr style={{ textAlign: "left", borderBottom: "2px solid #e5e7eb", background: "#f9fafb" }}>
-                      {repTopName && <th style={{ padding: "0.45rem 0.5rem", color: "#374151", fontWeight: 700 }}>Tên</th>}
-                      {repTopQty && <th style={{ padding: "0.45rem 0.5rem", color: "#374151", fontWeight: 700 }}>SL</th>}
-                      {repTopRev && <th style={{ padding: "0.45rem 0.5rem", color: "#374151", fontWeight: 700 }}>Doanh thu</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {topProducts.map((p, idx) => (
-                      <tr key={p.name} style={{ borderBottom: "1px solid #f0f0f0", background: idx % 2 === 0 ? "#fff" : "#fafafa" }}>
-                        {repTopName && <td style={{ padding: "0.4rem 0.5rem", color: "#111827", fontWeight: 500 }}>{p.name}</td>}
-                        {repTopQty && <td style={{ padding: "0.4rem 0.5rem", color: "#374151" }}>{p.quantity}</td>}
-                        {repTopRev && <td style={{ padding: "0.4rem 0.5rem", color: "#16a34a", fontWeight: 600 }}>{formatVnd(p.revenue)}</td>}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
-
-          {/* ── Tab: Nhà cung cấp ── */}
-          {tab === "suppliers" && (
-            <SuppliersTab
-              suppliers={suppliers}
-              onReload={() => void loadSuppliers()}
-              onErr={setErr}
-            />
-          )}
-
-          {/* ── Tab: Lợi nhuận ── */}
-          {tab === "profit" && <ProfitTab formatVnd={formatVnd} />}
-
-          {/* ── Tab: Audit Log ── */}
-          {tab === "audit" && <AuditLogTab />}
-
-          {/* ── Tab: Voucher ── */}
-          {tab === "vouchers" && (
-            <section style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-              {/* FORM TẠO VOUCHER */}
-              <div className="card" style={{ padding: "1.15rem" }}>
-                <h3 style={{ margin: "0 0 0.85rem", fontSize: "1rem" }}>🎫 Tạo voucher mới</h3>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.65rem" }}>
-                  <div>
-                    <label className="admin-label">Mã voucher *</label>
-                    <input className="admin-input" placeholder="VD: COFFEE2026" value={voucherForm.code}
-                      onChange={(e) => setVoucherForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} />
-                  </div>
-                  <div>
-                    <label className="admin-label">Giảm giá (VND) *</label>
-                    <input className="admin-input" type="number" min={1000} placeholder="20000"
-                      value={voucherForm.discountValue}
-                      onChange={(e) => setVoucherForm(f => ({ ...f, discountValue: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="admin-label">Hóa đơn tối thiểu</label>
-                    <input className="admin-input" type="number" min={0} value={voucherForm.minBillValue}
-                      onChange={(e) => setVoucherForm(f => ({ ...f, minBillValue: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="admin-label">Số lượng (-1 = không giới hạn) *</label>
-                    <input className="admin-input" type="number" value={voucherForm.quantity}
-                      onChange={(e) => setVoucherForm(f => ({ ...f, quantity: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="admin-label">Hết hạn *</label>
-                    <input className="admin-input" type="date" value={voucherForm.endDate}
-                      onChange={(e) => setVoucherForm(f => ({ ...f, endDate: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="admin-label">Loại</label>
-                    <select className="admin-input" value={voucherForm.voucherType}
-                      onChange={(e) => setVoucherForm(f => ({ ...f, voucherType: e.target.value }))}>
-                      <option value="public">Public — ai cũng dùng được</option>
-                      <option value="personal">Personal — phải lưu vào ví</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="admin-label">Giờ vàng từ (0–23, để trống = cả ngày)</label>
-                    <input className="admin-input" type="number" min={0} max={23} placeholder="14"
-                      value={voucherForm.goldHourStart}
-                      onChange={(e) => setVoucherForm(f => ({ ...f, goldHourStart: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="admin-label">Giờ vàng đến (0–23)</label>
-                    <input className="admin-input" type="number" min={0} max={23} placeholder="17"
-                      value={voucherForm.goldHourEnd}
-                      onChange={(e) => setVoucherForm(f => ({ ...f, goldHourEnd: e.target.value }))} />
-                  </div>
-                  <div style={{ gridColumn: "1 / -1" }}>
-                    <label className="admin-label">Mô tả</label>
-                    <input className="admin-input" placeholder="Chương trình tri ân khách hàng..."
-                      value={voucherForm.description}
-                      onChange={(e) => setVoucherForm(f => ({ ...f, description: e.target.value }))} />
-                  </div>
-                  <div style={{ gridColumn: "1 / -1", display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.88rem" }}>
-                      <input type="checkbox" checked={voucherForm.autoGift}
-                        onChange={(e) => setVoucherForm(f => ({ ...f, autoGift: e.target.checked }))} />
-                      Tự động tặng cho tất cả khách hiện tại
-                    </label>
-                    <button type="button" className="btn btn-primary" style={{ padding: "0.5rem 1.35rem" }}
-                      onClick={async () => {
-                        try {
-                          setErr(null);
-                          await staffApi("/api/vouchers/admin", {
-                            method: "POST",
-                            body: JSON.stringify({
-                              code: voucherForm.code,
-                              description: voucherForm.description || null,
-                              discountValue: Number(voucherForm.discountValue),
-                              minBillValue: Number(voucherForm.minBillValue),
-                              endDate: voucherForm.endDate,
-                              quantity: Number(voucherForm.quantity),
-                              voucherType: voucherForm.voucherType,
-                              goldHourStart: voucherForm.goldHourStart ? Number(voucherForm.goldHourStart) : null,
-                              goldHourEnd: voucherForm.goldHourEnd ? Number(voucherForm.goldHourEnd) : null,
-                              autoGift: voucherForm.autoGift,
-                            }),
-                          });
-                          setVoucherForm({ code: "", description: "", discountValue: "", minBillValue: "0", endDate: "", quantity: "100", voucherType: "public", goldHourStart: "", goldHourEnd: "", autoGift: false });
-                          await loadVouchers();
-                        } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi tạo voucher"); }
-                      }}>
-                      Tạo voucher
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* DANH SÁCH VOUCHER */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-                {vouchers.length === 0 && (
-                  <div className="card" style={{ padding: "2rem", textAlign: "center", color: "var(--muted)" }}>
-                    Chưa có voucher nào. Tạo voucher đầu tiên ở trên.
-                  </div>
-                )}
-                {vouchers.map((v) => {
-                  const now = new Date();
-                  const expired = new Date(v.endDate) < now;
-                  const exhausted = v.quantity !== -1 && v.usedCount >= v.quantity;
-                  const statusColor = !v.isActive ? "var(--danger)" : expired || exhausted ? "var(--muted)" : "#15803d";
-                  const statusLabel = !v.isActive ? "Đã khóa" : expired ? "Hết hạn" : exhausted ? "Hết lượt" : "Đang chạy";
-                  return (
-                    <div key={v.id} className="card" style={{ padding: "1rem", opacity: (!v.isActive || expired) ? 0.65 : 1 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", alignItems: "flex-start" }}>
-                        <div>
-                          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
-                            <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.05rem", background: "rgba(146,64,14,0.12)", padding: "0.1rem 0.5rem", borderRadius: 6, border: "1px solid rgba(146,64,14,0.3)" }}>{v.code}</span>
-                            <span style={{ fontWeight: 700, color: "var(--accent)", fontSize: "1rem" }}>-{formatVnd(v.discountValue)}</span>
-                            <span style={{ padding: "0.1rem 0.5rem", borderRadius: 99, fontSize: "0.75rem", fontWeight: 600, background: statusColor + "22", color: statusColor, border: `1px solid ${statusColor}44` }}>{statusLabel}</span>
-                            <span style={{ padding: "0.1rem 0.5rem", borderRadius: 99, fontSize: "0.75rem", background: v.voucherType === "personal" ? "#8b5cf622" : "#3b82f622", color: v.voucherType === "personal" ? "#8b5cf6" : "#3b82f6", border: `1px solid ${v.voucherType === "personal" ? "#8b5cf644" : "#3b82f644"}` }}>
-                              {v.voucherType === "personal" ? "Cá nhân" : "Công khai"}
-                            </span>
-                          </div>
-                          {v.description && <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "0.2rem" }}>{v.description}</div>}
-                          <div style={{ fontSize: "0.82rem", color: "var(--muted)", marginTop: "0.3rem", display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-                            <span>Tối thiểu: {formatVnd(v.minBillValue)}</span>
-                            <span>Đã dùng: {v.usedCount}/{v.quantity === -1 ? "∞" : v.quantity}</span>
-                            <span>Đã lưu ví: {v._count?.userVouchers ?? 0}</span>
-                            <span>Hết hạn: {new Date(v.endDate).toLocaleDateString("vi-VN")}</span>
-                            {v.goldHourStart !== null && v.goldHourEnd !== null && (
-                              <span style={{ color: "#b45309" }}>⏰ Giờ vàng: {v.goldHourStart}h–{v.goldHourEnd}h</span>
-                            )}
-                          </div>
-                        </div>
-                        <button type="button"
-                          className={v.isActive ? "btn btn-ghost" : "btn btn-primary"}
-                          style={{ padding: "0.3rem 0.85rem", fontSize: "0.82rem" }}
-                          onClick={async () => {
-                            try {
-                              await staffApi(`/api/vouchers/admin/${v.id}`, {
-                                method: "PATCH",
-                                body: JSON.stringify({ isActive: !v.isActive }),
-                              });
-                              await loadVouchers();
-                            } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi"); }
-                          }}>
-                          {v.isActive ? "🔒 Khóa" : "🔓 Mở khóa"}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {/* ── Tab: Bài đăng ── */}
-          {tab === "posts" && (
-            <section>
-              <h3 style={{ margin: "0 0 1rem", fontSize: "1rem", color: "#111827" }}>📢 Quản lý bài đăng / Khuyến mãi</h3>
-
-              {/* Form tạo / sửa bài */}
-              <div className="card" style={{ padding: "1.1rem", marginBottom: "1.5rem" }}>
-                <h4 style={{ margin: "0 0 0.85rem", fontSize: "0.95rem" }}>
-                  {editPostId ? "✏️ Chỉnh sửa bài" : "➕ Tạo bài mới"}
-                </h4>
-                <div className="field">
-                  <label className="admin-label">Tiêu đề *</label>
-                  <input className="admin-input" placeholder="VD: Khuyến mãi mùa hè 2026" value={postForm.title}
-                    onChange={(e) => setPostForm((f) => ({ ...f, title: e.target.value }))} />
-                </div>
-                <div className="field">
-                  <label className="admin-label">Nội dung * <span style={{ fontSize: "0.75rem", color: "#9ca3af", fontWeight: 400 }}>(WYSIWYG — chèn ảnh, định dạng như Word)</span></label>
-                  <PostEditor
-                    key={editPostId ?? "new"}
-                    content={postForm.body}
-                    onChange={(html) => setPostForm((f) => ({ ...f, body: html }))}
-                    height="360px"
-                    theme="light"
-                  />
-                </div>
-                <div style={{ display: "flex", gap: "1.5rem", margin: "0.65rem 0" }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: "0.45rem", cursor: "pointer", fontSize: "0.88rem" }}>
-                    <input type="checkbox" checked={postForm.pinned}
-                      onChange={(e) => setPostForm((f) => ({ ...f, pinned: e.target.checked }))} />
-                    📌 Ghim nổi bật
-                  </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: "0.45rem", cursor: "pointer", fontSize: "0.88rem" }}>
-                    <input type="checkbox" checked={postForm.isPublished}
-                      onChange={(e) => setPostForm((f) => ({ ...f, isPublished: e.target.checked }))} />
-                    👁 Đã xuất bản
-                  </label>
-                </div>
-                <div style={{ display: "flex", gap: "0.65rem" }}>
-                  <button type="button" className="btn btn-primary"
-                    disabled={!postForm.title.trim() || !postForm.body.trim()}
-                    onClick={async () => {
-                      try {
-                        if (editPostId) {
-                          await staffApi(`/api/posts/${editPostId}`, { method: "PATCH", body: JSON.stringify(postForm) });
-                        } else {
-                          await staffApi("/api/posts", { method: "POST", body: JSON.stringify(postForm) });
-                        }
-                        setPostForm({ title: "", body: "", imageUrl: "", pinned: false, isPublished: true });
-                        setEditPostId(null);
-                        await loadPosts();
-                      } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi"); }
-                    }}
-                  >
-                    {editPostId ? "Lưu thay đổi" : "Đăng bài"}
-                  </button>
-                  {editPostId && (
-                    <button type="button" className="btn btn-ghost"
-                      onClick={() => { setEditPostId(null); setPostForm({ title: "", body: "", imageUrl: "", pinned: false, isPublished: true }); }}>
-                      Huỷ
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Danh sách bài */}
-              {posts.length === 0 && <p className="subtle">Chưa có bài đăng nào.</p>}
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
-                {posts.map((p) => (
-                  <div key={p.id} className="card" style={{ padding: "1rem", opacity: p.isPublished ? 1 : 0.6 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap", marginBottom: "0.3rem" }}>
-                          {p.pinned && <span style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", background: "rgba(var(--accent-rgb),0.15)", color: "var(--accent)", borderRadius: 999, padding: "0.1rem 0.45rem", border: "1px solid rgba(var(--accent-rgb),0.3)" }}>📌 Ghim</span>}
-                          {!p.isPublished && <span style={{ fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", background: "rgba(100,100,100,0.2)", color: "var(--muted)", borderRadius: 999, padding: "0.1rem 0.45rem" }}>Ẩn</span>}
-                          <strong style={{ fontSize: "0.95rem" }}>{p.title}</strong>
-                        </div>
-                        <p style={{ margin: "0 0 0.3rem", fontSize: "0.85rem", color: "#6b7280", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
-                          {p.body.replace(/<[^>]*>/g, "").slice(0, 100)}
-                        </p>
-                        {p.imageUrl && <p style={{ margin: 0, fontSize: "0.75rem", color: "#9ca3af" }}>🖼 {p.imageUrl}</p>}
-                        <p style={{ margin: "0.3rem 0 0", fontSize: "0.75rem", color: "#9ca3af" }}>
-                          {new Date(p.createdAt).toLocaleString("vi-VN")}
-                        </p>
-                      </div>
-                      <div style={{ display: "flex", gap: "0.4rem", flexShrink: 0, alignItems: "flex-start", flexWrap: "wrap" }}>
-                        <button type="button" className="btn btn-ghost admin-btn-compact"
-                          onClick={() => {
-                            setEditPostId(p.id);
-                            setPostForm({ title: p.title, body: p.body, imageUrl: p.imageUrl ?? "", pinned: p.pinned, isPublished: p.isPublished });
-                            window.scrollTo({ top: 0, behavior: "smooth" });
-                          }}>
-                          ✏️ Sửa
-                        </button>
-                        <button type="button" className="btn btn-ghost admin-btn-compact"
-                          onClick={() => setAdminPreviewPost(p)}>
-                          👁 Xem
-                        </button>
-                        <button type="button" className="btn btn-ghost admin-btn-compact"
-                          onClick={async () => {
-                            try {
-                              await staffApi(`/api/posts/${p.id}`, { method: "PATCH", body: JSON.stringify({ pinned: !p.pinned }) });
-                              await loadPosts();
-                            } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi"); }
-                          }}>
-                          {p.pinned ? "📌 Bỏ ghim" : "📌 Ghim"}
-                        </button>
-                        <button type="button" className="btn btn-ghost admin-btn-compact"
-                          onClick={async () => {
-                            try {
-                              await staffApi(`/api/posts/${p.id}`, { method: "PATCH", body: JSON.stringify({ isPublished: !p.isPublished }) });
-                              await loadPosts();
-                            } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi"); }
-                          }}>
-                          {p.isPublished ? "👁 Ẩn" : "👁 Hiện"}
-                        </button>
-                        <button type="button" className="btn btn-ghost admin-btn-compact"
-                          style={{ color: "#b91c1c" }}
-                          onClick={async () => {
-                            if (!confirm("Xóa bài này?")) return;
-                            try {
-                              await staffApi(`/api/posts/${p.id}`, { method: "DELETE" });
-                              await loadPosts();
-                            } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi"); }
-                          }}>
-                          🗑 Xóa
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Modal xem bài trong Admin */}
-          {adminPreviewPost && (
-            <PostViewModal post={adminPreviewPost} onClose={() => setAdminPreviewPost(null)} />
-          )}
-
-          {/* ── Export đơn hàng chi tiết (nút trong tab reports) ── */}
-          {tab === "reports" && (
-            <div style={{ marginTop: "1rem" }}>
-              <div className="card" style={{ padding: "0.85rem 1rem", display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
-                <label className="label" style={{ margin: 0 }}>Export đơn hàng — Từ:</label>
-                <input type="date" className="input" value={repFrom} onChange={e => setRepFrom(e.target.value)} style={{ width: 155 }} />
-                <label className="label" style={{ margin: 0 }}>Đến:</label>
-                <input type="date" className="input" value={repTo} onChange={e => setRepTo(e.target.value)} style={{ width: 155 }} />
-                <button className="btn btn-primary" style={{ padding: "0.4rem 1rem" }}
-                  onClick={async () => {
-                    try {
-                      const blob = await staffDownloadBlob(`/api/admin/reports/orders/export?from=${repFrom}&to=${repTo}`);
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement("a");
-                      a.href = url; a.download = `donhang_${repFrom}_${repTo}.csv`; a.click();
-                      URL.revokeObjectURL(url);
-                    } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi tải CSV"); }
-                  }}>
-                  📥 Export CSV đầy đủ
-                </button>
-                <button className="btn btn-ghost staff-btn-light" style={{ padding: "0.4rem 1rem" }}
-                  onClick={() => void loadDetailOrders(repFrom, repTo)}>
-                  Xem danh sách đơn
-                </button>
-              </div>
-              {detailOrders.length > 0 && (
-                <div style={{ marginTop: "0.75rem", overflowX: "auto" }}>
-                  <div style={{ marginBottom: "0.5rem", fontSize: "0.85rem", color: "var(--muted)" }}>
-                    Hiển thị {detailOrders.length} / {detailOrdersTotal} đơn hàng
-                  </div>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
-                    <thead>
-                      <tr style={{ borderBottom: "2px solid var(--border)", textAlign: "left" }}>
-                        {["Mã ĐH", "Thời gian", "Loại", "Bàn", "Nhân viên", "Món", "Tổng tiền", "Thanh toán", "Trạng thái"].map(h => (
-                          <th key={h} style={{ padding: "0.35rem 0.5rem", color: "#4a3f38", whiteSpace: "nowrap" }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detailOrders.map(o => (
-                        <tr key={o.id} style={{ borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
-                          <td style={{ padding: "0.35rem 0.5rem", color: "#6b5e55" }}>#{o.id}</td>
-                          <td style={{ padding: "0.35rem 0.5rem", whiteSpace: "nowrap", fontSize: "0.78rem" }}>{new Date(o.createdAt).toLocaleString("vi-VN")}</td>
-                          <td style={{ padding: "0.35rem 0.5rem" }}>{o.orderType}</td>
-                          <td style={{ padding: "0.35rem 0.5rem" }}>{o.table?.name ?? "Mang về"}</td>
-                          <td style={{ padding: "0.35rem 0.5rem" }}>{o.staff?.fullName ?? "—"}</td>
-                          <td style={{ padding: "0.35rem 0.5rem", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {o.details.map(d => `${d.product.name} ×${d.quantity}`).join(", ")}
-                          </td>
-                          <td style={{ padding: "0.35rem 0.5rem", fontWeight: 700 }}>{formatVnd(o.totalAmount)}</td>
-                          <td style={{ padding: "0.35rem 0.5rem", fontSize: "0.78rem" }}>
-                            {o.payments.map(p => `${p.method}`).join(", ")}
-                          </td>
-                          <td style={{ padding: "0.35rem 0.5rem" }}>
-                            <span style={{
-                              padding: "0.1rem 0.45rem", borderRadius: 99, fontSize: "0.75rem", fontWeight: 600,
-                              background: o.status === "Paid" ? "#22c55e22" : "#f59e0b22",
-                              color: o.status === "Paid" ? "#15803d" : "#b45309"
-                            }}>{o.status}</span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
-        </div>
+        {body}
       </main>
 
       {/* Bottom nav (mobile): 4 phân hệ chính + "Thêm" mở drawer */}

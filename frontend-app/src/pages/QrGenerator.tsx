@@ -35,7 +35,7 @@ async function drawQr(canvas: HTMLCanvasElement, text: string) {
   await QRCode.toCanvas(canvas, text, {
     width: 280,
     margin: 2,
-    color: { dark: "var(--text)", light: "#fff8ee" },
+    color: { dark: "#111827", light: "#ffffff" },
     errorCorrectionLevel: "M",
   });
 }

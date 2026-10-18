@@ -4,17 +4,7 @@ import { apiBase } from "../lib/api";
 import { mapFetchError } from "../lib/net";
 import { getStaffInfo, getStaffToken } from "../lib/staffApi";
 import { Lock } from "lucide-react";
-
-function defaultRouteForRole(role: string): string {
-  if (role === "Admin") return "/admin";
-  if (role === "Kitchen") return "/kds";
-  if (role === "Cashier") return "/pos";
-  if (role === "Waiter") return "/staff/tables";
-  if (role === "Shipper") return "/staff/shipper";
-  // Role không hợp lệ → giữ ở trang nhân sự, không nhảy ra menu khách
-  console.warn("[StaffLogin] Unknown role:", role);
-  return "/staff/tables";
-}
+import { defaultRouteForRole } from "../apps/registry";
 
 const STAFF_TOKEN = "cmn_staff_token";
 const STAFF_INFO = "cmn_staff_info";
