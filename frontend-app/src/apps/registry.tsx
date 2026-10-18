@@ -67,6 +67,9 @@ const RequestForm = L(() => import("../modules/inventory/Requests"), "RequestFor
 const SupplierList = L(() => import("../modules/purchase/Suppliers"), "SupplierList");
 const SupplierForm = L(() => import("../modules/purchase/Suppliers"), "SupplierForm");
 
+const PostList = L(() => import("../modules/website/Posts"), "PostList");
+const PostForm = L(() => import("../modules/website/Posts"), "PostForm");
+
 // Tab cũ của Admin.tsx (tạm thời, sẽ chuyển sang modules/)
 const LegacyAdmin = L(() => import("../pages/Admin"), "Admin");
 
@@ -233,7 +236,7 @@ export const APPS: AppDef[] = [
     id: "website",
     label: "Website",
     icon: Globe,
-    menus: [legacy("posts", "posts", "Bài đăng")],
+    menus: [{ id: "posts", label: "Bài đăng", roles: ADMIN, component: PostList, form: PostForm, layout: "erp" }],
   },
   {
     id: "settings",
