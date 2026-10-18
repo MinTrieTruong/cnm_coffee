@@ -56,6 +56,9 @@ const Dashboard = L(() => import("../modules/overview/Dashboard"), "Dashboard");
 const Revenue = L(() => import("../modules/overview/Revenue"), "Revenue");
 const Profit = L(() => import("../modules/overview/Profit"), "Profit");
 
+const EmployeeList = L(() => import("../modules/hr/Employees"), "EmployeeList");
+const EmployeeForm = L(() => import("../modules/hr/Employees"), "EmployeeForm");
+
 // Tab cũ của Admin.tsx (tạm thời, sẽ chuyển sang modules/)
 const LegacyAdmin = L(() => import("../pages/Admin"), "Admin");
 
@@ -182,7 +185,7 @@ export const APPS: AppDef[] = [
     label: "Nhân sự",
     icon: UsersRound,
     menus: [
-      legacy("staff", "employees", "Nhân viên"),
+      { id: "employees", label: "Nhân viên", roles: ADMIN, component: EmployeeList, form: EmployeeForm, layout: "erp" },
       {
         id: "time",
         label: "Lịch & chấm công",
