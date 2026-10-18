@@ -6,6 +6,7 @@ import { apiBase, apiOrigin } from "../lib/api";
 import { mapFetchError } from "../lib/net";
 import { getStaffInfo, staffApi } from "../lib/staffApi";
 import { PosDeliveryPanel } from "../components/PosDeliveryPanel";
+import { useHideBottomNav } from "../components/BottomNav";
 
 /** Âm thanh nhỏ nhẹ khi nhận yêu cầu thanh toán từ phục vụ. */
 function playPaymentRequestSound() {
@@ -194,6 +195,8 @@ export function Pos() {
   const [actualCash, setActualCash] = useState("");
   const [payOrder, setPayOrder] = useState<PendingOrder | null>(null);
   const [billModal, setBillModal] = useState<PendingOrder | null>(null);
+  // Màn bill / thu tiền có thanh thao tác riêng → ẩn thanh điều hướng đáy
+  useHideBottomNav(!!billModal || !!payOrder);
   const [billStep, setBillStep] = useState<"bill" | "pay">("bill");
   const [payMethod, setPayMethod] = useState("Cash");
   const [cashGiven, setCashGiven] = useState("");

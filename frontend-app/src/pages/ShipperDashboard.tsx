@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { io, Socket } from "socket.io-client";
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -92,7 +92,11 @@ export function ShipperDashboard() {
   const [data, setData] = useState<MeData | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [tab, setTab] = useState<"now" | "history">("now");
+  // Tab theo ?view= để khớp thanh điều hướng đáy (Đơn giao / Bản đồ tuyến / Lịch sử giao)
+  const [params, setParams] = useSearchParams();
+  const view = params.get("view");
+  const tab: "now" | "history" = view === "history" ? "history" : "now";
+  const setTab = (t: "now" | "history") => setParams(t === "history" ? { view: "history" } : {}, { replace: true });
   const [busy, setBusy] = useState(false);
   const [gps, setGps] = useState<(LatLng & { acc: number }) | null>(null);
   const [gpsErr, setGpsErr] = useState<string | null>(null);
@@ -260,7 +264,7 @@ export function ShipperDashboard() {
       </div>
 
       {/* ── Bản đồ ── */}
-      <div className="sp-map">
+      <div className={view === "map" ? "sp-map sp-map-tall" : "sp-map"}>
         {store && (
           <MapContainer center={[store.lat, store.lng]} zoom={15} zoomControl={false} style={{ height: "100%", width: "100%" }}>
             <TileLayer attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />

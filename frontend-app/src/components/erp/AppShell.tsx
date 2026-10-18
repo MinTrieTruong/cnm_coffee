@@ -1,7 +1,10 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { ChevronDown, Grip, LogOut, Menu as MenuIcon, Store, UserRound } from "lucide-react";
-import { clearStaffSession, getStaffInfo, getStaffToken } from "../../lib/staffApi";
+import { ChevronDown, ChevronLeft, Grip, LogOut, Menu as MenuIcon, Store, UserRound } from "lucide-react";
+import { clearStaffSession, getStaffInfo, getStaffToken, staffApi } from "../../lib/staffApi";
+import { BottomNav } from "../BottomNav";
+import { staffNav } from "../../lib/navConfig";
+import { useStaffBadges } from "../../lib/navBadges";
 import {
   appPath,
   canSee,
@@ -14,7 +17,7 @@ import {
   type MenuLeaf,
 } from "../../apps/registry";
 import { Dropdown } from "./ControlPanel";
-import { EmptyState } from "./primitives";
+import { Alert, Button, EmptyState, Field, Modal } from "./primitives";
 
 function useOutsideClose(open: boolean, close: () => void) {
   const ref = useRef<HTMLDivElement>(null);
@@ -41,6 +44,8 @@ export function AppShell() {
   const [appsOpen, setAppsOpen] = useState(false);
   const [menusOpen, setMenusOpen] = useState(false);
   const appsRef = useOutsideClose(appsOpen, () => setAppsOpen(false));
+  const [pwOpen, setPwOpen] = useState(false);
+  const badges = useStaffBadges(info?.role, info?.id);
 
   useEffect(() => {
     setAppsOpen(false);
@@ -66,17 +71,28 @@ export function AppShell() {
 
   const contentClass = leaf.layout === "erp" ? "o-content o-content-full" : leaf.layout === "full" ? "o-content o-content-full" : "o-content o-content-legacy";
   const labelOf = (l: MenuLeaf) => (l.labelFor ? l.labelFor(role) : l.label);
+  const appLeaves = app.menus.flatMap((m) => (isLeaf(m) ? [m] : m.children)).filter((l) => canSee(l, role));
+  const mobileNav = staffNav(role);
 
   return (
     <div className="o-app">
       <header className={menusOpen ? "o-navbar menus-open" : "o-navbar"}>
-        <div className="o-dropdown" ref={appsRef}>
+        {/* Mobile: chỉ tiêu đề trang (+ nút quay lại ở trang con) */}
+        <div className="o-mobile-head">
+          {recordId && (
+            <Link to={appPath(app, leaf)} className="o-nav-btn" aria-label="Quay lại">
+              <ChevronLeft size={20} aria-hidden />
+            </Link>
+          )}
+          <span className="o-mobile-title">{labelOf(leaf)}</span>
+        </div>
+        <div className="o-dropdown o-desk" ref={appsRef}>
           <button type="button" className="o-nav-btn" onClick={() => setAppsOpen((v) => !v)} aria-expanded={appsOpen} aria-label="Ứng dụng" title="Ứng dụng">
             <Grip size={18} aria-hidden />
           </button>
           {appsOpen && <AppsPanel apps={apps} role={role} current={app} />}
         </div>
-        <Link to={firstPathOf(app, role)} className="o-nav-btn o-nav-app">{app.label}</Link>
+        <Link to={firstPathOf(app, role)} className="o-nav-btn o-nav-app o-desk">{app.label}</Link>
 
         <button type="button" className="o-nav-btn o-nav-burger" onClick={() => setMenusOpen((v) => !v)} aria-expanded={menusOpen} aria-label="Menu">
           <MenuIcon size={18} aria-hidden />
@@ -126,6 +142,7 @@ export function AppShell() {
         <span className="o-nav-spacer" />
         {/* Chừa chỗ chọn chi nhánh — giai đoạn sau */}
         <div className="o-nav-branch" aria-hidden />
+        <div className="o-desk">
         <Dropdown
           align="right"
           button={({ open, toggle }) => (
@@ -145,7 +162,19 @@ export function AppShell() {
             </>
           )}
         </Dropdown>
+        </div>
       </header>
+
+      {/* Mobile: các mục con của app hiện tại, cuộn ngang */}
+      {appLeaves.length > 1 && (
+        <nav className="o-mobile-subnav" aria-label={`Mục trong ${app.label}`}>
+          {appLeaves.map((l) => (
+            <Link key={l.id} to={appPath(app, l)} className={l.id === leaf.id ? "active" : undefined} aria-current={l.id === leaf.id ? "page" : undefined}>
+              {labelOf(l)}
+            </Link>
+          ))}
+        </nav>
+      )}
 
       <main className="o-main">
         <div className={contentClass}>
@@ -158,7 +187,63 @@ export function AppShell() {
           )}
         </div>
       </main>
+
+      <BottomNav
+        items={mobileNav.primary}
+        badges={badges}
+        more={{
+          items: mobileNav.more,
+          apps: mobileNav.moreApps,
+          profile: { name: info.fullName ?? "Nhân viên", role },
+          onChangePassword: () => setPwOpen(true),
+          onLogout: logout,
+        }}
+      />
+      {pwOpen && <ChangePasswordDialog onClose={() => setPwOpen(false)} />}
     </div>
+  );
+}
+
+/** Đổi mật khẩu nhân viên — dùng API sẵn có POST /api/staff/me/change-password */
+function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
+  const [cur, setCur] = useState("");
+  const [next, setNext] = useState("");
+  const [again, setAgain] = useState("");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function submit() {
+    if (next.length < 4) return setMsg({ ok: false, text: "Mật khẩu mới tối thiểu 4 ký tự." });
+    if (next !== again) return setMsg({ ok: false, text: "Nhập lại mật khẩu mới không khớp." });
+    setBusy(true);
+    try {
+      await staffApi("/api/staff/me/change-password", { method: "POST", body: JSON.stringify({ currentPassword: cur, newPassword: next }) });
+      setMsg({ ok: true, text: "Đã đổi mật khẩu." });
+      setCur("");
+      setNext("");
+      setAgain("");
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "Lỗi đổi mật khẩu" });
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal
+      title="Đổi mật khẩu"
+      size="sm"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="primary" onClick={() => void submit()} disabled={busy || !cur || !next}>Đổi mật khẩu</Button>
+          <Button onClick={onClose}>Đóng</Button>
+        </>
+      }
+    >
+      {msg && <Alert tone={msg.ok ? "info" : "danger"}>{msg.text}</Alert>}
+      <Field label="Mật khẩu hiện tại"><input className="o-input" type="password" value={cur} onChange={(e) => setCur(e.target.value)} autoComplete="current-password" /></Field>
+      <Field label="Mật khẩu mới"><input className="o-input" type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" /></Field>
+      <Field label="Nhập lại"><input className="o-input" type="password" value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" /></Field>
+    </Modal>
   );
 }
 

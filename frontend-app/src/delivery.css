@@ -53,6 +53,7 @@
 .sp-switch-on .sp-switch-knob { transform: translateX(26px); color: #16a34a; }
 
 .sp-map { position: relative; height: 42vh; min-height: 260px; border-radius: 8px; overflow: hidden; z-index: 0; }
+.sp-map.sp-map-tall { height: 62vh; }
 .sp-app .sp-map-btn {
   position: absolute; right: 10px; bottom: 28px; z-index: 500; width: 44px; height: 44px; border-radius: 50%; border: 0;
   background: #fff; color: #1d4ed8; box-shadow: var(--shadow-md); display: flex; align-items: center; justify-content: center;

@@ -641,3 +641,46 @@ button.o-status-step { cursor: pointer; }
 .o-app .attendance-modal,
 .o-app .admin-combo-modal { border-radius: var(--o-radius) !important; }
 .o-app .table-tile { box-shadow: none; }
+
+/* ═══════════ Mobile (≤ 768px): điều hướng bằng thanh đáy (BottomNav) ═══════════ */
+.o-mobile-head,
+.o-mobile-subnav { display: none; }
+@media (max-width: 768px) {
+  .o-desk,
+  .o-nav-menus,
+  .o-nav-burger,
+  .o-nav-spacer { display: none !important; }
+  .o-mobile-head { display: flex; align-items: center; flex: 1; min-width: 0; }
+  .o-mobile-title {
+    font-size: 16px;
+    font-weight: 600;
+    padding: 0 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .o-mobile-subnav {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 6px 8px;
+    background: var(--o-surface);
+    border-bottom: 1px solid var(--o-border);
+    position: sticky;
+    top: var(--o-navbar-h);
+    z-index: 55;
+    scrollbar-width: none;
+  }
+  .o-mobile-subnav::-webkit-scrollbar { display: none; }
+  .o-mobile-subnav a {
+    flex-shrink: 0;
+    padding: 5px 10px;
+    border: 1px solid var(--o-border);
+    border-radius: var(--o-radius);
+    color: var(--o-text-2);
+    font-size: var(--o-fs-sm);
+    white-space: nowrap;
+    text-decoration: none;
+  }
+  .o-mobile-subnav a.active { background: var(--o-primary-soft); border-color: var(--o-primary); color: var(--o-primary); font-weight: 600; }
+}

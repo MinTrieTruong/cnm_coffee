@@ -1,7 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
-import { getUser, isGuestMode, mergeSessionUser, type SessionUser } from "../lib/session";
+import { clearSession, getUser, isGuestMode, mergeSessionUser, type SessionUser } from "../lib/session";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, User, Star, Award, Ticket, MessageSquare, ImagePlus, X, Lock, Package, XCircle } from "lucide-react";
 import { deliveryLabel } from "../lib/delivery";
@@ -122,7 +122,18 @@ export function Account() {
   const [pwdNew, setPwdNew] = useState("");
 
   // Dashboard Tabs
-  const [mainTab, setMainTab] = useState<"profile" | "orders" | "vouchers" | "reviews_write" | "reviews_public">("profile");
+  type MainTab = "profile" | "orders" | "vouchers" | "reviews_write" | "reviews_public";
+  const MAIN_TABS: MainTab[] = ["profile", "orders", "vouchers", "reviews_write", "reviews_public"];
+  const [params, setParams] = useSearchParams();
+  const navTo = useNavigate();
+  const tabParam = params.get("tab") as MainTab | null;
+  const [mainTab, setMainTab] = useState<MainTab>(tabParam && MAIN_TABS.includes(tabParam) ? tabParam : "profile");
+  // ?tab= (từ thanh điều hướng đáy "Đơn của tôi") → đồng bộ tab
+  useEffect(() => {
+    if (tabParam && MAIN_TABS.includes(tabParam)) setMainTab(tabParam);
+    else if (!tabParam) setMainTab("profile");
+  }, [tabParam]); // eslint-disable-line react-hooks/exhaustive-deps
+  const selectTab = (t: MainTab) => setParams(t === "profile" ? {} : { tab: t }, { replace: true });
   const [voucherSubTab, setVoucherSubTab] = useState<"my" | "public">("my");
 
   const refreshMe = useCallback(async () => {
@@ -346,7 +357,7 @@ export function Account() {
           { id: "reviews_public", label: "Xem nhận xét chung", icon: MessageSquare },
         ].map(t => (
           <button
-            key={t.id} type="button" onClick={() => setMainTab(t.id as any)}
+            key={t.id} type="button" onClick={() => selectTab(t.id as MainTab)}
             style={{
               display: "flex", alignItems: "center", gap: "0.5rem", flexShrink: 0,
               padding: "0.75rem 1.25rem", borderRadius: 999, fontSize: "0.95rem",
@@ -360,6 +371,18 @@ export function Account() {
           </button>
         ))}
       </div>
+
+      {/* Mobile: không còn drawer nên đặt Đăng xuất ở đây (desktop có trên header) */}
+      <button
+        type="button"
+        className="btn btn-ghost account-mobile-logout"
+        onClick={() => {
+          clearSession();
+          navTo("/", { replace: true });
+        }}
+      >
+        Đăng xuất
+      </button>
 
       <AnimatePresence mode="wait">
         {/* TAB: PROFILE */}

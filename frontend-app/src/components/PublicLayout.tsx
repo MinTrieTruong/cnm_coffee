@@ -1,22 +1,10 @@
-import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import {
-  Coffee,
-  Home,
-  Info,
-  LogIn,
-  LogOut,
-  Menu,
-  Newspaper,
-  ShoppingBag,
-  Tag,
-  User,
-  UserPlus,
-  X,
-} from "lucide-react";
+import { ChevronLeft, Coffee, Home, Info, Newspaper, ShoppingBag, Tag, User } from "lucide-react";
 import { clearSession, getUser, isGuestMode } from "../lib/session";
 import { getCart } from "../lib/cart";
 import { LogoMark } from "./LogoMark";
+import { BottomNav } from "./BottomNav";
+import { customerNav } from "../lib/navConfig";
 
 const CONTACT = {
   phone: "0389730362",
@@ -33,7 +21,34 @@ const MAIN_LINKS = [
   { to: "/about", label: "Về chúng tôi", icon: Info, match: (p: string) => p === "/about" },
 ];
 
-const TABBAR_HIDDEN_PREFIXES = ["/product/", "/cart", "/order/", "/login", "/register", "/staff/login", "/vnpay-return"];
+/** Tiêu đề trang trên header mobile */
+function titleOf(p: string): string {
+  if (p === "/") return "TD Coffee";
+  if (p.startsWith("/order/")) {
+    if (p.endsWith("/tracking")) return "Theo dõi đơn";
+    if (p.endsWith("/checkout")) return "Thanh toán";
+    return "Đơn hàng";
+  }
+  const map: [string, string][] = [
+    ["/menu", "Thực đơn"],
+    ["/product/", "Chi tiết món"],
+    ["/cart", "Giỏ hàng"],
+    ["/account", "Tài khoản"],
+    ["/promotions", "Khuyến mãi"],
+    ["/blog", "Bài viết"],
+    ["/about", "Về chúng tôi"],
+    ["/login", "Đăng nhập"],
+    ["/register", "Đăng ký"],
+    ["/staff/login", "Đăng nhập nhân sự"],
+    ["/vnpay-return", "Kết quả thanh toán"],
+  ];
+  return map.find(([prefix]) => p.startsWith(prefix))?.[1] ?? "TD Coffee";
+}
+/** Trang chính (là tab đáy) — các trang khác coi là trang con, có nút quay lại */
+const ROOT_PAGES = ["/", "/menu", "/account", "/promotions", "/blog", "/about"];
+
+/** Luồng tập trung có thanh hành động riêng → ẩn thanh điều hướng đáy */
+const TABBAR_HIDDEN_PREFIXES = ["/order/", "/staff/login", "/vnpay-return"];
 
 export function PublicLayout() {
   const loc = useLocation();
@@ -42,47 +57,34 @@ export function PublicLayout() {
   const guest = isGuestMode();
   const loggedIn = !guest && !!user;
   const cartCount = getCart().reduce((s, i) => s + i.quantity, 0);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-
-  // Đóng drawer khi đổi trang
-  useEffect(() => {
-    setDrawerOpen(false);
-  }, [loc.pathname]);
-
-  // Khóa cuộn nền khi drawer mở
-  useEffect(() => {
-    document.body.style.overflow = drawerOpen ? "hidden" : "";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [drawerOpen]);
-
   function handleLogout() {
     clearSession();
-    setDrawerOpen(false);
     nav("/", { replace: true });
   }
 
-  // Ẩn tab bar ở các luồng tập trung (chi tiết món, giỏ, thanh toán, đăng nhập) vì đã có thanh hành động riêng
+  // Ẩn thanh đáy ở luồng thanh toán / theo dõi đơn và trang đăng nhập nhân sự
   const p = loc.pathname;
   const showTabBar = !TABBAR_HIDDEN_PREFIXES.some((x) => p.startsWith(x));
-  const tabBarItems = [
-    { to: "/", label: "Trang chủ", icon: Home, active: p === "/", badge: 0 },
-    { to: "/menu", label: "Menu", icon: Coffee, active: p.startsWith("/menu"), badge: 0 },
-    { to: "/promotions", label: "Ưu đãi", icon: Tag, active: p === "/promotions", badge: 0 },
-    { to: "/cart", label: "Giỏ hàng", icon: ShoppingBag, active: false, badge: cartCount },
-    loggedIn
-      ? { to: "/account", label: "Tài khoản", icon: User, active: p === "/account", badge: 0 }
-      : { to: "/login", label: "Đăng nhập", icon: LogIn, active: false, badge: 0 },
-  ];
-
   const linkCls = (active: boolean) => (active ? "site-nav-link site-nav-active" : "site-nav-link");
-  const drawerCls = (active: boolean) => (active ? "site-drawer-link site-drawer-link-active" : "site-drawer-link");
+  const title = titleOf(p);
+  const isSubPage = !ROOT_PAGES.includes(p);
+  const goBack = () => (window.history.length > 1 ? nav(-1) : nav("/"));
 
   return (
-    <div className={showTabBar ? "site-root site-root-tabbar" : "site-root"}>
+    <div className="site-root">
       <header className="site-header">
         <div className="site-header-inner">
+          {/* Mobile: chỉ tiêu đề trang (+ nút quay lại ở trang con) */}
+          <div className="site-mobile-head">
+            {isSubPage ? (
+              <button type="button" className="site-icon-btn" onClick={goBack} aria-label="Quay lại">
+                <ChevronLeft size={22} aria-hidden />
+              </button>
+            ) : (
+              <LogoMark className="site-logo" width={32} height={32} />
+            )}
+            <span className="site-mobile-title">{title}</span>
+          </div>
           <Link to="/" className="site-brand">
             <LogoMark className="site-logo" width={40} height={40} />
             <span className="site-brand-text">TD Coffee</span>
@@ -130,92 +132,15 @@ export function PublicLayout() {
               {cartCount > 0 && <span className="site-cart-count">{cartCount > 99 ? "99+" : cartCount}</span>}
             </Link>
 
-            <button
-              type="button"
-              className="site-icon-btn site-menu-btn"
-              onClick={() => setDrawerOpen(true)}
-              aria-label="Mở menu"
-              aria-expanded={drawerOpen}
-              aria-controls="site-drawer"
-            >
-              <Menu size={24} aria-hidden />
-            </button>
           </div>
         </div>
       </header>
-
-      {/* Drawer (mobile/tablet) */}
-      {drawerOpen && <div className="site-drawer-overlay" onClick={() => setDrawerOpen(false)} role="presentation" />}
-      <aside
-        id="site-drawer"
-        className={drawerOpen ? "site-drawer site-drawer-open" : "site-drawer"}
-        aria-label="Menu"
-        aria-hidden={!drawerOpen}
-      >
-        <div className="site-drawer-head">
-          <Link to="/" className="site-brand">
-            <LogoMark className="site-logo" width={36} height={36} />
-            <span className="site-brand-text">TD Coffee</span>
-          </Link>
-          <button type="button" className="site-icon-btn" onClick={() => setDrawerOpen(false)} aria-label="Đóng menu">
-            <X size={22} aria-hidden />
-          </button>
-        </div>
-        <nav className="site-drawer-nav">
-          {MAIN_LINKS.map(({ to, label, icon: Icon, match }) => (
-            <Link key={to} to={to} className={drawerCls(match(loc.pathname))}>
-              <Icon size={20} aria-hidden /> {label}
-            </Link>
-          ))}
-          <Link to="/cart" className={drawerCls(loc.pathname === "/cart")}>
-            <ShoppingBag size={20} aria-hidden /> Giỏ hàng{cartCount > 0 ? ` (${cartCount})` : ""}
-          </Link>
-          <div className="site-drawer-sep" />
-          {loggedIn ? (
-            <>
-              <Link to="/account" className={drawerCls(loc.pathname === "/account")}>
-                <User size={20} aria-hidden /> Tài khoản
-              </Link>
-              <button type="button" onClick={handleLogout} className="site-drawer-link site-drawer-danger">
-                <LogOut size={20} aria-hidden /> Đăng xuất
-              </button>
-            </>
-          ) : (
-            <>
-              <Link to="/login" className={drawerCls(loc.pathname === "/login")}>
-                <LogIn size={20} aria-hidden /> Đăng nhập
-              </Link>
-              <Link to="/register" className={drawerCls(loc.pathname === "/register")}>
-                <UserPlus size={20} aria-hidden /> Đăng ký
-              </Link>
-            </>
-          )}
-        </nav>
-      </aside>
 
       <main className="site-main">
         <Outlet />
       </main>
 
-      {/* Tab bar (mobile): các tác vụ khách dùng nhiều nhất, trong tầm ngón cái */}
-      {showTabBar && (
-        <nav className="site-tabbar" aria-label="Điều hướng nhanh">
-          {tabBarItems.map(({ to, label, icon: Icon, active, badge }) => (
-            <Link
-              key={to}
-              to={to}
-              className={active ? "site-tabbar-item site-tabbar-active" : "site-tabbar-item"}
-              aria-current={active ? "page" : undefined}
-            >
-              <span className="site-tabbar-icon">
-                <Icon size={21} aria-hidden />
-                {badge ? <span className="site-tabbar-badge">{badge > 99 ? "99+" : badge}</span> : null}
-              </span>
-              <span className="site-tabbar-label">{label}</span>
-            </Link>
-          ))}
-        </nav>
-      )}
+      <BottomNav items={customerNav(loggedIn)} badges={{ cart: cartCount }} hidden={!showTabBar} />
 
       <footer className="site-footer">
         <div className="site-footer-inner">
@@ -232,6 +157,12 @@ export function PublicLayout() {
               Email: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>
             </p>
             <p>{CONTACT.address}</p>
+          </div>
+          <div className="site-footer-col">
+            <h3 className="site-footer-heading">Khám phá</h3>
+            {MAIN_LINKS.map((l) => (
+              <p key={l.to}><Link to={l.to}>{l.label}</Link></p>
+            ))}
           </div>
           <div className="site-footer-col">
             <h3 className="site-footer-heading">Giờ mở cửa</h3>
