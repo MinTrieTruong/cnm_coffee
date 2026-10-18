@@ -59,6 +59,11 @@ const Profit = L(() => import("../modules/overview/Profit"), "Profit");
 const EmployeeList = L(() => import("../modules/hr/Employees"), "EmployeeList");
 const EmployeeForm = L(() => import("../modules/hr/Employees"), "EmployeeForm");
 
+const StockList = L(() => import("../modules/inventory/Stock"), "StockList");
+const StockForm = L(() => import("../modules/inventory/Stock"), "StockForm");
+const RequestList = L(() => import("../modules/inventory/Requests"), "RequestList");
+const RequestForm = L(() => import("../modules/inventory/Requests"), "RequestForm");
+
 // Tab cũ của Admin.tsx (tạm thời, sẽ chuyển sang modules/)
 const LegacyAdmin = L(() => import("../pages/Admin"), "Admin");
 
@@ -157,9 +162,9 @@ export const APPS: AppDef[] = [
     label: "Kho",
     icon: Warehouse,
     menus: [
-      legacy("inventory", "stock", "Tồn kho"),
+      { id: "stock", label: "Tồn kho", roles: ADMIN, component: StockList, form: StockForm, layout: "erp" },
       { id: "check", label: "Kiểm kho", roles: ["Admin", "Kitchen"], component: InventoryCheck, layout: "full" },
-      legacy("requests", "requests", "Phiếu xin NL"),
+      { id: "requests", label: "Phiếu xin NL", roles: ADMIN, component: RequestList, form: RequestForm, layout: "erp" },
     ],
   },
   {
