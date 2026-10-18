@@ -41,6 +41,17 @@ const AdminHrRequests = L(() => import("../pages/AdminHrRequests"), "AdminHrRequ
 const AdminZones = L(() => import("../pages/AdminZones"), "AdminZones");
 const DeliveryBoard = L(() => import("../modules/delivery/DeliveryBoard"), "DeliveryBoard");
 
+// Modules ERP
+const ProductList = L(() => import("../modules/sales/ProductList"), "ProductList");
+const ProductForm = L(() => import("../modules/sales/ProductForm"), "ProductForm");
+const CategoryList = L(() => import("../modules/sales/CategoryList"), "CategoryList");
+const VoucherList = L(() => import("../modules/sales/Vouchers"), "VoucherList");
+const VoucherForm = L(() => import("../modules/sales/Vouchers"), "VoucherForm");
+const CustomerList = L(() => import("../modules/sales/Customers"), "CustomerList");
+const CustomerForm = L(() => import("../modules/sales/Customers"), "CustomerForm");
+const ReviewList = L(() => import("../modules/sales/Reviews"), "ReviewList");
+const ReviewForm = L(() => import("../modules/sales/Reviews"), "ReviewForm");
+
 // Tab cũ của Admin.tsx (tạm thời, sẽ chuyển sang modules/)
 const LegacyAdmin = L(() => import("../pages/Admin"), "Admin");
 
@@ -98,12 +109,12 @@ export const APPS: AppDef[] = [
     label: "Bán hàng",
     icon: ShoppingBag,
     menus: [
-      legacy("products", "products", "Món & giá"),
-      legacy("categories", "categories", "Danh mục"),
+      { id: "products", label: "Món & giá", roles: ADMIN, component: ProductList, form: ProductForm, layout: "erp" },
+      { id: "categories", label: "Danh mục", roles: ADMIN, component: CategoryList, layout: "erp" },
       { id: "combos", label: "Combo", roles: ADMIN, component: AdminCombos, layout: "legacy" },
-      legacy("vouchers", "vouchers", "Voucher"),
-      legacy("customers", "customers", "Khách hàng"),
-      legacy("reviews", "reviews", "Đánh giá"),
+      { id: "vouchers", label: "Voucher", roles: ADMIN, component: VoucherList, form: VoucherForm, layout: "erp" },
+      { id: "customers", label: "Khách hàng", roles: ADMIN, component: CustomerList, form: CustomerForm, layout: "erp" },
+      { id: "reviews", label: "Đánh giá", roles: ADMIN, component: ReviewList, form: ReviewForm, layout: "erp" },
     ],
   },
   {
