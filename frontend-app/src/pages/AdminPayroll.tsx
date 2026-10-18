@@ -31,7 +31,7 @@ function formatVnd(val: number) {
 export function AdminPayroll() {
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
-  const [config, setConfig] = useState<PayrollConfig | null>(null);
+  const [, setConfig] = useState<PayrollConfig | null>(null);
   const [payslips, setPayslips] = useState<Payslip[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);

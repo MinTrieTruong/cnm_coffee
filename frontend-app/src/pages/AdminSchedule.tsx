@@ -104,10 +104,10 @@ function EditModal({ ws, staffList, onSave, onClose }: {
     <div style={{ position: "fixed", inset: 0, zIndex: 800, background: "var(--surface)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", backdropFilter: "blur(2px)" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} role="dialog">
       <div style={{ background: "#fff", border: "1px solid var(--panel-border)", borderRadius: 14, padding: "1.4rem", width: "100%", maxWidth: 420, boxShadow: "0 10px 30px var(--panel-border)" }}>
-        <h3 style={{ margin: "0 0 1rem", fontSize: "0.98rem", fontWeight: 700, color: "var(--text)" }}>✏️ Chỉnh sửa ca — {ws.staff.fullName}</h3>
+        <h3 style={{ margin: "0 0 1rem", fontSize: "0.98rem", fontWeight: 700, color: "var(--text)" }}>Chỉnh sửa ca — {ws.staff?.fullName ?? "Chưa phân công"}</h3>
 
         <label style={{ fontSize: "0.8rem", color: "#4b5563", display: "block", marginBottom: 4 }}>Nhân viên</label>
-        <select className="input" value={staffId} onChange={(e) => setStaffId(Number(e.target.value))} style={{ width: "100%", marginBottom: "0.75rem" }}>
+        <select className="input" value={staffId ?? ""} onChange={(e) => setStaffId(Number(e.target.value))} style={{ width: "100%", marginBottom: "0.75rem" }}>
           {staffList.map((s) => <option key={s.id} value={s.id}>{s.fullName} ({s.role})</option>)}
         </select>
 
@@ -242,7 +242,7 @@ export function AdminSchedule({ embedded = false }: { embedded?: boolean } = {})
     return schedules.filter(ws => {
       if (ws.status !== "APPROVED") return false;
       if (!isSameDay(parseISO(ws.workDate), day)) return false;
-      if (ws.staff.role !== roleGroup) return false;
+      if (ws.staff?.role !== roleGroup) return false;
       if (timeOfDay === "Sáng" && (ws.shiftCode === "A" || ws.shiftCode === "SP1")) return true;
       if (timeOfDay === "Chiều" && ws.shiftCode === "B") return true;
       if (timeOfDay === "Tối" && (ws.shiftCode === "C" || ws.shiftCode === "SP2")) return true;

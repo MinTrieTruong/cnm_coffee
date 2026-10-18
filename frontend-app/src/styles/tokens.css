@@ -1,0 +1,86 @@
+/* ═══════════════════════════════════════════════════════════════════
+   DESIGN TOKENS — phong cách ERP (Odoo-like): phẳng, gọn, dày đặc.
+   Màu chủ đạo: nâu cà phê #6F4E37.
+   File này nạp SAU index.css nên các biến cũ (--accent, --radius…)
+   được ánh xạ lại về token mới để mọi trang cũ đồng bộ màu/font/bo góc.
+   ═══════════════════════════════════════════════════════════════════ */
+:root {
+  /* Nền & bề mặt */
+  --o-bg: #f9fafb;
+  --o-surface: #ffffff;
+  --o-surface-alt: #f3f4f6;
+  --o-border: #e5e7eb;
+  --o-border-strong: #d1d5db;
+
+  /* Chữ */
+  --o-text: #111827;
+  --o-text-2: #374151;
+  --o-muted: #6b7280;
+
+  /* Màu chủ đạo */
+  --o-primary: #6f4e37;
+  --o-primary-hover: #5c402d;
+  --o-primary-soft: #f3ede8;
+  --o-primary-rgb: 111, 78, 55;
+  --o-on-primary: #ffffff;
+
+  /* Trạng thái (nền nhạt + chữ đậm) */
+  --o-success: #15803d;
+  --o-success-bg: #ecfdf3;
+  --o-warning: #b45309;
+  --o-warning-bg: #fffbeb;
+  --o-danger: #b91c1c;
+  --o-danger-bg: #fef2f2;
+  --o-info: #1d4ed8;
+  --o-info-bg: #eff6ff;
+
+  /* Chữ & khối */
+  --o-font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --o-fs: 14px;
+  --o-fs-sm: 13px;
+  --o-fs-xs: 12px;
+  --o-radius: 4px;
+  --o-radius-lg: 8px;
+  --o-shadow-pop: 0 4px 16px rgba(17, 24, 39, 0.12);
+  --o-navbar-h: 46px;
+  --o-icon: 16px;
+
+  /* ── Ánh xạ biến cũ → token mới (trang cũ & trang khách tự đồng bộ) ── */
+  --bg: var(--o-bg);
+  --bg-soft: var(--o-surface-alt);
+  --surface: var(--o-surface);
+  --surface2: var(--o-surface-alt);
+  --panel-bg: var(--o-surface);
+  --text: var(--o-text);
+  --text-strong: var(--o-text);
+  --text-dark: var(--o-text);
+  --text-secondary: var(--o-text-2);
+  --muted: var(--o-muted);
+  --muted-2: #9ca3af;
+  --accent: var(--o-primary);
+  --accent-hover: var(--o-primary-hover);
+  --accent-dim: #8a6a52;
+  --accent-rgb: var(--o-primary-rgb);
+  --accent-soft: var(--o-primary-soft);
+  --accent-soft-2: #e8ddd4;
+  --on-accent: var(--o-on-primary);
+  --success: var(--o-success);
+  --success-soft: var(--o-success-bg);
+  --danger: var(--o-danger);
+  --danger-soft: var(--o-danger-bg);
+  --warning: var(--o-warning);
+  --warning-soft: var(--o-warning-bg);
+  --info: var(--o-info);
+  --info-soft: var(--o-info-bg);
+  --border: var(--o-border);
+  --border-strong: var(--o-border-strong);
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: 0 1px 3px rgba(17, 24, 39, 0.08);
+  --shadow-lg: var(--o-shadow-pop);
+  --radius: var(--o-radius-lg);
+  --radius-sm: var(--o-radius);
+  --radius-lg: var(--o-radius-lg);
+  --font-display: var(--o-font);
+  --font-body: var(--o-font);
+}

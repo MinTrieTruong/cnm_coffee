@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { api, mediaUrl, calculateFinalPrice, type HomePageResponse, type Category, type Product, type Combo } from "../lib/api";
 import { addToCart, addComboToCart } from "../lib/cart";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
@@ -112,7 +112,6 @@ function ProductCard({
   showDiscount?: boolean;
   showAddToCart?: boolean;
 }) {
-  const _nav = useNavigate();
   const hasDiscount = showDiscount && product.discountPercent && product.discountPercent > 0;
   const discountedPrice = hasDiscount
     ? calculateFinalPrice(product.sellPrice, product.discountPercent!)

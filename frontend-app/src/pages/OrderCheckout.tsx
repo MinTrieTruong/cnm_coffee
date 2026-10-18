@@ -276,7 +276,6 @@ export function OrderCheckout() {
 
   if (bill.status === "Paid") {
     const cashPaid = bill.payments.filter(p => p.method !== "Points").reduce((s, p) => s + p.amount, 0);
-    const ptsPaid = bill.payments.find(p => p.method === "Points");
     return (
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="site-page" style={{ textAlign: "center", maxWidth: 440, margin: "0 auto", paddingTop: "2rem" }}>
         <CheckCircle size={64} color="#15803d" style={{ margin: "0 auto 1rem" }} />

@@ -1,5 +1,5 @@
 import { Link, useParams } from "react-router-dom";
-import { CheckCircle, Utensils } from "lucide-react";
+import { CheckCircle } from "lucide-react";
 import { motion } from "framer-motion";
 
 export function OrderSuccess() {

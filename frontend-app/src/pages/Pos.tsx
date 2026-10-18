@@ -205,11 +205,7 @@ export function Pos() {
   const [billHistoryErr, setBillHistoryErr] = useState<string | null>(null);
   const [billDetailModal, setBillDetailModal] = useState<BillRecord | null>(null);
 
-  const [menuTableId, setMenuTableId] = useState<number | null>(null);
-  const [moveSourceId, setMoveSourceId] = useState<number | null>(null);
-  const [mergeSourceId, setMergeSourceId] = useState<number | null>(null);
-  const [splitSourceId, setSplitSourceId] = useState<number | null>(null);
-  const [splitItems, setSplitItems] = useState<{orderItemId: number; quantity: number}[]>([]);
+  const [, setMenuTableId] = useState<number | null>(null);
   
 
   /** Mở popup riêng để in bill — đảm bảo chỉ 1 trang, không lẫn layout trang POS */
@@ -420,59 +416,6 @@ export function Pos() {
     setTimeout(() => setToast(null), 2500);
   };
 
-  const load = refreshAll;
-
-  const [selectedTable, setSelectedTable] = useState<number | null>(null);
-
-  async function executeMove(targetId: number) {
-    if (!moveSourceId) return;
-    try {
-      setErr(null);
-      await staffApi("/api/pos/move-table", {
-        method: "POST",
-        body: JSON.stringify({ sourceTableId: moveSourceId, targetTableId: targetId }),
-      });
-      setMoveSourceId(null);
-      showToast("Chuyển bàn thành công");
-      void load();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Lỗi chuyển bàn");
-    }
-  }
-
-  async function executeMerge(targetId: number) {
-    if (!mergeSourceId) return;
-    try {
-      setErr(null);
-      await staffApi("/api/pos/merge-tables", {
-        method: "POST",
-        body: JSON.stringify({ sourceTableId: mergeSourceId, targetTableId: targetId }),
-      });
-      setMergeSourceId(null);
-      showToast("Gộp bàn thành công");
-      void load();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Lỗi gộp bàn");
-    }
-  }
-
-  async function executeSplit(originalOrderId: number) {
-    const toMove = splitItems.filter(x => x.quantity > 0);
-    if (toMove.length === 0) return setErr("Vui lòng chọn món để tách");
-    try {
-      setErr(null);
-      await staffApi("/api/pos/split-order", {
-        method: "POST",
-        body: JSON.stringify({ originalOrderId, itemsToMove: toMove }),
-      });
-      setSplitSourceId(null);
-      setSplitItems([]);
-      showToast("Tách bill thành công");
-      void load();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Lỗi tách bill");
-    }
-  }
 
   async function closeShift() {
     const n = Number(actualCash.replace(/\D/g, ""));
@@ -893,7 +836,6 @@ export function Pos() {
                 <div
                   key={t.id}
                   className={`table-tile ${meta.cls}`}
-                  style={{ border: selectedTable === t.id ? "2px solid #fff" : undefined }}
                   onClick={() => setMenuTableId(t.id)}
                   role="button"
                   tabIndex={0}

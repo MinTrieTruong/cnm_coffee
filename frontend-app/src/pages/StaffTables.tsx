@@ -147,6 +147,21 @@ export function StaffTables() {
   const [mergeSourceId, setMergeSourceId] = useState<number | null>(null);
   const [splitSourceId, setSplitSourceId] = useState<number | null>(null);
   const [splitItems, setSplitItems] = useState<{orderItemId: number; quantity: number}[]>([]);
+  async function mergeOrders() {
+    const fromOrderId = Number(mergeFrom.replace(/D/g, ""));
+    const toOrderId = Number(mergeTo.replace(/D/g, ""));
+    if (!fromOrderId || !toOrderId) return setErr("Nhập mã đơn nguồn và đơn đích.");
+    try {
+      setErr(null);
+      await staffApi("/api/staff/orders/merge", { method: "POST", body: JSON.stringify({ fromOrderId, toOrderId }) });
+      setMergeFrom("");
+      setMergeTo("");
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Lỗi gộp đơn");
+    }
+  }
+
   const load = useCallback(async () => {
     try {
       setErr(null);

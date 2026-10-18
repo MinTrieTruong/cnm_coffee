@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { LogOut, Package, FileText, Send, CheckCircle } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import { apiBase } from "../lib/api";
 
 export function SupplierPortal() {
@@ -17,7 +16,6 @@ export function SupplierPortal() {
   const [quotingRfqId, setQuotingRfqId] = useState<number | null>(null);
   const [quotePrices, setQuotePrices] = useState<Record<number, string>>({});
   
-  const nav = useNavigate();
 
   useEffect(() => {
     if (token) {

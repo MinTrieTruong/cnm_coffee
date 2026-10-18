@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { getUser, isGuestMode, mergeSessionUser, type SessionUser } from "../lib/session";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, User, Star, Award, Ticket, MessageSquare, ImagePlus, X, ShoppingBag, Settings, MapPin, Phone, Mail, Calendar, Key, Lock, CheckCircle, Package, Edit2, XCircle } from "lucide-react";
+import { ArrowLeft, User, Star, Award, Ticket, MessageSquare, ImagePlus, X, Lock, Package, XCircle } from "lucide-react";
 import { deliveryLabel } from "../lib/delivery";
 
 const RANK_LABEL_VI: Record<string, string> = {

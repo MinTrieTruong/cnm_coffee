@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, mediaUrl, type Product } from "../lib/api";
 import { addToCart } from "../lib/cart";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { ArrowLeft, Minus, Plus, ShoppingBag } from "lucide-react";
 
 function formatVnd(n: number) {

@@ -109,13 +109,7 @@ export function Menu() {
   // Checks if any filter is active
   const hasFilter = filters.search || filters.categoryId !== "all" || filters.minPrice || filters.maxPrice || filters.tags.length > 0;
 
-  function scrollToCategory(catId: number) {
-    setFilters(prev => ({ ...prev, categoryId: catId, search: "" }));
-    setTimeout(() => {
-      const el = catSectionRefs.current[catId];
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 50);
-  }
+
 
   return (
     <motion.div 

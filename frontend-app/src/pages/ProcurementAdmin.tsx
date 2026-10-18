@@ -1,8 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ShoppingCart, FilePlus, Package, CheckCircle, FolderOpen, FileText, Download, X, Search, Filter, ArrowLeft } from "lucide-react";
-import { api } from "../lib/api";
+import { ShoppingCart, FilePlus, Package, FolderOpen, FileText, Download, X, Search, ArrowLeft } from "lucide-react";
 import { staffApi } from "../lib/staffApi";
 
 export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = {}) {
@@ -128,7 +127,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
       image:        { type: 'jpeg', quality: 0.98 },
       html2canvas:  { scale: 2 },
       jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
-    };
+    } as const;
     html2pdf().set(opt).from(element).save();
   }
 
