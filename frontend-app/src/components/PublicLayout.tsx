@@ -5,6 +5,7 @@ import { getCart } from "../lib/cart";
 import { LogoMark } from "./LogoMark";
 import { BottomNav } from "./BottomNav";
 import { customerNav } from "../lib/navConfig";
+import { canGoBackInApp } from "../lib/appHistory";
 
 const CONTACT = {
   phone: "0389730362",
@@ -44,6 +45,14 @@ function titleOf(p: string): string {
   ];
   return map.find(([prefix]) => p.startsWith(prefix))?.[1] ?? "TD Coffee";
 }
+/** Trang cha khi không còn trang trước trong app (mở thẳng URL, sau khi đăng xuất…) */
+function parentOf(p: string): string {
+  if (p.startsWith("/product/")) return "/menu";
+  if (p.startsWith("/blog/")) return "/blog";
+  if (p.startsWith("/order/")) return "/account?tab=orders";
+  return "/";
+}
+
 /** Trang chính (là tab đáy) — các trang khác coi là trang con, có nút quay lại */
 const ROOT_PAGES = ["/", "/menu", "/account", "/promotions", "/blog", "/about"];
 
@@ -68,7 +77,7 @@ export function PublicLayout() {
   const linkCls = (active: boolean) => (active ? "site-nav-link site-nav-active" : "site-nav-link");
   const title = titleOf(p);
   const isSubPage = !ROOT_PAGES.includes(p);
-  const goBack = () => (window.history.length > 1 ? nav(-1) : nav("/"));
+  const goBack = () => (canGoBackInApp() ? nav(-1) : nav(parentOf(p), { replace: true }));
 
   return (
     <div className="site-root">

@@ -20,6 +20,12 @@ import { BlogDetail } from "./pages/BlogDetail";
 import { AppShell } from "./components/erp/AppShell";
 import { LEGACY_ADMIN_TABS, LEGACY_PATHS } from "./apps/registry";
 import { SupplierPortal } from "./pages/SupplierPortal";
+import { useTrackAppHistory } from "./lib/appHistory";
+
+function HistoryTracker() {
+  useTrackAppHistory();
+  return null;
+}
 
 /** /admin?tab=… (URL cũ) → URL mới của app tương ứng */
 function AdminRedirect() {
@@ -30,6 +36,7 @@ function AdminRedirect() {
 export default function App() {
   return (
     <BrowserRouter>
+      <HistoryTracker />
       <Routes>
         <Route element={<PublicLayout />}>
           <Route path="/" element={<HomePage />} />
