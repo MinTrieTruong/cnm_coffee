@@ -18,7 +18,7 @@ type StaffRow = {
   dob: string | null;
   hireDate: string;
   baseSalary: number;
-  allowance: number;
+  allowance?: number;
   hasFaceData?: boolean;
 };
 
@@ -97,7 +97,7 @@ export function EmployeeForm({ recordId }: { recordId?: string }) {
     setForm({
       username: x.username ?? "", password: "", fullName: x.fullName, role: x.role, status: x.status,
       phone: x.phone ?? "", address: x.address ?? "", dob: x.dob ? x.dob.slice(0, 10) : "",
-      hireDate: x.hireDate.slice(0, 10), baseSalary: String(x.baseSalary), allowance: String(x.allowance),
+      hireDate: x.hireDate.slice(0, 10), baseSalary: String(x.baseSalary ?? 0), allowance: x.allowance != null ? String(x.allowance) : "",
     });
   useEffect(() => {
     if (s) reset(s);
@@ -122,7 +122,8 @@ export function EmployeeForm({ recordId }: { recordId?: string }) {
         dob: form.dob || null,
         hireDate: form.hireDate || undefined,
         baseSalary: Number(form.baseSalary),
-        allowance: Number(form.allowance),
+        // API danh sách không trả allowance → chỉ gửi khi người dùng có nhập
+        allowance: form.allowance === "" ? undefined : Number(form.allowance),
       };
       if (isNew) {
         const created = await staffApi<{ id: number }>("/api/admin/staff", { method: "POST", body: JSON.stringify(payload) });
@@ -240,7 +241,7 @@ export function EmployeeForm({ recordId }: { recordId?: string }) {
                 {ro ? formatVnd(Number(form.baseSalary)) : <input className="o-input" type="number" value={form.baseSalary} onChange={(e) => set("baseSalary", e.target.value)} />}
               </Field>
               <Field label="Phụ cấp cố định">
-                {ro ? formatVnd(Number(form.allowance)) : <input className="o-input" type="number" value={form.allowance} onChange={(e) => set("allowance", e.target.value)} />}
+                {ro ? (form.allowance === "" ? <span className="o-muted">—</span> : formatVnd(Number(form.allowance))) : <input className="o-input" type="number" value={form.allowance} onChange={(e) => set("allowance", e.target.value)} />}
               </Field>
             </FormGroup>
           </FormGroups>
