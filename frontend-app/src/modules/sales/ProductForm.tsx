@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { mediaUrl } from "../../lib/api";
 import { staffApi } from "../../lib/staffApi";
-import { Button, Field, FormGroup, FormGroups, FormView, StatusBar, Tabs, errMsg } from "../../components/erp";
+import { Button, Field, FormGroup, FormGroups, FormView, StatusBar, Tabs, errMsg, formatVnd } from "../../components/erp";
 import { ImageField, TagsInput, digits, parseTags, useRecordNav, useResource } from "../shared";
 import { PRODUCTS_BASE, type ProductRow } from "./ProductList";
 
@@ -63,6 +63,7 @@ export function ProductForm({ recordId }: { recordId?: string }) {
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
   const ro = !editing;
+  const money = (v: string) => (v ? formatVnd(digits(v)) : <span className="o-muted">—</span>);
 
   async function save() {
     const price = digits(draft.sellPrice);
@@ -204,10 +205,10 @@ export function ProductForm({ recordId }: { recordId?: string }) {
         </FormGroup>
         <FormGroup>
           <Field label="Giá bán (M)" required>
-            <input className="o-input" inputMode="numeric" value={draft.sellPrice} disabled={ro} onChange={(e) => set("sellPrice", e.target.value)} />
+            {ro ? money(draft.sellPrice) : <input className="o-input" inputMode="numeric" value={draft.sellPrice} onChange={(e) => set("sellPrice", e.target.value)} />}
           </Field>
           <Field label="Giá vốn">
-            <input className="o-input" inputMode="numeric" value={draft.costPrice} disabled={ro} onChange={(e) => set("costPrice", e.target.value)} />
+            {ro ? money(draft.costPrice) : <input className="o-input" inputMode="numeric" value={draft.costPrice} onChange={(e) => set("costPrice", e.target.value)} />}
           </Field>
           <Field label="Giảm giá (%)">
             <input className="o-input" type="number" min={0} max={100} value={draft.discountPercent} disabled={ro} onChange={(e) => set("discountPercent", e.target.value)} />
@@ -228,10 +229,10 @@ export function ProductForm({ recordId }: { recordId?: string }) {
           <FormGroups>
             <FormGroup>
               <Field label="Giá size S">
-                <input className="o-input" inputMode="numeric" value={draft.priceSizeS} disabled={ro} onChange={(e) => set("priceSizeS", e.target.value)} placeholder={ro ? "" : "Trống = trừ 3.000đ"} />
+                {ro ? money(draft.priceSizeS) : <input className="o-input" inputMode="numeric" value={draft.priceSizeS} onChange={(e) => set("priceSizeS", e.target.value)} placeholder={ro ? "" : "Trống = trừ 3.000đ"} />}
               </Field>
               <Field label="Giá size L">
-                <input className="o-input" inputMode="numeric" value={draft.priceSizeL} disabled={ro} onChange={(e) => set("priceSizeL", e.target.value)} placeholder={ro ? "" : "Trống = cộng 5.000đ"} />
+                {ro ? money(draft.priceSizeL) : <input className="o-input" inputMode="numeric" value={draft.priceSizeL} onChange={(e) => set("priceSizeL", e.target.value)} placeholder={ro ? "" : "Trống = cộng 5.000đ"} />}
               </Field>
             </FormGroup>
           </FormGroups>
