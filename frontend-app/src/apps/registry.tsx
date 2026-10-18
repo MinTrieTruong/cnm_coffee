@@ -70,8 +70,8 @@ const SupplierForm = L(() => import("../modules/purchase/Suppliers"), "SupplierF
 const PostList = L(() => import("../modules/website/Posts"), "PostList");
 const PostForm = L(() => import("../modules/website/Posts"), "PostForm");
 
-// Tab cũ của Admin.tsx (tạm thời, sẽ chuyển sang modules/)
-const LegacyAdmin = L(() => import("../pages/Admin"), "Admin");
+const StoreSettings = L(() => import("../modules/settings/StoreSettings"), "StoreSettings");
+const AuditLog = L(() => import("../modules/settings/AuditLog"), "AuditLog");
 
 export type Layout = "erp" | "legacy" | "full";
 
@@ -101,15 +101,6 @@ export type AppDef = {
 
 const ADMIN = ["Admin"];
 const OPS = ["Admin", "Waiter", "Kitchen", "Cashier", "Shipper"];
-
-const legacy = (tab: string, id: string, label: string, roles = ADMIN): MenuLeaf => ({
-  id,
-  label,
-  roles,
-  component: LegacyAdmin,
-  props: { embeddedTab: tab },
-  layout: "legacy",
-});
 
 export const APPS: AppDef[] = [
   {
@@ -242,7 +233,10 @@ export const APPS: AppDef[] = [
     id: "settings",
     label: "Cấu hình",
     icon: Cog,
-    menus: [legacy("settings", "store", "Cài đặt cửa hàng"), legacy("audit", "audit", "Nhật ký hệ thống")],
+    menus: [
+      { id: "store", label: "Cài đặt cửa hàng", roles: ADMIN, component: StoreSettings, layout: "erp" },
+      { id: "audit", label: "Nhật ký hệ thống", roles: ADMIN, component: AuditLog, layout: "erp" },
+    ],
   },
 ];
 
