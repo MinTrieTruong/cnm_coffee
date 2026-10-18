@@ -19,6 +19,22 @@ export function postsRouter(prisma: PrismaClient) {
     res.json(rows);
   });
 
+  /** GET /posts/:id — chi tiết bài đăng công khai */
+  r.get("/posts/:id", async (req, res) => {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ." });
+    
+    const post = await prisma.post.findUnique({
+      where: { id },
+    });
+    
+    if (!post || !post.isPublished) {
+      return res.status(404).json({ error: "Không tìm thấy bài viết." });
+    }
+    
+    res.json(post);
+  });
+
   /** GET /posts/gallery — mock gallery endpoint */
   r.get("/posts/gallery", async (_req, res) => {
     const mockGallery = [

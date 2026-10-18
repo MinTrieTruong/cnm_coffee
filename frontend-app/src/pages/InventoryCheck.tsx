@@ -5,6 +5,7 @@ import { getStaffInfo, staffApi } from "../lib/staffApi";
 type InvItem = {
   id: number;
   name: string;
+  category: string | null;
   skuCode: string | null;
   unit: string | null;
   stockQty: number;
@@ -12,121 +13,59 @@ type InvItem = {
   imageUrl: string | null;
 };
 
-type CheckEntry = { itemId: number; qty: string; note: string };
-
-type MyRequest = {
+// Purchase Requisition
+type MyPR = {
   id: number;
-  itemId: number;
-  requestQty: number;
-  type: string;
+  code: string;
   status: string;
   note: string | null;
   createdAt: string;
-  approvedAt: string | null;
-  item: { name: string; unit: string | null };
-  approvedBy: { fullName: string } | null;
+  items: { item: { name: string; unit: string | null }; qty: number }[];
 };
-
-type LogEntry = {
-  id: number;
-  itemId: number;
-  checkType: string;
-  qty: number;
-  note: string | null;
-  checkedAt: string;
-  item: { name: string; unit: string | null };
-};
-
-type Tab = "check" | "request" | "log";
-
-function statusColor(s: string) {
-  if (s === "Pending") return "#f59e0b";
-  if (s === "Approved") return "#22c55e";
-  return "#ef4444";
-}
-function statusLabel(s: string) {
-  if (s === "Pending") return "Chờ duyệt";
-  if (s === "Approved") return "Đã duyệt";
-  return "Từ chối";
-}
-function stockLevel(qty: number, min: number): "ok" | "low" | "out" {
-  if (qty <= 0) return "out";
-  if (qty < min) return "low";
-  return "ok";
-}
-function stockDot(level: ReturnType<typeof stockLevel>) {
-  if (level === "ok") return { color: "#22c55e", label: "Đủ hàng" };
-  if (level === "low") return { color: "#f59e0b", label: "Sắp hết" };
-  return { color: "#ef4444", label: "Hết hàng" };
-}
 
 export function InventoryCheck() {
-  // Dùng useState để tránh tạo object mới mỗi render (gây infinite loop)
   const [info] = useState(() => getStaffInfo());
-  const [tab, setTab] = useState<Tab>("check");
   const [items, setItems] = useState<InvItem[]>([]);
-  const [checks, setChecks] = useState<CheckEntry[]>([]);
-  const [checkType, setCheckType] = useState<"open" | "close">("open");
-  const [myRequests, setMyRequests] = useState<MyRequest[]>([]);
-  const [logDate, setLogDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [receipts, setReceipts] = useState<{
-    id: number; qty: number; source: string; note: string | null;
-    receivedAt: string; receivedById: number;
-    item: { name: string; unit: string | null };
-    receivedBy: { fullName: string };
-    request: { id: number; type: string } | null;
-  }[]>([]);
+  const [myPrs, setMyPrs] = useState<MyPR[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Form tạo phiếu nhập hàng — giỏ nhiều món
-  type CartLine = { itemId: number; qty: string; note: string };
-  const [cart, setCart] = useState<CartLine[]>([]);
-  const [reqNote, setReqNote] = useState("");
-  const [addItemId, setAddItemId] = useState("");
+  // Filters
+  const [activeCategory, setActiveCategory] = useState<string>("ALL");
+
+  // Selection for Procurement
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<number>>(new Set());
+  
+  // Paper Form Modal State
+  const [showPaperForm, setShowPaperForm] = useState(false);
+  const [formQtys, setFormQtys] = useState<Record<number, string>>({});
+  const [formNote, setFormNote] = useState("");
 
   const showToast = (msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 2800);
+    setTimeout(() => setToast(null), 3000);
   };
 
-  const loadItems = useCallback(async () => {
-    const data = await staffApi<InvItem[]>("/api/shifts/inventory");
-    setItems(data);
-    setChecks(data.map((it) => ({ itemId: it.id, qty: "", note: "" })));
-  }, []);
-
-  const loadMyRequests = useCallback(async () => {
-    const data = await staffApi<MyRequest[]>("/api/staff/inventory/requests");
-    setMyRequests(data);
-  }, []);
-
-  const loadLogs = useCallback(async (date: string) => {
-    const data = await staffApi<{ date: string; logs: LogEntry[] }>(`/api/shifts/inventory/log?date=${date}`);
-    setLogs(data.logs);
-    // Load receipts cùng ngày (chỉ admin mới thấy)
+  const loadData = useCallback(async () => {
     try {
-      const recs = await staffApi<typeof receipts>(`/api/admin/receipts?date=${date}`);
-      setReceipts(recs);
-    } catch { setReceipts([]); }
+      setErr(null);
+      const [itemsData, prsData] = await Promise.all([
+        staffApi<InvItem[]>("/api/shifts/inventory"),
+        staffApi<MyPR[]>("/api/purchasing/my-requisitions")
+      ]);
+      setItems(itemsData);
+      setMyPrs(prsData);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Lỗi tải dữ liệu kho");
+    }
   }, []);
 
   useEffect(() => {
-    if (!info) return;
-    (async () => {
-      try {
-        setErr(null);
-        if (tab === "check") await loadItems();
-        if (tab === "request") { await loadItems(); await loadMyRequests(); }
-        if (tab === "log") await loadLogs(logDate);
-      } catch (e) {
-        setErr(e instanceof Error ? e.message : "Lỗi tải dữ liệu");
-      }
-    })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]); // chỉ re-fetch khi đổi tab, không phụ thuộc info (tảnh mõi render)
+    if (info) {
+      loadData();
+    }
+  }, [info, loadData]);
 
   if (!info) {
     return (
@@ -137,520 +76,384 @@ export function InventoryCheck() {
     );
   }
 
-  if (info.role !== "Kitchen" && info.role !== "Admin") {
-    return (
-      <div className="staff-page-inner">
-        <h1 className="page-title">Kiểm kho</h1>
-        <p style={{ color: "#5c534c" }}>Trang này chỉ dành cho pha chế và quản lý.</p>
-        <Link to="/staff/login" className="btn btn-ghost staff-btn-light">← Quay lại</Link>
-      </div>
-    );
-  }
+  // Derive categories
+  const PREDEFINED_CATEGORIES = ["Cà Phê", "Trà", "Sữa", "Syrup", "Topping", "Bao Bì", "Khác"];
+  const dynamicCategories = Array.from(new Set(items.map(i => i.category).filter(Boolean))) as string[];
+  const categories = ["ALL", ...new Set([...PREDEFINED_CATEGORIES, ...dynamicCategories])];
 
-  const backLink = info.role === "Kitchen" ? "/kds" : "/admin";
-  const backLabel = info.role === "Kitchen" ? "← Pha chế" : "← Quản trị";
+  const filteredItems = items.filter(it => {
+    if (activeCategory !== "ALL" && it.category !== activeCategory) return false;
+    return true;
+  });
 
-  async function submitCheck() {
-    const filled = checks.filter((c) => c.qty !== "" && !isNaN(Number(c.qty)));
-    if (filled.length === 0) {
-      setErr("Nhập số lượng thực tế cho ít nhất 1 nguyên liệu.");
+  const toggleSelection = (id: number) => {
+    setSelectedItemIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const openPaperForm = () => {
+    if (selectedItemIds.size === 0) {
+      setErr("Vui lòng chọn ít nhất 1 nguyên liệu cần mua.");
       return;
     }
+    // Init qtys
+    const qtys: Record<number, string> = {};
+    selectedItemIds.forEach(id => qtys[id] = "1");
+    setFormQtys(qtys);
+    setFormNote("");
+    setShowPaperForm(true);
+    setErr(null);
+  };
+
+  const submitRequisition = async () => {
+    const payloadItems = Array.from(selectedItemIds).map(id => ({
+      itemId: id,
+      qty: Number(formQtys[id]) || 1,
+    }));
+    
     setBusy(true);
     try {
-      await staffApi("/api/shifts/inventory/check", {
+      await staffApi("/api/purchasing/requisitions", {
         method: "POST",
         body: JSON.stringify({
-          checkType,
-          items: filled.map((c) => ({
-            itemId: c.itemId,
-            qty: Number(c.qty),
-            note: c.note.trim() || undefined,
-          })),
+          note: formNote.trim() || undefined,
+          items: payloadItems,
         }),
       });
-      showToast(`✓ Đã lưu kiểm kho ${checkType === "open" ? "mở ca" : "kết ca"} (${filled.length} nguyên liệu)`);
-      setErr(null);
+      setShowPaperForm(false);
+      setSelectedItemIds(new Set());
+      showToast("Đã gửi phiếu đề xuất mua hàng thành công!");
+      void loadData();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Lỗi lưu kiểm kho");
+      setErr(e instanceof Error ? e.message : "Lỗi gửi phiếu");
     } finally {
       setBusy(false);
     }
-  }
+  };
 
-  function addToCart() {
-    const id = Number(addItemId);
-    if (!id) { setErr("Chọn nguyên liệu trước."); return; }
-    if (cart.find((c) => c.itemId === id)) { setErr("Nguyên liệu đã có trong phiếu."); return; }
-    setCart((prev) => [...prev, { itemId: id, qty: "1", note: "" }]);
-    setAddItemId("");
-    setErr(null);
-  }
-
-  async function submitRequest() {
-    const valid = cart.filter((c) => Number(c.qty) > 0);
-    if (valid.length === 0) { setErr("Thêm ít nhất 1 nguyên liệu vào phiếu."); return; }
-    setBusy(true);
-    try {
-      await staffApi("/api/staff/inventory/requests", {
-        method: "POST",
-        body: JSON.stringify({
-          items: valid.map((c) => ({ itemId: c.itemId, requestQty: Number(c.qty), note: c.note.trim() || undefined })),
-          note: reqNote.trim() || undefined,
-        }),
-      });
-      setCart([]); setReqNote("");
-      showToast("Phếu nhập hàng đã gửi. Chờ admin duyệt.");
-      setErr(null);
-      await loadMyRequests();
-    } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi gửi phiếu"); }
-    finally { setBusy(false); }
-  }
-
-  const tabs: { id: Tab; label: string }[] = [
-    { id: "check", label: "Kiểm kho" },
-    { id: "request", label: "Phiếu nhập hàng" },
-    { id: "log", label: "Lịch sử ca" },
-  ];
+  const selectedItemsDetails = items.filter(it => selectedItemIds.has(it.id));
 
   return (
-    <div className="staff-page-inner staff-page-wide">
+    <div className="staff-page-inner staff-page-wide" style={{ position: "relative" }}>
       {/* Header */}
-      <div className="staff-page-head">
-        <h1 className="page-title" style={{ margin: 0 }}>Kiểm kho</h1>
-        <Link to={backLink} className="btn btn-ghost staff-btn-light">{backLabel}</Link>
+      <div className="staff-page-head" style={{ marginBottom: "1.5rem" }}>
+        <h1 className="page-title" style={{ margin: 0 }}>Kho & Mua hàng</h1>
+        <Link to={info.role === "Kitchen" ? "/kds" : "/admin"} className="btn btn-ghost staff-btn-light">
+          {info.role === "Kitchen" ? "← Pha chế" : "← Quản trị"}
+        </Link>
       </div>
 
-      {/* Toast */}
       {toast && (
         <div style={{
-          position: "fixed", bottom: "1.25rem", right: "1.25rem",
-          background: "var(--card)", border: "1px solid var(--border)",
-          padding: "0.75rem 1rem", borderRadius: "12px",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.35)", zIndex: 50,
-          maxWidth: 360, fontSize: "0.92rem",
+          position: "fixed", bottom: "1.5rem", right: "1.5rem",
+          background: "#047857", color: "#fff",
+          padding: "0.75rem 1.25rem", borderRadius: "8px",
+          boxShadow: "0 4px 12px rgba(16, 185, 129, 0.3)", zIndex: 100,
+          fontWeight: 500, display: "flex", alignItems: "center", gap: "0.5rem"
         }}>
-          {toast}
+          <span>✓</span> {toast}
         </div>
       )}
 
-      {/* Tab bar */}
-      <div style={{ display: "flex", gap: "0.4rem", marginBottom: "1.25rem", borderBottom: "1px solid var(--border)", paddingBottom: "0.5rem" }}>
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            className={tab === t.id ? "btn btn-primary" : "btn btn-ghost"}
-            style={{ padding: "0.4rem 1rem", fontSize: "0.9rem" }}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {err && <p style={{ color: "var(--danger)", marginBottom: "1rem", fontWeight: 500 }}>{err}</p>}
 
-      {err && <p style={{ color: "var(--danger)", marginBottom: "0.75rem" }}>{err}</p>}
-
-      {/* ── Tab 1: Kiểm kho ── */}
-      {tab === "check" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          {/* Chọn loại kiểm kho */}
-          <div className="card" style={{ padding: "1rem", display: "flex", alignItems: "center", gap: "1.5rem", flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 600 }}>Loại kiểm kho:</span>
-            {(["open", "close"] as const).map((ct) => (
-              <label key={ct} style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
-                <input
-                  type="radio"
-                  name="checkType"
-                  value={ct}
-                  checked={checkType === ct}
-                  onChange={() => setCheckType(ct)}
-                />
-                <span style={{ fontWeight: checkType === ct ? 700 : 400, color: checkType === ct ? "var(--accent)" : undefined }}>
-                  {ct === "open" ? "Mở ca" : "Kết ca"}
-                </span>
-              </label>
-            ))}
-            <span className="subtle" style={{ fontSize: "0.83rem", marginLeft: "auto" }}>
-              {items.length} nguyên liệu
-            </span>
-          </div>
-
-          {/* Bảng kiểm kho */}
-          {items.length === 0 && <p className="subtle">Không có nguyên liệu nào trong kho.</p>}
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem" }}>
-              <thead>
-                <tr style={{ borderBottom: "2px solid var(--border)", textAlign: "left" }}>
-                  <th style={{ padding: "0.5rem 0.6rem" }}>Nguyên liệu</th>
-                  <th style={{ padding: "0.5rem 0.6rem", textAlign: "right" }}>Tồn kho (hệ thống)</th>
-                  <th style={{ padding: "0.5rem 0.6rem", textAlign: "right" }}>Mức tối thiểu</th>
-                  <th style={{ padding: "0.5rem 0.6rem" }}>Trạng thái</th>
-                  <th style={{ padding: "0.5rem 0.6rem", minWidth: 130 }}>Thực tế đếm được</th>
-                  <th style={{ padding: "0.5rem 0.6rem", minWidth: 160 }}>Ghi chú</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item, idx) => {
-                  const level = stockLevel(item.stockQty, item.minLevel);
-                  const dot = stockDot(level);
-                  const check = checks[idx] ?? { itemId: item.id, qty: "", note: "" };
-                  const actualQty = check.qty !== "" ? Number(check.qty) : null;
-                  const diff = actualQty !== null ? actualQty - item.stockQty : null;
-                  return (
-                    <tr key={item.id} style={{ borderBottom: "1px solid var(--border)", transition: "background 0.15s" }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.03)")}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = "")}>
-                      <td style={{ padding: "0.5rem 0.6rem", fontWeight: 600 }}>
-                        {item.name}
-                        {item.unit && <span className="subtle" style={{ fontWeight: 400, marginLeft: "0.3rem" }}>({item.unit})</span>}
-                      </td>
-                      <td style={{ padding: "0.5rem 0.6rem", textAlign: "right", fontWeight: 700 }}>
-                        {item.stockQty.toLocaleString("vi-VN")}
-                      </td>
-                      <td style={{ padding: "0.5rem 0.6rem", textAlign: "right", color: "var(--muted)" }}>
-                        {item.minLevel.toLocaleString("vi-VN")}
-                      </td>
-                      <td style={{ padding: "0.5rem 0.6rem" }}>
-                        <span style={{
-                          display: "inline-flex", alignItems: "center", gap: "0.35rem",
-                          padding: "0.2rem 0.6rem", borderRadius: 99,
-                          fontSize: "0.8rem", fontWeight: 600,
-                          background: dot.color + "22", color: dot.color,
-                          border: `1px solid ${dot.color}44`,
-                        }}>
-                          <span style={{ width: 7, height: 7, borderRadius: "50%", background: dot.color, display: "inline-block" }} />
-                          {dot.label}
-                        </span>
-                      </td>
-                      <td style={{ padding: "0.5rem 0.6rem" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                          <input
-                            type="number"
-                            min={0}
-                            className="input"
-                            placeholder="Nhập SL..."
-                            value={check.qty}
-                            onChange={(e) => setChecks((prev) => prev.map((c, i) => i === idx ? { ...c, qty: e.target.value } : c))}
-                            style={{ width: 90, padding: "0.3rem 0.5rem", fontSize: "0.88rem" }}
-                          />
-                          {diff !== null && (
-                            <span style={{
-                              fontSize: "0.8rem", fontWeight: 700,
-                              color: diff === 0 ? "#22c55e" : diff > 0 ? "#3b82f6" : "#ef4444",
-                            }}>
-                              {diff > 0 ? `+${diff}` : diff}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td style={{ padding: "0.5rem 0.6rem" }}>
-                        <input
-                          type="text"
-                          className="input"
-                          placeholder="Ghi chú..."
-                          value={check.note}
-                          onChange={(e) => setChecks((prev) => prev.map((c, i) => i === idx ? { ...c, note: e.target.value } : c))}
-                          style={{ width: "100%", padding: "0.3rem 0.5rem", fontSize: "0.88rem" }}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={busy}
-              onClick={() => void submitCheck()}
-              style={{ padding: "0.6rem 1.5rem" }}
-            >
-              {busy ? "Đang lưu..." : checkType === "open" ? "Lưu kiểm kho mở ca" : "Lưu kiểm kho kết ca"}
-            </button>
-            <span className="subtle" style={{ fontSize: "0.83rem" }}>
-              Chỉ ghi nhận nhật ký — không tự động thay đổi tồn kho hệ thống.
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* ── Tab 2: Phiếu nhập hàng ── */}
-      {tab === "request" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-          <div className="card" style={{ padding: "1.25rem" }}>
-            <h2 style={{ fontSize: "1rem", margin: "0 0 1rem" }}>Tạo phiếu nhập hàng</h2>
-
-            {/* Thêm dòng */}
-            <div style={{ display: "flex", gap: "0.6rem", marginBottom: "0.75rem", flexWrap: "wrap", alignItems: "flex-end" }}>
-              <div style={{ flex: 1, minWidth: 220 }}>
-                <label className="label">Chọn nguyên liệu</label>
-                <select className="input" value={addItemId} onChange={(e) => setAddItemId(e.target.value)}>
-                  <option value="">-- Chọn --</option>
-                  {items.filter((it) => !cart.find((c) => c.itemId === it.id)).map((it) => (
-                    <option key={it.id} value={it.id}>
-                      {it.name}{it.unit ? ` (${it.unit})` : ""} — tồn: {it.stockQty}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <button type="button" className="btn btn-ghost staff-btn-light" onClick={addToCart} style={{ padding: "0.5rem 1rem" }}>
-                Thêm vào phiếu
+      {/* Main View */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+        
+        {/* Controls Row */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
+          
+          {/* Category Filter - Pill style */}
+          <div style={{ display: "flex", gap: "0.5rem", overflowX: "auto", paddingBottom: "0.5rem" }}>
+            {categories.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                style={{
+                  padding: "0.4rem 1rem",
+                  borderRadius: "99px",
+                  border: "none",
+                  background: activeCategory === cat ? "var(--accent)" : "#fff",
+                  color: activeCategory === cat ? "#fff" : "var(--text-strong)",
+                  fontWeight: activeCategory === cat ? 600 : 500,
+                  fontSize: "0.85rem",
+                  cursor: "pointer",
+                  boxShadow: activeCategory === cat ? "0 2px 8px rgba(0,0,0,0.15)" : "inset 0 0 0 1px var(--border)",
+                  transition: "all 0.2s ease"
+                }}
+              >
+                {cat === "ALL" ? "Tất cả" : cat}
               </button>
-            </div>
-
-            {/* Giỏ các dòng */}
-            {cart.length === 0 && (
-              <p style={{ color: "#6b5e55", fontSize: "0.88rem", textAlign: "center", padding: "1rem 0" }}>Chưa có nguyên liệu nào trong phiếu.</p>
-            )}
-            {cart.length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "0.75rem" }}>
-                {cart.map((line, idx) => {
-                  const it = items.find((x) => x.id === line.itemId);
-                  return (
-                    <div key={line.itemId} style={{ display: "flex", gap: "0.5rem", alignItems: "center", padding: "0.6rem 0.75rem", background: "#f9f6f2", borderRadius: 10, border: "1px solid #e5ddd5" }}>
-                      <div style={{ flex: 2, fontWeight: 600, fontSize: "0.9rem", color: "#1a120d" }}>
-                        {it?.name}
-                        {it?.unit && <span style={{ fontWeight: 400, color: "#6b5e55", marginLeft: 4 }}>({it.unit})</span>}
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-                        <button type="button" className="btn btn-ghost staff-btn-light" style={{ padding: "0.2rem 0.6rem", fontSize: "1rem", lineHeight: 1 }}
-                          onClick={() => setCart((prev) => prev.map((c, i) => i === idx ? { ...c, qty: String(Math.max(1, Number(c.qty) - 1)) } : c))}>
-                          −
-                        </button>
-                        <input type="number" min={1} className="input" value={line.qty}
-                          onChange={(e) => setCart((prev) => prev.map((c, i) => i === idx ? { ...c, qty: e.target.value } : c))}
-                          style={{ width: 70, textAlign: "center", padding: "0.3rem 0.4rem", fontSize: "0.9rem" }} />
-                        <button type="button" className="btn btn-ghost staff-btn-light" style={{ padding: "0.2rem 0.6rem", fontSize: "1rem", lineHeight: 1 }}
-                          onClick={() => setCart((prev) => prev.map((c, i) => i === idx ? { ...c, qty: String(Number(c.qty) + 1) } : c))}>
-                          +
-                        </button>
-                      </div>
-                      <input type="text" className="input" placeholder="Ghi chú..." value={line.note}
-                        onChange={(e) => setCart((prev) => prev.map((c, i) => i === idx ? { ...c, note: e.target.value } : c))}
-                        style={{ flex: 2, padding: "0.3rem 0.5rem", fontSize: "0.85rem" }} />
-                      <button type="button" className="btn btn-ghost staff-btn-light" style={{ padding: "0.25rem 0.6rem", color: "#c94c4c", fontSize: "0.85rem" }}
-                        onClick={() => setCart((prev) => prev.filter((_, i) => i !== idx))}>
-                        X
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="field" style={{ marginBottom: "0.75rem" }}>
-              <label className="label" htmlFor="req-note">Ghi chú chung (tuỳ chọn)</label>
-              <input id="req-note" type="text" className="input" placeholder="Lý do nhập, nhà cung cấp,..." value={reqNote} onChange={(e) => setReqNote(e.target.value)} />
-            </div>
-
-            <button type="button" className="btn btn-primary" disabled={busy || cart.length === 0} onClick={() => void submitRequest()} style={{ padding: "0.55rem 1.5rem" }}>
-              {busy ? "Đang gửi..." : `Gửi phiếu (${cart.length} nguyên liệu)`}
-            </button>
+            ))}
           </div>
 
-          {/* Danh sách phiếu của mình */}
-          <div>
-            <h2 style={{ fontSize: "1rem", margin: "0 0 0.75rem" }}>Phếu đã tạo của tôi</h2>
-            {myRequests.length === 0 && (
-              <div className="card" style={{ padding: "2rem", textAlign: "center", color: "#6b5e55" }}>Chưa có phiếu nào.</div>
-            )}
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-              {myRequests.map((r) => (
-                <div key={r.id} className="card" style={{ padding: "0.85rem 1rem" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", alignItems: "flex-start" }}>
-                    <div>
-                      <span style={{ color: "#6b5e55", fontSize: "0.8rem" }}>Phiếu #{r.id} · {new Date(r.createdAt).toLocaleString("vi-VN")}</span>
-                      <div style={{ fontWeight: 700, fontSize: "1rem", marginTop: "0.15rem" }}>{r.item.name}</div>
-                      <div style={{ fontSize: "0.88rem", marginTop: "0.2rem" }}>Số lượng: <strong>{r.requestQty}</strong>{r.item.unit ? ` ${r.item.unit}` : ""}</div>
-                      {r.note && <div style={{ fontSize: "0.85rem", color: "#6b5e55", fontStyle: "italic", marginTop: "0.15rem" }}>{r.note}</div>}
-                      {r.approvedBy && r.status !== "Pending" && (
-                        <div style={{ fontSize: "0.8rem", color: "#6b5e55", marginTop: "0.2rem" }}>
-                          {r.status === "Approved" ? "Duyệt bởi" : "Từ chối bởi"}: {r.approvedBy.fullName}
-                          {r.approvedAt && ` lúc ${new Date(r.approvedAt).toLocaleString("vi-VN")}`}
-                        </div>
-                      )}
+          <button 
+            className="btn btn-primary" 
+            onClick={openPaperForm}
+            disabled={selectedItemIds.size === 0}
+            style={{ 
+              display: "flex", alignItems: "center", gap: "0.5rem", 
+              padding: "0.6rem 1.25rem", borderRadius: "8px",
+              opacity: selectedItemIds.size === 0 ? 0.6 : 1
+            }}
+          >
+            <span>✍️</span> Tạo phiếu đề xuất ({selectedItemIds.size})
+          </button>
+        </div>
+
+        {/* Inventory Grid */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+          gap: "1.25rem"
+        }}>
+          {filteredItems.map(item => {
+            const isOutOfStock = item.stockQty <= item.minLevel;
+            const isSelected = selectedItemIds.has(item.id);
+            
+            return (
+              <div 
+                key={item.id} 
+                onClick={() => toggleSelection(item.id)}
+                style={{
+                  background: "#fff",
+                  borderRadius: "12px",
+                  padding: "1.25rem",
+                  border: `2px solid ${isSelected ? "var(--primary)" : isOutOfStock ? "#fecaca" : "transparent"}`,
+                  boxShadow: isSelected ? "0 4px 12px rgba(0,0,0,0.1)" : "0 2px 8px rgba(0,0,0,0.05)",
+                  cursor: "pointer",
+                  position: "relative",
+                  transition: "all 0.2s ease",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.75rem"
+                }}
+              >
+                {/* Selection Checkbox */}
+                <div style={{
+                  position: "absolute", top: "1rem", right: "1rem",
+                  width: "20px", height: "20px",
+                  borderRadius: "4px",
+                  border: `2px solid ${isSelected ? "var(--primary)" : "var(--border)"}`,
+                  background: isSelected ? "var(--primary)" : "transparent",
+                  display: "flex", alignItems: "center", justifyContent: "center"
+                }}>
+                  {isSelected && <span style={{ color: "#fff", fontSize: "12px", fontWeight: "bold" }}>✓</span>}
+                </div>
+
+                <div style={{ paddingRight: "2rem" }}>
+                  <h3 style={{ margin: "0 0 0.25rem 0", fontSize: "1.05rem", fontWeight: 700, color: "var(--text-strong)" }}>
+                    {item.name}
+                  </h3>
+                  {item.category && (
+                    <span style={{ fontSize: "0.75rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>
+                      {item.category}
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: "auto" }}>
+                  <div>
+                    <div style={{ fontSize: "0.8rem", color: "var(--muted)", marginBottom: "0.2rem" }}>Tồn kho</div>
+                    <div style={{ fontSize: "1.25rem", fontWeight: 800, color: isOutOfStock ? "#b91c1c" : "var(--text-strong)", lineHeight: 1 }}>
+                      {item.stockQty.toLocaleString("vi-VN")} <span style={{ fontSize: "0.85rem", fontWeight: 500, color: "var(--muted)" }}>{item.unit}</span>
                     </div>
-                    <span style={{ padding: "0.25rem 0.75rem", borderRadius: 99, fontSize: "0.82rem", fontWeight: 600,
-                      background: statusColor(r.status) + "22", color: statusColor(r.status), border: `1px solid ${statusColor(r.status)}44`, whiteSpace: "nowrap" }}>
-                      {statusLabel(r.status)}
+                  </div>
+                  
+                  {isOutOfStock && (
+                    <div style={{ 
+                      background: "#fef2f2", color: "#b91c1c", 
+                      padding: "0.25rem 0.6rem", borderRadius: "99px", 
+                      fontSize: "0.75rem", fontWeight: 700,
+                      display: "flex", alignItems: "center", gap: "0.25rem"
+                    }}>
+                      ⚠️ Sắp hết
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Lịch sử đề xuất của tôi */}
+        {myPrs.length > 0 && (
+          <div style={{ marginTop: "3rem" }}>
+            <h2 style={{ fontSize: "1.25rem", marginBottom: "1.5rem", color: "var(--text-strong)", borderBottom: "2px solid var(--border)", paddingBottom: "0.5rem" }}>
+              Lịch sử đề xuất mua hàng của bạn
+            </h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              {myPrs.map(pr => (
+                <div key={pr.id} style={{ 
+                  background: "#fff", padding: "1.5rem", borderRadius: "12px", 
+                  border: "1px solid var(--border)", boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+                  display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" 
+                }}>
+                  <div>
+                    <h3 style={{ margin: "0 0 0.5rem 0", color: "var(--primary)" }}>{pr.code}</h3>
+                    <p style={{ margin: 0, color: "var(--muted)", fontSize: "0.85rem" }}>
+                      Ngày gửi: {new Date(pr.createdAt).toLocaleString("vi-VN")}
+                    </p>
+                    <p style={{ margin: "0.5rem 0 0 0", fontSize: "0.95rem", color: "var(--text-strong)" }}>
+                      Gồm: {pr.items.map(i => `${i.qty} ${i.item.unit} ${i.item.name}`).join(", ")}
+                    </p>
+                    {pr.note && <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.85rem", color: "var(--muted)", fontStyle: "italic" }}>Ghi chú: {pr.note}</p>}
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <span style={{ 
+                      padding: "0.4rem 1rem", borderRadius: "99px", fontSize: "0.85rem", fontWeight: 600,
+                      background: pr.status === "APPROVED" ? "#dbeafe" : pr.status === "COMPLETED" ? "#d1fae5" : "#fef3c7", 
+                      color: pr.status === "APPROVED" ? "#1d4ed8" : pr.status === "COMPLETED" ? "#047857" : "#b45309" 
+                    }}>
+                      {pr.status === "PENDING" ? "⏳ Chờ duyệt" : pr.status === "APPROVED" ? "📦 Đã duyệt & Đang chờ báo giá" : "✅ Hoàn tất"}
                     </span>
                   </div>
                 </div>
               ))}
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ── Tab 3: Lịch sử ca ── */}
-      {tab === "log" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      </div>
 
-          {/* Date picker */}
-          <div className="card" style={{ padding: "0.85rem 1rem", display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
-            <label className="label" htmlFor="log-date" style={{ margin: 0 }}>Ngày:</label>
-            <input id="log-date" type="date" className="input" value={logDate}
-              onChange={(e) => setLogDate(e.target.value)}
-              style={{ width: 180 }} />
-            <button type="button" className="btn btn-primary"
-              onClick={() => void loadLogs(logDate)}
-              style={{ padding: "0.4rem 1.1rem" }}>Xem</button>
-            <button type="button" className="btn btn-ghost staff-btn-light"
-              onClick={() => { const t = new Date().toISOString().slice(0,10); setLogDate(t); void loadLogs(t); }}
-              style={{ padding: "0.4rem 1.1rem" }}>Hôm nay</button>
-          </div>
+      {/* PAPER FORM MODAL */}
+      {showPaperForm && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "var(--surface)", backdropFilter: "blur(4px)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 1000, padding: "1rem"
+        }}>
+          <div style={{
+            background: "#fdfbf7",
+            width: "95%", maxWidth: "700px",
+            maxHeight: "90vh", overflowY: "auto",
+            borderRadius: "4px",
+            boxShadow: "0 25px 50px -12px rgba(0,0,0,0.3)",
+            padding: "clamp(1.5rem, 5vw, 3rem)",
+            position: "relative",
+            fontFamily: "'Times New Roman', Times, serif",
+            color: "#1f2937"
+          }}>
+            {/* Close Button */}
+            <button 
+              onClick={() => setShowPaperForm(false)}
+              style={{ position: "absolute", top: "1rem", right: "1rem", background: "none", border: "none", fontSize: "1.5rem", cursor: "pointer", color: "#6b7280" }}
+            >
+              ×
+            </button>
 
-          {/* Bảng tiêu thụ: mở ca - kết ca = đã dùng */}
-          {(() => {
-            const openLogs  = logs.filter(l => l.checkType === "open");
-            const closeLogs = logs.filter(l => l.checkType === "close");
-            const openMap: Record<number, LogEntry>  = {};
-            const closeMap: Record<number, LogEntry> = {};
-            openLogs.forEach(l  => { if (!openMap[l.itemId])  openMap[l.itemId]  = l; });
-            closeLogs.forEach(l => { if (!closeMap[l.itemId]) closeMap[l.itemId] = l; });
-            const allItemIds = [...new Set([...openLogs, ...closeLogs].map(l => l.itemId))];
-            if (allItemIds.length === 0) return (
-              <div className="card" style={{ padding: "2rem", textAlign: "center", color: "var(--muted)" }}>
-                Không có dữ liệu kiểm kho ngày {logDate}.
-              </div>
-            );
-            return (
+            {/* Form Header */}
+            <div style={{ textAlign: "center", marginBottom: "2rem", borderBottom: "2px solid #1f2937", paddingBottom: "1rem" }}>
+              <h2 style={{ margin: "0 0 0.5rem 0", fontSize: "1.5rem", fontWeight: 800, textTransform: "uppercase", letterSpacing: "1px" }}>
+                Công ty / Cửa hàng Cafe
+              </h2>
+              <h1 style={{ margin: 0, fontSize: "2rem", fontWeight: 900, textTransform: "uppercase" }}>
+                Phiếu Đề Xuất Mua Hàng
+              </h1>
+            </div>
+
+            {/* Form Info */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.5rem", marginBottom: "2rem", fontSize: "clamp(0.95rem, 2.5vw, 1.1rem)" }}>
               <div>
-                <h2 style={{ fontSize: "1rem", margin: "0 0 0.65rem" }}>Tổng hợp nguyên liệu đã dùng</h2>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.88rem" }}>
-                    <thead>
-                      <tr style={{ borderBottom: "2px solid var(--border)", textAlign: "left" }}>
-                        {["Nguyên liệu", "ĐVT", "Mở ca", "Kết ca", "Đã dùng", "Thời gian mở", "Thời gian kết"].map(h => (
-                          <th key={h} style={{ padding: "0.45rem 0.6rem", whiteSpace: "nowrap", color: "var(--muted)" }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {allItemIds.map(id => {
-                        const open  = openMap[id];
-                        const close = closeMap[id];
-                        const used  = (open && close) ? open.qty - close.qty : null;
-                        return (
-                          <tr key={id} style={{ borderBottom: "1px solid var(--border)" }}>
-                            <td style={{ padding: "0.45rem 0.6rem", fontWeight: 600 }}>
-                              {(open ?? close)!.item.name}
-                            </td>
-                            <td style={{ padding: "0.45rem 0.6rem", color: "var(--muted)" }}>
-                              {(open ?? close)!.item.unit ?? "—"}
-                            </td>
-                            <td style={{ padding: "0.45rem 0.6rem", fontWeight: 700, color: "#f59e0b" }}>
-                              {open ? open.qty : "—"}
-                            </td>
-                            <td style={{ padding: "0.45rem 0.6rem", fontWeight: 700, color: "#818cf8" }}>
-                              {close ? close.qty : <span style={{ color: "#ef4444", fontStyle: "italic", fontWeight: 400 }}>Chưa kết ca</span>}
-                            </td>
-                            <td style={{ padding: "0.45rem 0.6rem", fontWeight: 700,
-                              color: used === null ? "var(--muted)" : used > 0 ? "#22c55e" : used < 0 ? "#ef4444" : "var(--muted)" }}>
-                              {used === null ? "—" : used > 0 ? `−${used}` : used < 0 ? `+${Math.abs(used)} (lạ)` : "0"}
-                            </td>
-                            <td style={{ padding: "0.45rem 0.6rem", fontSize: "0.8rem", color: "var(--muted)" }}>
-                              {open ? new Date(open.checkedAt).toLocaleTimeString("vi-VN") : "—"}
-                            </td>
-                            <td style={{ padding: "0.45rem 0.6rem", fontSize: "0.8rem", color: "var(--muted)" }}>
-                              {close ? new Date(close.checkedAt).toLocaleTimeString("vi-VN") : "—"}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <span style={{ fontWeight: 700 }}>Người đề xuất:</span> 
+                <span style={{ marginLeft: "0.5rem", borderBottom: "1px dashed #6b7280", paddingBottom: "2px", display: "inline-block", minWidth: "150px" }}>
+                  {info.fullName}
+                </span>
               </div>
-            );
-          })()}
-
-          {/* Chi tiết log thô */}
-          {logs.length > 0 && (
-            <div>
-              <h2 style={{ fontSize: "1rem", margin: "0 0 0.65rem" }}>Chi tiết log kiểm kho</h2>
-              {(["open", "close"] as const).map((ct) => {
-                const group = logs.filter(l => l.checkType === ct);
-                if (group.length === 0) return null;
-                return (
-                  <div key={ct} style={{ marginBottom: "1rem" }}>
-                    <h3 style={{ fontSize: "0.9rem", fontWeight: 700, margin: "0 0 0.4rem",
-                      color: ct === "open" ? "#f59e0b" : "#818cf8" }}>
-                      {ct === "open" ? "Mở ca" : "Kết ca"} — {new Date(group[0].checkedAt).toLocaleString("vi-VN")}
-                    </h3>
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
-                        <thead>
-                          <tr style={{ borderBottom: "1px solid var(--border)", textAlign: "left" }}>
-                            <th style={{ padding: "0.35rem 0.5rem" }}>Nguyên liệu</th>
-                            <th style={{ padding: "0.35rem 0.5rem", textAlign: "right" }}>Số lượng</th>
-                            <th style={{ padding: "0.35rem 0.5rem" }}>Ghi chú</th>
-                            <th style={{ padding: "0.35rem 0.5rem" }}>Thời gian</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {group.map(l => (
-                            <tr key={l.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                              <td style={{ padding: "0.35rem 0.5rem" }}>{l.item.name}{l.item.unit && <span style={{ color: "var(--muted)", marginLeft: 4 }}>({l.item.unit})</span>}</td>
-                              <td style={{ padding: "0.35rem 0.5rem", textAlign: "right", fontWeight: 700 }}>{l.qty}</td>
-                              <td style={{ padding: "0.35rem 0.5rem", color: "var(--muted)", fontStyle: l.note ? "normal" : "italic" }}>{l.note ?? "—"}</td>
-                              <td style={{ padding: "0.35rem 0.5rem", color: "var(--muted)", fontSize: "0.8rem" }}>{new Date(l.checkedAt).toLocaleTimeString("vi-VN")}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Lịch sử nhập kho trong ngày */}
-          {receipts.length > 0 && (
-            <div>
-              <h2 style={{ fontSize: "1rem", margin: "0 0 0.65rem" }}>Nhập kho trong ngày</h2>
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.88rem" }}>
-                  <thead>
-                    <tr style={{ borderBottom: "2px solid var(--border)", textAlign: "left" }}>
-                      {["#", "Nguyên liệu", "SL nhập", "ĐVT", "Nguồn", "Người duyệt", "Thời gian"].map(h => (
-                        <th key={h} style={{ padding: "0.4rem 0.6rem", color: "var(--muted)", whiteSpace: "nowrap" }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {receipts.map(rc => (
-                      <tr key={rc.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                        <td style={{ padding: "0.4rem 0.6rem", color: "var(--muted)", fontSize: "0.8rem" }}>#{rc.id}</td>
-                        <td style={{ padding: "0.4rem 0.6rem", fontWeight: 600 }}>{rc.item.name}</td>
-                        <td style={{ padding: "0.4rem 0.6rem", fontWeight: 700, color: "#22c55e" }}>+{rc.qty}</td>
-                        <td style={{ padding: "0.4rem 0.6rem", color: "var(--muted)" }}>{rc.item.unit ?? "—"}</td>
-                        <td style={{ padding: "0.4rem 0.6rem" }}>
-                          <span style={{ padding: "0.15rem 0.55rem", borderRadius: 99, fontSize: "0.78rem", fontWeight: 600,
-                            background: rc.source === "Request" ? "#f0faf4" : "#fffbea",
-                            color: rc.source === "Request" ? "#2d7a3e" : "#b07000",
-                            border: `1px solid ${rc.source === "Request" ? "#86efac" : "#fde68a"}` }}>
-                            {rc.source === "Request" ? `Phiếu #${rc.request?.id ?? ""}` : "Nhập tay"}
-                          </span>
-                        </td>
-                        <td style={{ padding: "0.4rem 0.6rem", color: "var(--muted)" }}>{rc.receivedBy.fullName}</td>
-                        <td style={{ padding: "0.4rem 0.6rem", color: "var(--muted)", fontSize: "0.82rem" }}>
-                          {new Date(rc.receivedAt).toLocaleString("vi-VN")}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div>
+                <span style={{ fontWeight: 700 }}>Ngày lập:</span> 
+                <span style={{ marginLeft: "0.5rem", borderBottom: "1px dashed #6b7280", paddingBottom: "2px", display: "inline-block", minWidth: "150px" }}>
+                  {new Date().toLocaleDateString("vi-VN")}
+                </span>
+              </div>
+              <div style={{ gridColumn: "1 / -1", display: "flex" }}>
+                <span style={{ fontWeight: 700, whiteSpace: "nowrap" }}>Lý do / Ghi chú:</span> 
+                <input 
+                  type="text" 
+                  value={formNote}
+                  onChange={e => setFormNote(e.target.value)}
+                  placeholder="Ghi chú cho bộ phận thu mua..."
+                  style={{ 
+                    flex: 1, marginLeft: "0.5rem", border: "none", borderBottom: "1px dashed #6b7280", 
+                    background: "transparent", outline: "none", fontSize: "1.1rem", fontFamily: "inherit"
+                  }} 
+                />
               </div>
             </div>
-          )}
+
+            {/* Form Table */}
+            <div style={{ overflowX: "auto", marginBottom: "2.5rem" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "450px", fontFamily: "sans-serif" }}>
+                <thead>
+                <tr>
+                  <th style={{ border: "1px solid #1f2937", padding: "0.75rem", background: "#f3f4f6", width: "50px", textAlign: "center" }}>STT</th>
+                  <th style={{ border: "1px solid #1f2937", padding: "0.75rem", background: "#f3f4f6", textAlign: "left" }}>Tên Vật Tư / Hàng Hóa</th>
+                  <th style={{ border: "1px solid #1f2937", padding: "0.75rem", background: "#f3f4f6", width: "100px", textAlign: "center" }}>ĐVT</th>
+                  <th style={{ border: "1px solid #1f2937", padding: "0.75rem", background: "#f3f4f6", width: "120px", textAlign: "center" }}>SL Đề Xuất</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedItemsDetails.map((it, idx) => (
+                  <tr key={it.id}>
+                    <td style={{ border: "1px solid #1f2937", padding: "0.75rem", textAlign: "center" }}>{idx + 1}</td>
+                    <td style={{ border: "1px solid #1f2937", padding: "0.75rem", fontWeight: 600 }}>{it.name}</td>
+                    <td style={{ border: "1px solid #1f2937", padding: "0.75rem", textAlign: "center", color: "#4b5563" }}>{it.unit ?? "-"}</td>
+                    <td style={{ border: "1px solid #1f2937", padding: "0.5rem", textAlign: "center" }}>
+                      <input 
+                        type="number" 
+                        min="1"
+                        value={formQtys[it.id]}
+                        onChange={(e) => setFormQtys(prev => ({ ...prev, [it.id]: e.target.value }))}
+                        style={{ width: "80%", textAlign: "center", padding: "0.25rem", border: "1px solid #d1d5db", borderRadius: "4px" }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Signatures */}
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3rem", padding: "0 clamp(0.5rem, 3vw, 2rem)", textAlign: "center", fontSize: "clamp(0.9rem, 2.5vw, 1rem)" }}>
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: "4rem" }}>Người lập phiếu</div>
+                <div style={{ fontStyle: "italic", color: "#6b7280" }}>(Ký, ghi rõ họ tên)</div>
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: "4rem" }}>Người duyệt</div>
+                <div style={{ fontStyle: "italic", color: "#6b7280" }}>(Ký, ghi rõ họ tên)</div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "1rem", fontFamily: "sans-serif" }}>
+              <button 
+                type="button" 
+                className="btn btn-ghost" 
+                onClick={() => setShowPaperForm(false)}
+                style={{ padding: "0.75rem 1.5rem" }}
+              >
+                Hủy bỏ
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-primary"
+                onClick={() => void submitRequisition()}
+                disabled={busy}
+                style={{ padding: "0.75rem 2rem", fontWeight: 700, boxShadow: "0 4px 6px rgba(0,0,0,0.1)" }}
+              >
+                {busy ? "Đang gửi..." : "GỬI YÊU CẦU"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
+
     </div>
   );
 }

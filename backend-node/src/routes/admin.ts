@@ -106,8 +106,12 @@ export function adminRouter(prisma: PrismaClient) {
       sku?: string;
       costPrice?: number;
       sellPrice?: number;
+      priceSizeS?: number;
+      priceSizeL?: number;
       imageUrl?: string;
       isActive?: boolean;
+      tags?: any;
+      discountPercent?: number;
     };
     if (!b.name || typeof b.sellPrice !== "number" || !b.categoryId) {
       return res.status(400).json({ error: "Thiếu tên, giá bán hoặc danh mục." });
@@ -121,9 +125,13 @@ export function adminRouter(prisma: PrismaClient) {
         name: b.name,
         costPrice: b.costPrice ?? 0,
         sellPrice: b.sellPrice,
+        priceSizeS: b.priceSizeS ?? null,
+        priceSizeL: b.priceSizeL ?? null,
         isActive: b.isActive ?? true,
         outOfStock: false,
         imageUrl: b.imageUrl ?? null,
+        tags: b.tags ?? null,
+        discountPercent: b.discountPercent ?? null,
       },
     });
     res.status(201).json(p);
@@ -136,10 +144,14 @@ export function adminRouter(prisma: PrismaClient) {
       sku: string;
       costPrice: number;
       sellPrice: number;
+      priceSizeS: number | null;
+      priceSizeL: number | null;
       imageUrl: string | null;
       isActive: boolean;
       outOfStock: boolean;
       categoryId: number;
+      tags: any;
+      discountPercent: number | null;
     }>;
     const p = await prisma.product.update({ where: { id }, data: b });
     res.json(p);
@@ -234,6 +246,8 @@ export function adminRouter(prisma: PrismaClient) {
       hireDate?: string;
       status?: string;
       imageUrl?: string;
+      baseSalary?: number;
+      allowance?: number;
     };
     if (!b.password || b.password.length < 4 || !b.fullName?.trim() || !b.role) {
       return res.status(400).json({ error: "Thiếu mật khẩu, họ tên hoặc role." });
@@ -257,9 +271,10 @@ export function adminRouter(prisma: PrismaClient) {
         address: b.address?.trim() ?? null,
         dob: dob && !Number.isNaN(dob.getTime()) ? dob : null,
         role: b.role,
-        imageUrl: b.imageUrl?.trim() || null,
         hireDate: Number.isNaN(hireDate.getTime()) ? new Date() : hireDate,
         status: b.status === "Inactive" ? "Inactive" : "Active",
+        baseSalary: b.baseSalary ?? 0,
+        allowance: b.allowance ?? 0,
       },
     });
     const actor = (req as StaffRequest).staffRow!;
@@ -286,6 +301,8 @@ export function adminRouter(prisma: PrismaClient) {
       dob?: string;
       hireDate?: string;
       imageUrl?: string;
+      baseSalary?: number;
+      allowance?: number;
     };
     const data: Record<string, unknown> = { ...b };
     if (b.password) {
@@ -301,9 +318,6 @@ export function adminRouter(prisma: PrismaClient) {
       const parsedDob = b.dob ? new Date(b.dob) : null;
       if (parsedDob && Number.isNaN(parsedDob.getTime())) return res.status(400).json({ error: "dob không hợp lệ." });
       data.dob = parsedDob;
-    }
-    if (b.imageUrl !== undefined) {
-      data.imageUrl = b.imageUrl.trim() || null;
     }
     const updated = await prisma.staff.update({ where: { id }, data });
     audit(actor.id, "STAFF_UPDATE", `Staff #${id}`, `${updated.username ?? updated.fullName}`);
@@ -386,16 +400,63 @@ export function adminRouter(prisma: PrismaClient) {
     res.json({ ok: true });
   });
 
-  r.get("/tables", ...admin, async (_req, res) => {
-    res.json(await prisma.cafeTable.findMany({ orderBy: { id: "asc" } }));
+  // --- QUẢN LÝ KHU VỰC (ZONE) ---
+  r.get("/zones", ...admin, async (_req, res) => {
+    res.json(await prisma.zone.findMany({ orderBy: { id: "asc" } }));
+  });
+
+  r.post("/zones", ...admin, async (req, res) => {
+    const b = req.body as { name?: string; isActive?: boolean };
+    if (!b.name?.trim()) return res.status(400).json({ error: "Thiếu tên khu vực" });
+    const z = await prisma.zone.create({
+      data: {
+        name: b.name.trim(),
+        isActive: b.isActive ?? true,
+      },
+    });
+    res.status(201).json(z);
+  });
+
+  r.patch("/zones/:id", ...admin, async (req, res) => {
+    const id = Number(req.params.id);
+    const b = req.body as { name?: string; isActive?: boolean };
+    res.json(await prisma.zone.update({ where: { id }, data: b }));
+  });
+
+  r.delete("/zones/:id", ...admin, async (req, res) => {
+    const id = Number(req.params.id);
+    const cnt = await prisma.cafeTable.count({ where: { zoneId: id } });
+    if (cnt > 0) {
+      return res.status(400).json({ error: `Khu vực đang có ${cnt} bàn. Vui lòng chuyển bàn sang khu vực khác trước.` });
+    }
+    await prisma.zone.delete({ where: { id } });
+    res.status(204).send();
+  });
+
+  // --- QUẢN LÝ BÀN (TABLES) ---
+  r.get("/tables", ...admin, async (req, res) => {
+    const zoneId = req.query.zoneId ? Number(req.query.zoneId) : undefined;
+    res.json(await prisma.cafeTable.findMany({
+      where: zoneId ? { zoneId } : undefined,
+      orderBy: { id: "asc" },
+      include: { zone: true }
+    }));
   });
 
   r.post("/tables", ...admin, async (req, res) => {
-    const b = req.body as { name?: string; location?: string; capacity?: number; qrCode?: string };
+    const b = req.body as { name?: string; location?: string; capacity?: number; qrCode?: string; zoneId?: number };
     if (!b.name?.trim()) return res.status(400).json({ error: "Thiếu tên bàn" });
     const maxId = (await prisma.cafeTable.aggregate({ _max: { id: true } }))._max.id ?? 0;
     const id = maxId + 1;
     const qr = b.qrCode ?? `${process.env.PUBLIC_APP_URL ?? "http://localhost:5173"}/?idtable=${id}`;
+    
+    // Nếu không truyền zoneId, lấy zone đầu tiên (mặc định)
+    let zId = b.zoneId;
+    if (!zId) {
+      const firstZone = await prisma.zone.findFirst({ orderBy: { id: "asc" } });
+      zId = firstZone?.id;
+    }
+
     const t = await prisma.cafeTable.create({
       data: {
         id,
@@ -404,15 +465,17 @@ export function adminRouter(prisma: PrismaClient) {
         capacity: b.capacity ?? 4,
         qrCode: qr,
         status: "Empty",
+        zoneId: zId,
       },
+      include: { zone: true },
     });
     res.status(201).json(t);
   });
 
   r.patch("/tables/:id", ...admin, async (req, res) => {
     const id = Number(req.params.id);
-    const b = req.body as { name?: string; location?: string; capacity?: number; status?: string; qrCode?: string };
-    res.json(await prisma.cafeTable.update({ where: { id }, data: b }));
+    const b = req.body as { name?: string; location?: string; capacity?: number; status?: string; qrCode?: string; zoneId?: number };
+    res.json(await prisma.cafeTable.update({ where: { id }, data: b, include: { zone: true } }));
   });
 
   r.get("/inventory", ...admin, async (_req, res) => {
@@ -478,15 +541,76 @@ export function adminRouter(prisma: PrismaClient) {
 
   r.post("/inventory/:id/receive", ...admin, async (req, res) => {
     const id = Number(req.params.id);
-    const { qty } = req.body as { qty?: number };
+    const { qty, expiryDate } = req.body as { qty?: number; expiryDate?: string };
     if (typeof qty !== "number" || qty <= 0) return res.status(400).json({ error: "Số lượng không hợp lệ" });
     const item = await prisma.inventoryItem.findUnique({ where: { id } });
     if (!item) return res.status(404).json({ error: "Không tìm thấy" });
+    const staff = (req as StaffRequest).staffRow!;
+    
+    let parsedExpiry: Date | undefined;
+    if (expiryDate) {
+      parsedExpiry = new Date(expiryDate);
+      if (isNaN(parsedExpiry.getTime())) {
+        return res.status(400).json({ error: "Hạn sử dụng không hợp lệ" });
+      }
+    }
+
     const updated = await prisma.inventoryItem.update({
       where: { id },
       data: { stockQty: item.stockQty + qty },
     });
+    
+    await prisma.stockReceipt.create({
+      data: {
+        itemId: id,
+        qty: qty,
+        remainingQty: qty,
+        expiryDate: parsedExpiry,
+        source: "Manual",
+        receivedById: staff.id,
+      },
+    });
+    
+    audit(staff.id, "INVENTORY_RECEIVE", `Nhập kho thủ công: ${item.name}`, `+${qty} ${item.unit ?? ""}`);
     res.json(updated);
+  });
+
+  r.get("/inventory/expiring", ...admin, async (req, res) => {
+    const now = new Date();
+    const next7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const receipts = await prisma.stockReceipt.findMany({
+      where: {
+        remainingQty: { gt: 0 },
+        expiryDate: { lte: next7Days }
+      },
+      orderBy: { expiryDate: "asc" },
+      include: { item: { select: { name: true, unit: true, skuCode: true } } }
+    });
+    res.json(receipts);
+  });
+
+  r.post("/inventory/receipts/:id/discard", ...admin, async (req, res) => {
+    const receiptId = Number(req.params.id);
+    const staff = (req as StaffRequest).staffRow!;
+    const receipt = await prisma.stockReceipt.findUnique({ where: { id: receiptId }, include: { item: true } });
+    if (!receipt || receipt.remainingQty <= 0) {
+      return res.status(400).json({ error: "Lô hàng không hợp lệ hoặc đã hết" });
+    }
+    
+    // Giảm stockQty của item
+    await prisma.inventoryItem.update({
+      where: { id: receipt.itemId },
+      data: { stockQty: { decrement: receipt.remainingQty } }
+    });
+    
+    // Set remainingQty = 0
+    await prisma.stockReceipt.update({
+      where: { id: receiptId },
+      data: { remainingQty: 0 }
+    });
+    
+    audit(staff.id, "INVENTORY_DISCARD", `Hủy lô hàng quá date: ${receipt.item.name}`, `-${receipt.remainingQty} ${receipt.item.unit ?? ""}`);
+    res.json({ ok: true, discarded: receipt.remainingQty });
   });
 
   r.get("/requests", ...admin, async (_req, res) => {
@@ -532,6 +656,7 @@ export function adminRouter(prisma: PrismaClient) {
             requestId: reqRow.id,
             note: reqRow.note ?? null,
             receivedById: staff.id,
+            remainingQty: reqRow.requestQty,
           },
         });
         audit(staff.id, "INVENTORY_RECEIVE",
@@ -648,7 +773,19 @@ export function adminRouter(prisma: PrismaClient) {
           allowedRadius: b.allowedRadius ?? 50,
           faceMatchThreshold: b.faceMatchThreshold ?? 0.5,
         },
-        update: b,
+        update: {
+          vatRatePercent: b.vatRatePercent,
+          pointPerVnd: b.pointPerVnd,
+          pointValueVnd: b.pointValueVnd,
+          cashRoundTo: b.cashRoundTo,
+          pointEarnEveryVnd: b.pointEarnEveryVnd,
+          pointEarnEach: b.pointEarnEach,
+          storeLat: b.storeLat ?? undefined,
+          storeLng: b.storeLng ?? undefined,
+          storeAddress: b.storeAddress,
+          allowedRadius: b.allowedRadius,
+          faceMatchThreshold: b.faceMatchThreshold,
+        },
       }),
     );
   });

@@ -32,6 +32,10 @@ export function authRouter(prisma: PrismaClient) {
         email: c.email,
         points: c.points,
         rankTier: tier,
+        address: c.address,
+        dob: c.dob,
+        gender: c.gender,
+        avatarUrl: c.avatarUrl,
       },
     });
   });
@@ -78,6 +82,10 @@ export function authRouter(prisma: PrismaClient) {
         email: customer.email,
         points: customer.points,
         rankTier: tier,
+        address: customer.address,
+        dob: customer.dob,
+        gender: customer.gender,
+        avatarUrl: customer.avatarUrl,
       },
     });
   });
@@ -112,6 +120,10 @@ export function authRouter(prisma: PrismaClient) {
         email: customer.email,
         points: fresh?.points ?? customer.points,
         rankTier: tier,
+        address: customer.address,
+        dob: customer.dob,
+        gender: customer.gender,
+        avatarUrl: customer.avatarUrl,
       },
     });
   });

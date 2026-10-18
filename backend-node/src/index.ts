@@ -26,7 +26,15 @@ import { reportsRouter } from "./routes/reports.js";
 import { vouchersRouter } from "./routes/vouchers.js";
 import { postsRouter } from "./routes/posts.js";
 import { scheduleRouter } from "./routes/schedule.js";
+import { hrRequestsRouter } from "./routes/hrRequests.js";
 import { attendanceRouter } from "./routes/attendance.js";
+import { comboRouter } from "./routes/combo.js";
+import { payrollRoutes } from "./routes/payroll.js";
+import { procurementRouter } from "./routes/procurement.js";
+import { addressesRouter } from "./routes/addresses.js";
+import { customerRouter } from "./routes/customer.js";
+import { deliveryRouter } from "./routes/delivery.js";
+import { startDispatchWorker } from "./lib/delivery.js";
 import { registerSocketHandlers } from "./socket/handlers.js";
 import { startGraceWorker } from "./graceWorker.js";
 
@@ -73,16 +81,24 @@ app.use("/api", posRouter(prisma, io));
 app.use("/api", staffOpsRouter(prisma, io));
 app.use("/api", takeawayRouter());
 app.use("/api", vnpayRouter(prisma, io));
-app.use("/api", momoRouter(prisma));
+app.use("/api", momoRouter(prisma, io));
+app.use("/api", deliveryRouter(prisma, io));
 app.use("/api", sepayRouter(prisma, io));
 
 app.use("/api", vouchersRouter(prisma, io));
 app.use("/api", postsRouter(prisma));
 app.use("/api", scheduleRouter(prisma, io));
+app.use("/api", hrRequestsRouter(prisma, io));
 app.use("/api", attendanceRouter(prisma));
+app.use("/api", comboRouter(prisma));
+app.use("/api", payrollRoutes);
+app.use("/api", procurementRouter(prisma));
+app.use("/api/customer-addresses", addressesRouter(prisma));
+app.use("/api/customer", customerRouter(prisma));
 
 registerSocketHandlers(io);
 startGraceWorker(prisma, io);
+startDispatchWorker(prisma, io);
 
 const port = Number(process.env.PORT) || 4000;
 
@@ -111,3 +127,5 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
 void bootstrap();
+
+// trigger restart

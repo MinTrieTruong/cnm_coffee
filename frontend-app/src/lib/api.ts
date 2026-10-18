@@ -53,7 +53,13 @@ export function mediaUrl(url: string | null | undefined): string | undefined {
   return `${b}${url.startsWith("/") ? url : `/${url}`}`;
 }
 
-export type Category = { id: number; name: string };
+export type Category = {
+  id: number;
+  name: string;
+  sortOrder?: number;
+  parentId?: number | null;
+  children?: Category[];
+};
 
 export type Product = {
   id: number;
@@ -61,7 +67,11 @@ export type Product = {
   name: string;
   costPrice: number;
   sellPrice: number;
+  priceSizeS?: number | null;
+  priceSizeL?: number | null;
   isActive: boolean;
+  isBestSeller?: boolean;
+  discountPercent?: number | null;
   imageUrl: string | null;
   category?: Category;
 };
@@ -71,3 +81,41 @@ export type MenuResponse = {
   products: Product[];
   favorites: Product[];
 };
+
+export type ComboItem = {
+  id: number;
+  quantity: number;
+  product: {
+    id: number;
+    name: string;
+    sellPrice: number;
+    imageUrl: string | null;
+    isActive?: boolean;
+  };
+};
+
+export type Combo = {
+  id: number;
+  name: string;
+  description?: string | null;
+  imageUrl?: string | null;
+  originalPrice: number;
+  comboPrice: number;
+  isHot: boolean;
+  isActive: boolean;
+  createdAt?: string;
+  items: ComboItem[];
+};
+
+export type HomePageResponse = {
+  categoryTree: Category[];
+  categories: Category[];
+  flashSale: Product[];
+  bestSellers: Product[];
+  hotCombos: Combo[];
+};
+
+export function calculateFinalPrice(price: number, discountPercent?: number | null): number {
+  if (!discountPercent || discountPercent <= 0) return price;
+  return Math.round(price * (1 - discountPercent / 100));
+}

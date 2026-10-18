@@ -4,24 +4,41 @@ import type { Server } from "socket.io";
 import { attachStaff, requireRoles, type StaffRequest } from "../middleware/staff.js";
 import { computeBill, computePointsEarned, getStoreSettings, roundCashAmount } from "../lib/pricing.js";
 import { rankTierFromLifetimeSpend } from "../lib/rank.js";
+import { deductInventoryForOrder } from "../lib/inventory.js";
+import { releaseOrderToKitchen } from "../lib/delivery.js";
 
 export function posRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
   const auth = attachStaff(prisma);
   const cashier = [auth, requireRoles("Cashier", "Admin")];
 
-  r.get("/pos/tables", async (_req, res) => {
+  r.get("/pos/zones", async (_req, res) => {
+    res.json(await prisma.zone.findMany({ where: { isActive: true }, orderBy: { id: "asc" } }));
+  });
+
+  r.get("/pos/tables", async (req, res) => {
+    const zoneId = req.query.zoneId ? Number(req.query.zoneId) : undefined;
     const tables = await prisma.cafeTable.findMany({
+      where: zoneId ? { zoneId } : undefined,
       orderBy: { id: "asc" },
       include: {
+        zone: true,
         orders: {
           where: { status: { in: ["Confirmed", "Pending_Grace"] } },
           take: 1,
           orderBy: { id: "desc" },
+          include: { details: true },
         },
       },
     });
-    res.json(tables);
+    const mapped = tables.map((t) => {
+      const isPaid = t.status === "Cleaning";
+      return {
+        ...t,
+        paymentStatus: isPaid ? "Paid" : "Unpaid",
+      };
+    });
+    res.json(mapped);
   });
 
   r.get("/pos/store-settings", ...cashier, async (_req, res) => {
@@ -174,6 +191,8 @@ export function posRouter(prisma: PrismaClient, io: Server) {
           cancelReason: null,
         },
       });
+      // Deduct inventory
+      await deductInventoryForOrder(tx, orderId);
       // Consume voucher if applied
       if (voucherCode) {
         await tx.voucher.updateMany({
@@ -214,23 +233,8 @@ export function posRouter(prisma: PrismaClient, io: Server) {
       change: method === "Cash" ? change : null,
     });
 
-    // Sau thanh toán: đẩy các món còn Hold (đơn payNow / mang về) vào bếp
-    const holdDetails = await prisma.orderDetail.findMany({
-      where: { orderId, kdsStatus: "Hold" },
-    });
-    console.log(`[POS PAY] orderId=${orderId} holdDetails=${holdDetails.length}`);
-    if (holdDetails.length > 0) {
-      await prisma.orderDetail.updateMany({
-        where: { orderId, kdsStatus: "Hold" },
-        data: { kdsStatus: "Waiting" },
-      });
-      const kdsDetails = await prisma.orderDetail.findMany({
-        where: { orderId },
-        include: { product: true, order: { include: { table: true } } },
-      });
-      console.log(`[POS PAY] emitting order:new to kds, details=${kdsDetails.length}`);
-      io.to("kds").emit("order:new", { orderId, details: kdsDetails });
-    }
+    // Đẩy món vào bếp (đơn giao hàng: chờ thu ngân xác nhận trước)
+    await releaseOrderToKitchen(prisma, io, orderId);
 
     res.json({
       ok: true,
@@ -388,6 +392,109 @@ export function posRouter(prisma: PrismaClient, io: Server) {
         customNotes: d.customNotes,
       })),
     });
+  });
+  r.post("/pos/move-table", auth, requireRoles("Waiter", "Cashier", "Admin", "Manager"), async (req, res) => {
+    const { sourceTableId, targetTableId } = req.body as { sourceTableId: number; targetTableId: number };
+    if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return res.status(400).json({ error: "Invalid tables" });
+    const target = await prisma.cafeTable.findUnique({ where: { id: targetTableId } });
+    if (!target || target.status !== "Empty") return res.status(400).json({ error: "Bàn đích không hợp lệ hoặc đang có khách" });
+    const source = await prisma.cafeTable.findUnique({ where: { id: sourceTableId }, include: { orders: { where: { status: { in: ["Confirmed", "Pending_Grace"] } } } } });
+    if (!source || source.orders.length === 0) return res.status(400).json({ error: "Bàn nguồn không có đơn active" });
+    const orderId = source.orders[0].id;
+    await prisma.$transaction([
+      prisma.order.update({ where: { id: orderId }, data: { tableId: targetTableId } }),
+      prisma.cafeTable.update({ where: { id: sourceTableId }, data: { status: "Empty" } }),
+      prisma.cafeTable.update({ where: { id: targetTableId }, data: { status: "Occupied" } }),
+    ]);
+    res.json({ ok: true });
+  });
+
+  r.post("/pos/merge-tables", auth, requireRoles("Waiter", "Cashier", "Admin", "Manager"), async (req, res) => {
+    const { sourceTableId, targetTableId } = req.body as { sourceTableId: number; targetTableId: number };
+    if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return res.status(400).json({ error: "Invalid tables" });
+    const source = await prisma.cafeTable.findUnique({ where: { id: sourceTableId }, include: { orders: { where: { status: { in: ["Confirmed", "Pending_Grace"] } } } } });
+    const target = await prisma.cafeTable.findUnique({ where: { id: targetTableId }, include: { orders: { where: { status: { in: ["Confirmed", "Pending_Grace"] } } } } });
+    if (!source || source.orders.length === 0) return res.status(400).json({ error: "Bàn nguồn không có đơn active" });
+    if (!target || target.orders.length === 0) return res.status(400).json({ error: "Bàn đích không có đơn active" });
+    
+    const sourceOrderId = source.orders[0].id;
+    const targetOrderId = target.orders[0].id;
+    
+    await prisma.$transaction(async (tx) => {
+      await tx.orderDetail.updateMany({ where: { orderId: sourceOrderId }, data: { orderId: targetOrderId } });
+      const details = await tx.orderDetail.findMany({ where: { orderId: targetOrderId } });
+      const subTotal = details.reduce((acc, d) => acc + d.unitPrice * d.quantity, 0);
+      await tx.order.update({ where: { id: targetOrderId }, data: { subTotal, totalAmount: subTotal, vatAmount: 0 } });
+      await tx.order.delete({ where: { id: sourceOrderId } });
+      await tx.cafeTable.update({ where: { id: sourceTableId }, data: { status: "Empty", mergedWithTableId: targetTableId } });
+    });
+    res.json({ ok: true });
+  });
+
+  r.post("/pos/split-order", auth, requireRoles("Cashier", "Admin", "Manager"), async (req, res) => {
+    const { originalOrderId, itemsToMove } = req.body as { originalOrderId: number; itemsToMove: { orderItemId: number; quantity: number }[] };
+    if (!originalOrderId || !itemsToMove || itemsToMove.length === 0) return res.status(400).json({ error: "Thiếu thông tin split" });
+    const order = await prisma.order.findUnique({ where: { id: originalOrderId }, include: { details: true } });
+    if (!order) return res.status(404).json({ error: "Không tìm thấy đơn" });
+    
+    try {
+      await prisma.$transaction(async (tx) => {
+        const maxOrder = await tx.order.aggregate({ _max: { id: true } });
+        const newOrderId = (maxOrder._max.id ?? 0) + 1;
+        const newOrder = await tx.order.create({
+          data: {
+            id: newOrderId,
+            tableId: order.tableId,
+            customerId: order.customerId,
+            staffId: order.staffId,
+            sessionId: order.sessionId,
+            orderType: order.orderType,
+            subTotal: 0,
+            totalAmount: 0,
+            status: "Confirmed",
+          }
+        });
+        
+        const maxDetail = await tx.orderDetail.aggregate({ _max: { id: true } });
+        let nextDetailId = (maxDetail._max.id ?? 0) + 1;
+        
+        for (const move of itemsToMove) {
+          const d = order.details.find(x => x.id === move.orderItemId);
+          if (!d || move.quantity <= 0 || move.quantity > d.quantity) throw new Error("Invalid quantity for " + move.orderItemId);
+          
+          if (move.quantity === d.quantity) {
+            await tx.orderDetail.update({ where: { id: d.id }, data: { orderId: newOrder.id } });
+          } else {
+            await tx.orderDetail.update({ where: { id: d.id }, data: { quantity: d.quantity - move.quantity } });
+            await tx.orderDetail.create({
+              data: {
+                id: nextDetailId++,
+                orderId: newOrder.id,
+                productId: d.productId,
+                comboId: d.comboId,
+                quantity: move.quantity,
+                unitPrice: d.unitPrice,
+                customNotes: d.customNotes,
+                kdsStatus: d.kdsStatus,
+                priority: d.priority,
+              }
+            });
+          }
+        }
+        
+        const oldDetails = await tx.orderDetail.findMany({ where: { orderId: order.id } });
+        const newDetails = await tx.orderDetail.findMany({ where: { orderId: newOrder.id } });
+        
+        const oldSubTotal = oldDetails.reduce((a, b) => a + b.unitPrice * b.quantity, 0);
+        const newSubTotal = newDetails.reduce((a, b) => a + b.unitPrice * b.quantity, 0);
+        
+        await tx.order.update({ where: { id: order.id }, data: { subTotal: oldSubTotal, totalAmount: oldSubTotal, vatAmount: 0 } });
+        await tx.order.update({ where: { id: newOrder.id }, data: { subTotal: newSubTotal, totalAmount: newSubTotal, vatAmount: 0 } });
+      });
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
   });
 
   return r;

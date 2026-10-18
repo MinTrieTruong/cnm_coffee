@@ -19,28 +19,39 @@ const productImages: Record<number, string> = {
 };
 
 async function main() {
+  // Clean up in proper FK order
+  await prisma.chatMessage.deleteMany();
+  await prisma.chatSession.deleteMany();
+  await prisma.userVoucher.deleteMany();
   await prisma.payment.deleteMany();
   await prisma.review.deleteMany();
+  await prisma.stockReceipt.deleteMany();
   await prisma.inventoryRequest.deleteMany();
+  await prisma.shiftInventoryLog.deleteMany();
   await prisma.orderDetail.deleteMany();
   await prisma.order.deleteMany();
   await prisma.shift.deleteMany();
   await prisma.customer.deleteMany();
+  await prisma.workSchedule.deleteMany();
+  await prisma.auditLog.deleteMany();
   await prisma.staff.deleteMany();
+  await prisma.productFormula.deleteMany();
   await prisma.product.deleteMany();
   await prisma.inventoryItem.deleteMany();
   await prisma.category.deleteMany();
   await prisma.cafeTable.deleteMany();
 
-  await prisma.category.createMany({
-    data: [
-      { id: 1, name: "Cà Phê Phin & Truyền Thống", sortOrder: 1 },
-      { id: 2, name: "Cà Phê Pha Máy (Espresso)", sortOrder: 2 },
-      { id: 3, name: "Trà Trái Cây (Syrup/Mứt)", sortOrder: 3 },
-      { id: 4, name: "Trà Sữa & Trân Châu", sortOrder: 4 },
-      { id: 5, name: "Matcha & Sữa Tươi", sortOrder: 5 },
-    ],
-  });
+  // ── Danh mục phân cấp (Mega Menu) ──────────────────────────────
+  // Cấp 1: Danh mục gốc
+  await prisma.category.create({ data: { id: 100, name: "Thức Uống", sortOrder: 1, parentId: null } });
+  await prisma.category.create({ data: { id: 200, name: "Đồ Ăn Nhẹ", sortOrder: 2, parentId: null } });
+
+  // Cấp 2: Danh mục con
+  await prisma.category.create({ data: { id: 1, name: "Cà Phê Phin & Truyền Thống", sortOrder: 1, parentId: 100 } });
+  await prisma.category.create({ data: { id: 2, name: "Cà Phê Pha Máy (Espresso)", sortOrder: 2, parentId: 100 } });
+  await prisma.category.create({ data: { id: 3, name: "Trà Trái Cây (Syrup/Mứt)", sortOrder: 3, parentId: 100 } });
+  await prisma.category.create({ data: { id: 4, name: "Trà Sữa & Trân Châu", sortOrder: 4, parentId: 100 } });
+  await prisma.category.create({ data: { id: 5, name: "Matcha & Sữa Tươi", sortOrder: 5, parentId: 100 } });
 
   await prisma.inventoryItem.createMany({
     data: [
@@ -60,18 +71,18 @@ async function main() {
   });
 
   const products = [
-    { id: 1, sku: "CF-001", categoryId: 1, name: "Cà Phê Đen Đá", costPrice: 8000, sellPrice: 25000, isActive: true },
-    { id: 2, sku: "CF-002", categoryId: 1, name: "Bạc Xỉu Đá", costPrice: 12000, sellPrice: 35000, isActive: true },
-    { id: 3, sku: "CF-003", categoryId: 2, name: "Americano (Đá)", costPrice: 9000, sellPrice: 35000, isActive: true },
-    { id: 4, sku: "CF-004", categoryId: 2, name: "Latte (Đá/Nóng)", costPrice: 14000, sellPrice: 45000, isActive: true },
-    { id: 5, sku: "TS-001", categoryId: 4, name: "Trà Sữa Truyền Thống", costPrice: 10000, sellPrice: 30000, isActive: true },
-    { id: 6, sku: "TS-002", categoryId: 4, name: "Trà Sữa Oolong Nướng", costPrice: 12000, sellPrice: 35000, isActive: true },
-    { id: 7, sku: "TS-003", categoryId: 4, name: "Trà Sữa Trân Châu Đường Đen", costPrice: 14000, sellPrice: 39000, isActive: true },
-    { id: 8, sku: "TS-004", categoryId: 4, name: "Trà Đen Macchiato", costPrice: 13000, sellPrice: 39000, isActive: true },
-    { id: 9, sku: "MT-001", categoryId: 5, name: "Sữa Tươi Trân Châu Đường Đen", costPrice: 15000, sellPrice: 40000, isActive: true },
-    { id: 10, sku: "MT-002", categoryId: 5, name: "Matcha Latte (Nóng/Đá)", costPrice: 15000, sellPrice: 45000, isActive: true },
-    { id: 11, sku: "MT-003", categoryId: 5, name: "Matcha Đá Xay (Frappe)", costPrice: 18000, sellPrice: 49000, isActive: true },
-    { id: 12, sku: "MT-004", categoryId: 5, name: "Sữa Tươi Matcha Trân Châu", costPrice: 16000, sellPrice: 45000, isActive: true },
+    { id: 1, sku: "CF-001", categoryId: 1, name: "Cà Phê Đen Đá", costPrice: 8000, sellPrice: 25000, isActive: true, isBestSeller: true, discountPercent: 15 },
+    { id: 2, sku: "CF-002", categoryId: 1, name: "Bạc Xỉu Đá", costPrice: 12000, sellPrice: 35000, isActive: true, isBestSeller: true, discountPercent: null },
+    { id: 3, sku: "CF-003", categoryId: 2, name: "Americano (Đá)", costPrice: 9000, sellPrice: 35000, isActive: true, isBestSeller: false, discountPercent: 20 },
+    { id: 4, sku: "CF-004", categoryId: 2, name: "Latte (Đá/Nóng)", costPrice: 14000, sellPrice: 45000, isActive: true, isBestSeller: false, discountPercent: 10 },
+    { id: 5, sku: "TS-001", categoryId: 4, name: "Trà Sữa Truyền Thống", costPrice: 10000, sellPrice: 30000, isActive: true, isBestSeller: false, discountPercent: null },
+    { id: 6, sku: "TS-002", categoryId: 4, name: "Trà Sữa Oolong Nướng", costPrice: 12000, sellPrice: 35000, isActive: true, isBestSeller: false, discountPercent: 25 },
+    { id: 7, sku: "TS-003", categoryId: 4, name: "Trà Sữa Trân Châu Đường Đen", costPrice: 14000, sellPrice: 39000, isActive: true, isBestSeller: true, discountPercent: null },
+    { id: 8, sku: "TS-004", categoryId: 4, name: "Trà Đen Macchiato", costPrice: 13000, sellPrice: 39000, isActive: true, isBestSeller: false, discountPercent: null },
+    { id: 9, sku: "MT-001", categoryId: 5, name: "Sữa Tươi Trân Châu Đường Đen", costPrice: 15000, sellPrice: 40000, isActive: true, isBestSeller: true, discountPercent: 10 },
+    { id: 10, sku: "MT-002", categoryId: 5, name: "Matcha Latte (Nóng/Đá)", costPrice: 15000, sellPrice: 45000, isActive: true, isBestSeller: true, discountPercent: null },
+    { id: 11, sku: "MT-003", categoryId: 5, name: "Matcha Đá Xay (Frappe)", costPrice: 18000, sellPrice: 49000, isActive: true, isBestSeller: false, discountPercent: 30 },
+    { id: 12, sku: "MT-004", categoryId: 5, name: "Sữa Tươi Matcha Trân Châu", costPrice: 16000, sellPrice: 45000, isActive: true, isBestSeller: false, discountPercent: null },
   ];
 
   for (const p of products) {

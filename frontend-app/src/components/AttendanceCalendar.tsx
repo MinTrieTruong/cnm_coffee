@@ -57,7 +57,7 @@ export function AttendanceCalendar() {
   };
 
   return (
-    <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "10px", padding: "1.5rem", border: "1px solid rgba(255,255,255,0.08)", marginTop: "2rem" }}>
+    <div style={{ background: "var(--surface2)", borderRadius: "10px", padding: "1.5rem", border: "1px solid var(--border)", marginTop: "2rem" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
         <h3 style={{ margin: 0, fontSize: "1.2rem", color: "var(--accent)" }}>Lịch Chấm Công</h3>
         <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
@@ -72,7 +72,7 @@ export function AttendanceCalendar() {
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "0.5rem" }}>
           {["T2", "T3", "T4", "T5", "T6", "T7", "CN"].map(day => (
-            <div key={day} style={{ textAlign: "center", fontWeight: "bold", paddingBottom: "0.5rem", borderBottom: "1px solid rgba(255,255,255,0.1)", color: "var(--muted)" }}>
+            <div key={day} style={{ textAlign: "center", fontWeight: "bold", paddingBottom: "0.5rem", borderBottom: "1px solid var(--border)", color: "var(--muted)" }}>
               {day}
             </div>
           ))}
@@ -95,21 +95,34 @@ export function AttendanceCalendar() {
 
             return (
               <div key={day} style={{ 
-                minHeight: "70px", 
-                background: "rgba(255, 255, 255, 0.95)", // Nền sáng
+                minHeight: "75px", 
+                background: "rgba(255, 255, 255, 0.95)",
                 borderRadius: "8px", 
-                padding: "0.5rem",
+                padding: "0.3rem",
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
                 border: isToday ? "2px solid var(--accent)" : "1px solid transparent",
                 boxShadow: "0 2px 5px rgba(0,0,0,0.2)"
               }}>
-                <span style={{ fontSize: "1.2rem", fontWeight: isToday ? "bold" : "600", color: "#333333" }}>
+                <span style={{ fontSize: "1.1rem", fontWeight: isToday ? "bold" : "600", color: "#333333", marginBottom: "0.15rem" }}>
                   {day}
                 </span>
                 
-                {dotColor && (
+                {schedule && (schedule.actualCheckIn || schedule.actualCheckOut) ? (
+                  <div style={{ marginTop: "auto", width: "100%", fontSize: "0.75rem", textAlign: "center", display: "flex", flexDirection: "column", gap: "2px" }}>
+                    {schedule.actualCheckIn && (
+                      <div style={{ background: "#dcfce3", color: "#166534", borderRadius: "4px", padding: "2px 0", fontWeight: "600" }}>
+                        Vào: {new Date(schedule.actualCheckIn).toLocaleTimeString("vi-VN", {hour: '2-digit', minute: '2-digit'})}
+                      </div>
+                    )}
+                    {schedule.actualCheckOut && (
+                      <div style={{ background: "#fee2e2", color: "#991b1b", borderRadius: "4px", padding: "2px 0", fontWeight: "600" }}>
+                        Ra: {new Date(schedule.actualCheckOut).toLocaleTimeString("vi-VN", {hour: '2-digit', minute: '2-digit'})}
+                      </div>
+                    )}
+                  </div>
+                ) : dotColor ? (
                   <div style={{ 
                     marginTop: "auto",
                     marginBottom: "0.25rem",
@@ -117,8 +130,8 @@ export function AttendanceCalendar() {
                     height: "10px", 
                     borderRadius: "50%", 
                     backgroundColor: dotColor,
-                  }} title={dotColor === "#22c55e" ? "Đã hoàn tất ca" : "Thiếu Check-in hoặc Check-out"} />
-                )}
+                  }} title="Thiếu Check-in hoặc Check-out" />
+                ) : null}
               </div>
             );
           })}

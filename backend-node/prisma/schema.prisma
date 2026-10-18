@@ -9,71 +9,86 @@ datasource db {
 
 /// Cấu hình chung (1 dòng): VAT, quy đổi điểm
 model StoreSettings {
-  id                Int @id @default(1)
-  vatRatePercent    Int @default(10) @map("VAT_Rate_Percent")
+  id                 Int     @id @default(1)
+  vatRatePercent     Int     @default(10) @map("VAT_Rate_Percent")
   /// Legacy — không dùng cho công thức tích điểm mới
-  pointPerVnd       Int @default(10000) @map("Point_Per_VND")
+  pointPerVnd        Int     @default(10000) @map("Point_Per_VND")
   /// 1 điểm đổi được bao nhiêu VND giảm trừ (1 = 1 điểm = 1đ)
-  pointValueVnd     Int @default(1) @map("Point_Value_VND")
-  cashRoundTo       Int @default(1000) @map("Cash_Round_To")
+  pointValueVnd      Int     @default(1) @map("Point_Value_VND")
+  cashRoundTo        Int     @default(1000) @map("Cash_Round_To")
   /// Cứ mỗi N VND thành tiền thanh toán → cộng `pointEarnEach` điểm
-  pointEarnEveryVnd Int @default(1000) @map("Point_Earn_Every_VND")
-  pointEarnEach     Int @default(100) @map("Point_Earn_Each")
+  pointEarnEveryVnd  Int     @default(1000) @map("Point_Earn_Every_VND")
+  pointEarnEach      Int     @default(100) @map("Point_Earn_Each")
   /// Vĩ độ quán (GPS chấm công)
-  storeLat          Float @default(10.7769) @map("Store_Lat")
+  storeLat           Float   @default(10.7769) @map("Store_Lat")
   /// Kinh độ quán (GPS chấm công)
-  storeLng          Float @default(106.7009) @map("Store_Lng")
+  storeLng           Float   @default(106.7009) @map("Store_Lng")
   /// Địa chỉ quán
-  storeAddress      String? @map("Store_Address") @db.VarChar(255)
+  storeAddress       String? @map("Store_Address") @db.VarChar(255)
   /// Bán kính cho phép chấm công (mét)
-  allowedRadius     Int   @default(50) @map("Allowed_Radius")
+  allowedRadius      Int     @default(50) @map("Allowed_Radius")
   /// Độ nhạy nhận diện khuôn mặt (FaceID) - càng thấp càng khắt khe
-  faceMatchThreshold Float @default(0.5) @map("Face_Match_Threshold")
+  faceMatchThreshold Float   @default(0.5) @map("Face_Match_Threshold")
 
   @@map("Store_Settings")
 }
 
 model Category {
-  id        Int       @id @map("Category_ID")
-  name      String    @map("Category_Name") @db.VarChar(255)
-  sortOrder Int       @default(0) @map("Sort_Order")
+  id        Int        @id @map("Category_ID")
+  name      String     @map("Category_Name") @db.VarChar(255)
+  sortOrder Int        @default(0) @map("Sort_Order")
+  parentId  Int?       @map("Parent_ID")
+  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryTree")
   products  Product[]
 
   @@map("Categories")
 }
 
 model InventoryItem {
-  id            Int     @id @map("Item_ID")
-  name          String  @map("Item_Name") @db.VarChar(255)
-  skuCode       String? @unique @map("SKU_Code") @db.VarChar(50)
-  unit          String? @map("Unit") @db.VarChar(20)
-  stockQty      Int     @map("Stock_Qty")
-  minLevel      Int     @map("Min_Level")
-  supplier      String? @map("Supplier") @db.VarChar(100)
+  id            Int                       @id @map("Item_ID")
+  name          String                    @map("Item_Name") @db.VarChar(255)
+  category      String?                   @map("Category") @db.VarChar(100)
+  skuCode       String?                   @unique @map("SKU_Code") @db.VarChar(50)
+  unit          String?                   @map("Unit") @db.VarChar(20)
+  stockQty      Int                       @map("Stock_Qty")
+  minLevel      Int                       @map("Min_Level")
+  supplier      String?                   @map("Supplier") @db.VarChar(100)
   /// Giá nhập mới nhất / đơn vị kho (để tính lợi nhuận)
-  unitCostPrice Int     @default(0) @map("Unit_Cost_Price")
-  imageUrl      String? @map("Image_URL") @db.VarChar(1024)
-  requests  InventoryRequest[]
-  shiftLogs ShiftInventoryLog[]
-  formulas  ProductFormula[]
-  receipts  StockReceipt[]
+  unitCostPrice Int                       @default(0) @map("Unit_Cost_Price")
+  imageUrl      String?                   @map("Image_URL") @db.VarChar(1024)
+  requests      InventoryRequest[]
+  shiftLogs     ShiftInventoryLog[]
+  formulas      ProductFormula[]
+  receipts      StockReceipt[]
+  transactions  InventoryTransaction[]
+  prItems       PurchaseRequisitionItem[]
+  quoteItems    SupplierQuoteItem[]
+  batches       InventoryBatch[]
+  grnItems      GoodsReceiptItem[]
 
   @@map("Inventory")
 }
 
 model Product {
-  id          Int      @id @map("Product_ID")
-  categoryId  Int      @map("Category_ID")
-  sku         String?  @unique @map("SKU") @db.VarChar(20)
-  name        String   @map("Product_Name") @db.VarChar(255)
-  costPrice   Int      @map("Cost_Price")
-  sellPrice   Int      @map("Sell_Price")
-  isActive    Boolean  @map("Is_Active")
-  outOfStock  Boolean  @default(false) @map("Out_Of_Stock")
-  imageUrl    String?  @map("Image_URL") @db.VarChar(1024)
-  category    Category @relation(fields: [categoryId], references: [id])
-  orderLines  OrderDetail[]
-  formulas    ProductFormula[]
+  id              Int              @id @map("Product_ID")
+  categoryId      Int              @map("Category_ID")
+  sku             String?          @unique @map("SKU") @db.VarChar(20)
+  name            String           @map("Product_Name") @db.VarChar(255)
+  costPrice       Int              @map("Cost_Price")
+  sellPrice       Int              @map("Sell_Price")
+  priceSizeS      Int?             @map("Price_Size_S")
+  priceSizeL      Int?             @map("Price_Size_L")
+  isActive        Boolean          @map("Is_Active")
+  outOfStock      Boolean          @default(false) @map("Out_Of_Stock")
+  isBestSeller    Boolean          @default(false) @map("Is_Best_Seller")
+  discountPercent Int?             @map("Discount_Percent")
+  imageUrl        String?          @map("Image_URL") @db.VarChar(1024)
+  tags            Json?            @map("Tags")
+  category        Category         @relation(fields: [categoryId], references: [id])
+  orderLines      OrderDetail[]
+  formulas        ProductFormula[]
+  comboItems      ComboItem[]
 
   @@map("Products")
 }
@@ -103,79 +118,129 @@ model ProductFormula {
   @@map("Product_Formulas")
 }
 
+model Zone {
+  id       Int         @id @default(autoincrement()) @map("Zone_ID")
+  name     String      @map("Zone_Name") @db.VarChar(100)
+  isActive Boolean     @default(true) @map("Is_Active")
+  tables   CafeTable[]
+
+  @@map("Zones")
+}
 
 model CafeTable {
-  id       Int     @id @map("Table_ID")
-  name     String  @map("Table_Name") @db.VarChar(64)
-  location String? @map("Location") @db.VarChar(100)
-  capacity Int     @default(4) @map("Capacity")
-  qrCode   String? @map("QR_Code") @db.VarChar(512)
-  status   String  @default("Empty") @map("Status") @db.VarChar(32)
-  orders   Order[]
+  id                Int     @id @map("Table_ID")
+  name              String  @map("Table_Name") @db.VarChar(64)
+  location          String? @map("Location") @db.VarChar(100)
+  capacity          Int     @default(4) @map("Capacity")
+  qrCode            String? @map("QR_Code") @db.VarChar(512)
+  status            String  @default("Empty") @map("Status") @db.VarChar(32)
+  zoneId            Int?    @map("Zone_ID")
+  mergedWithTableId Int?    @map("Merged_With_Table_ID")
+
+  zone         Zone?       @relation(fields: [zoneId], references: [id])
+  mergedWith   CafeTable?  @relation("MergedTables", fields: [mergedWithTableId], references: [id])
+  mergedTables CafeTable[] @relation("MergedTables")
+  orders       Order[]
 
   @@map("Tables")
 }
 
 /// Khách hàng — đăng nhập bằng SĐT hoặc Email + mật khẩu (theo cmn.md)
 model Customer {
-  id           Int       @id @map("Customer_ID")
-  phone        String?   @unique @map("Phone") @db.VarChar(15)
-  passwordHash String?   @map("Password_Hash") @db.VarChar(255)
-  fullName     String    @map("Customer_Name") @db.VarChar(255)
-  email        String?   @map("Email") @db.VarChar(100)
-  address      String?   @map("Address") @db.VarChar(255)
-  dob          DateTime? @map("DOB")
-  gender       String?   @map("Gender") @db.VarChar(10)
-  avatarUrl    String?   @map("Avatar_URL") @db.VarChar(255)
-  points       Int       @default(0) @map("Points")
-  rankTier     String    @default("Dong") @map("Rank_Tier") @db.VarChar(20)
-  createdAt    DateTime  @default(now()) @map("Created_At")
-  lastLogin    DateTime? @map("Last_Login")
+  id           Int               @id @map("Customer_ID")
+  phone        String?           @unique @map("Phone") @db.VarChar(15)
+  passwordHash String?           @map("Password_Hash") @db.VarChar(255)
+  fullName     String            @map("Customer_Name") @db.VarChar(255)
+  email        String?           @map("Email") @db.VarChar(100)
+  address      String?           @map("Address") @db.VarChar(255)
+  dob          DateTime?         @map("DOB")
+  gender       String?           @map("Gender") @db.VarChar(10)
+  avatarUrl    String?           @map("Avatar_URL") @db.VarChar(255)
+  points       Int               @default(0) @map("Points")
+  rankTier     String            @default("Dong") @map("Rank_Tier") @db.VarChar(20)
+  createdAt    DateTime          @default(now()) @map("Created_At")
+  lastLogin    DateTime?         @map("Last_Login")
   orders       Order[]
   reviews      Review[]
   userVouchers UserVoucher[]
+  addresses    CustomerAddress[]
 
   @@map("Customers")
 }
 
+model CustomerAddress {
+  id         Int      @id @default(autoincrement()) @map("Address_ID")
+  customerId Int      @map("Customer_ID")
+  address    String   @map("Address") @db.VarChar(500)
+  lat        Float?   @map("Lat")
+  lng        Float?   @map("Lng")
+  isDefault  Boolean  @default(false) @map("Is_Default")
+  createdAt  DateTime @default(now()) @map("Created_At")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("Customer_Addresses")
+}
+
 model Staff {
-  id           Int      @id @map("Staff_ID")
-  username     String?  @unique @map("Username") @db.VarChar(50)
-  passwordHash String?  @map("Password_Hash") @db.VarChar(255)
-  fullName     String   @map("Staff_Name") @db.VarChar(100)
-  phone        String?  @map("Phone") @db.VarChar(15)
-  address      String?  @map("Address") @db.VarChar(255)
-  dob          DateTime? @map("DOB")
-  cccd         String?  @unique @map("CCCD") @db.VarChar(20)
-  role         String   @map("Role") @db.VarChar(20)
-  baseSalary   Int      @default(0) @map("Base_Salary")
-  hireDate     DateTime @default(now()) @map("Hire_Date")
-  status       String   @default("Active") @map("Status") @db.VarChar(20)
+  id               Int                @id @map("Staff_ID")
+  username         String?            @unique @map("Username") @db.VarChar(50)
+  passwordHash     String?            @map("Password_Hash") @db.VarChar(255)
+  fullName         String             @map("Staff_Name") @db.VarChar(100)
+  phone            String?            @map("Phone") @db.VarChar(15)
+  address          String?            @map("Address") @db.VarChar(255)
+  dob              DateTime?          @map("DOB")
+  cccd             String?            @unique @map("CCCD") @db.VarChar(20)
+  role             String             @map("Role") @db.VarChar(20)
+  baseSalary       Int                @default(0) @map("Base_Salary")
+  allowance        Int                @default(0) @map("Allowance")
+  hireDate         DateTime           @default(now()) @map("Hire_Date")
+  status           String             @default("Active") @map("Status") @db.VarChar(20)
   /// Face descriptor JSON (128-d Float32Array) cho nhận diện khuôn mặt
-  faceDescriptor String? @map("Face_Descriptor") @db.Text
-  orders         Order[]
-  shifts         Shift[]
-  workSchedules  WorkSchedule[]
-  requestsMade   InventoryRequest[] @relation("RequestByStaff")
+  faceDescriptor   String?            @map("Face_Descriptor") @db.Text
+  orders           Order[]
+  shifts           Shift[]
+  workSchedules    WorkSchedule[]
+  requestsMade     InventoryRequest[] @relation("RequestByStaff")
   requestsApproved InventoryRequest[] @relation("ApprovedByStaff")
-  reviewsReply   Review[]
-  receiptsGiven  StockReceipt[]
-  auditLogs      AuditLog[]
+  reviewsReply     Review[]
+  receiptsGiven    StockReceipt[]
+  auditLogs        AuditLog[]
+  payslips         Payslip[]
+
+  leaveRequests         LeaveRequest[]         @relation("LeaveRequests")
+  leaveApprovals        LeaveRequest[]         @relation("LeaveApprovals")
+  shiftSwapRequesters   ShiftSwapRequest[]     @relation("ShiftSwapRequesters")
+  shiftSwapTargets      ShiftSwapRequest[]     @relation("ShiftSwapTargets")
+  shiftSwapApprovals    ShiftSwapRequest[]     @relation("ShiftSwapApprovals")
+  attendanceAdjustments AttendanceAdjustment[] @relation("AttendanceAdjustments")
+  attendanceApprovals   AttendanceAdjustment[] @relation("AttendanceApprovals")
+  purchaseRequisitions  PurchaseRequisition[]  @relation("PRByStaff")
+  goodsReceipts         GoodsReceipt[]
+
+  ordersShipped Order[] @relation("OrderShipper")
+
+  /// Shipper: đang bật nhận đơn hay không
+  shipperOnline  Boolean   @default(false) @map("Shipper_Online")
+  /// Shipper: vị trí GPS gần nhất
+  lastLat        Float?    @map("Last_Lat")
+  lastLng        Float?    @map("Last_Lng")
+  lastLocationAt DateTime? @map("Last_Location_At")
 
   @@map("Staff")
 }
 
 model Shift {
-  id            Int       @id @default(autoincrement()) @map("Shift_ID")
-  staffId       Int       @map("Staff_ID")
-  startTime     DateTime  @map("Start_Time")
-  endTime       DateTime? @map("End_Time")
-  startingCash  Int       @map("Starting_Cash")
-  expectedCash  Int?      @map("Expected_Cash")
-  actualCash    Int?      @map("Actual_Cash")
-  differenceAmt Int?      @map("Difference")
-  note          String?   @map("Note") @db.VarChar(255)
-  staff         Staff     @relation(fields: [staffId], references: [id])
+  id            Int                 @id @default(autoincrement()) @map("Shift_ID")
+  staffId       Int                 @map("Staff_ID")
+  startTime     DateTime            @map("Start_Time")
+  endTime       DateTime?           @map("End_Time")
+  startingCash  Int                 @map("Starting_Cash")
+  expectedCash  Int?                @map("Expected_Cash")
+  actualCash    Int?                @map("Actual_Cash")
+  differenceAmt Int?                @map("Difference")
+  note          String?             @map("Note") @db.VarChar(255)
+  staff         Staff               @relation(fields: [staffId], references: [id])
   payments      Payment[]
   inventoryLogs ShiftInventoryLog[]
 
@@ -183,45 +248,73 @@ model Shift {
 }
 
 model Order {
-  id            Int       @id @map("Order_ID")
-  tableId       Int?      @map("Table_ID")
-  customerId    Int?      @map("Customer_ID")
-  staffId       Int?      @map("Staff_ID")
-  sessionId     String?   @map("Session_ID") @db.VarChar(50)
-  orderType     String    @map("Order_Type") @db.VarChar(32)
-  subTotal      Int       @map("Sub_Total")
-  discountAmt   Int       @default(0) @map("Discount_Amt")
+  id              Int       @id @map("Order_ID")
+  tableId         Int?      @map("Table_ID")
+  customerId      Int?      @map("Customer_ID")
+  staffId         Int?      @map("Staff_ID")
+  sessionId       String?   @map("Session_ID") @db.VarChar(50)
+  orderType       String    @map("Order_Type") @db.VarChar(32)
+  subTotal        Int       @map("Sub_Total")
+  discountAmt     Int       @default(0) @map("Discount_Amt")
   /// Điểm khách dùng để giảm giá (số điểm, không phải VND)
-  pointsUsed    Int       @default(0) @map("Points_Used")
+  pointsUsed      Int       @default(0) @map("Points_Used")
   /// Số tiền giảm từ điểm (VND) = pointsUsed × pointValueVnd
-  pointsRedeemAmt Int     @default(0) @map("Points_Redeem_Amt")
-  vatAmount     Int       @default(0) @map("VAT_Amount")
-  totalAmount   Int       @map("Total_Amount")
-  status        String    @default("Pending_Grace") @map("Status") @db.VarChar(32)
-  cancelReason  String?   @map("Cancel_Reason") @db.VarChar(255)
-  graceEndsAt   DateTime? @map("Grace_Ends_At")
-  createdAt     DateTime  @default(now()) @map("Created_At")
-  table         CafeTable? @relation(fields: [tableId], references: [id])
-  customer      Customer?  @relation(fields: [customerId], references: [id])
-  staff         Staff?     @relation(fields: [staffId], references: [id])
-  details       OrderDetail[]
-  payments      Payment[]
-  reviews       Review[]
+  pointsRedeemAmt Int       @default(0) @map("Points_Redeem_Amt")
+  vatAmount       Int       @default(0) @map("VAT_Amount")
+  totalAmount     Int       @map("Total_Amount")
+  status          String    @default("Pending_Grace") @map("Status") @db.VarChar(32)
+  cancelReason    String?   @map("Cancel_Reason") @db.VarChar(255)
+  graceEndsAt     DateTime? @map("Grace_Ends_At")
+  createdAt       DateTime  @default(now()) @map("Created_At")
+
+  // Delivery fields
+  deliveryAddress String?   @map("Delivery_Address") @db.VarChar(500)
+  customerLat     Float?    @map("Customer_Lat")
+  customerLng     Float?    @map("Customer_Lng")
+  shipperId       Int?      @map("Shipper_ID")
+  shippingFee     Int       @default(0) @map("Shipping_Fee")
+  deliveredAt     DateTime? @map("Delivered_At")
+  /// Trạng thái giao hàng (tách khỏi trạng thái thanh toán `status`):
+  /// Awaiting_Confirm → Preparing → Ready → Assigned → Delivering → Delivered | Failed | Rejected
+  deliveryStatus   String?   @map("Delivery_Status") @db.VarChar(32)
+  /// Thứ tự điểm dừng trong tuyến tối ưu của shipper (1 = giao trước)
+  routeSeq         Int?      @map("Route_Seq")
+  /// Ảnh xác nhận đã giao
+  deliveryProofUrl String?   @map("Delivery_Proof_Url") @db.VarChar(1024)
+  /// Ghi chú giao hàng / lý do thất bại
+  deliveryNote     String?   @map("Delivery_Note") @db.VarChar(255)
+  confirmedAt      DateTime? @map("Confirmed_At")
+  readyAt          DateTime? @map("Ready_At")
+  assignedAt       DateTime? @map("Assigned_At")
+  pickedUpAt       DateTime? @map("Picked_Up_At")
+
+  table    CafeTable? @relation(fields: [tableId], references: [id])
+  customer Customer?  @relation(fields: [customerId], references: [id])
+  staff    Staff?     @relation(fields: [staffId], references: [id])
+  shipper  Staff?     @relation("OrderShipper", fields: [shipperId], references: [id])
+
+  details  OrderDetail[]
+  payments Payment[]
+  reviews  Review[]
 
   @@map("Orders")
 }
 
 model OrderDetail {
-  id          Int    @id @map("Detail_ID")
-  orderId     Int    @map("Order_ID")
-  productId   Int    @map("Product_ID")
-  quantity    Int    @map("Quantity")
-  unitPrice   Int    @map("Unit_Price")
+  id          Int     @id @map("Detail_ID")
+  orderId     Int     @map("Order_ID")
+  productId   Int     @map("Product_ID")
+  /// Nếu đây là 1 dòng thuộc combo, lưu comboId để biết (nullable)
+  comboId     Int?    @map("Combo_ID")
+  quantity    Int     @map("Quantity")
+  unitPrice   Int     @map("Unit_Price")
+  size        String? @map("Size") @db.VarChar(10)
   customNotes String? @map("Custom_Notes") @db.VarChar(512)
   kdsStatus   String  @default("Hold") @map("KDS_Status") @db.VarChar(32)
   priority    Boolean @default(false) @map("Priority_Flag")
   order       Order   @relation(fields: [orderId], references: [id])
   product     Product @relation(fields: [productId], references: [id])
+  combo       Combo?  @relation(fields: [comboId], references: [id])
 
   @@map("Order_Details")
 }
@@ -259,20 +352,20 @@ model Review {
 }
 
 model InventoryRequest {
-  id           Int      @id @default(autoincrement()) @map("Request_ID")
-  staffId      Int      @map("Staff_ID")
-  itemId       Int      @map("Item_ID")
-  requestQty   Int      @map("Request_Qty")
+  id           Int           @id @default(autoincrement()) @map("Request_ID")
+  staffId      Int           @map("Staff_ID")
+  itemId       Int           @map("Item_ID")
+  requestQty   Int           @map("Request_Qty")
   /// "Restock" = phiếu nhập hàng (từ nhân viên bán hàng), "Kitchen" = xin nguyên liệu (từ bếp)
-  type         String   @default("Kitchen") @map("Type") @db.VarChar(20)
-  status       String   @default("Pending") @map("Status") @db.VarChar(20)
-  approvedById Int?     @map("Approved_By")
-  note         String?  @map("Note") @db.VarChar(255)
-  createdAt    DateTime @default(now()) @map("Created_At")
-  approvedAt   DateTime? @map("Approved_At")
-  staff        Staff    @relation("RequestByStaff", fields: [staffId], references: [id])
+  type         String        @default("Kitchen") @map("Type") @db.VarChar(20)
+  status       String        @default("Pending") @map("Status") @db.VarChar(20)
+  approvedById Int?          @map("Approved_By")
+  note         String?       @map("Note") @db.VarChar(255)
+  createdAt    DateTime      @default(now()) @map("Created_At")
+  approvedAt   DateTime?     @map("Approved_At")
+  staff        Staff         @relation("RequestByStaff", fields: [staffId], references: [id])
   item         InventoryItem @relation(fields: [itemId], references: [id])
-  approvedBy   Staff?   @relation("ApprovedByStaff", fields: [approvedById], references: [id])
+  approvedBy   Staff?        @relation("ApprovedByStaff", fields: [approvedById], references: [id])
   receipt      StockReceipt?
 
   @@map("Requests")
@@ -280,36 +373,42 @@ model InventoryRequest {
 
 /// Lịch sử nhập kho — ghi lại mỗi lần hàng về kho
 model StockReceipt {
-  id           Int              @id @default(autoincrement()) @map("Receipt_ID")
-  itemId       Int              @map("Item_ID")
-  qty          Int              @map("Qty")
+  id           Int               @id @default(autoincrement()) @map("Receipt_ID")
+  itemId       Int               @map("Item_ID")
+  qty          Int               @map("Qty")
   /// "Request" = duyệt phiếu xin, "Manual" = nhập tay
-  source       String           @default("Manual") @map("Source") @db.VarChar(20)
-  requestId    Int?             @unique @map("Request_ID")
-  supplierId   Int?             @map("Supplier_ID")
-  unitPrice    Int?             @map("Unit_Price")  // giá nhập lần này
-  note         String?          @map("Note") @db.VarChar(255)
-  receivedAt   DateTime         @default(now()) @map("Received_At")
-  receivedById Int              @map("Received_By")
-  item         InventoryItem    @relation(fields: [itemId], references: [id])
+  source       String            @default("Manual") @map("Source") @db.VarChar(20)
+  requestId    Int?              @unique @map("Request_ID")
+  supplierId   Int?              @map("Supplier_ID")
+  unitPrice    Int?              @map("Unit_Price") // giá nhập lần này
+  note         String?           @map("Note") @db.VarChar(255)
+  expiryDate   DateTime?         @map("Expiry_Date")
+  remainingQty Int               @default(0) @map("Remaining_Qty")
+  receivedAt   DateTime          @default(now()) @map("Received_At")
+  receivedById Int               @map("Received_By")
+  item         InventoryItem     @relation(fields: [itemId], references: [id])
   request      InventoryRequest? @relation(fields: [requestId], references: [id])
-  receivedBy   Staff            @relation(fields: [receivedById], references: [id])
-  supplierRel  Supplier?        @relation(fields: [supplierId], references: [id])
+  receivedBy   Staff             @relation(fields: [receivedById], references: [id])
+  supplierRel  Supplier?         @relation(fields: [supplierId], references: [id])
 
   @@map("Stock_Receipts")
 }
 
 /// Nhà cung cấp nguyên liệu
 model Supplier {
-  id        Int            @id @default(autoincrement()) @map("Supplier_ID")
-  name      String         @map("Name") @db.VarChar(255)
-  phone     String?        @map("Phone") @db.VarChar(20)
-  address   String?        @map("Address") @db.VarChar(255)
-  email     String?        @map("Email") @db.VarChar(100)
-  note      String?        @map("Note") @db.VarChar(500)
-  isActive  Boolean        @default(true) @map("Is_Active")
-  createdAt DateTime       @default(now()) @map("Created_At")
-  receipts  StockReceipt[]
+  id             Int             @id @default(autoincrement()) @map("Supplier_ID")
+  username       String?         @unique @map("Username") @db.VarChar(50)
+  passwordHash   String?         @map("Password_Hash") @db.VarChar(255)
+  name           String          @map("Name") @db.VarChar(255)
+  phone          String?         @map("Phone") @db.VarChar(20)
+  address        String?         @map("Address") @db.VarChar(255)
+  email          String?         @map("Email") @db.VarChar(100)
+  note           String?         @map("Note") @db.VarChar(500)
+  isActive       Boolean         @default(true) @map("Is_Active")
+  createdAt      DateTime        @default(now()) @map("Created_At")
+  receipts       StockReceipt[]
+  quotes         SupplierQuote[]
+  purchaseOrders PurchaseOrder[]
 
   @@map("Suppliers")
 }
@@ -331,38 +430,37 @@ model AuditLog {
 
 /// Nhật ký kiểm kho mở/kết ca của nhân viên
 model ShiftInventoryLog {
-  id        Int      @id @default(autoincrement()) @map("Log_ID")
-  shiftId   Int?     @map("Shift_ID")
-  itemId    Int      @map("Item_ID")
+  id        Int           @id @default(autoincrement()) @map("Log_ID")
+  shiftId   Int?          @map("Shift_ID")
+  itemId    Int           @map("Item_ID")
   /// "open" = kiểm kho mở ca, "close" = kiểm kho kết ca
-  checkType String   @map("Check_Type") @db.VarChar(10)
-  qty       Int      @map("Qty")
-  note      String?  @map("Note") @db.VarChar(255)
-  checkedAt DateTime @default(now()) @map("Checked_At")
-  shift     Shift?   @relation(fields: [shiftId], references: [id])
+  checkType String        @map("Check_Type") @db.VarChar(10)
+  qty       Int           @map("Qty")
+  note      String?       @map("Note") @db.VarChar(255)
+  checkedAt DateTime      @default(now()) @map("Checked_At")
+  shift     Shift?        @relation(fields: [shiftId], references: [id])
   item      InventoryItem @relation(fields: [itemId], references: [id])
 
   @@map("Shift_Inventory_Logs")
 }
 
-
 /// Voucher giam gia
 model Voucher {
-  id             Int           @id @default(autoincrement()) @map("Voucher_ID")
-  code           String        @unique @map("Code") @db.VarChar(50)
-  description    String?       @map("Description") @db.VarChar(500)
-  discountValue  Int           @map("Discount_Value")
-  minBillValue   Int           @default(0) @map("Min_Bill_Value")
-  startDate      DateTime      @default(now()) @map("Start_Date")
-  endDate        DateTime      @map("End_Date")
-  quantity       Int           @map("Quantity")
-  usedCount      Int           @default(0) @map("Used_Count")
-  isActive       Boolean       @default(true) @map("Is_Active")
-  voucherType    String        @default("public") @map("Voucher_Type") @db.VarChar(20)
-  goldHourStart  Int?          @map("Gold_Hour_Start")
-  goldHourEnd    Int?          @map("Gold_Hour_End")
-  userVouchers   UserVoucher[]
-  createdAt      DateTime      @default(now()) @map("Created_At")
+  id            Int           @id @default(autoincrement()) @map("Voucher_ID")
+  code          String        @unique @map("Code") @db.VarChar(50)
+  description   String?       @map("Description") @db.VarChar(500)
+  discountValue Int           @map("Discount_Value")
+  minBillValue  Int           @default(0) @map("Min_Bill_Value")
+  startDate     DateTime      @default(now()) @map("Start_Date")
+  endDate       DateTime      @map("End_Date")
+  quantity      Int           @map("Quantity")
+  usedCount     Int           @default(0) @map("Used_Count")
+  isActive      Boolean       @default(true) @map("Is_Active")
+  voucherType   String        @default("public") @map("Voucher_Type") @db.VarChar(20)
+  goldHourStart Int?          @map("Gold_Hour_Start")
+  goldHourEnd   Int?          @map("Gold_Hour_End")
+  userVouchers  UserVoucher[]
+  createdAt     DateTime      @default(now()) @map("Created_At")
 
   @@map("Vouchers")
 }
@@ -377,8 +475,8 @@ model UserVoucher {
   claimedAt  DateTime  @default(now()) @map("Claimed_At")
   orderId    Int?      @map("Order_ID")
 
-  customer   Customer  @relation(fields: [customerId], references: [id])
-  voucher    Voucher   @relation(fields: [voucherId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
+  voucher  Voucher  @relation(fields: [voucherId], references: [id])
 
   @@unique([customerId, voucherId])
   @@map("User_Vouchers")
@@ -398,42 +496,126 @@ model Post {
   @@map("Posts")
 }
 
-/// ─── Lịch làm việc (đăng ký ca) ─────────────────────────────────
-enum WorkScheduleStatus {
+/// ─── Đề xuất cá nhân (Nhân sự) ─────────────────────────────────
+
+enum RequestStatus {
   PENDING
   APPROVED
   REJECTED
 }
 
+enum TargetUserStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum LeaveType {
+  FULL_DAY
+  HALF_DAY
+}
+
+enum AdjustmentType {
+  FORGET_CHECKIN
+  FORGET_CHECKOUT
+  LATE_IN
+  EARLY_OUT
+}
+
+model LeaveRequest {
+  id        Int           @id @default(autoincrement()) @map("LR_ID")
+  userId    Int           @map("User_ID")
+  date      DateTime      @map("Date") @db.Date
+  leaveType LeaveType     @map("Leave_Type")
+  reason    String        @map("Reason") @db.VarChar(500)
+  status    RequestStatus @default(PENDING) @map("Status")
+  managerId Int?          @map("Manager_ID")
+  createdAt DateTime      @default(now()) @map("Created_At")
+  updatedAt DateTime      @updatedAt @map("Updated_At")
+
+  user    Staff  @relation("LeaveRequests", fields: [userId], references: [id])
+  manager Staff? @relation("LeaveApprovals", fields: [managerId], references: [id])
+
+  @@map("Leave_Requests")
+}
+
+model ShiftSwapRequest {
+  id               Int              @id @default(autoincrement()) @map("SSR_ID")
+  requesterId      Int              @map("Requester_ID")
+  targetUserId     Int              @map("Target_User_ID")
+  scheduleId       Int              @map("Schedule_ID")
+  reason           String           @map("Reason") @db.VarChar(500)
+  targetUserStatus TargetUserStatus @default(PENDING) @map("Target_User_Status")
+  status           RequestStatus    @default(PENDING) @map("Status")
+  managerId        Int?             @map("Manager_ID")
+  createdAt        DateTime         @default(now()) @map("Created_At")
+  updatedAt        DateTime         @updatedAt @map("Updated_At")
+
+  requester  Staff        @relation("ShiftSwapRequesters", fields: [requesterId], references: [id])
+  targetUser Staff        @relation("ShiftSwapTargets", fields: [targetUserId], references: [id])
+  schedule   WorkSchedule @relation(fields: [scheduleId], references: [id])
+  manager    Staff?       @relation("ShiftSwapApprovals", fields: [managerId], references: [id])
+
+  @@map("Shift_Swap_Requests")
+}
+
+model AttendanceAdjustment {
+  id             Int            @id @default(autoincrement()) @map("AA_ID")
+  userId         Int            @map("User_ID")
+  date           DateTime       @map("Date") @db.Date
+  adjustmentType AdjustmentType @map("Adjustment_Type")
+  proposedTime   DateTime       @map("Proposed_Time")
+  reason         String         @map("Reason") @db.VarChar(500)
+  status         RequestStatus  @default(PENDING) @map("Status")
+  managerId      Int?           @map("Manager_ID")
+  createdAt      DateTime       @default(now()) @map("Created_At")
+  updatedAt      DateTime       @updatedAt @map("Updated_At")
+
+  user    Staff  @relation("AttendanceAdjustments", fields: [userId], references: [id])
+  manager Staff? @relation("AttendanceApprovals", fields: [managerId], references: [id])
+
+  @@map("Attendance_Adjustments")
+}
+
+/// ─── Lịch làm việc (đăng ký ca) ─────────────────────────────────
+enum WorkScheduleStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  OPEN_SHIFT
+}
+
 /// Nhân viên đăng ký ca mong muốn; Quản lý xét duyệt & chốt lịch.
 model WorkSchedule {
-  id          Int                  @id @default(autoincrement()) @map("WS_ID")
-  staffId     Int                  @map("Staff_ID")
-  workDate    DateTime             @map("Work_Date") @db.Date
+  id              Int                @id @default(autoincrement()) @map("WS_ID")
+  staffId         Int?               @map("Staff_ID")
+  workDate        DateTime           @map("Work_Date") @db.Date
   /// Ca cố định: A | B | C | SP1 | SP2
-  shiftCode   String               @default("A") @map("Shift_Code") @db.VarChar(10)
+  shiftCode       String             @default("A") @map("Shift_Code") @db.VarChar(10)
   /// Giờ bắt đầu (phút từ 00:00, VD 7*60=420)
-  startMin    Int                  @default(0) @map("Start_Min")
+  startMin        Int                @default(0) @map("Start_Min")
   /// Giờ kết thúc (phút từ 00:00, VD 12*60=720)
-  endMin      Int                  @default(0) @map("End_Min")
-  status      WorkScheduleStatus   @default(PENDING) @map("Status")
-  staffNote   String?              @map("Staff_Note") @db.VarChar(500)
-  managerNote String?              @map("Manager_Note") @db.VarChar(500)
-  reviewedBy  Int?                 @map("Reviewed_By")
+  endMin          Int                @default(0) @map("End_Min")
+  status          WorkScheduleStatus @default(PENDING) @map("Status")
+  staffNote       String?            @map("Staff_Note") @db.VarChar(500)
+  managerNote     String?            @map("Manager_Note") @db.VarChar(500)
+  reviewedBy      Int?               @map("Reviewed_By")
   /// Thời gian check-in thực tế
-  actualCheckIn  DateTime?         @map("Actual_Check_In")
+  actualCheckIn   DateTime?          @map("Actual_Check_In")
   /// Thời gian check-out thực tế
-  actualCheckOut DateTime?         @map("Actual_Check_Out")
+  actualCheckOut  DateTime?          @map("Actual_Check_Out")
   /// Cờ: nhân viên có xin tăng ca không
-  isOvertime     Boolean           @default(false) @map("Is_Overtime")
+  isOvertime      Boolean            @default(false) @map("Is_Overtime")
   /// Số phút tăng ca được quản lý duyệt
-  overtimeMinutes Int?             @map("Overtime_Minutes")
+  overtimeMinutes Int?               @map("Overtime_Minutes")
   /// Ghi chú xin tăng ca của nhân viên
-  overtimeNote   String?           @map("Overtime_Note") @db.VarChar(500)
-  createdAt   DateTime             @default(now()) @map("Created_At")
-  updatedAt   DateTime             @updatedAt @map("Updated_At")
+  overtimeNote    String?            @map("Overtime_Note") @db.VarChar(500)
+  createdAt       DateTime           @default(now()) @map("Created_At")
+  updatedAt       DateTime           @updatedAt @map("Updated_At")
 
-  staff       Staff                @relation(fields: [staffId], references: [id])
+  staff             Staff?             @relation(fields: [staffId], references: [id])
+  shiftSwapRequests ShiftSwapRequest[]
 
   @@unique([staffId, workDate, shiftCode])
   @@index([staffId])
@@ -443,17 +625,17 @@ model WorkSchedule {
 
 /// Phiên chat của khách — 1 phiên = 1 cuộc trò chuyện
 model ChatSession {
-  id          Int           @id @default(autoincrement()) @map("Session_ID")
+  id         Int           @id @default(autoincrement()) @map("Session_ID")
   /// Khách đã đăng nhập (null nếu vãng lai)
-  customerId  Int?          @map("Customer_ID")
+  customerId Int?          @map("Customer_ID")
   /// Tên hiển thị (khách vãng lai thì để "Khách")
-  guestName   String        @default("Khách") @map("Guest_Name") @db.VarChar(100)
-  tableId     Int?          @map("Table_ID")
+  guestName  String        @default("Khách") @map("Guest_Name") @db.VarChar(100)
+  tableId    Int?          @map("Table_ID")
   /// "open" | "closed"
-  status      String        @default("open") @map("Status") @db.VarChar(20)
-  createdAt   DateTime      @default(now()) @map("Created_At")
-  updatedAt   DateTime      @updatedAt @map("Updated_At")
-  messages    ChatMessage[]
+  status     String        @default("open") @map("Status") @db.VarChar(20)
+  createdAt  DateTime      @default(now()) @map("Created_At")
+  updatedAt  DateTime      @updatedAt @map("Updated_At")
+  messages   ChatMessage[]
 
   @@index([status])
   @@map("Chat_Sessions")
@@ -461,16 +643,238 @@ model ChatSession {
 
 /// Từng tin nhắn trong phiên chat
 model ChatMessage {
-  id        Int         @id @default(autoincrement()) @map("Msg_ID")
-  sessionId Int         @map("Session_ID")
+  id         Int         @id @default(autoincrement()) @map("Msg_ID")
+  sessionId  Int         @map("Session_ID")
   /// "customer" | "bot" | "staff"
-  sender    String      @map("Sender") @db.VarChar(20)
+  sender     String      @map("Sender") @db.VarChar(20)
   /// Tên hiển thị (tên khách hoặc tên nhân viên)
-  senderName String     @map("Sender_Name") @db.VarChar(100)
-  body      String      @map("Body") @db.VarChar(2000)
-  createdAt DateTime    @default(now()) @map("Created_At")
-  session   ChatSession @relation(fields: [sessionId], references: [id])
+  senderName String      @map("Sender_Name") @db.VarChar(100)
+  body       String      @map("Body") @db.VarChar(2000)
+  createdAt  DateTime    @default(now()) @map("Created_At")
+  session    ChatSession @relation(fields: [sessionId], references: [id])
 
   @@index([sessionId])
   @@map("Chat_Messages")
+}
+
+/// Gói Combo — tập hợp nhiều sản phẩm bán với giá ưu đãi
+model Combo {
+  id            Int           @id @default(autoincrement()) @map("Combo_ID")
+  name          String        @map("Combo_Name") @db.VarChar(255)
+  description   String?       @map("Description") @db.VarChar(1000)
+  imageUrl      String?       @map("Image_URL") @db.VarChar(1024)
+  /// Tổng giá gốc các món (tính tự động từ ComboItem)
+  originalPrice Int           @default(0) @map("Original_Price")
+  /// Giá bán combo (nhỏ hơn originalPrice)
+  comboPrice    Int           @map("Combo_Price")
+  /// Combo nổi bật hiển thị trên trang chủ
+  isHot         Boolean       @default(false) @map("Is_Hot")
+  isActive      Boolean       @default(true) @map("Is_Active")
+  createdAt     DateTime      @default(now()) @map("Created_At")
+  updatedAt     DateTime      @updatedAt @map("Updated_At")
+  items         ComboItem[]
+  orderLines    OrderDetail[]
+
+  @@map("Combos")
+}
+
+/// Bảng trung gian: mỗi dòng = 1 sản phẩm trong 1 combo
+model ComboItem {
+  id        Int     @id @default(autoincrement()) @map("CI_ID")
+  comboId   Int     @map("Combo_ID")
+  productId Int     @map("Product_ID")
+  /// Số lượng sản phẩm này trong 1 lần mua combo (vd: 2 ly cà phê)
+  quantity  Int     @default(1) @map("Quantity")
+  combo     Combo   @relation(fields: [comboId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id])
+
+  @@unique([comboId, productId])
+  @@map("Combo_Items")
+}
+
+/// Cấu hình tính lương chung
+model PayrollConfig {
+  id             Int @id @default(1) @map("Config_ID")
+  defaultDaysOff Int @default(4) @map("Default_Days_Off")
+  globalBonus    Int @default(0) @map("Global_Bonus")
+
+  @@map("Payroll_Configs")
+}
+
+/// Phiếu lương từng tháng của nhân viên
+model Payslip {
+  id               Int      @id @default(autoincrement()) @map("Payslip_ID")
+  staffId          Int      @map("Staff_ID")
+  month            Int      @map("Month")
+  year             Int      @map("Year")
+  standardDays     Float    @map("Standard_Days")
+  actualWorkedDays Float    @map("Actual_Worked_Days")
+  baseSalary       Int      @map("Base_Salary")
+  dailyRate        Int      @map("Daily_Rate")
+  allowance        Int      @map("Allowance")
+  globalBonus      Int      @default(0) @map("Global_Bonus")
+  individualBonus  Int      @default(0) @map("Individual_Bonus")
+  netSalary        Int      @map("Net_Salary")
+  status           String   @default("PENDING") @map("Status") @db.VarChar(20)
+  createdAt        DateTime @default(now()) @map("Created_At")
+
+  staff Staff @relation(fields: [staffId], references: [id])
+
+  @@unique([staffId, month, year])
+  @@map("Payslips")
+}
+
+/// ─── CÁC BẢNG MỚI: TỰ ĐỘNG KHO & MUA HÀNG ──────────────────────────────
+
+model InventoryTransaction {
+  id              Int      @id @default(autoincrement()) @map("Tx_ID")
+  itemId          Int      @map("Item_ID")
+  qtyChange       Int      @map("Qty_Change")
+  newStockQty     Int      @map("New_Stock_Qty")
+  transactionType String   @map("Tx_Type") @db.VarChar(50)
+  referenceId     String?  @map("Ref_ID") @db.VarChar(100)
+  createdAt       DateTime @default(now()) @map("Created_At")
+
+  item InventoryItem @relation(fields: [itemId], references: [id])
+
+  @@map("Inventory_Transactions")
+}
+
+model PurchaseRequisition {
+  id        Int      @id @default(autoincrement()) @map("PR_ID")
+  code      String   @unique @map("PR_Code") @db.VarChar(50)
+  staffId   Int      @map("Staff_ID")
+  status    String   @default("PENDING") @map("Status") @db.VarChar(20)
+  note      String?  @map("Note") @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("Created_At")
+  updatedAt DateTime @updatedAt @map("Updated_At")
+
+  staff Staff                     @relation("PRByStaff", fields: [staffId], references: [id])
+  items PurchaseRequisitionItem[]
+  rfqs  RequestForQuotation[]
+
+  @@map("Purchase_Requisitions")
+}
+
+model PurchaseRequisitionItem {
+  id            Int     @id @default(autoincrement()) @map("PRI_ID")
+  requisitionId Int     @map("PR_ID")
+  itemId        Int     @map("Item_ID")
+  qty           Int     @map("Qty")
+  note          String? @map("Note") @db.VarChar(500)
+
+  requisition PurchaseRequisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+  item        InventoryItem       @relation(fields: [itemId], references: [id])
+
+  @@unique([requisitionId, itemId])
+  @@map("Purchase_Requisition_Items")
+}
+
+model SupplierQuote {
+  id         Int      @id @default(autoincrement()) @map("Quote_ID")
+  rfqId      Int      @map("RFQ_ID")
+  supplierId Int      @map("Supplier_ID")
+  status     String   @default("PENDING") @map("Status") @db.VarChar(20)
+  note       String?  @map("Note") @db.VarChar(500)
+  createdAt  DateTime @default(now()) @map("Created_At")
+  updatedAt  DateTime @updatedAt @map("Updated_At")
+
+  rfq           RequestForQuotation @relation(fields: [rfqId], references: [id])
+  supplier      Supplier            @relation(fields: [supplierId], references: [id])
+  items         SupplierQuoteItem[]
+  purchaseOrder PurchaseOrder?
+
+  @@unique([rfqId, supplierId])
+  @@map("Supplier_Quotes")
+}
+
+model RequestForQuotation {
+  id            Int       @id @default(autoincrement()) @map("RFQ_ID")
+  code          String    @unique @map("RFQ_Code") @db.VarChar(50)
+  requisitionId Int       @map("PR_ID")
+  status        String    @default("OPEN") @map("Status") @db.VarChar(20)
+  deadline      DateTime? @map("Deadline")
+  createdAt     DateTime  @default(now()) @map("Created_At")
+  updatedAt     DateTime  @updatedAt @map("Updated_At")
+
+  requisition PurchaseRequisition @relation(fields: [requisitionId], references: [id])
+  quotes      SupplierQuote[]
+
+  @@map("Request_For_Quotations")
+}
+
+model GoodsReceipt {
+  id           Int      @id @default(autoincrement()) @map("GRN_ID")
+  code         String   @unique @map("GRN_Code") @db.VarChar(50)
+  poId         Int      @map("PO_ID")
+  receivedById Int      @map("Received_By")
+  status       String   @default("PENDING") @map("Status") @db.VarChar(20)
+  createdAt    DateTime @default(now()) @map("Created_At")
+
+  po         PurchaseOrder      @relation(fields: [poId], references: [id])
+  receivedBy Staff              @relation(fields: [receivedById], references: [id])
+  items      GoodsReceiptItem[]
+
+  @@map("Goods_Receipts")
+}
+
+model GoodsReceiptItem {
+  id          Int       @id @default(autoincrement()) @map("GRI_ID")
+  grnId       Int       @map("GRN_ID")
+  itemId      Int       @map("Item_ID")
+  receivedQty Int       @map("Received_Qty")
+  expiryDate  DateTime? @map("Expiry_Date") @db.Date
+
+  grn   GoodsReceipt    @relation(fields: [grnId], references: [id], onDelete: Cascade)
+  item  InventoryItem   @relation(fields: [itemId], references: [id])
+  batch InventoryBatch?
+
+  @@map("Goods_Receipt_Items")
+}
+
+model InventoryBatch {
+  id           Int       @id @default(autoincrement()) @map("Batch_ID")
+  itemId       Int       @map("Item_ID")
+  grnItemId    Int       @unique @map("GRI_ID")
+  originalQty  Int       @map("Original_Qty")
+  remainingQty Int       @map("Remaining_Qty")
+  expiryDate   DateTime? @map("Expiry_Date") @db.Date
+  createdAt    DateTime  @default(now()) @map("Created_At")
+
+  item    InventoryItem    @relation(fields: [itemId], references: [id])
+  grnItem GoodsReceiptItem @relation(fields: [grnItemId], references: [id])
+
+  @@map("Inventory_Batches")
+}
+
+model SupplierQuoteItem {
+  id           Int       @id @default(autoincrement()) @map("SQI_ID")
+  quoteId      Int       @map("Quote_ID")
+  itemId       Int       @map("Item_ID")
+  unitPrice    Int       @map("Unit_Price")
+  deliveryDate DateTime? @map("Delivery_Date") @db.Date
+  note         String?   @map("Note") @db.VarChar(500)
+
+  quote SupplierQuote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  item  InventoryItem @relation(fields: [itemId], references: [id])
+
+  @@unique([quoteId, itemId])
+  @@map("Supplier_Quote_Items")
+}
+
+model PurchaseOrder {
+  id          Int      @id @default(autoincrement()) @map("PO_ID")
+  code        String   @unique @map("PO_Code") @db.VarChar(50)
+  quoteId     Int      @unique @map("Quote_ID")
+  supplierId  Int      @map("Supplier_ID")
+  status      String   @default("PENDING") @map("Status") @db.VarChar(20)
+  totalAmount Int      @map("Total_Amount")
+  createdAt   DateTime @default(now()) @map("Created_At")
+  updatedAt   DateTime @updatedAt @map("Updated_At")
+
+  quote    SupplierQuote  @relation(fields: [quoteId], references: [id])
+  supplier Supplier       @relation(fields: [supplierId], references: [id])
+  receipts GoodsReceipt[]
+
+  @@map("Purchase_Orders")
 }

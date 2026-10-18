@@ -1,25 +1,127 @@
-import { useCallback, useEffect, useState, type FormEvent, type JSX } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentType, type FormEvent } from "react";
 
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
+import {
+  CalendarDays,
+  ChartColumn,
+  ChevronDown,
+  ClipboardList,
+  Coffee,
+  Ellipsis,
+  FileCheck,
+  FlaskConical,
+  FolderTree,
+  Layers,
+  LayoutDashboard,
+  LayoutGrid,
+  LogOut,
+  Megaphone,
+  Menu,
+  Newspaper,
+  Package,
+  QrCode,
+  Receipt,
+  ScrollText,
+  Settings,
+  ShoppingCart,
+  Star,
+  Store,
+  Ticket,
+  TrendingUp,
+  Truck,
+  UserRound,
+  Users,
+  Wallet,
+  Warehouse,
+  X,
+} from "lucide-react";
 import { LogoMark } from "../components/LogoMark";
 import { mediaUrl } from "../lib/api";
+import { AdminZones } from "./AdminZones";
 import { clearStaffSession, getStaffInfo, staffApi, staffDownloadBlob, staffUploadImage } from "../lib/staffApi";
 import { PostEditor } from "../components/PostEditor";
 import { PostViewModal, type PostPreview } from "../components/PostViewModal";
 import { AdminStoreSettings } from "../components/AdminStoreSettings";
+import { AdminCombos } from "./AdminCombos";
+import { AdminHrRequests } from "./AdminHrRequests";
+import { AdminPayroll } from "./AdminPayroll";
+import { AdminSchedule } from "./AdminSchedule";
+import { IngredientFormula } from "./IngredientFormula";
+import { ProcurementAdmin } from "./ProcurementAdmin";
+import { QrGenerator } from "./QrGenerator";
+import { useResponsiveTables } from "../lib/useResponsiveTables";
 
 type ProductRow = {
   id: number;
   name: string;
   sku: string | null;
   sellPrice: number;
+  priceSizeS?: number | null;
+  priceSizeL?: number | null;
   costPrice: number;
   categoryId: number;
   isActive: boolean;
   outOfStock: boolean;
   imageUrl: string | null;
+  tags?: any;
   category?: { name: string };
+  discountPercent?: number | null;
 };
+
+const PREDEFINED_TAGS = ["🔥 Best Seller", "☕ Nóng", "🧊 Đá", "🆕 Món Mới", "⭐ Đề cử"];
+
+function AdminTagsInput({ tags, onChange }: { tags: string[]; onChange: (tags: string[]) => void }) {
+  const [newTag, setNewTag] = useState("");
+  const toggle = (t: string) => {
+    if (tags.includes(t)) onChange(tags.filter(x => x !== t));
+    else onChange([...tags, t]);
+  };
+  return (
+    <div className="field">
+      <label className="label">Tags (đặc tính / nhãn)</label>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.5rem" }}>
+        {PREDEFINED_TAGS.map(t => (
+          <button type="button" key={t} onClick={() => toggle(t)} style={{
+            padding: "0.35rem 0.75rem", borderRadius: 999, fontSize: "0.85rem",
+            background: tags.includes(t) ? "var(--accent)" : "#f5f5f4",
+            color: tags.includes(t) ? "#000" : "var(--text)", border: "none", cursor: "pointer", fontWeight: tags.includes(t) ? 600 : 400
+          }}>
+            {t}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+        {tags.filter(t => !PREDEFINED_TAGS.includes(t)).map(t => (
+          <span key={t} style={{
+            padding: "0.35rem 0.75rem", borderRadius: 999, fontSize: "0.85rem",
+            background: "var(--accent)", color: "#000", display: "flex", alignItems: "center", gap: "0.35rem", fontWeight: 600
+          }}>
+            {t} <button type="button" onClick={() => toggle(t)} style={{ background: "none", border: "none", color: "#000", cursor: "pointer", padding: 0, fontSize: "1.1rem", lineHeight: 1 }}>×</button>
+          </span>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: "0.5rem" }}>
+        <input className="input" style={{ flex: 1 }} value={newTag} onChange={e => setNewTag(e.target.value)} placeholder="Nhập tag khác..."
+          onKeyDown={e => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (newTag.trim() && !tags.includes(newTag.trim())) {
+                toggle(newTag.trim());
+                setNewTag("");
+              }
+            }
+          }}
+        />
+        <button type="button" className="btn btn-ghost" onClick={() => {
+          if (newTag.trim() && !tags.includes(newTag.trim())) {
+            toggle(newTag.trim());
+            setNewTag("");
+          }
+        }}>Thêm tag</button>
+      </div>
+    </div>
+  );
+}
 
 type InvRow = {
   id: number;
@@ -49,10 +151,14 @@ type Tab =
   | "products"
   | "categories"
   | "staff"
+  | "payroll"
+  | "schedule"
+  | "zones"
   | "customers"
   | "tables"
   | "inventory"
   | "requests"
+  | "hrRequests"
   | "reviews"
   | "settings"
   | "reports"
@@ -60,7 +166,11 @@ type Tab =
   | "audit"
   | "profit"
   | "vouchers"
-  | "posts";
+  | "posts"
+  | "combos"
+  | "formulas"
+  | "qr"
+  | "procurement";
 
 type Stats = {
   todayOrders: number;
@@ -75,15 +185,95 @@ type Stats = {
   pendingRequests: number;
 };
 
+/* ─── Kiến trúc thông tin: Phân hệ (module) → Mục con (tab) ─── */
+type IconType = ComponentType<{ size?: number; strokeWidth?: number; "aria-hidden"?: boolean }>;
+type TabMeta = { id: Tab; label: string; icon: IconType };
+type AdminModule = { id: string; label: string; short: string; icon: IconType; tabs: TabMeta[] };
+
+const ADMIN_MODULES: AdminModule[] = [
+  {
+    id: "overview", label: "Tổng quan", short: "Tổng quan", icon: LayoutDashboard,
+    tabs: [
+      { id: "dash", label: "Bảng điều khiển", icon: LayoutDashboard },
+      { id: "reports", label: "Doanh thu", icon: ChartColumn },
+      { id: "profit", label: "Lợi nhuận", icon: TrendingUp },
+    ],
+  },
+  {
+    id: "store", label: "Cửa hàng", short: "Cửa hàng", icon: Store,
+    tabs: [
+      { id: "products", label: "Món & giá", icon: Coffee },
+      { id: "categories", label: "Danh mục", icon: FolderTree },
+      { id: "combos", label: "Combo", icon: Layers },
+      { id: "formulas", label: "Định mức NL", icon: FlaskConical },
+      { id: "tables", label: "Bàn & khu vực", icon: LayoutGrid },
+      { id: "qr", label: "Mã QR", icon: QrCode },
+    ],
+  },
+  {
+    id: "hr", label: "Nhân sự", short: "Nhân sự", icon: Users,
+    tabs: [
+      { id: "staff", label: "Nhân viên", icon: Users },
+      { id: "schedule", label: "Lịch & chấm công", icon: CalendarDays },
+      { id: "payroll", label: "Bảng lương", icon: Wallet },
+      { id: "hrRequests", label: "Duyệt đề xuất", icon: FileCheck },
+    ],
+  },
+  {
+    id: "ops", label: "Vận hành & Kho", short: "Kho", icon: Warehouse,
+    tabs: [
+      { id: "inventory", label: "Tồn kho", icon: Package },
+      { id: "requests", label: "Phiếu xin NL", icon: ClipboardList },
+      { id: "procurement", label: "Mua hàng", icon: ShoppingCart },
+      { id: "suppliers", label: "Nhà cung cấp", icon: Truck },
+    ],
+  },
+  {
+    id: "marketing", label: "Khách hàng & Marketing", short: "Marketing", icon: Megaphone,
+    tabs: [
+      { id: "customers", label: "Khách hàng", icon: UserRound },
+      { id: "vouchers", label: "Voucher", icon: Ticket },
+      { id: "posts", label: "Bài đăng", icon: Newspaper },
+      { id: "reviews", label: "Đánh giá", icon: Star },
+    ],
+  },
+  {
+    id: "system", label: "Hệ thống", short: "Hệ thống", icon: Settings,
+    tabs: [
+      { id: "settings", label: "Cài đặt cửa hàng", icon: Settings },
+      { id: "audit", label: "Nhật ký hệ thống", icon: ScrollText },
+    ],
+  },
+];
+
+/** 4 phân hệ hay dùng nhất hiện trên bottom nav (mobile); phần còn lại nằm trong nút "Thêm" (drawer) */
+const BOTTOM_MODULE_IDS = ["overview", "store", "hr", "ops"];
+
+const ALL_TABS = ADMIN_MODULES.flatMap((m) => m.tabs);
+const isTab = (v: string | null): v is Tab => !!v && ALL_TABS.some((t) => t.id === v);
+const moduleOf = (t: Tab) => ADMIN_MODULES.find((m) => m.tabs.some((x) => x.id === t)) ?? ADMIN_MODULES[0];
+
 function formatVnd(n: number) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
 export function Admin() {
   const info = getStaffInfo();
-  const [tab, setTab] = useState<Tab>("dash");
+  const [params, setParams] = useSearchParams();
+  const rawTab = params.get("tab");
+  const tab: Tab = isTab(rawTab) ? rawTab : "dash";
   const [siderOpen, setSiderOpen] = useState(false);
-  const closeTab = (t: Tab) => { setTab(t); setSiderOpen(false); }
+  const bodyRef = useRef<HTMLDivElement>(null);
+  /** Nhớ mục con mở gần nhất của từng phân hệ để quay lại đúng chỗ */
+  const lastTabOf = useRef<Record<string, Tab>>({});
+  lastTabOf.current[moduleOf(tab).id] = tab;
+  const goTab = (t: Tab) => {
+    setParams({ tab: t });
+    setSiderOpen(false);
+    window.scrollTo({ top: 0 });
+  };
+  const openModule = (m: AdminModule) => goTab(lastTabOf.current[m.id] ?? m.tabs[0].id);
+  useResponsiveTables(bodyRef);
   const [stats, setStats] = useState<Stats | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [products, setProducts] = useState<ProductRow[]>([]);
@@ -99,6 +289,8 @@ export function Admin() {
       address: string | null;
       dob: string | null;
       hireDate: string;
+      baseSalary: number;
+      allowance: number;
       hasFaceData?: boolean;
     }>
   >([]);
@@ -303,92 +495,35 @@ export function Admin() {
     return <Navigate to="/staff/login" replace />;
   }
 
-  type NavItem = { id: Tab; label: string; icon: JSX.Element };
-  type NavGroup = { label: string; items: NavItem[] };
-
-  const I = (path: string) => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d={path} />
-    </svg>
-  );
-
-  const navGroups: NavGroup[] = [
-    {
-      label: "Tổng quan",
-      items: [
-        { id: "dash", label: "Tổng quan", icon: I("M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6") },
-      ],
-    },
-    {
-      label: "Thực đơn",
-      items: [
-        { id: "products", label: "Món & giá", icon: I("M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C20.832 18.477 19.246 18 17.5 18c-1.746 0-3.332.477-4.5 1.253") },
-        { id: "categories", label: "Danh mục", icon: I("M4 6h16M4 10h16M4 14h16M4 18h16") },
-        { id: "vouchers" as Tab, label: "Voucher", icon: I("M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z") },
-      ],
-    },
-    {
-      label: "Vận hành",
-      items: [
-        { id: "tables", label: "Bàn", icon: I("M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z") },
-        { id: "inventory", label: "Kho", icon: I("M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4") },
-        { id: "requests", label: "Phiếu xin NL", icon: I("M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4") },
-        { id: "suppliers", label: "Nhà cung cấp", icon: I("M8 18l-4-4m0 0l4-4m-4 4h16M16 6l4 4m0 0l-4 4m4-4H4") },
-      ],
-    },
-    {
-      label: "Khách hàng",
-      items: [
-        { id: "customers", label: "Khách hàng", icon: I("M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z") },
-        { id: "reviews", label: "Đánh giá", icon: I("M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z") },
-      ],
-    },
-    {
-      label: "Nhân sự",
-      items: [
-        { id: "staff", label: "Nhân sự", icon: I("M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z") },
-      ],
-    },
-    {
-      label: "Nội dung",
-      items: [
-        { id: "posts" as Tab, label: "Bài đăng", icon: I("M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z") },
-      ],
-    },
-    {
-      label: "Tài chính",
-      items: [
-        { id: "reports", label: "Báo cáo", icon: I("M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z") },
-        { id: "profit", label: "Lợi nhuận", icon: I("M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z") },
-      ],
-    },
-    {
-      label: "Hệ thống",
-      items: [
-        { id: "settings", label: "Cài đặt CH", icon: I("M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065zM15 12a3 3 0 11-6 0 3 3 0 016 0z") },
-        { id: "audit", label: "Audit Log", icon: I("M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2") },
-      ],
-    },
-  ];
-
-  const tabs = navGroups.flatMap((g) => g.items);
-  const tabTitle = tabs.find((x) => x.id === tab)?.label ?? "Quản trị";
+  const activeModule = moduleOf(tab);
+  const activeTab = ALL_TABS.find((x) => x.id === tab) ?? ALL_TABS[0];
+  const bottomModules = ADMIN_MODULES.filter((m) => BOTTOM_MODULE_IDS.includes(m.id));
+  const activeInBottom = BOTTOM_MODULE_IDS.includes(activeModule.id);
 
   return (
     <div className="admin-layout">
-      {/* Mobile top bar */}
+      {/* Mobile top bar: tên phân hệ + mục con hiện tại */}
       <header className="admin-mobile-topbar">
         <button
           type="button"
           className="admin-mobile-menu-btn"
           onClick={() => setSiderOpen(true)}
           aria-label="Mở menu quản trị"
+          aria-expanded={siderOpen}
         >
-          ☰
+          <Menu size={22} aria-hidden />
         </button>
-        <span className="admin-mobile-title">⛓ Quản trị TD Coffee</span>
-        <Link to="/staff/login" style={{ fontSize: "1.1rem", textDecoration: "none" }} onClick={() => clearStaffSession()}>
-          🚩
+        <div className="admin-mobile-title">
+          <span className="admin-mobile-title-module">{activeModule.label}</span>
+          <span className="admin-mobile-title-tab">{activeTab.label}</span>
+        </div>
+        <Link
+          to="/staff/login"
+          className="admin-mobile-action"
+          onClick={() => clearStaffSession()}
+          aria-label="Đăng xuất"
+        >
+          <LogOut size={20} aria-hidden />
         </Link>
       </header>
 
@@ -397,6 +532,7 @@ export function Admin() {
         <div className="admin-sider-overlay" onClick={() => setSiderOpen(false)} role="presentation" />
       )}
 
+      {/* Sidebar: chỉ hiện các phân hệ; phân hệ đang mở bung ra danh sách mục con */}
       <aside className={`admin-sider${siderOpen ? " admin-sider-open" : ""}`}>
         <div className="admin-sider-brand">
           <LogoMark width={44} height={44} className="admin-sider-logo-img" />
@@ -407,52 +543,95 @@ export function Admin() {
         </div>
         {/* Nút đóng (chỉ hiện trên mobile) */}
         <button type="button" className="admin-sider-close-btn" onClick={() => setSiderOpen(false)} aria-label="Đóng menu">
-          ✕
+          <X size={18} aria-hidden />
         </button>
         <nav className="admin-sider-nav" aria-label="Menu quản trị">
-          {navGroups.map((group) => (
-            <div key={group.label} className="admin-nav-group">
-              <div className="admin-nav-group-label">{group.label}</div>
-              {group.items.map((t) => (
+          {ADMIN_MODULES.map((m) => {
+            const open = m.id === activeModule.id;
+            const Icon = m.icon;
+            return (
+              <div key={m.id} className={open ? "admin-module admin-module-open" : "admin-module"}>
                 <button
-                  key={t.id}
                   type="button"
-                  className={tab === t.id ? "admin-nav-link admin-nav-link-active" : "admin-nav-link"}
-                  onClick={() => closeTab(t.id)}
+                  className={open ? "admin-module-btn admin-module-btn-active" : "admin-module-btn"}
+                  aria-expanded={open}
+                  onClick={() => (open ? undefined : openModule(m))}
                 >
-                  <span className="admin-nav-icon">{t.icon}</span>
-                  <span>{t.label}</span>
+                  <span className="admin-nav-icon"><Icon size={18} strokeWidth={2} aria-hidden /></span>
+                  <span className="admin-module-label">{m.label}</span>
+                  <ChevronDown size={16} className="admin-module-chevron" aria-hidden />
                 </button>
-              ))}
-            </div>
-          ))}
+                {open && (
+                  <div className="admin-module-items">
+                    {m.tabs.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        className={tab === t.id ? "admin-nav-link admin-nav-link-active" : "admin-nav-link"}
+                        aria-current={tab === t.id ? "page" : undefined}
+                        onClick={() => goTab(t.id)}
+                      >
+                        <span>{t.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
         <div className="admin-sider-footer">
-          <Link to="/staff/inventory" className="admin-sider-foot-link">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
-            Kiểm kho (NV)
+          <div className="admin-nav-group-label">Công cụ nhân viên</div>
+          <Link to="/pos" className="admin-sider-foot-link">
+            <Receipt size={16} aria-hidden /> Thu ngân (POS)
           </Link>
           <Link to="/staff/tables" className="admin-sider-foot-link">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-            Sơ đồ bàn (NV)
+            <LayoutGrid size={16} aria-hidden /> Sơ đồ bàn
           </Link>
-          <Link to="/pos" className="admin-sider-foot-link">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M9 7H6a2 2 0 00-2 2v9a2 2 0 002 2h12a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>
-            Mở POS
+          <Link to="/staff/inventory" className="admin-sider-foot-link">
+            <ClipboardList size={16} aria-hidden /> Kiểm kho
           </Link>
           <Link to="/staff/login" className="admin-sider-foot-link admin-sider-foot-danger" onClick={() => clearStaffSession()}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
-            Đăng xuất
+            <LogOut size={16} aria-hidden /> Đăng xuất
           </Link>
         </div>
       </aside>
+
       <main className="admin-main">
         <header className="admin-main-header">
-          <h1 className="admin-main-title">{tabTitle}</h1>
+          <div className="admin-main-crumb">{activeModule.label}</div>
+          <h1 className="admin-main-title">{activeTab.label}</h1>
         </header>
-        <div className="admin-main-body">
+
+        {/* Thanh mục con của phân hệ: tabs trên desktop, chip cuộn ngang trên mobile */}
+        {activeModule.tabs.length > 1 && (
+          <nav className="admin-subtabs" aria-label={`Mục trong ${activeModule.label}`}>
+            {activeModule.tabs.map((t) => {
+              const Icon = t.icon;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={tab === t.id ? "admin-subtab admin-subtab-active" : "admin-subtab"}
+                  aria-current={tab === t.id ? "page" : undefined}
+                  onClick={() => goTab(t.id)}
+                >
+                  <Icon size={16} aria-hidden />
+                  <span>{t.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        )}
+
+        <div className="admin-main-body" ref={bodyRef}>
           {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
 
+          {tab === "formulas" && <IngredientFormula embedded />}
+          {tab === "qr" && <QrGenerator embedded />}
+          {tab === "schedule" && <AdminSchedule embedded />}
+          {tab === "payroll" && <AdminPayroll />}
+          {tab === "procurement" && <ProcurementAdmin embedded />}
           {tab === "dash" && stats && (
             <>
               <h2 className="admin-dash-heading">Doanh thu & đơn đã thanh toán</h2>
@@ -564,7 +743,7 @@ export function Admin() {
                             height: 56,
                             borderRadius: 8,
                             flexShrink: 0,
-                            background: "#1a120d",
+                            background: "var(--surface)",
                             backgroundImage: img ? `url(${img})` : undefined,
                             backgroundSize: "cover",
                             backgroundPosition: "center",
@@ -575,7 +754,14 @@ export function Admin() {
                           <span className="subtle" style={{ marginLeft: "0.5rem" }}>
                             {p.category?.name}
                           </span>
-                          <div style={{ color: "var(--accent)", fontWeight: 600 }}>{formatVnd(p.sellPrice)}</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.2rem" }}>
+                            <div style={{ color: "var(--accent)", fontWeight: 600 }}>{formatVnd(p.sellPrice)}</div>
+                            {p.discountPercent != null && p.discountPercent > 0 && (
+                              <span style={{ background: "var(--danger)", color: "#fff", padding: "0.1rem 0.4rem", borderRadius: 4, fontSize: "0.75rem", fontWeight: 700 }}>
+                                -{p.discountPercent}%
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", flexWrap: "wrap" }}>
@@ -624,6 +810,10 @@ export function Admin() {
             <CategoryManager categories={categories} onSaved={loadCategories} onErr={setErr} />
           )}
 
+          {tab === "combos" && (
+            <AdminCombos />
+          )}
+
           {tab === "staff" && (
             <StaffManager
               rows={staffRows}
@@ -635,6 +825,10 @@ export function Admin() {
             />
           )}
 
+          {tab === "hrRequests" && (
+            <AdminHrRequests />
+          )}
+
           {tab === "customers" && (
             <CustomerManager
               rows={customerRows}
@@ -644,13 +838,7 @@ export function Admin() {
           )}
 
           {tab === "tables" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-              {tables.map((t) => (
-                <div key={t.id} className="card" style={{ padding: "0.65rem 1rem" }}>
-                  <strong>{t.name}</strong> {t.location && <span className="subtle">{t.location}</span>} — {t.status}
-                </div>
-              ))}
-            </div>
+            <AdminZones />
           )}
 
           {tab === "inventory" && (
@@ -676,7 +864,7 @@ export function Admin() {
             const rejected = requests.filter((r) => r.status === "Rejected").length;
             const filtered = requestFilter === "all" ? requests : requests.filter((r) => r.status === requestFilter);
             const statusColor = (s: string) =>
-              s === "Pending" ? "var(--accent)" : s === "Approved" ? "#22c55e" : "var(--danger)";
+              s === "Pending" ? "var(--accent)" : s === "Approved" ? "#15803d" : "var(--danger)";
             const statusLabel = (s: string) =>
               s === "Pending" ? "Chờ duyệt" : s === "Approved" ? "Đã duyệt" : "Từ chối";
             return (
@@ -693,7 +881,7 @@ export function Admin() {
                   </div>
                   <div className="card" style={{ padding: "0.65rem 1rem" }}>
                     <div className="subtle" style={{ fontSize: "0.8rem" }}>Đã duyệt</div>
-                    <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#22c55e" }}>{approved}</div>
+                    <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#15803d" }}>{approved}</div>
                   </div>
                   <div className="card" style={{ padding: "0.65rem 1rem" }}>
                     <div className="subtle" style={{ fontSize: "0.8rem" }}>Từ chối</div>
@@ -832,12 +1020,12 @@ export function Admin() {
                   {avgRating && (
                     <div className="card" style={{ padding: "0.65rem 1rem" }}>
                       <div className="subtle" style={{ fontSize: "0.8rem" }}>Trung bình</div>
-                      <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#f59e0b" }}>★ {avgRating}</div>
+                      <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#b45309" }}>★ {avgRating}</div>
                     </div>
                   )}
                   <div className="card" style={{ padding: "0.65rem 1rem" }}>
                     <div className="subtle" style={{ fontSize: "0.8rem" }}>Đã phản hồi</div>
-                    <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#22c55e" }}>{reviews.filter((r) => !!r.adminReply).length}</div>
+                    <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#15803d" }}>{reviews.filter((r) => !!r.adminReply).length}</div>
                   </div>
                   <div className="card" style={{ padding: "0.65rem 1rem" }}>
                     <div className="subtle" style={{ fontSize: "0.8rem" }}>Đang ẩn</div>
@@ -1131,14 +1319,14 @@ export function Admin() {
                   const now = new Date();
                   const expired = new Date(v.endDate) < now;
                   const exhausted = v.quantity !== -1 && v.usedCount >= v.quantity;
-                  const statusColor = !v.isActive ? "var(--danger)" : expired || exhausted ? "var(--muted)" : "#22c55e";
+                  const statusColor = !v.isActive ? "var(--danger)" : expired || exhausted ? "var(--muted)" : "#15803d";
                   const statusLabel = !v.isActive ? "Đã khóa" : expired ? "Hết hạn" : exhausted ? "Hết lượt" : "Đang chạy";
                   return (
                     <div key={v.id} className="card" style={{ padding: "1rem", opacity: (!v.isActive || expired) ? 0.65 : 1 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem", alignItems: "flex-start" }}>
                         <div>
                           <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
-                            <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.05rem", background: "rgba(201,162,39,0.12)", padding: "0.1rem 0.5rem", borderRadius: 6, border: "1px solid rgba(201,162,39,0.3)" }}>{v.code}</span>
+                            <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.05rem", background: "rgba(146,64,14,0.12)", padding: "0.1rem 0.5rem", borderRadius: 6, border: "1px solid rgba(146,64,14,0.3)" }}>{v.code}</span>
                             <span style={{ fontWeight: 700, color: "var(--accent)", fontSize: "1rem" }}>-{formatVnd(v.discountValue)}</span>
                             <span style={{ padding: "0.1rem 0.5rem", borderRadius: 99, fontSize: "0.75rem", fontWeight: 600, background: statusColor + "22", color: statusColor, border: `1px solid ${statusColor}44` }}>{statusLabel}</span>
                             <span style={{ padding: "0.1rem 0.5rem", borderRadius: 99, fontSize: "0.75rem", background: v.voucherType === "personal" ? "#8b5cf622" : "#3b82f622", color: v.voucherType === "personal" ? "#8b5cf6" : "#3b82f6", border: `1px solid ${v.voucherType === "personal" ? "#8b5cf644" : "#3b82f644"}` }}>
@@ -1152,7 +1340,7 @@ export function Admin() {
                             <span>Đã lưu ví: {v._count?.userVouchers ?? 0}</span>
                             <span>Hết hạn: {new Date(v.endDate).toLocaleDateString("vi-VN")}</span>
                             {v.goldHourStart !== null && v.goldHourEnd !== null && (
-                              <span style={{ color: "#f59e0b" }}>⏰ Giờ vàng: {v.goldHourStart}h–{v.goldHourEnd}h</span>
+                              <span style={{ color: "#b45309" }}>⏰ Giờ vàng: {v.goldHourStart}h–{v.goldHourEnd}h</span>
                             )}
                           </div>
                         </div>
@@ -1294,7 +1482,7 @@ export function Admin() {
                           {p.isPublished ? "👁 Ẩn" : "👁 Hiện"}
                         </button>
                         <button type="button" className="btn btn-ghost admin-btn-compact"
-                          style={{ color: "#ef4444" }}
+                          style={{ color: "#b91c1c" }}
                           onClick={async () => {
                             if (!confirm("Xóa bài này?")) return;
                             try {
@@ -1374,7 +1562,7 @@ export function Admin() {
                             <span style={{
                               padding: "0.1rem 0.45rem", borderRadius: 99, fontSize: "0.75rem", fontWeight: 600,
                               background: o.status === "Paid" ? "#22c55e22" : "#f59e0b22",
-                              color: o.status === "Paid" ? "#22c55e" : "#f59e0b"
+                              color: o.status === "Paid" ? "#15803d" : "#b45309"
                             }}>{o.status}</span>
                           </td>
                         </tr>
@@ -1388,6 +1576,35 @@ export function Admin() {
 
         </div>
       </main>
+
+      {/* Bottom nav (mobile): 4 phân hệ chính + "Thêm" mở drawer */}
+      <nav className="staff-bottom-nav admin-bottom-nav" aria-label="Phân hệ quản trị">
+        {bottomModules.map((m) => {
+          const Icon = m.icon;
+          const active = m.id === activeModule.id;
+          return (
+            <button
+              key={m.id}
+              type="button"
+              className={active ? "staff-bottom-nav-item staff-bottom-nav-active" : "staff-bottom-nav-item"}
+              aria-current={active ? "page" : undefined}
+              onClick={() => openModule(m)}
+            >
+              <span className="staff-bottom-nav-icon"><Icon size={20} aria-hidden /></span>
+              <span className="staff-bottom-nav-label">{m.short}</span>
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          className={!activeInBottom ? "staff-bottom-nav-item staff-bottom-nav-active" : "staff-bottom-nav-item"}
+          onClick={() => setSiderOpen(true)}
+          aria-label="Mở toàn bộ menu"
+        >
+          <span className="staff-bottom-nav-icon"><Ellipsis size={20} aria-hidden /></span>
+          <span className="staff-bottom-nav-label">Thêm</span>
+        </button>
+      </nav>
     </div>
   );
 }
@@ -1410,6 +1627,8 @@ function StaffManager({
     address: string | null;
     dob: string | null;
     hireDate: string;
+    baseSalary: number;
+    allowance: number;
     hasFaceData?: boolean;
   }>;
   onReload: () => Promise<void>;
@@ -1425,6 +1644,8 @@ function StaffManager({
     address: "",
     dob: "",
     hireDate: new Date().toISOString().slice(0, 10),
+    baseSalary: "0",
+    allowance: "0",
   };
   const [form, setForm] = useState(emptyForm);
   const [editId, setEditId] = useState<number | null>(null);
@@ -1446,6 +1667,8 @@ function StaffManager({
         address: form.address.trim() || null,
         dob: form.dob || null,
         hireDate: form.hireDate || undefined,
+        baseSalary: Number(form.baseSalary),
+        allowance: Number(form.allowance),
       };
       if (editId) {
         await staffApi(`/api/admin/staff/${editId}`, { method: "PATCH", body: JSON.stringify(payload) });
@@ -1507,6 +1730,7 @@ function StaffManager({
               <option value="Cashier">Cashier</option>
               <option value="Kitchen">Kitchen</option>
               <option value="Waiter">Waiter</option>
+              <option value="Shipper">Shipper</option>
             </select>
           </div>
           <div className="field" style={{ margin: 0 }}>
@@ -1524,6 +1748,14 @@ function StaffManager({
           <div className="field" style={{ margin: 0 }}>
             <label className="label">Ngày vào làm</label>
             <input type="date" className="input" value={form.hireDate} onChange={(e) => setForm((f) => ({ ...f, hireDate: e.target.value }))} />
+          </div>
+          <div className="field" style={{ margin: 0 }}>
+            <label className="label">Lương cơ bản / Tháng</label>
+            <input type="number" className="input" value={form.baseSalary} onChange={(e) => setForm((f) => ({ ...f, baseSalary: e.target.value }))} />
+          </div>
+          <div className="field" style={{ margin: 0 }}>
+            <label className="label">Phụ cấp cố định</label>
+            <input type="number" className="input" value={form.allowance} onChange={(e) => setForm((f) => ({ ...f, allowance: e.target.value }))} />
           </div>
         </div>
         <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
@@ -1574,6 +1806,8 @@ function StaffManager({
                           address: s.address ?? "",
                           dob: s.dob ? s.dob.slice(0, 10) : "",
                           hireDate: s.hireDate.slice(0, 10),
+                          baseSalary: s.baseSalary.toString(),
+                          allowance: s.allowance.toString(),
                         });
                       }}
                     >
@@ -1751,7 +1985,7 @@ function SuppliersTab({ suppliers, onReload, onErr }: {
   onReload: () => void;
   onErr: (e: string) => void;
 }) {
-  const [form, setForm] = useState({ name: "", phone: "", address: "", email: "", note: "" });
+  const [form, setForm] = useState({ name: "", phone: "", address: "", email: "", note: "", username: "", password: "" });
   const [editId, setEditId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -1764,7 +1998,7 @@ function SuppliersTab({ suppliers, onReload, onErr }: {
       } else {
         await staffApi("/api/admin/suppliers", { method: "POST", body: JSON.stringify(form) });
       }
-      setForm({ name: "", phone: "", address: "", email: "", note: "" });
+      setForm({ name: "", phone: "", address: "", email: "", note: "", username: "", password: "" });
       setEditId(null);
       onReload();
     } catch (e) { onErr(e instanceof Error ? e.message : "Lỗi"); }
@@ -1779,7 +2013,7 @@ function SuppliersTab({ suppliers, onReload, onErr }: {
 
   const startEdit = (s: typeof suppliers[0]) => {
     setEditId(s.id);
-    setForm({ name: s.name, phone: s.phone ?? "", address: s.address ?? "", email: s.email ?? "", note: s.note ?? "" });
+    setForm({ name: s.name, phone: s.phone ?? "", address: s.address ?? "", email: s.email ?? "", note: s.note ?? "", username: (s as any).username ?? "", password: "" });
   };
 
   return (
@@ -1787,10 +2021,10 @@ function SuppliersTab({ suppliers, onReload, onErr }: {
       <div className="card" style={{ padding: "1rem" }}>
         <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem" }}>{editId ? `Sửa NCC #${editId}` : "Thêm nhà cung cấp mới"}</h3>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem" }}>
-          {[["Tên *", "name", "text"], ["Số điện thoại", "phone", "tel"], ["Địa chỉ", "address", "text"], ["Email", "email", "email"]].map(([label, key, type]) => (
+          {[["Tên *", "name", "text"], ["Số điện thoại", "phone", "tel"], ["Địa chỉ", "address", "text"], ["Email", "email", "email"], ["Tên đăng nhập (Portal)", "username", "text"], ["Mật khẩu (Portal)", "password", "password"]].map(([label, key, type]) => (
             <div className="field" key={key} style={{ margin: 0 }}>
               <label className="label">{label}</label>
-              <input className="input" type={type} value={(form as Record<string, string>)[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} />
+              <input className="input" type={type} placeholder={key === "password" && editId ? "(Để trống nếu không đổi)" : ""} value={(form as Record<string, string>)[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} />
             </div>
           ))}
         </div>
@@ -1800,7 +2034,7 @@ function SuppliersTab({ suppliers, onReload, onErr }: {
         </div>
         <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
           <button className="btn btn-primary" disabled={busy} onClick={() => void save()}>{busy ? "…" : editId ? "Cập nhật" : "Thêm"}</button>
-          {editId && <button className="btn btn-ghost" onClick={() => { setEditId(null); setForm({ name: "", phone: "", address: "", email: "", note: "" }); }}>Hủy</button>}
+          {editId && <button className="btn btn-ghost" onClick={() => { setEditId(null); setForm({ name: "", phone: "", address: "", email: "", note: "", username: "", password: "" }); }}>Hủy</button>}
         </div>
       </div>
 
@@ -1877,10 +2111,10 @@ function ProfitTab({ formatVnd }: { formatVnd: (n: number) => string }) {
           {/* Tổng kết */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(180px,1fr))", gap: "0.75rem" }}>
             {[
-              { label: "Doanh thu", value: data.totalRevenue, color: "#22c55e" },
-              { label: "Giá vốn SP", value: data.totalProductCost, color: "#f59e0b" },
-              { label: "Lợi nhuận gộp", value: data.grossProfit, color: data.grossProfit >= 0 ? "#818cf8" : "#ef4444" },
-              { label: "Biên lợi nhuận", value: data.totalRevenue > 0 ? Math.round(data.grossProfit / data.totalRevenue * 100) : 0, color: "#38bdf8", suffix: "%" },
+              { label: "Doanh thu", value: data.totalRevenue, color: "#15803d" },
+              { label: "Giá vốn SP", value: data.totalProductCost, color: "#b45309" },
+              { label: "Lợi nhuận gộp", value: data.grossProfit, color: data.grossProfit >= 0 ? "#818cf8" : "#b91c1c" },
+              { label: "Biên lợi nhuận", value: data.totalRevenue > 0 ? Math.round(data.grossProfit / data.totalRevenue * 100) : 0, color: "#0369a1", suffix: "%" },
             ].map(c => (
               <div key={c.label} className="card" style={{ padding: "1rem" }}>
                 <div style={{ fontSize: "0.82rem", color: "#6b7280", marginBottom: "0.3rem" }}>{c.label}</div>
@@ -1972,11 +2206,11 @@ function AuditLogTab() {
   useEffect(() => { void load(1); }, []);
 
   const ACTION_COLORS: Record<string, string> = {
-    SHIFT_OPEN: "#f59e0b", SHIFT_CLOSE: "#818cf8",
-    INVENTORY_CHECK_OPEN: "#22c55e", INVENTORY_CHECK_CLOSE: "#38bdf8",
-    INVENTORY_RECEIVE: "#a78bfa", SUPPLIER_CREATE: "#34d399",
-    SUPPLIER_UPDATE: "#fbbf24", SUPPLIER_DELETE: "#ef4444",
-    LOW_STOCK_ALERT: "#f87171",
+    SHIFT_OPEN: "#b45309", SHIFT_CLOSE: "#818cf8",
+    INVENTORY_CHECK_OPEN: "#15803d", INVENTORY_CHECK_CLOSE: "#0369a1",
+    INVENTORY_RECEIVE: "#6d28d9", SUPPLIER_CREATE: "#047857",
+    SUPPLIER_UPDATE: "#b45309", SUPPLIER_DELETE: "#b91c1c",
+    LOW_STOCK_ALERT: "#b91c1c",
   };
 
   return (
@@ -2071,7 +2305,7 @@ function ProductImageField({
             width: 88,
             height: 88,
             borderRadius: 8,
-            background: "#1a120d",
+            background: "var(--surface)",
             backgroundImage: img ? `url(${img})` : undefined,
             backgroundSize: "cover",
             backgroundPosition: "center",
@@ -2124,8 +2358,12 @@ function ProductAddForm({
   const [sku, setSku] = useState("");
   const [costPrice, setCostPrice] = useState("");
   const [sellPrice, setSellPrice] = useState("");
+  const [priceSizeS, setPriceSizeS] = useState("");
+  const [priceSizeL, setPriceSizeL] = useState("");
   const [categoryId, setCategoryId] = useState<number | "">("");
   const [imageUrl, setImageUrl] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [discountPercent, setDiscountPercent] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function submit(e: FormEvent) {
@@ -2142,17 +2380,25 @@ function ProductAddForm({
         body: JSON.stringify({
           name: name.trim(),
           sellPrice: price,
+          priceSizeS: priceSizeS ? Number(priceSizeS.replace(/\D/g, "")) : undefined,
+          priceSizeL: priceSizeL ? Number(priceSizeL.replace(/\D/g, "")) : undefined,
           categoryId,
           costPrice: Number.isNaN(cost) ? 0 : cost,
           sku: sku.trim() || undefined,
           imageUrl: imageUrl.trim() || undefined,
+          tags: tags.length > 0 ? tags : undefined,
+          discountPercent: discountPercent ? Number(discountPercent) : undefined,
         }),
       });
       setName("");
       setSku("");
       setCostPrice("");
       setSellPrice("");
+      setPriceSizeS("");
+      setPriceSizeL("");
       setImageUrl("");
+      setTags([]);
+      setDiscountPercent("");
       await onCreated();
     } catch (ex) {
       onErr(ex instanceof Error ? ex.message : "Lỗi");
@@ -2178,26 +2424,43 @@ function ProductAddForm({
           <input className="input" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} />
         </div>
         <div className="field">
-          <label className="label">Giá bán (đ)</label>
+          <label className="label">Giá bán Size M / Gốc (đ)</label>
           <input className="input" value={sellPrice} onChange={(e) => setSellPrice(e.target.value)} required />
         </div>
       </div>
-      <div className="field">
-        <label className="label">Danh mục</label>
-        <select
-          className="input"
-          value={categoryId === "" ? "" : String(categoryId)}
-          onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : "")}
-          required
-        >
-          <option value="">—</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginTop: "-0.5rem", marginBottom: "0.5rem" }}>
+        <div className="field">
+          <label className="label">Giá Size S (đ)</label>
+          <input className="input" placeholder="Tùy chọn" value={priceSizeS} onChange={(e) => setPriceSizeS(e.target.value)} />
+        </div>
+        <div className="field">
+          <label className="label">Giá Size L (đ)</label>
+          <input className="input" placeholder="Tùy chọn" value={priceSizeL} onChange={(e) => setPriceSizeL(e.target.value)} />
+        </div>
       </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+        <div className="field">
+          <label className="label">Giảm giá (%)</label>
+          <input className="input" type="number" min="0" max="100" placeholder="VD: 10, 20" value={discountPercent} onChange={(e) => setDiscountPercent(e.target.value)} />
+        </div>
+        <div className="field">
+          <label className="label">Danh mục</label>
+          <select
+            className="input"
+            value={categoryId === "" ? "" : String(categoryId)}
+            onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : "")}
+            required
+          >
+            <option value="">—</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <AdminTagsInput tags={tags} onChange={setTags} />
       <ProductImageField label="Ảnh món" imageUrl={imageUrl} onUrlChange={setImageUrl} onBusy={setBusy} />
       <button type="submit" className="btn btn-primary" disabled={busy}>
         {busy ? "…" : "Tạo món"}
@@ -2223,8 +2486,19 @@ function ProductEditModal({
   const [sku, setSku] = useState(product.sku ?? "");
   const [costPrice, setCostPrice] = useState(String(product.costPrice));
   const [sellPrice, setSellPrice] = useState(String(product.sellPrice));
+  const [priceSizeS, setPriceSizeS] = useState(product.priceSizeS != null ? String(product.priceSizeS) : "");
+  const [priceSizeL, setPriceSizeL] = useState(product.priceSizeL != null ? String(product.priceSizeL) : "");
   const [categoryId, setCategoryId] = useState(product.categoryId);
   const [imageUrl, setImageUrl] = useState(product.imageUrl ?? "");
+  const [tags, setTags] = useState<string[]>(() => {
+    if (typeof product.tags === "string") {
+      try { return JSON.parse(product.tags); } catch { return []; }
+    } else if (Array.isArray(product.tags)) {
+      return product.tags;
+    }
+    return [];
+  });
+  const [discountPercent, setDiscountPercent] = useState(product.discountPercent != null ? String(product.discountPercent) : "");
   const [isActive, setIsActive] = useState(product.isActive);
   const [outOfStock, setOutOfStock] = useState(product.outOfStock);
   const [busy, setBusy] = useState(false);
@@ -2234,8 +2508,19 @@ function ProductEditModal({
     setSku(product.sku ?? "");
     setCostPrice(String(product.costPrice));
     setSellPrice(String(product.sellPrice));
+    setPriceSizeS(product.priceSizeS != null ? String(product.priceSizeS) : "");
+    setPriceSizeL(product.priceSizeL != null ? String(product.priceSizeL) : "");
     setCategoryId(product.categoryId);
     setImageUrl(product.imageUrl ?? "");
+    setTags(() => {
+      if (typeof product.tags === "string") {
+        try { return JSON.parse(product.tags); } catch { return []; }
+      } else if (Array.isArray(product.tags)) {
+        return product.tags;
+      }
+      return [];
+    });
+    setDiscountPercent(product.discountPercent != null ? String(product.discountPercent) : "");
     setIsActive(product.isActive);
     setOutOfStock(product.outOfStock);
   }, [product]);
@@ -2257,6 +2542,8 @@ function ProductEditModal({
           costPrice: Number.isNaN(cost) ? 0 : cost,
           categoryId,
           imageUrl: imageUrl.trim() || null,
+          tags: tags.length > 0 ? tags : null,
+          discountPercent: discountPercent ? Number(discountPercent) : null,
           isActive,
           outOfStock,
         }),
@@ -2301,20 +2588,37 @@ function ProductEditModal({
               <input className="input" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} />
             </div>
             <div className="field">
-              <label className="label">Giá bán</label>
+              <label className="label">Giá bán Size M / Gốc</label>
               <input className="input" value={sellPrice} onChange={(e) => setSellPrice(e.target.value)} required />
             </div>
           </div>
-          <div className="field">
-            <label className="label">Danh mục</label>
-            <select className="input" value={String(categoryId)} onChange={(e) => setCategoryId(Number(e.target.value))}>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginTop: "-0.5rem", marginBottom: "0.5rem" }}>
+            <div className="field">
+              <label className="label">Giá Size S</label>
+              <input className="input" placeholder="Trống = Trừ 3k" value={priceSizeS} onChange={(e) => setPriceSizeS(e.target.value)} />
+            </div>
+            <div className="field">
+              <label className="label">Giá Size L</label>
+              <input className="input" placeholder="Trống = Cộng 5k" value={priceSizeL} onChange={(e) => setPriceSizeL(e.target.value)} />
+            </div>
           </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+            <div className="field">
+              <label className="label">Giảm giá (%)</label>
+              <input className="input" type="number" min="0" max="100" placeholder="VD: 10, 20" value={discountPercent} onChange={(e) => setDiscountPercent(e.target.value)} />
+            </div>
+            <div className="field">
+              <label className="label">Danh mục</label>
+              <select className="input" value={String(categoryId)} onChange={(e) => setCategoryId(Number(e.target.value))}>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <AdminTagsInput tags={tags} onChange={setTags} />
           <ProductImageField label="Ảnh món" imageUrl={imageUrl} onUrlChange={setImageUrl} onBusy={setBusy} />
           <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.5rem", fontSize: "0.9rem" }}>
             <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
@@ -2472,6 +2776,32 @@ function InventoryPanel({
   onErr: (s: string | null) => void;
   onOpenDetail: (it: InvRow) => void;
 }) {
+  const [expiring, setExpiring] = useState<any[]>([]);
+
+  const loadExpiring = async () => {
+    try {
+      const data = await staffApi<any[]>("/api/admin/inventory/expiring");
+      setExpiring(data);
+    } catch (ex) {
+      console.error(ex);
+    }
+  };
+
+  useEffect(() => {
+    void loadExpiring();
+  }, [items]); // Reload when items refresh
+
+  const discardReceipt = async (id: number) => {
+    if (!window.confirm("Bạn có chắc chắn muốn hủy lô hàng này không? Sẽ bị trừ khỏi tồn kho!")) return;
+    try {
+      await staffApi(`/api/admin/inventory/receipts/${id}/discard`, { method: "POST" });
+      await loadExpiring();
+      await onRefresh();
+    } catch (ex) {
+      onErr(ex instanceof Error ? ex.message : "Lỗi");
+    }
+  };
+
   const low = items.filter((i) => i.stockQty <= i.minLevel).length;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
@@ -2489,6 +2819,38 @@ function InventoryPanel({
           <div style={{ fontSize: "1.25rem", fontWeight: 700, color: low ? "var(--danger)" : undefined }}>{low}</div>
         </div>
       </div>
+      
+      {expiring.length > 0 && (
+        <div className="card" style={{ padding: "1rem", borderLeft: "4px solid var(--accent)", background: "rgba(146,64,14, 0.05)" }}>
+          <h3 style={{ marginTop: 0, fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--accent)" }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            Cảnh báo lô hàng sắp/đã hết hạn
+          </h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            {expiring.map((r) => {
+              const isOverdue = new Date(r.expiryDate).getTime() < Date.now();
+              return (
+                <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem", background: "var(--surface)", borderRadius: 6 }}>
+                  <div>
+                    <strong>{r.item.name}</strong> {r.item.unit ? `(${r.item.unit})` : ""} - Lô #{r.id}
+                    <div style={{ fontSize: "0.85rem", color: isOverdue ? "var(--danger)" : "var(--accent)" }}>
+                      Hết hạn: {new Date(r.expiryDate).toLocaleDateString("vi-VN")} 
+                      {isOverdue && " (Đã quá hạn!)"}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                    <span style={{ fontSize: "0.9rem" }}>Còn lại: <strong>{r.remainingQty}</strong></span>
+                    <button type="button" className="btn btn-ghost" style={{ padding: "0.3rem 0.6rem", color: "var(--danger)", fontSize: "0.85rem" }} onClick={() => void discardReceipt(r.id)}>
+                      Hủy lô
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <InventoryAddForm onCreated={onRefresh} onErr={onErr} />
       <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
         {items.map((it) => {
@@ -2513,7 +2875,7 @@ function InventoryPanel({
                   height: 52,
                   borderRadius: 8,
                   flexShrink: 0,
-                  background: "#1a120d",
+                  background: "var(--surface)",
                   backgroundImage: img ? `url(${img})` : undefined,
                   backgroundSize: "cover",
                   backgroundPosition: "center",
@@ -2639,6 +3001,7 @@ function InventoryDetailModal({
   const [supplier, setSupplier] = useState(item.supplier ?? "");
   const [imageUrl, setImageUrl] = useState(item.imageUrl ?? "");
   const [recvQty, setRecvQty] = useState("");
+  const [expiryDate, setExpiryDate] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -2688,9 +3051,10 @@ function InventoryDetailModal({
     try {
       await staffApi(`/api/admin/inventory/${item.id}/receive`, {
         method: "POST",
-        body: JSON.stringify({ qty: n }),
+        body: JSON.stringify({ qty: n, expiryDate: expiryDate || undefined }),
       });
       setRecvQty("");
+      setExpiryDate("");
       await onSaved();
       onClose();
     } catch (ex) {
@@ -2768,13 +3132,14 @@ function InventoryDetailModal({
             </button>
           </div>
         </form>
-        <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: "0.85rem", marginTop: "0.25rem" }}>
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: "0.85rem", marginTop: "0.25rem" }}>
           <div className="field">
             <label className="label">Nhập thêm vào kho</label>
-            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-              <input className="input" style={{ width: 140 }} value={recvQty} onChange={(e) => setRecvQty(e.target.value)} placeholder="Số lượng" />
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+              <input className="input" style={{ width: 120 }} value={recvQty} onChange={(e) => setRecvQty(e.target.value)} placeholder="Số lượng" />
+              <input className="input" type="date" style={{ width: 160 }} value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} title="Hạn sử dụng (không bắt buộc)" />
               <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void receive()}>
-                Ghi nhận nhập
+                Nhập kho
               </button>
             </div>
           </div>
@@ -2827,7 +3192,7 @@ function ReviewAdminCard({
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
             <div style={{ display: "flex" }}>
               {stars.map((s) => (
-                <span key={s} style={{ color: s <= row.rating ? "#f59e0b" : "#3a3a3a", fontSize: "1.15rem" }}>★</span>
+                <span key={s} style={{ color: s <= row.rating ? "#b45309" : "#3a3a3a", fontSize: "1.15rem" }}>★</span>
               ))}
             </div>
             <strong style={{ fontSize: "0.95rem" }}>{row.customer.fullName}</strong>
@@ -2851,7 +3216,7 @@ function ReviewAdminCard({
           {row.adminReply && (
             <span style={{
               padding: "0.2rem 0.6rem", borderRadius: 99, fontSize: "0.78rem",
-              background: "rgba(34,197,94,0.12)", color: "#22c55e",
+              background: "rgba(34,197,94,0.12)", color: "#15803d",
               border: "1px solid rgba(34,197,94,0.25)",
             }}>Đã phản hồi</span>
           )}
@@ -2861,7 +3226,7 @@ function ReviewAdminCard({
       {/* Comment */}
       <div style={{
         marginTop: "0.6rem", fontSize: "0.93rem", lineHeight: 1.55,
-        borderLeft: "3px solid rgba(255,255,255,0.1)", paddingLeft: "0.75rem",
+        borderLeft: "3px solid var(--border)", paddingLeft: "0.75rem",
       }}>
         {row.comment ?? <span className="subtle">Không có nội dung.</span>}
       </div>

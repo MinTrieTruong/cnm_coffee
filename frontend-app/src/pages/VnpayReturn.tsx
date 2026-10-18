@@ -37,7 +37,7 @@ export function VnpayReturn() {
               height: 72,
               borderRadius: "50%",
               background: "rgba(34,197,94,0.15)",
-              border: "2px solid #22c55e",
+              border: "2px solid #15803d",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -47,7 +47,7 @@ export function VnpayReturn() {
           >
             ✅
           </div>
-          <h1 className="page-title" style={{ color: "#22c55e" }}>
+          <h1 className="page-title" style={{ color: "#15803d" }}>
             Thanh toán thành công!
           </h1>
           <p className="subtle" style={{ marginBottom: "1rem" }}>
@@ -64,7 +64,7 @@ export function VnpayReturn() {
               }}
             >
               <div className="subtle" style={{ fontSize: "0.85rem" }}>Số tiền đã thanh toán</div>
-              <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#22c55e", marginTop: "0.25rem" }}>
+              <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#15803d", marginTop: "0.25rem" }}>
                 {formatVnd(amountVnd)}
               </div>
             </div>

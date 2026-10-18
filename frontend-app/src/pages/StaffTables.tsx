@@ -33,11 +33,14 @@ type TableRow = {
   name: string;
   status: string;
   location: string | null;
-  orders: { id: number; status: string; totalAmount: number }[];
+  zoneId?: number;
+  paymentStatus?: string;
+  orders: { id: number; status: string; totalAmount: number; details?: any[] }[];
 };
 
 type ProductRow = { id: number; name: string; sellPrice: number; isActive: boolean; outOfStock: boolean; imageUrl: string | null; categoryId: number; };
 type MenuCategory = { id: number; name: string };
+type Zone = { id: number; name: string; isActive: boolean };
 type DetailRow = {
   id: number;
   quantity: number;
@@ -69,8 +72,59 @@ function tableStatusMeta(status: string) {
   return { cls: "table-tile-empty", label: "Trống" };
 }
 
+function getDrinkBadge(order: any) {
+  if (!order || !order.details || order.details.length === 0) return null;
+  const details = order.details;
+  const readyItems = details.filter((d: any) => d.kdsStatus === "Ready");
+  if (readyItems.length > 0) {
+    const qty = readyItems.reduce((acc: number, d: any) => acc + d.quantity, 0);
+    return (
+      <div style={{
+        position: "absolute", top: -8, right: -8,
+        background: "var(--danger)", color: "#fff",
+        padding: "0.25rem 0.5rem", borderRadius: 12,
+        fontSize: "0.75rem", fontWeight: 700,
+        boxShadow: "0 4px 12px rgba(220, 38, 38, 0.4)",
+        animation: "badge-pulse 1.5s infinite"
+      }}>
+        🥤 {qty} món
+      </div>
+    );
+  }
+  const pendingItems = details.filter((d: any) => ["Hold", "Waiting", "Cooking"].includes(d.kdsStatus));
+  if (pendingItems.length > 0) {
+    return (
+      <div style={{
+        position: "absolute", top: -6, right: -6,
+        background: "rgba(0,0,0,0.6)", color: "#fff",
+        padding: "0.2rem 0.45rem", borderRadius: 8,
+        fontSize: "0.7rem", fontWeight: 700,
+      }}>
+        ⏳ Đang pha
+      </div>
+    );
+  }
+  const servedItems = details.filter((d: any) => d.kdsStatus === "Served");
+  if (servedItems.length === details.length) {
+    return (
+      <div style={{
+        position: "absolute", top: -6, right: -6,
+        background: "#047857", color: "#fff",
+        padding: "0.2rem 0.45rem", borderRadius: 8,
+        fontSize: "0.7rem", fontWeight: 700,
+        boxShadow: "0 2px 8px rgba(16, 185, 129, 0.3)",
+      }}>
+        ✅ Đủ món
+      </div>
+    );
+  }
+  return null;
+}
+
 export function StaffTables() {
   const info = getStaffInfo();
+  const [zones, setZones] = useState<Zone[]>([]);
+  const [activeZoneId, setActiveZoneId] = useState<number | "all">("all");
   const [tables, setTables] = useState<TableRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -87,7 +141,12 @@ export function StaffTables() {
   type ReadyNotif = { productName: string; quantity: number; tableName: string; orderId: number };
   const [readyNotifs, setReadyNotifs] = useState<ReadyNotif[]>([]);
   const [clearingIds, setClearingIds] = useState<Set<number>>(new Set());
-
+  
+  const [menuTableId, setMenuTableId] = useState<number | null>(null);
+  const [moveSourceId, setMoveSourceId] = useState<number | null>(null);
+  const [mergeSourceId, setMergeSourceId] = useState<number | null>(null);
+  const [splitSourceId, setSplitSourceId] = useState<number | null>(null);
+  const [splitItems, setSplitItems] = useState<{orderItemId: number; quantity: number}[]>([]);
   const load = useCallback(async () => {
     try {
       setErr(null);
@@ -112,12 +171,22 @@ export function StaffTables() {
   useEffect(() => {
     void (async () => {
       try {
-        const data = await staffApi<{ categories: MenuCategory[]; products: ProductRow[] }>("/api/menu");
+        const [data, zonesData] = await Promise.all([
+          staffApi<{ categories: MenuCategory[]; products: ProductRow[] }>("/api/menu"),
+          staffApi<Zone[]>("/api/pos/zones")
+        ]);
         setProducts(data.products.filter((p) => p.isActive && !p.outOfStock));
         setCategories(data.categories);
         if (data.categories.length > 0) setActiveCat(data.categories[0].id);
+        setZones(zonesData);
+        
+        const savedZone = localStorage.getItem("staff_selected_zone");
+        if (savedZone && savedZone !== "all") {
+          setActiveZoneId(Number(savedZone));
+        }
       } catch {
         setProducts([]);
+        setZones([]);
       }
     })();
   }, []);
@@ -233,26 +302,56 @@ export function StaffTables() {
     }
   }
 
-  async function mergeOrders() {
-    const a = Number(mergeFrom);
-    const b = Number(mergeTo);
-    if (!a || !b || a === b) {
-      setErr("Nhập hai mã đơn khác nhau.");
-      return;
-    }
+  async function executeMove(targetId: number) {
+    if (!moveSourceId) return;
     try {
       setErr(null);
-      await staffApi("/api/staff/orders/merge", {
+      await staffApi("/api/pos/move-table", {
         method: "POST",
-        body: JSON.stringify({ fromOrderId: a, toOrderId: b }),
+        body: JSON.stringify({ sourceTableId: moveSourceId, targetTableId: targetId }),
       });
-      setMsg(`Đã gộp đơn #${a} vào #${b}.`);
-      setMergeFrom("");
-      setMergeTo("");
-      setTimeout(() => setMsg(null), 2800);
+      setMoveSourceId(null);
+      setMsg("Chuyển bàn thành công");
+      setTimeout(() => setMsg(null), 3000);
       void load();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Lỗi gộp đơn");
+      setErr(e instanceof Error ? e.message : "Lỗi chuyển bàn");
+    }
+  }
+
+  async function executeMerge(targetId: number) {
+    if (!mergeSourceId) return;
+    try {
+      setErr(null);
+      await staffApi("/api/pos/merge-tables", {
+        method: "POST",
+        body: JSON.stringify({ sourceTableId: mergeSourceId, targetTableId: targetId }),
+      });
+      setMergeSourceId(null);
+      setMsg("Gộp bàn thành công");
+      setTimeout(() => setMsg(null), 3000);
+      void load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Lỗi gộp bàn");
+    }
+  }
+
+  async function executeSplit(originalOrderId: number) {
+    const toMove = splitItems.filter(x => x.quantity > 0);
+    if (toMove.length === 0) return setErr("Vui lòng chọn món để tách");
+    try {
+      setErr(null);
+      await staffApi("/api/pos/split-order", {
+        method: "POST",
+        body: JSON.stringify({ originalOrderId, itemsToMove: toMove }),
+      });
+      setSplitSourceId(null);
+      setSplitItems([]);
+      setMsg("Tách bill thành công");
+      setTimeout(() => setMsg(null), 3000);
+      void load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Lỗi tách bill");
     }
   }
 
@@ -299,7 +398,7 @@ export function StaffTables() {
               key={i}
               style={{
                 background: "linear-gradient(135deg, #1a2e1a 0%, #0f3d1f 100%)",
-                border: "2px solid #4ade80",
+                border: "2px solid #15803d",
                 borderRadius: 14,
                 padding: "1rem 1.1rem",
                 boxShadow: "0 8px 32px rgba(74,222,128,0.3)",
@@ -310,12 +409,12 @@ export function StaffTables() {
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
-                <div style={{ fontWeight: 800, fontSize: "0.88rem", color: "#4ade80", letterSpacing: "0.05em" }}>
+                <div style={{ fontWeight: 800, fontSize: "0.88rem", color: "#15803d", letterSpacing: "0.05em" }}>
                   ✅ MÓN SẴN SÀNG
                 </div>
                 <button
                   type="button"
-                  style={{ background: "none", border: "none", color: "#4ade80", cursor: "pointer", fontSize: "1.1rem", lineHeight: 1, padding: 0 }}
+                  style={{ background: "none", border: "none", color: "#15803d", cursor: "pointer", fontSize: "1.1rem", lineHeight: 1, padding: 0 }}
                   onClick={() => setReadyNotifs((prev) => prev.filter((_, j) => j !== i))}
                   aria-label="Đóng"
                 >
@@ -323,12 +422,12 @@ export function StaffTables() {
                 </button>
               </div>
               <div style={{ fontWeight: 700, fontSize: "1.05rem", color: "#fff" }}>
-                {n.productName} <span style={{ color: "#86efac" }}>× {n.quantity}</span>
+                {n.productName} <span style={{ color: "#15803d" }}>× {n.quantity}</span>
               </div>
-              <div style={{ fontSize: "0.88rem", color: "#86efac" }}>
+              <div style={{ fontSize: "0.88rem", color: "#15803d" }}>
                 📍 {n.tableName} · Đơn #{n.orderId}
               </div>
-              <div style={{ fontSize: "0.8rem", color: "#4ade80", marginTop: "0.2rem" }}>
+              <div style={{ fontSize: "0.8rem", color: "#15803d", marginTop: "0.2rem" }}>
                 Vui lòng ra bê nước cho khách!
               </div>
             </div>
@@ -361,22 +460,52 @@ export function StaffTables() {
 
       {tables && (
         <>
-          <div className="table-legend" style={{ marginBottom: "0.65rem" }}>
+          <div className="table-legend" style={{ marginBottom: "0.65rem", flexWrap: "wrap", rowGap: "0.5rem" }}>
             <span className="table-legend-item">
               <span className="table-status-dot table-tile-empty" /> Trống
             </span>
             <span className="table-legend-item">
-              <span className="table-status-dot table-tile-occupied" /> Có khách
+              <span className="table-status-dot table-tile-occupied" /> Chưa thanh toán
             </span>
             <span className="table-legend-item">
-              <span className="table-status-dot table-tile-paying" /> Đang thanh toán
+              <span className="table-status-dot table-tile-paying" /> Gọi tính tiền
             </span>
             <span className="table-legend-item">
-              <span className="table-status-dot table-tile-cleaning" /> Vừa thanh toán (còn ngồi)
+              <span className="table-status-dot table-tile-cleaning" /> Đã thanh toán
+            </span>
+            <span style={{ margin: "0 0.5rem", color: "var(--muted)" }}>|</span>
+            <span className="table-legend-item" style={{ fontSize: "0.8rem" }}>
+              🥤 Chờ bưng
+            </span>
+            <span className="table-legend-item" style={{ fontSize: "0.8rem" }}>
+              ⏳ Đang pha
+            </span>
+            <span className="table-legend-item" style={{ fontSize: "0.8rem" }}>
+              ✅ Đủ món
             </span>
           </div>
+
+          {/* THAY ĐỔI ZONE */}
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1rem" }}>
+            <button 
+              className={activeZoneId === "all" ? "btn btn-primary" : "btn btn-ghost staff-btn-light"}
+              onClick={() => { setActiveZoneId("all"); localStorage.setItem("staff_selected_zone", "all"); }}
+            >
+              Tất cả Khu vực
+            </button>
+            {zones.map(z => (
+              <button 
+                key={z.id}
+                className={activeZoneId === z.id ? "btn btn-primary" : "btn btn-ghost staff-btn-light"}
+                onClick={() => { setActiveZoneId(z.id); localStorage.setItem("staff_selected_zone", String(z.id)); }}
+              >
+                {z.name}
+              </button>
+            ))}
+          </div>
+
           <div className="table-grid">
-            {tables.map((t) => {
+            {tables.filter(t => activeZoneId === "all" || (t as any).zoneId === activeZoneId).map((t) => {
               const o = t.orders[0];
               const meta = tableStatusMeta(t.status);
               return (
@@ -384,15 +513,18 @@ export function StaffTables() {
                   key={t.id}
                   className={`table-tile ${meta.cls}`}
                   style={{ border: selectedTable === t.id ? "2px solid #fff" : undefined }}
-                  onClick={() => void openTable(t.id)}
+                  onClick={() => setMenuTableId(t.id)}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(ev) => {
-                    if (ev.key === "Enter" || ev.key === " ") void openTable(t.id);
+                    if (ev.key === "Enter" || ev.key === " ") setMenuTableId(t.id);
                   }}
                 >
                   <div style={{ fontWeight: 700, fontSize: "1.05rem", lineHeight: 1 }}>{t.name.replace("Bàn ", "")}</div>
-                  <div style={{ fontSize: "0.72rem", opacity: 0.95, marginTop: "0.25rem" }}>{t.location ?? "Tại quán"}</div>
+                  {activeZoneId === "all" && (
+                    <div style={{ fontSize: "0.72rem", opacity: 0.95, marginTop: "0.25rem" }}>{t.location ?? "Tại quán"}</div>
+                  )}
+                  {getDrinkBadge(o)}
                   <div style={{ fontSize: "0.74rem", marginTop: "0.35rem", fontWeight: 600 }}>{meta.label}</div>
                   {o && (
                     <div style={{ fontSize: "0.7rem", marginTop: "0.18rem" }}>
@@ -454,7 +586,7 @@ export function StaffTables() {
             maxWidth: 520,
             maxHeight: "90dvh",
             overflowY: "auto",
-            boxShadow: "0 24px 64px rgba(0,0,0,0.35)",
+            boxShadow: "var(--shadow-lg)",
             display: "flex",
             flexDirection: "column",
           }}>
@@ -467,12 +599,12 @@ export function StaffTables() {
               borderRadius: "16px 16px 0 0",
             }}>
               <div>
-                <h2 style={{ margin: 0, fontSize: "1.05rem", color: "#1a120d", fontWeight: 700 }}>
+                <h2 style={{ margin: 0, fontSize: "1.05rem", color: "var(--text)", fontWeight: 700 }}>
                   {ctx.table.name}{ctx.table.location ? ` · ${ctx.table.location}` : ""}
                 </h2>
                 {ctx.activeOrder ? (
                   <div style={{ fontSize: "0.82rem", color: "#6b5e55", marginTop: "0.1rem" }}>
-                    Khách: <strong style={{ color: "#1a120d" }}>{ctx.activeOrder.customer?.fullName ?? "Vãng lai"}</strong>
+                    Khách: <strong style={{ color: "var(--text)" }}>{ctx.activeOrder.customer?.fullName ?? "Vãng lai"}</strong>
                     {ctx.activeOrder.customer?.phone ? ` · ${ctx.activeOrder.customer.phone}` : ""}
                     &nbsp;·&nbsp;Đơn #{ctx.activeOrder.id} · {new Date(ctx.activeOrder.createdAt).toLocaleTimeString("vi-VN")}
                   </div>
@@ -519,15 +651,15 @@ export function StaffTables() {
                   const qty = line?.qty ?? 0;
                   const imgUrl = p.imageUrl ? (p.imageUrl.startsWith("http") ? p.imageUrl : `http://localhost:4000${p.imageUrl}`) : null;
                   return (
-                    <div key={p.id} style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.5rem 0.6rem", background: qty > 0 ? "#f0faf4" : "#faf8f5", borderRadius: 10, border: qty > 0 ? "1px solid #86efac" : "1px solid #e5ddd5", transition: "all 0.15s" }}>
+                    <div key={p.id} style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.5rem 0.6rem", background: qty > 0 ? "#f0faf4" : "#faf8f5", borderRadius: 10, border: qty > 0 ? "1px solid #15803d" : "1px solid #e5ddd5", transition: "all 0.15s" }}>
                       <div style={{ width: 48, height: 48, borderRadius: 8, flexShrink: 0, background: "#f5f0eb", overflow: "hidden" }}>
                         {imgUrl
                           ? <img src={imgUrl} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                          : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#b8a99a", fontSize: "0.7rem" }}>—</div>
+                          : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--muted)", fontSize: "0.7rem" }}>—</div>
                         }
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: "0.9rem", color: "#1a120d", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                        <div style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
                         <div style={{ fontSize: "0.8rem", color: "#6b5e55" }}>{formatVnd(p.sellPrice)}</div>
                         {line?.showNote && (
                           <input type="text" className="input" placeholder="Ít đá, ít ngọt..." value={line.note}
@@ -541,7 +673,7 @@ export function StaffTables() {
                           <button type="button" className="btn btn-ghost staff-btn-light" style={{ padding: "0.2rem 0.55rem", fontSize: "1rem", lineHeight: 1 }}
                             onClick={() => setMenuLines((prev) => { const next = { ...prev }; if ((next[p.id]?.qty ?? 0) <= 1) { delete next[p.id]; } else { next[p.id] = { ...next[p.id], qty: next[p.id].qty - 1 }; } return next; })}>−</button>
                         )}
-                        {qty > 0 && <span style={{ minWidth: 22, textAlign: "center", fontWeight: 700, color: "#1a120d", fontSize: "0.95rem" }}>{qty}</span>}
+                        {qty > 0 && <span style={{ minWidth: 22, textAlign: "center", fontWeight: 700, color: "var(--text)", fontSize: "0.95rem" }}>{qty}</span>}
                         <button type="button" className="btn btn-ghost staff-btn-light" style={{ padding: "0.2rem 0.55rem", fontSize: "1rem", lineHeight: 1 }}
                           onClick={() => setMenuLines((prev) => ({ ...prev, [p.id]: { qty: (prev[p.id]?.qty ?? 0) + 1, note: prev[p.id]?.note ?? "", showNote: prev[p.id]?.showNote ?? false } }))}>+</button>
                         <button type="button" title="Ghi chú" className="btn btn-ghost staff-btn-light" style={{ padding: "0.2rem 0.5rem", fontSize: "0.9rem", lineHeight: 1 }}
@@ -557,11 +689,11 @@ export function StaffTables() {
               {/* Tóm tắt giỏ */}
               {Object.values(menuLines).some((l) => l.qty > 0) && (
                 <div style={{ background: "#f9f6f2", borderRadius: 10, padding: "0.75rem", border: "1px solid #e5ddd5" }}>
-                  <div style={{ fontWeight: 600, fontSize: "0.88rem", color: "#1a120d", marginBottom: "0.4rem" }}>Món sắp gửi:</div>
+                  <div style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text)", marginBottom: "0.4rem" }}>Món sắp gửi:</div>
                   {Object.entries(menuLines).filter(([, v]) => v.qty > 0).map(([pid, v]) => {
                     const pr = products.find((x) => x.id === Number(pid));
                     return (
-                      <div key={pid} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", color: "#1a120d", padding: "0.15rem 0" }}>
+                      <div key={pid} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", color: "var(--text)", padding: "0.15rem 0" }}>
                         <span>{pr?.name} x{v.qty}{v.note ? ` (${v.note})` : ""}</span>
                         <span style={{ fontWeight: 600 }}>{formatVnd((pr?.sellPrice ?? 0) * v.qty)}</span>
                       </div>
@@ -589,19 +721,19 @@ export function StaffTables() {
               {ctx.activeOrder && ctx.activeOrder.details.length > 0 && (
                 <>
                   <hr style={{ borderColor: "#e5ddd5", margin: "0.25rem 0" }} />
-                  <h3 style={{ margin: 0, fontSize: "0.95rem", color: "#1a120d" }}>
+                  <h3 style={{ margin: 0, fontSize: "0.95rem", color: "var(--text)" }}>
                     Món đã gọi {ctx.activeOrder.status === "Paid" && <span style={{ color: "#d7aa2d", fontSize: "0.8rem", marginLeft: "0.4rem", fontWeight: 600 }}>(Đã thanh toán)</span>}
                   </h3>
                   <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
                     {ctx.activeOrder.details.map((d) => (
                       <div key={d.id} style={{ display: "flex", justifyContent: "space-between", gap: "0.6rem", alignItems: "center", padding: "0.45rem 0.6rem", background: "#faf8f5", borderRadius: 8, border: "1px solid #e5ddd5" }}>
                         <div>
-                          <span style={{ fontWeight: 600, color: "#1a120d" }}>{d.product.name}</span>
+                          <span style={{ fontWeight: 600, color: "var(--text)" }}>{d.product.name}</span>
                           <span style={{ color: "#6b5e55", fontSize: "0.85rem" }}> x{d.quantity}</span>
                           {d.customNotes && <div style={{ fontSize: "0.8rem", color: "#6b5e55", fontStyle: "italic" }}>{d.customNotes}</div>}
                         </div>
                         <div style={{ textAlign: "right", flexShrink: 0 }}>
-                          <div style={{ fontWeight: 600, color: "#1a120d" }}>{formatVnd(d.unitPrice * d.quantity)}</div>
+                          <div style={{ fontWeight: 600, color: "var(--text)" }}>{formatVnd(d.unitPrice * d.quantity)}</div>
                           {ctx.activeOrder!.status !== "Paid" && (
                             <button type="button" className="btn btn-ghost staff-btn-light"
                               style={{ marginTop: "0.2rem", padding: "0.2rem 0.5rem", fontSize: "0.72rem", color: "#c94c4c" }}
@@ -613,13 +745,120 @@ export function StaffTables() {
                       </div>
                     ))}
                   </div>
-                  <div style={{ fontWeight: 700, color: "#1a120d" }}>Tạm tính: {formatVnd(ctx.activeOrder.subTotal)}</div>
+                  <div style={{ fontWeight: 700, color: "var(--text)" }}>Tạm tính: {formatVnd(ctx.activeOrder.subTotal)}</div>
                 </>
               )}
             </div>
           </div>
         </div>
       )}
+
+      {menuTableId !== null && (() => {
+        const t = tables?.find(x => x.id === menuTableId);
+        if (!t) return null;
+        return (
+          <div className="modal-overlay" onClick={() => setMenuTableId(null)}>
+            <div className="modal" style={{ maxWidth: 320, width: "90%", padding: "1.5rem" }} onClick={e => e.stopPropagation()}>
+              <h2 style={{ margin: "0 0 1.25rem", fontSize: "1.2rem", textAlign: "center" }}>Thao tác: Bàn {t.name.replace("Bàn ", "")}</h2>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                <button className="btn btn-primary" style={{ padding: "0.75rem", fontSize: "1rem" }} onClick={() => { setMenuTableId(null); void openTable(t.id); }}>Mở bàn</button>
+                <button className="btn btn-outline" style={{ padding: "0.75rem", fontSize: "1rem", color: "var(--text)", borderColor: "#d5c9bc" }} onClick={() => { setMenuTableId(null); setMoveSourceId(t.id); }}>Chuyển Bàn</button>
+                <button className="btn btn-outline" style={{ padding: "0.75rem", fontSize: "1rem", color: "var(--text)", borderColor: "#d5c9bc" }} onClick={() => { setMenuTableId(null); setMergeSourceId(t.id); }}>Gộp Bàn</button>
+                {info?.role !== "Waiter" && (
+                  <button className="btn btn-outline" style={{ padding: "0.75rem", fontSize: "1rem", color: "var(--text)", borderColor: "#d5c9bc" }} onClick={() => { setMenuTableId(null); setSplitSourceId(t.id); }}>Tách Bill</button>
+                )}
+                <button className="btn btn-ghost" style={{ padding: "0.75rem", fontSize: "1rem", marginTop: "0.5rem" }} onClick={() => setMenuTableId(null)}>Đóng</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {moveSourceId && (
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 400 }}>
+            <h2 style={{ margin: "0 0 1rem" }}>Chọn bàn để chuyển đến</h2>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+              {tables?.filter(t => t.status === "Empty").map(t => (
+                <button key={t.id} className="btn btn-outline staff-btn-light" onClick={() => void executeMove(t.id)}>{t.name}</button>
+              ))}
+            </div>
+            <button className="btn btn-ghost" style={{ marginTop: "1rem", width: "100%" }} onClick={() => setMoveSourceId(null)}>Hủy</button>
+          </div>
+        </div>
+      )}
+
+      {mergeSourceId && (
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 400 }}>
+            <h2 style={{ margin: "0 0 1rem" }}>Chọn bàn đích để gộp vào</h2>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+              {tables?.filter(t => t.status !== "Empty" && t.id !== mergeSourceId).map(t => (
+                <button key={t.id} className="btn btn-outline staff-btn-light" onClick={() => void executeMerge(t.id)}>{t.name}</button>
+              ))}
+            </div>
+            <button className="btn btn-ghost" style={{ marginTop: "1rem", width: "100%" }} onClick={() => setMergeSourceId(null)}>Hủy</button>
+          </div>
+        </div>
+      )}
+
+      {splitSourceId && (() => {
+        const t = tables?.find(x => x.id === splitSourceId);
+        const order = t?.orders[0];
+        if (!order) return null;
+        return (
+          <div className="modal-overlay">
+            <div className="modal" style={{ maxWidth: 700, width: "100%" }}>
+              <h2 style={{ margin: "0 0 1rem" }}>Tách Bill - {t.name}</h2>
+              <div style={{ display: "flex", gap: "1rem" }}>
+                <div style={{ flex: 1, border: "1px solid #e5ddd5", padding: "1rem", borderRadius: 8, background: "#faf8f5" }}>
+                  <h3 style={{ margin: "0 0 0.5rem", fontSize: "1rem" }}>Đơn gốc</h3>
+                  {order.details?.map(d => {
+                    const moved = splitItems.find(x => x.orderItemId === d.id)?.quantity || 0;
+                    const remain = d.quantity - moved;
+                    return remain > 0 ? (
+                      <div key={d.id} style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", alignItems: "center" }}>
+                        <div style={{ fontSize: "0.9rem", fontWeight: 600 }}>{d.product?.name ?? "Món"} <span style={{ color: "var(--primary)" }}>x{remain}</span></div>
+                        <button className="btn btn-outline" style={{ padding: "0.2rem 0.5rem", fontSize: "0.8rem" }} onClick={() => {
+                          setSplitItems(prev => {
+                            const clone = [...prev];
+                            const idx = clone.findIndex(x => x.orderItemId === d.id);
+                            if (idx >= 0) clone[idx].quantity++; else clone.push({ orderItemId: d.id, quantity: 1 });
+                            return clone;
+                          });
+                        }}>{">"}</button>
+                      </div>
+                    ) : null;
+                  })}
+                </div>
+                <div style={{ flex: 1, border: "1px solid #e5ddd5", padding: "1rem", borderRadius: 8, background: "#faf8f5" }}>
+                  <h3 style={{ margin: "0 0 0.5rem", fontSize: "1rem" }}>Đơn tách ra</h3>
+                  {splitItems.filter(x => x.quantity > 0).map(item => {
+                    const d = order.details?.find(x => x.id === item.orderItemId);
+                    return (
+                      <div key={item.orderItemId} style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", alignItems: "center" }}>
+                        <button className="btn btn-outline" style={{ padding: "0.2rem 0.5rem", fontSize: "0.8rem" }} onClick={() => {
+                          setSplitItems(prev => {
+                            const clone = [...prev];
+                            const idx = clone.findIndex(x => x.orderItemId === item.orderItemId);
+                            if (idx >= 0) { clone[idx].quantity--; }
+                            return clone;
+                          });
+                        }}>{"<"}</button>
+                        <div style={{ fontSize: "0.9rem", fontWeight: 600 }}>{d?.product?.name ?? "Món"} <span style={{ color: "var(--primary)" }}>x{item.quantity}</span></div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: "1rem", marginTop: "1.5rem" }}>
+                <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => void executeSplit(order.id)}>Xác nhận tách</button>
+                <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => { setSplitSourceId(null); setSplitItems([]); }}>Hủy</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

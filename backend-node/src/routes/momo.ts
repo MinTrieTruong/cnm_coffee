@@ -1,8 +1,11 @@
 import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
 import { createMomoPayment, verifyMomoIpn } from "../lib/momo.js";
+import type { Server } from "socket.io";
+import { deductInventoryForOrder } from "../lib/inventory.js";
+import { releaseOrderToKitchen } from "../lib/delivery.js";
 
-export function momoRouter(prisma: PrismaClient) {
+export function momoRouter(prisma: PrismaClient, io?: Server) {
   const r = Router();
 
   /**
@@ -100,19 +103,23 @@ export function momoRouter(prisma: PrismaClient) {
     if (resultCode === 0 && !Number.isNaN(rawOrderId)) {
       const order = await prisma.order.findUnique({ where: { id: rawOrderId } });
       if (order && order.status !== "Paid") {
-        await prisma.order.update({
-          where: { id: rawOrderId },
-          data:  { status: "Paid" },
-        });
-        await prisma.payment.create({
-          data: {
-            orderId:   rawOrderId,
-            method:    "MoMo",
-            amount:    order.totalAmount,
-            transCode: String(body.transId ?? momoOrderId),
-          },
+        await prisma.$transaction(async (tx) => {
+          await tx.order.update({
+            where: { id: rawOrderId },
+            data:  { status: "Paid" },
+          });
+          await deductInventoryForOrder(tx, rawOrderId);
+          await tx.payment.create({
+            data: {
+              orderId:   rawOrderId,
+              method:    "MoMo",
+              amount:    order.totalAmount,
+              transCode: String(body.transId ?? momoOrderId),
+            },
+          });
         });
         console.log("[momo/ipn] Đã xác nhận thanh toán đơn #", rawOrderId);
+        if (io) await releaseOrderToKitchen(prisma, io, rawOrderId);
       }
     }
 

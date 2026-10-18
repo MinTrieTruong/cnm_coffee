@@ -97,11 +97,13 @@ export function shiftsRouter(prisma: PrismaClient) {
       select: {
         id: true,
         name: true,
+        category: true,
         skuCode: true,
         unit: true,
         stockQty: true,
         minLevel: true,
         imageUrl: true,
+        unitCostPrice: true,
       },
     });
     res.json(items);

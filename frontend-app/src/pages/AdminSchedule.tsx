@@ -21,12 +21,12 @@ const SHIFTS = [
 type StaffMini = { id: number; fullName: string; role: string; phone?: string };
 type WS = {
   id: number; workDate: string; shiftCode: string;
-  status: "PENDING" | "APPROVED" | "REJECTED";
+  status: "DRAFT" | "PENDING" | "APPROVED" | "REJECTED" | "OPEN_SHIFT";
   staffNote: string | null; managerNote: string | null;
-  staffId: number; staff: StaffMini;
+  staffId: number | null; staff?: StaffMini;
 };
-const SC: Record<WS["status"], string> = { PENDING: "#f59e0b", APPROVED: "#22c55e", REJECTED: "#ef4444" };
-const SL: Record<WS["status"], string> = { PENDING: "Chờ", APPROVED: "Duyệt", REJECTED: "Từ chối" };
+const SC: Record<WS["status"], string> = { DRAFT: "#94a3b8", PENDING: "#b45309", APPROVED: "#15803d", REJECTED: "#b91c1c", OPEN_SHIFT: "#dc2626" };
+const SL: Record<WS["status"], string> = { DRAFT: "Nháp", PENDING: "Chờ", APPROVED: "Duyệt", REJECTED: "Từ chối", OPEN_SHIFT: "Thiếu người" };
 
 function pad2(n: number) { return String(n).padStart(2, "0"); }
 function toDateStr(d: Date) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
@@ -55,10 +55,10 @@ function ShiftTag({ ws, onApprove, onEdit, onDelete, readOnly }: {
       {!readOnly && (
         <div style={{ display: "flex", gap: "0.2rem", flexWrap: "wrap" }}>
           {ws.status === "PENDING" && (
-            <AB color="#22c55e" onClick={onApprove}>Duyệt</AB>
+            <AB color="#15803d" onClick={onApprove}>Duyệt</AB>
           )}
-          <AB color="#60a5fa" onClick={onEdit}>Sửa</AB>
-          <AB color="#ef4444" onClick={onDelete}>Xóa</AB>
+          <AB color="#1d4ed8" onClick={onEdit}>Sửa</AB>
+          <AB color="#b91c1c" onClick={onDelete}>Xóa</AB>
         </div>
       )}
     </div>
@@ -101,7 +101,7 @@ function EditModal({ ws, staffList, onSave, onClose }: {
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 800, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", backdropFilter: "blur(2px)" }}
+    <div style={{ position: "fixed", inset: 0, zIndex: 800, background: "var(--surface)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", backdropFilter: "blur(2px)" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} role="dialog">
       <div style={{ background: "#fff", border: "1px solid var(--panel-border)", borderRadius: 14, padding: "1.4rem", width: "100%", maxWidth: 420, boxShadow: "0 10px 30px var(--panel-border)" }}>
         <h3 style={{ margin: "0 0 1rem", fontSize: "0.98rem", fontWeight: 700, color: "var(--text)" }}>✏️ Chỉnh sửa ca — {ws.staff.fullName}</h3>
@@ -132,7 +132,7 @@ function EditModal({ ws, staffList, onSave, onClose }: {
         <textarea className="input" rows={2} placeholder="Lý do sửa / từ chối…" value={note}
           onChange={(e) => setNote(e.target.value)} style={{ width: "100%", resize: "vertical", marginBottom: "0.85rem" }} />
 
-        {err && <p style={{ color: "#ef4444", margin: "0 0 0.65rem", fontSize: "0.85rem" }}>{err}</p>}
+        {err && <p style={{ color: "#b91c1c", margin: "0 0 0.65rem", fontSize: "0.85rem" }}>{err}</p>}
         <div style={{ display: "flex", gap: "0.65rem", justifyContent: "flex-end" }}>
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Huỷ</button>
           <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={saving}>
@@ -144,7 +144,7 @@ function EditModal({ ws, staffList, onSave, onClose }: {
   );
 }
 
-export function AdminSchedule() {
+export function AdminSchedule({ embedded = false }: { embedded?: boolean } = {}) {
   const info = getStaffInfo();
   const isMgmt = info?.role === "Admin";
 
@@ -208,6 +208,18 @@ export function AdminSchedule() {
     } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi chốt lịch"); }
     finally { setPublishing(false); }
   }
+
+  async function autoSchedule() {
+    if (!confirm(`Tự động sắp lịch nháp cho tuần ${format(weekStart, "dd/MM")}–${format(weekEnd, "dd/MM")}?\n(Lưu ý: Các ca nháp hiện tại của tuần này sẽ bị xoá và ghi đè)`)) return;
+    setLoading(true);
+    try {
+      const res = await staffApi<{ generatedCount: number }>("/api/schedule/admin/auto", { method: "POST", body: JSON.stringify({ week: weekKey(currentWeek) }) });
+      showToast(`✅ Đã tự động tạo ${res.generatedCount} ca nháp`);
+      await loadAll();
+    } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi xếp lịch"); }
+    finally { setLoading(false); }
+  }
+
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3000); }
 
   const filtered = schedules.filter((s) => {
@@ -242,10 +254,10 @@ export function AdminSchedule() {
   const TD: React.CSSProperties = { padding: "0.4rem 0.45rem", borderBottom: "1px solid #f0f0f0", verticalAlign: "top", color: "#1f2937" };
 
   return (
-    <div style={{ background: "#f9fafb", minHeight: "100vh", width: "100%" }}>
-    <div style={{ padding: "1rem 0.75rem", maxWidth: 1200, margin: "0 auto", color: "#111827" }}>
+    <div style={embedded ? { width: "100%" } : { background: "#f9fafb", minHeight: "100vh", width: "100%" }}>
+    <div style={{ padding: embedded ? 0 : "1rem 0.75rem", maxWidth: 1200, margin: "0 auto", color: "#111827" }}>
       {toast && (
-        <div style={{ position: "fixed", top: "1rem", right: "1rem", zIndex: 999, background: "#0f172a", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 10, padding: "0.65rem 1rem", fontSize: "0.88rem", fontWeight: 600, color: "#f8fafc", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+        <div style={{ position: "fixed", top: "1rem", right: "1rem", zIndex: 999, background: "#0f172a", border: "1px solid var(--border)", borderRadius: 10, padding: "0.65rem 1rem", fontSize: "0.88rem", fontWeight: 600, color: "#f8fafc", boxShadow: "var(--shadow-lg)" }}>
           {toast}
         </div>
       )}
@@ -257,20 +269,26 @@ export function AdminSchedule() {
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem", flexWrap: "wrap", color: "#111827" }}>
-        <Link to="/admin" className="btn btn-ghost" style={{ padding: "0.35rem 0.75rem", fontSize: "0.85rem", color: "#374151", border: "1px solid #d1d5db", borderRadius: 8, background: "#fff" }}>← Quản trị</Link>
+        {!embedded && isMgmt && <Link to="/admin?tab=schedule" className="btn btn-ghost" style={{ padding: "0.35rem 0.75rem", fontSize: "0.85rem", color: "#374151", border: "1px solid #d1d5db", borderRadius: 8, background: "#fff" }}>← Quản trị</Link>}
         <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, flex: 1, color: "#111827" }}>
           📅 {isMgmt ? "Quản lý lịch làm việc" : "Bảng lịch tổng"}
           {pendingCount > 0 && (
-            <span style={{ marginLeft: "0.65rem", fontSize: "0.7rem", fontWeight: 700, background: "#f59e0b", color: "#fff", borderRadius: 999, padding: "0.12rem 0.5rem" }}>
+            <span style={{ marginLeft: "0.65rem", fontSize: "0.7rem", fontWeight: 700, background: "#b45309", color: "#fff", borderRadius: 999, padding: "0.12rem 0.5rem" }}>
               {pendingCount} chờ duyệt
             </span>
           )}
         </h2>
         {isMgmt && (
-          <button type="button" className="btn btn-primary" disabled={publishing || pendingCount === 0}
-            onClick={() => void publishWeek()} style={{ fontSize: "0.85rem", padding: "0.45rem 1rem" }}>
-            {publishing ? "Đang chốt…" : `🔒 Chốt lịch (${pendingCount})`}
-          </button>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button type="button" className="btn" disabled={loading}
+              onClick={() => void autoSchedule()} style={{ fontSize: "0.85rem", padding: "0.45rem 1rem", background: "#8b5cf6", color: "white" }}>
+              ✨ Tự động xếp lịch
+            </button>
+            <button type="button" className="btn btn-primary" disabled={publishing || pendingCount === 0}
+              onClick={() => void publishWeek()} style={{ fontSize: "0.85rem", padding: "0.45rem 1rem" }}>
+              {publishing ? "Đang chốt…" : `🔒 Chốt lịch (${pendingCount})`}
+            </button>
+          </div>
         )}
       </div>
 
@@ -299,13 +317,13 @@ export function AdminSchedule() {
         </select>
       </div>
 
-      {err && <p style={{ color: "#ef4444", marginBottom: "0.75rem", fontSize: "0.85rem" }}>{err}</p>}
+      {err && <p style={{ color: "#b91c1c", marginBottom: "0.75rem", fontSize: "0.85rem" }}>{err}</p>}
       {loading && <p style={{ textAlign: "center", color: "#6b7280", padding: "2rem" }}>Đang tải…</p>}
 
       {/* Desktop table */}
       {!loading && (
         <div className="schedule-desktop-table" style={{ borderRadius: 12, border: "1px solid #e5e7eb", background: "#fff", overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
+          <table data-no-cards style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
             <thead>
               <tr>
                 <th style={{ ...TH, textAlign: "center", width: 40 }}>STT</th>
@@ -373,6 +391,36 @@ export function AdminSchedule() {
                   </React.Fragment>
                 );
               })}
+              
+              {/* Ca trống chưa phân công */}
+              {(() => {
+                const openShifts = filtered.filter(ws => !ws.staffId);
+                if (openShifts.length === 0) return null;
+                return (
+                  <React.Fragment>
+                    <tr>
+                      <td colSpan={12} style={{ background: "rgba(239, 68, 68, 0.15)", borderBottom: "2px solid #b91c1c", padding: "0.4rem 0.75rem", fontWeight: 700, color: "#b91c1c", fontSize: "0.85rem" }}>
+                        Ca Thiếu Người (Cần Phân Công)
+                      </td>
+                    </tr>
+                    <tr style={{ background: "#fef2f2" }}>
+                      <td colSpan={4} style={{ ...TD, textAlign: "center", color: "#b91c1c", fontWeight: 600 }}>Chưa rõ nhân sự</td>
+                      {weekDays.map((day) => {
+                        const dayWs = openShifts.filter((ws) => isSameDay(parseISO(ws.workDate), day));
+                        return (
+                          <td key={toDateStr(day)} style={{ ...TD, borderLeft: "1px solid var(--panel-border)", textAlign: "center", padding: "0.25rem" }}>
+                            {dayWs.map((ws) => (
+                              <ShiftTag key={ws.id} ws={ws} readOnly={!isMgmt} onApprove={() => void quickApprove(ws.id)} onEdit={() => setEditWs(ws)} onDelete={() => void deleteShift(ws.id)} />
+                            ))}
+                          </td>
+                        );
+                      })}
+                      <td style={{ ...TD, borderLeft: "1px solid var(--panel-border)" }}></td>
+                    </tr>
+                  </React.Fragment>
+                );
+              })()}
+
               {staffList.filter((s) => filterStaff === "ALL" || s.id === filterStaff).length === 0 && (
                 <tr><td colSpan={12} style={{ textAlign: "center", color: "#6b7280", padding: "2rem" }}>Chưa có nhân viên nào.</td></tr>
               )}
@@ -398,15 +446,15 @@ export function AdminSchedule() {
                     return (
                       <div key={ws.id} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: "0.55rem 0.65rem", borderBottom: "1px solid #e5e7eb", background: "#f9fafb", gap: "0.5rem", flexWrap: "wrap" }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "#111827" }}>{ws.staff.fullName}</div>
+                          <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "#111827" }}>{ws.staff?.fullName || "⚠️ Cần phân công"}</div>
                           <div style={{ fontSize: "0.75rem", color: sh?.color }}>{sh?.name} · {sh?.label}</div>
                           <div style={{ fontSize: "0.72rem", color: SC[ws.status] }}>{SL[ws.status]}</div>
                           {ws.managerNote && <div style={{ fontSize: "0.7rem", color: "#fb923c" }}>💬 {ws.managerNote}</div>}
                         </div>
                         <div style={{ display: "flex", gap: "0.3rem" }}>
-                          {isMgmt && ws.status === "PENDING" && <AB color="#22c55e" onClick={() => void quickApprove(ws.id)}>✓</AB>}
-                          {isMgmt && <AB color="#60a5fa" onClick={() => setEditWs(ws)}>✏️</AB>}
-                          {isMgmt && <AB color="#ef4444" onClick={() => void deleteShift(ws.id)}>🗑</AB>}
+                          {isMgmt && ws.status === "PENDING" && <AB color="#15803d" onClick={() => void quickApprove(ws.id)}>✓</AB>}
+                          {isMgmt && <AB color="#1d4ed8" onClick={() => setEditWs(ws)}>✏️</AB>}
+                          {isMgmt && <AB color="#b91c1c" onClick={() => void deleteShift(ws.id)}>🗑</AB>}
                         </div>
                       </div>
                     );
@@ -424,7 +472,7 @@ export function AdminSchedule() {
             📊 Tổng nhân sự làm việc (Chỉ tính ca đã Duyệt)
           </div>
           <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem", minWidth: 600 }}>
+            <table data-no-cards style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem", minWidth: 600 }}>
               <thead>
                 <tr>
                   <th style={{ ...TH, textAlign: "left", width: 120 }}>Buổi</th>
@@ -452,7 +500,7 @@ export function AdminSchedule() {
                         {weekDays.map(day => {
                           const count = getStaffCount(day, roleGroup, timeOfDay);
                           return (
-                            <td key={toDateStr(day)} style={{ ...TD, textAlign: "center", fontWeight: count > 0 ? 700 : 400, color: count > 0 ? "#22c55e" : "#9ca3af" }}>
+                            <td key={toDateStr(day)} style={{ ...TD, textAlign: "center", fontWeight: count > 0 ? 700 : 400, color: count > 0 ? "#15803d" : "#9ca3af" }}>
                               {count > 0 ? `${count} ng.` : "-"}
                             </td>
                           );

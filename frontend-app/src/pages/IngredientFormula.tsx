@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { getStaffInfo, staffApi } from "../lib/staffApi";
 
 type Product = { id: number; name: string };
-type InvItem = { id: number; name: string; unit: string | null; stockQty: number };
+type InvItem = { id: number; name: string; unit: string | null; stockQty: number; unitCostPrice?: number };
 type FormulaRow = {
   id: number; productId: number; itemId: number;
   qtyPerUnit: number;
@@ -49,7 +49,7 @@ function fmt(n: number | null, unit?: string | null) {
   return unit ? `${s} ${unit}` : s;
 }
 
-export function IngredientFormula() {
+export function IngredientFormula({ embedded = false }: { embedded?: boolean } = {}) {
   const [info] = useState(() => getStaffInfo());
   const [tab, setTab] = useState<"formulas" | "report">("formulas");
   const [formulas, setFormulas] = useState<FormulaRow[]>([]);
@@ -139,16 +139,18 @@ export function IngredientFormula() {
     grouped[f.productId].rows.push(f);
   }
 
-  const colStyle = { padding: "0.45rem 0.6rem", color: "#1a120d" } as React.CSSProperties;
+  const colStyle = { padding: "0.45rem 0.6rem", color: "var(--text)" } as React.CSSProperties;
   const thStyle = { padding: "0.4rem 0.6rem", textAlign: "left" as const, color: "#3d3630", fontWeight: 600, whiteSpace: "nowrap" as const };
 
   return (
-    <div className="admin-main-body" style={{ minHeight: "100dvh", background: "#f0f2f5", padding: 0, flex: "none" }}>
-    <div className="staff-page-inner staff-page-wide" style={{ paddingTop: "1.5rem" }}>
-      <div className="staff-page-head">
-        <h1 className="page-title" style={{ margin: 0 }}>Định mức nguyên liệu</h1>
-        <Link to="/admin" className="btn btn-ghost staff-btn-light">← Quản trị</Link>
-      </div>
+    <div className={embedded ? undefined : "admin-main-body"} style={embedded ? undefined : { minHeight: "100dvh", background: "#f0f2f5", padding: 0, flex: "none" }}>
+    <div className={embedded ? undefined : "staff-page-inner staff-page-wide"} style={embedded ? undefined : { paddingTop: "1.5rem" }}>
+      {!embedded && (
+        <div className="staff-page-head">
+          <h1 className="page-title" style={{ margin: 0 }}>Định mức nguyên liệu</h1>
+          <Link to="/admin?tab=formulas" className="btn btn-ghost staff-btn-light">← Quản trị</Link>
+        </div>
+      )}
       {err && <p style={{ color: "#c94c4c", marginBottom: "0.5rem" }}>{err}</p>}
       {msg && <p style={{ color: "#2d7a3e", marginBottom: "0.5rem" }}>{msg}</p>}
 
@@ -169,7 +171,7 @@ export function IngredientFormula() {
 
           {/* Recipe editor */}
           <div className="card" style={{ padding: "1.25rem" }}>
-            <h2 style={{ fontSize: "1rem", margin: "0 0 0.85rem", color: "#1a120d" }}>Nhập công thức sản phẩm</h2>
+            <h2 style={{ fontSize: "1rem", margin: "0 0 0.85rem", color: "var(--text)" }}>Nhập công thức sản phẩm</h2>
 
             {/* Chọn sản phẩm */}
             <div style={{ marginBottom: "0.85rem" }}>
@@ -196,6 +198,7 @@ export function IngredientFormula() {
                           <th style={{ ...thStyle, textAlign: "center" as const, width: 60 }}>Size L</th>
                           <th style={thStyle}>Đơn vị</th>
                           <th style={thStyle}>Ghi chú</th>
+                          <th style={{ ...thStyle, textAlign: "right" as const }}>Giá vốn</th>
                           <th style={thStyle}></th>
                         </tr>
                       </thead>
@@ -221,6 +224,15 @@ export function IngredientFormula() {
                               <td style={{ ...colStyle, fontSize: "0.78rem", fontStyle: "italic", color: "#6b5e55" }}>
                                 {f.note ?? ""}
                               </td>
+                              <td style={{ ...colStyle, textAlign: "right", fontWeight: 600, color: "var(--text)" }}>
+                                {(() => {
+                                  const invItem = items.find(i => i.id === f.itemId);
+                                  const costPerUnit = invItem?.unitCostPrice || 0;
+                                  const targetQty = hasSize ? (f.qtySizeM ?? f.qtyPerUnit) : f.qtyPerUnit;
+                                  const cost = (costPerUnit / f.conversionFactor) * targetQty;
+                                  return new Intl.NumberFormat("vi-VN").format(Math.round(cost)) + " đ";
+                                })()}
+                              </td>
                               <td style={colStyle}>
                                 <button type="button" className="btn btn-ghost staff-btn-light"
                                   style={{ padding: "0.15rem 0.55rem", fontSize: "0.78rem", color: "#c94c4c" }}
@@ -230,6 +242,26 @@ export function IngredientFormula() {
                           );
                         })}
                       </tbody>
+                      <tfoot>
+                        <tr style={{ background: "rgba(45,122,62,0.05)" }}>
+                          <td colSpan={6} style={{ ...colStyle, textAlign: "right", fontWeight: 700, color: "var(--text)" }}>
+                            TỔNG GIÁ VỐN (Tạm tính Size M/Mặc định):
+                          </td>
+                          <td style={{ ...colStyle, textAlign: "right", fontWeight: 700, color: "#c94c4c", fontSize: "1.05rem" }}>
+                            {(() => {
+                              let totalCost = 0;
+                              curFormulas.forEach(f => {
+                                const invItem = items.find(i => i.id === f.itemId);
+                                const costPerUnit = invItem?.unitCostPrice || 0;
+                                const targetQty = (f.qtySizeM !== null || f.qtySizeL !== null || f.qtySizeS !== null) ? (f.qtySizeM ?? f.qtyPerUnit) : f.qtyPerUnit;
+                                totalCost += (costPerUnit / f.conversionFactor) * targetQty;
+                              });
+                              return new Intl.NumberFormat("vi-VN").format(Math.round(totalCost)) + " đ";
+                            })()}
+                          </td>
+                          <td style={colStyle}></td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 )}
@@ -328,7 +360,7 @@ export function IngredientFormula() {
                 {/* Ví dụ tính toán */}
                 {drafts.some(d => d.itemId && d.qtyPerUnit && d.conversionFactor) && (
                   <div style={{ marginTop: "0.75rem", padding: "0.65rem 0.85rem", background: "#fffbea", borderRadius: 8, border: "1px solid #fde68a", fontSize: "0.82rem", color: "#6b5e55" }}>
-                    <strong style={{ color: "#1a120d" }}>Ví dụ tính:</strong>{" "}
+                    <strong style={{ color: "var(--text)" }}>Ví dụ tính:</strong>{" "}
                     {drafts.filter(d => d.itemId && d.qtyPerUnit).map((d, i) => {
                       const it = items.find(x => x.id === Number(d.itemId));
                       const qty = parseFloat(d.qtyPerUnit) || 0;
@@ -346,7 +378,7 @@ export function IngredientFormula() {
 
           {/* Tổng hợp tất cả */}
           <div>
-            <h2 style={{ fontSize: "1rem", margin: "0 0 0.75rem", color: "#1a120d" }}>
+            <h2 style={{ fontSize: "1rem", margin: "0 0 0.75rem", color: "var(--text)" }}>
               Tất cả công thức ({Object.keys(grouped).length} sản phẩm)
             </h2>
             {Object.keys(grouped).length === 0 ? (
@@ -357,7 +389,7 @@ export function IngredientFormula() {
               <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
                 {Object.entries(grouped).map(([pid, { name, rows }]) => (
                   <div key={pid} className="card" style={{ padding: "0.85rem 1rem" }}>
-                    <div style={{ fontWeight: 700, color: "#1a120d", marginBottom: "0.45rem" }}>{name}</div>
+                    <div style={{ fontWeight: 700, color: "var(--text)", marginBottom: "0.45rem" }}>{name}</div>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
                       <thead>
                         <tr style={{ borderBottom: "1px solid #e5ddd5", color: "#6b5e55" }}>
@@ -374,7 +406,7 @@ export function IngredientFormula() {
                           const hasSize = f.qtySizeS !== null || f.qtySizeM !== null || f.qtySizeL !== null;
                           return (
                             <tr key={f.id} style={{ borderBottom: "1px solid #f5f0eb" }}>
-                              <td style={{ padding: "0.2rem 0.5rem", color: "#1a120d", fontWeight: 500 }}>{f.item.name}</td>
+                              <td style={{ padding: "0.2rem 0.5rem", color: "var(--text)", fontWeight: 500 }}>{f.item.name}</td>
                               <td style={{ padding: "0.2rem 0.5rem", textAlign: "center", color: hasSize ? "#2d7a3e" : "#aaa" }}>
                                 {hasSize ? (f.qtySizeS ?? "—") : "—"}
                               </td>
@@ -457,7 +489,7 @@ export function IngredientFormula() {
                               <td style={colStyle}>{fmt(row.openQty)}</td>
                               <td style={colStyle}>{fmt(row.closeQty)}</td>
                               <td style={{ ...colStyle, fontWeight: 600 }}>{fmt(row.thucTe)}</td>
-                              <td style={{ ...colStyle, color: waste ? "#c94c4c" : less ? "#b07000" : "#1a120d", fontWeight: row.chenhLech !== null && row.chenhLech !== 0 ? 700 : 400 }}>
+                              <td style={{ ...colStyle, color: waste ? "#c94c4c" : less ? "#b07000" : "var(--text)", fontWeight: row.chenhLech !== null && row.chenhLech !== 0 ? 700 : 400 }}>
                                 {row.chenhLech !== null ? (row.chenhLech > 0 ? `+${fmt(row.chenhLech)}` : fmt(row.chenhLech)) : "—"}
                               </td>
                               <td style={colStyle}>
@@ -475,10 +507,10 @@ export function IngredientFormula() {
                                     <tbody>
                                       {row.lines.map((l) => (
                                         <tr key={l.productName}>
-                                          <td style={{ padding: "0.2rem 0.5rem", color: "#1a120d" }}>{l.productName}</td>
+                                          <td style={{ padding: "0.2rem 0.5rem", color: "var(--text)" }}>{l.productName}</td>
                                           <td style={{ padding: "0.2rem 0.5rem", color: "#6b5e55" }}>{l.qtyPerUnit} {l.recipeUnit || row.unit || ""}</td>
                                           <td style={{ padding: "0.2rem 0.5rem" }}>{l.soldQty} ly</td>
-                                          <td style={{ padding: "0.2rem 0.5rem", fontWeight: 600, color: "#1a120d" }}>{fmt(l.consumed)} {l.recipeUnit || row.unit || ""}</td>
+                                          <td style={{ padding: "0.2rem 0.5rem", fontWeight: 600, color: "var(--text)" }}>{fmt(l.consumed)} {l.recipeUnit || row.unit || ""}</td>
                                           <td style={{ padding: "0.2rem 0.5rem", color: "#2d7a3e" }}>{fmt(row.conversionFactor > 0 ? l.consumed / row.conversionFactor : 0)} {row.unit ?? ""}</td>
                                         </tr>
                                       ))}

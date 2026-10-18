@@ -8,7 +8,15 @@ export function catalogRouter(prisma: PrismaClient) {
     e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2022" && String(e.meta?.column).includes(colName);
 
   r.get("/categories", async (_req, res) => {
-    const rows = await prisma.category.findMany({ orderBy: { id: "asc" } });
+    const rows = await prisma.category.findMany({
+      include: {
+        children: {
+          include: { children: true },
+          orderBy: { sortOrder: "asc" },
+        },
+      },
+      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+    });
     res.json(rows);
   });
 

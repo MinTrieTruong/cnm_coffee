@@ -35,17 +35,17 @@ export function Register() {
     <div className="auth-page">
       <div className="auth-content">
         <div style={{ marginBottom: "2rem", textAlign: "center", position: "relative" }}>
-          <Link to="/" style={{ position: "absolute", left: 0, top: "50%", transform: "translateY(-50%)", color: "rgba(255,255,255,0.7)", display: "flex", alignItems: "center", textDecoration: "none" }}>
+          <Link to="/" style={{ position: "absolute", left: 0, top: "50%", transform: "translateY(-50%)", color: "var(--text)", display: "flex", alignItems: "center", textDecoration: "none" }}>
             <ArrowLeft size={24} />
           </Link>
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "2rem", margin: "0 0 0.5rem", color: "#fff", textShadow: "0 2px 10px rgba(0,0,0,0.5)" }}>Đăng ký Thành viên</h1>
-          <p style={{ color: "rgba(255,255,255,0.7)", margin: 0, fontSize: "0.9rem" }}>Tích điểm và nhận nhiều ưu đãi</p>
+          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "2rem", margin: "0 0 0.5rem", color: "var(--text)" }}>Đăng ký Thành viên</h1>
+          <p style={{ color: "var(--text)", margin: 0, fontSize: "0.9rem" }}>Tích điểm và nhận nhiều ưu đãi</p>
         </div>
 
         <div className="glass-box">
           <form onSubmit={onSubmit}>
             <div className="field">
-              <label className="label" style={{ color: "rgba(255,255,255,0.6)" }} htmlFor="phone">Số điện thoại *</label>
+              <label className="label" style={{ color: "var(--muted)" }} htmlFor="phone">Số điện thoại *</label>
               <input
                 id="phone"
                 className="input"
@@ -57,7 +57,7 @@ export function Register() {
               />
             </div>
             <div className="field">
-              <label className="label" style={{ color: "rgba(255,255,255,0.6)" }} htmlFor="fn">Họ tên</label>
+              <label className="label" style={{ color: "var(--muted)" }} htmlFor="fn">Họ tên</label>
               <input
                 id="fn"
                 className="input"
@@ -67,7 +67,7 @@ export function Register() {
               />
             </div>
             <div className="field">
-              <label className="label" style={{ color: "rgba(255,255,255,0.6)" }} htmlFor="em">Email (tuỳ chọn)</label>
+              <label className="label" style={{ color: "var(--muted)" }} htmlFor="em">Email (tuỳ chọn)</label>
               <input
                 id="em"
                 className="input"
@@ -77,7 +77,7 @@ export function Register() {
               />
             </div>
             <div className="field" style={{ marginBottom: "1.5rem" }}>
-              <label className="label" style={{ color: "rgba(255,255,255,0.6)" }} htmlFor="pw">Mật khẩu (≥ 6 ký tự)</label>
+              <label className="label" style={{ color: "var(--muted)" }} htmlFor="pw">Mật khẩu (≥ 6 ký tự)</label>
               <input
                 id="pw"
                 className="input"
@@ -88,12 +88,12 @@ export function Register() {
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
-            {err && <p style={{ color: "#ef4444", fontSize: "0.9rem", margin: "0 0 1rem" }}>{err}</p>}
+            {err && <p style={{ color: "#b91c1c", fontSize: "0.9rem", margin: "0 0 1rem" }}>{err}</p>}
             <button type="submit" className="auth-btn" disabled={loading}>
               {loading ? "Đang tạo…" : "Tạo tài khoản"}
             </button>
           </form>
-          <p style={{ textAlign: "center", color: "rgba(255,255,255,0.6)", margin: "1.5rem 0 0", fontSize: "0.9rem" }}>
+          <p style={{ textAlign: "center", color: "var(--muted)", margin: "1.5rem 0 0", fontSize: "0.9rem" }}>
             Đã có tài khoản? <Link to="/" style={{ color: "var(--accent)", fontWeight: 600 }}>Đăng nhập</Link>
           </p>
         </div>

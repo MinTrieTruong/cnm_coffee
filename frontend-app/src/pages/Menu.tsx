@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, mediaUrl, type MenuResponse, type Product } from "../lib/api";
+import { api, mediaUrl, calculateFinalPrice, type MenuResponse, type Product } from "../lib/api";
 import {
   getTableId,
   getTakeawaySessionId,
@@ -12,7 +12,7 @@ import {
 import { ChatWidget } from "../components/ChatWidget";
 import { ReviewList } from "../components/ReviewList";
 import { motion } from "framer-motion";
-import { Search, X } from "lucide-react";
+import { AdvancedFilter, type FilterState } from "../components/AdvancedFilter";
 
 function formatVnd(n: number) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
@@ -31,9 +31,14 @@ export function Menu() {
   const [demoTable, setDemoTable] = useState("");
   const [ctxTick, setCtxTick] = useState(0);
 
-  const [query, setQuery] = useState("");
-  const [activeCat, setActiveCat] = useState<number | "all">("all");
-  const searchRef = useRef<HTMLInputElement>(null);
+  const [filters, setFilters] = useState<FilterState>({
+    search: "",
+    categoryId: "all",
+    minPrice: "",
+    maxPrice: "",
+    tags: []
+  });
+  
   const catSectionRefs = useRef<Record<number, HTMLElement | null>>({});
 
   const user = getUser();
@@ -42,9 +47,15 @@ export function Menu() {
   const takeawaySid = ctxTick >= 0 ? getTakeawaySessionId() : null;
 
   const qs = useMemo(() => {
-    if (user?.customerId) return `?customerId=${user.customerId}`;
-    return "";
-  }, [user]);
+    const params = new URLSearchParams();
+    if (user?.customerId) params.append("customerId", String(user.customerId));
+    if (filters.search) params.append("search", filters.search);
+    if (filters.categoryId !== "all") params.append("categoryId", String(filters.categoryId));
+    if (filters.minPrice) params.append("minPrice", filters.minPrice);
+    if (filters.maxPrice) params.append("maxPrice", filters.maxPrice);
+    if (filters.tags.length > 0) params.append("tags", filters.tags.join(","));
+    return `?${params.toString()}`;
+  }, [user, filters]);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,13 +94,11 @@ export function Menu() {
     byCat.set(p.categoryId, arr);
   }
 
-  const q = normalize(query);
+  const query = filters.search;
 
   const filteredCats = data.categories
     .map((c) => {
       let list = byCat.get(c.id) ?? [];
-      if (q) list = list.filter((p) => normalize(p.name).includes(q));
-      if (activeCat !== "all" && activeCat !== c.id) return null;
       if (!list.length) return null;
       return { ...c, list };
     })
@@ -97,9 +106,11 @@ export function Menu() {
 
   const totalResult = filteredCats.reduce((s, c) => s + c.list.length, 0);
 
+  // Checks if any filter is active
+  const hasFilter = filters.search || filters.categoryId !== "all" || filters.minPrice || filters.maxPrice || filters.tags.length > 0;
+
   function scrollToCategory(catId: number) {
-    setActiveCat(catId);
-    setQuery("");
+    setFilters(prev => ({ ...prev, categoryId: catId, search: "" }));
     setTimeout(() => {
       const el = catSectionRefs.current[catId];
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -116,11 +127,11 @@ export function Menu() {
     >
       <div style={{ marginBottom: "1.5rem" }}>
         <h1 className="page-title" style={{ marginBottom: "0.25rem", color: "var(--accent)" }}>Thực đơn</h1>
-        <p className="subtle" style={{ margin: 0, color: "rgba(245,235,227,0.7)" }}>
+        <p className="subtle" style={{ margin: 0, color: "var(--text)" }}>
           {guest || !user ? "Hãy chọn món bạn yêu thích" : `Xin chào, ${user.fullName}`}
         </p>
         {user && !guest && (
-          <p style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "rgba(201,162,39,0.8)" }}>
+          <p style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "rgba(146,64,14,0.8)" }}>
             {takeawaySid
               ? "Mang về (tích điểm khi thanh toán)"
               : tableId
@@ -132,7 +143,7 @@ export function Menu() {
 
       {user && !guest && (
         <div style={{ 
-          background: "rgba(255,255,255,0.03)", 
+          background: "var(--surface2)", 
           borderRadius: 16, 
           padding: "1rem", 
           marginBottom: "1.5rem",
@@ -146,7 +157,7 @@ export function Menu() {
               placeholder="Ví dụ: 3"
               value={demoTable}
               onChange={(e) => setDemoTable(e.target.value)}
-              style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 10 }}
+              style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10 }}
             />
           </div>
           <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
@@ -155,102 +166,69 @@ export function Menu() {
               if (!n || Number.isNaN(n) || n <= 0) return;
               setTakeawaySessionId(null); setTableId(n); setCtxTick((c) => c + 1);
             }}>Gán bàn</button>
-            <button type="button" className="btn btn-ghost" style={{ padding: "0.5rem 1rem", fontSize: "0.9rem", borderColor: "rgba(255,255,255,0.1)" }} onClick={() => {
+            <button type="button" className="btn btn-ghost" style={{ padding: "0.5rem 1rem", fontSize: "0.9rem", borderColor: "var(--border)" }} onClick={() => {
               setTakeawaySessionId(crypto.randomUUID()); setTableId(null); setCtxTick((c) => c + 1);
             }}>Mang về</button>
           </div>
         </div>
       )}
 
-      {/* SEARCH BAR */}
-      <div style={{ position: "relative", marginBottom: "1.25rem" }}>
-        <Search size={18} color="rgba(255,255,255,0.4)" style={{ position: "absolute", left: "1rem", top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
-        <input
-          ref={searchRef}
-          id="menu-search"
-          type="search"
-          value={query}
-          onChange={(e) => { setQuery(e.target.value); setActiveCat("all"); }}
-          placeholder="Tìm kiếm hương vị..."
-          style={{
-            width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 999, color: "var(--text)", padding: "0.85rem 2.5rem 0.85rem 2.8rem",
-            fontSize: "0.95rem", outline: "none", transition: "all 0.2s ease"
-          }}
-          onFocus={(e) => { e.currentTarget.style.borderColor = "rgba(201,162,39,0.5)"; e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
-          onBlur={(e)  => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"; e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
-        />
-        {query && (
-          <button
-            type="button" onClick={() => { setQuery(""); searchRef.current?.focus(); }}
-            style={{ position: "absolute", right: "0.75rem", top: "50%", transform: "translateY(-50%)", background: "rgba(255,255,255,0.1)", border: "none", borderRadius: "50%", width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "rgba(255,255,255,0.8)" }}
-          >
-            <X size={14} />
-          </button>
-        )}
-      </div>
-
-      {/* PILL TABS */}
-      <div style={{ position: "sticky", top: "60px", zIndex: 20, background: "rgba(26, 18, 13, 0.95)", backdropFilter: "blur(10px)", paddingTop: "0.5rem", paddingBottom: "0.5rem", marginLeft: "-1rem", marginRight: "-1rem", paddingLeft: "1rem", paddingRight: "1rem", marginBottom: "1.5rem" }}>
-        <div style={{ display: "flex", gap: "0.5rem", overflowX: "auto", paddingBottom: "0.5rem", scrollbarWidth: "thin", scrollbarColor: "rgba(201,162,39,0.5) transparent" }} className="menu-cat-scroll">
-          <button
-            type="button" onClick={() => { setActiveCat("all"); setQuery(""); }}
-            style={{
-              flexShrink: 0, padding: "0.5rem 1.2rem", borderRadius: 999, fontSize: "0.9rem", fontWeight: activeCat === "all" ? 600 : 400,
-              background: activeCat === "all" ? "rgba(201,162,39,0.15)" : "transparent",
-              color: activeCat === "all" ? "var(--accent)" : "rgba(245,235,227,0.6)",
-              border: `1px solid ${activeCat === "all" ? "rgba(201,162,39,0.3)" : "rgba(255,255,255,0.1)"}`,
-              transition: "all 0.2s", cursor: "pointer", whiteSpace: "nowrap"
-            }}
-          >
-            Tất cả
-          </button>
-          {data.categories.map((c) => {
-            const has = (byCat.get(c.id) ?? []).length > 0;
-            if (!has) return null;
-            const active = activeCat === c.id;
-            return (
-              <button
-                key={c.id} type="button" onClick={() => scrollToCategory(c.id)}
-                style={{
-                  flexShrink: 0, padding: "0.5rem 1.2rem", borderRadius: 999, fontSize: "0.9rem", fontWeight: active ? 600 : 400,
-                  background: active ? "rgba(201,162,39,0.15)" : "transparent",
-                  color: active ? "var(--accent)" : "rgba(245,235,227,0.6)",
-                  border: `1px solid ${active ? "rgba(201,162,39,0.3)" : "rgba(255,255,255,0.1)"}`,
-                  transition: "all 0.2s", cursor: "pointer", whiteSpace: "nowrap"
-                }}
-              >
-                {c.name}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      {/* ADVANCED FILTER */}
+      <AdvancedFilter 
+        categories={data.categories}
+        filters={filters}
+        onChange={setFilters}
+        onClear={() => setFilters({
+          search: "",
+          categoryId: "all",
+          minPrice: "",
+          maxPrice: "",
+          tags: []
+        })}
+      />
 
       {/* MÓN QUEN */}
-      {!query && activeCat === "all" && data.favorites.length > 0 && (
+      {!hasFilter && data.favorites.length > 0 && (
         <section style={{ marginBottom: "2.5rem" }}>
           <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.35rem", margin: "0 0 1rem", color: "var(--text)" }}>Món quen của bạn</h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "1rem" }}>
-            {data.favorites.map((p) => (
-              <motion.div key={p.id} whileHover={{ y: -4, transition: { duration: 0.2 } }}>
-                <Link to={`/product/${p.id}`} style={{ display: "block", textDecoration: "none", color: "inherit", background: "rgba(255,255,255,0.02)", borderRadius: 16, overflow: "hidden", boxShadow: "0 4px 15px rgba(0,0,0,0.2)" }}>
-                  <div style={{ aspectRatio: "1/1", background: "#1a120d", backgroundImage: mediaUrl(p.imageUrl) ? `url(${mediaUrl(p.imageUrl)})` : undefined, backgroundSize: "cover", backgroundPosition: "center" }} />
-                  <div style={{ padding: "0.85rem" }}>
-                    <div style={{ fontWeight: 600, fontSize: "0.95rem", lineHeight: 1.3, marginBottom: "0.4rem", color: "var(--text)" }}>{p.name}</div>
-                    <div style={{ color: "var(--accent)", fontWeight: 700 }}>{formatVnd(p.sellPrice)}</div>
-                  </div>
-                </Link>
-              </motion.div>
-            ))}
+            {data.favorites.map((p) => {
+              const finalPrice = calculateFinalPrice(p.sellPrice, p.discountPercent);
+              const hasDiscount = p.discountPercent && p.discountPercent > 0;
+              return (
+                <motion.div key={p.id} whileHover={{ y: -4, transition: { duration: 0.2 } }}>
+                  <Link to={`/product/${p.id}`} style={{ display: "block", textDecoration: "none", color: "inherit", background: "var(--surface2)", borderRadius: 16, overflow: "hidden", boxShadow: "0 4px 15px rgba(0,0,0,0.2)", position: "relative" }}>
+                    <div style={{ aspectRatio: "1/1", background: "var(--surface)", backgroundImage: mediaUrl(p.imageUrl) ? `url(${mediaUrl(p.imageUrl)})` : undefined, backgroundSize: "cover", backgroundPosition: "center" }} />
+                    {hasDiscount && (
+                      <div style={{ position: "absolute", top: 8, right: 8, background: "linear-gradient(135deg, #e53e3e 0%, #c53030 100%)", color: "#fff", fontSize: "0.75rem", fontWeight: 800, padding: "0.2rem 0.6rem", borderRadius: 8, boxShadow: "0 2px 8px rgba(229, 62, 62, 0.4)" }}>
+                        -{p.discountPercent}%
+                      </div>
+                    )}
+                    <div style={{ padding: "0.85rem" }}>
+                      <div style={{ fontWeight: 600, fontSize: "0.95rem", lineHeight: 1.3, marginBottom: "0.4rem", color: "var(--text)" }}>{p.name}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                        {hasDiscount ? (
+                          <>
+                            <span style={{ color: "#e53e3e", fontWeight: 700 }}>{formatVnd(finalPrice)}</span>
+                            <span style={{ fontSize: "0.8rem", color: "rgba(184,169,154,0.6)", textDecoration: "line-through" }}>{formatVnd(p.sellPrice)}</span>
+                          </>
+                        ) : (
+                          <span style={{ color: "var(--accent)", fontWeight: 700 }}>{formatVnd(finalPrice)}</span>
+                        )}
+                      </div>
+                    </div>
+                  </Link>
+                </motion.div>
+              );
+            })}
           </div>
         </section>
       )}
 
       {/* TÌM KIẾM RESULT */}
-      {query && (
-        <p style={{ fontSize: "0.9rem", color: "rgba(255,255,255,0.5)", marginBottom: "1rem" }}>
-          {totalResult === 0 ? `Không tìm thấy món nào cho "${query}"` : `Tìm thấy ${totalResult} món cho "${query}"`}
+      {hasFilter && (
+        <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "1rem" }}>
+          {totalResult === 0 ? `Không tìm thấy món nào phù hợp` : `Tìm thấy ${totalResult} món`}
         </p>
       )}
 
@@ -259,31 +237,49 @@ export function Menu() {
         <section key={c.id} ref={(el) => { catSectionRefs.current[c.id] = el; }} style={{ marginBottom: "3rem", scrollMarginTop: "120px" }}>
           <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.35rem", margin: "0 0 1rem", color: "var(--text)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
             {c.name}
-            <span style={{ fontSize: "0.75rem", fontWeight: 600, background: "rgba(201,162,39,0.15)", color: "var(--accent)", borderRadius: 999, padding: "0.15rem 0.6rem" }}>
+            <span style={{ fontSize: "0.75rem", fontWeight: 600, background: "rgba(146,64,14,0.15)", color: "var(--accent)", borderRadius: 999, padding: "0.15rem 0.6rem" }}>
               {c.list.length}
             </span>
           </h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "1.25rem" }}>
-            {c.list.map((p) => (
-              <motion.div key={p.id} whileHover={{ y: -4, transition: { duration: 0.2 } }} style={{ display: "flex" }}>
-                <Link to={`/product/${p.id}`} style={{ display: "flex", flexDirection: "column", width: "100%", textDecoration: "none", color: "inherit", background: "rgba(255,255,255,0.02)", borderRadius: 18, overflow: "hidden", border: "1px solid rgba(255,255,255,0.03)", boxShadow: "0 4px 20px rgba(0,0,0,0.15)" }}>
-                  <div style={{ aspectRatio: "1/1", width: "100%", background: "#1a120d", backgroundImage: mediaUrl(p.imageUrl) ? `url(${mediaUrl(p.imageUrl)})` : undefined, backgroundSize: "cover", backgroundPosition: "center" }} />
-                  <div style={{ padding: "0.85rem", display: "flex", flexDirection: "column", flex: 1, justifyContent: "space-between" }}>
-                    <div style={{ fontWeight: 600, fontSize: "0.95rem", lineHeight: 1.4, marginBottom: "0.5rem", color: "var(--text)" }}>
-                      {query ? highlightMatch(p.name, query) : p.name}
+            {c.list.map((p) => {
+              const finalPrice = calculateFinalPrice(p.sellPrice, p.discountPercent);
+              const hasDiscount = p.discountPercent && p.discountPercent > 0;
+              return (
+                <motion.div key={p.id} whileHover={{ y: -4, transition: { duration: 0.2 } }} style={{ display: "flex" }}>
+                  <Link to={`/product/${p.id}`} style={{ position: "relative", display: "flex", flexDirection: "column", width: "100%", textDecoration: "none", color: "inherit", background: "var(--surface2)", borderRadius: 18, overflow: "hidden", border: "1px solid var(--border)", boxShadow: "0 4px 20px rgba(0,0,0,0.15)" }}>
+                    <div style={{ aspectRatio: "1/1", width: "100%", background: "var(--surface)", backgroundImage: mediaUrl(p.imageUrl) ? `url(${mediaUrl(p.imageUrl)})` : undefined, backgroundSize: "cover", backgroundPosition: "center" }} />
+                    {hasDiscount && (
+                      <div style={{ position: "absolute", top: 8, right: 8, background: "linear-gradient(135deg, #e53e3e 0%, #c53030 100%)", color: "#fff", fontSize: "0.75rem", fontWeight: 800, padding: "0.2rem 0.6rem", borderRadius: 8, boxShadow: "0 2px 8px rgba(229, 62, 62, 0.4)" }}>
+                        -{p.discountPercent}%
+                      </div>
+                    )}
+                    <div style={{ padding: "0.85rem", display: "flex", flexDirection: "column", flex: 1, justifyContent: "space-between" }}>
+                      <div style={{ fontWeight: 600, fontSize: "0.95rem", lineHeight: 1.4, marginBottom: "0.5rem", color: "var(--text)" }}>
+                        {query ? highlightMatch(p.name, query) : p.name}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                        {hasDiscount ? (
+                          <>
+                            <span style={{ color: "#e53e3e", fontWeight: 700 }}>{formatVnd(finalPrice)}</span>
+                            <span style={{ fontSize: "0.8rem", color: "rgba(184,169,154,0.6)", textDecoration: "line-through" }}>{formatVnd(p.sellPrice)}</span>
+                          </>
+                        ) : (
+                          <span style={{ color: "var(--accent)", fontWeight: 700 }}>{formatVnd(finalPrice)}</span>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ color: "var(--accent)", fontWeight: 700 }}>{formatVnd(p.sellPrice)}</div>
-                  </div>
-                </Link>
-              </motion.div>
-            ))}
+                  </Link>
+                </motion.div>
+              );
+            })}
           </div>
         </section>
       ))}
 
       {/* ĐÁNH GIÁ */}
-      {!query && activeCat === "all" && (
-        <section style={{ marginTop: "4rem", paddingTop: "2rem", borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+      {!hasFilter && (
+        <section style={{ marginTop: "4rem", paddingTop: "2rem", borderTop: "1px solid var(--border)" }}>
           <ReviewList />
         </section>
       )}
@@ -301,7 +297,7 @@ function highlightMatch(name: string, query: string) {
   return (
     <>
       {name.slice(0, idx)}
-      <mark style={{ background: "rgba(201,162,39,0.3)", color: "var(--accent)", borderRadius: 4, padding: "0 2px" }}>
+      <mark style={{ background: "rgba(146,64,14,0.3)", color: "var(--accent)", borderRadius: 4, padding: "0 2px" }}>
         {name.slice(idx, idx + nq.length)}
       </mark>
       {name.slice(idx + nq.length)}

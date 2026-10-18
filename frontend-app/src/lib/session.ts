@@ -12,6 +12,10 @@ export type SessionUser = {
   email: string | null;
   points: number;
   rankTier: string;
+  address?: string | null;
+  dob?: string | null;
+  gender?: string | null;
+  avatarUrl?: string | null;
 };
 
 export function getToken(): string | null {

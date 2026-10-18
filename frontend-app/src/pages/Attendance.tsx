@@ -160,7 +160,7 @@ export function Attendance() {
       if (faceIntervalRef.current) clearInterval(faceIntervalRef.current);
       if (faceWarningTimer.current) clearTimeout(faceWarningTimer.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadTodaySchedules = async () => {
@@ -192,9 +192,9 @@ export function Attendance() {
       },
       (err) => {
         console.error("GPS error:", err);
-        setMessage({ text: "Không lấy được vị trí GPS. Hãy cấp quyền truy cập.", type: "err" });
+        setMessage({ text: `Lỗi GPS (${err.code}): ${err.message}. Hãy kiểm tra Cài đặt máy.`, type: "err" });
       },
-      { enableHighAccuracy: true, maximumAge: 5000 }
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 5000 }
     );
     return () => navigator.geolocation.clearWatch(watchId);
   }, [storeLocation]);
@@ -246,7 +246,7 @@ export function Attendance() {
     if (faceIntervalRef.current) return;
     const video = videoRef.current;
     if (!video) return;
-    
+
     // Timer cảnh báo nếu quá lâu không có khuôn mặt
     const resetWarningTimer = () => {
       if (faceWarningTimer.current) clearTimeout(faceWarningTimer.current);
@@ -259,11 +259,11 @@ export function Attendance() {
 
     faceIntervalRef.current = window.setInterval(async () => {
       if (!video || video.readyState < 2) return;
-      
+
       const fullDetection = await faceapi
-          .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
-          .withFaceLandmarks()
-          .withFaceDescriptor();
+        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+        .withFaceLandmarks()
+        .withFaceDescriptor();
 
       if (!fullDetection) {
         setFaceMatch(null);
@@ -287,6 +287,7 @@ export function Attendance() {
         setFaceMatch(isMatched);
       }
 
+
       // Liveness Detection
       if (isMatched) {
         const landmarks = fullDetection.landmarks;
@@ -304,7 +305,7 @@ export function Attendance() {
 
         setLivenessStep(prev => {
           if (prev === 4) return 4;
-          
+
           // Nhạy hơn: nhích cổ nhẹ là pass
           const isTurned = yawRatio < 0.8 || yawRatio > 1.25;
           if (isTurned) return 4;
@@ -498,7 +499,7 @@ export function Attendance() {
       if (canCheckIn) void handleCheckIn();
       else if (canCheckOut) void handleCheckOut();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [livenessStep]);
 
   /* ═══════════════════════════════════════════════════════════════ */
@@ -539,10 +540,10 @@ export function Attendance() {
           ) : (
             <>
               {isCameraActive && (
-                <div className="attendance-camera-wrap" style={{ 
-                  position: "relative", width: "100%", aspectRatio: "1/1", 
-                  maxWidth: "400px", margin: "auto", borderRadius: "50%", 
-                  overflow: "hidden", border: "4px solid rgba(255,255,255,0.05)" 
+                <div className="attendance-camera-wrap" style={{
+                  position: "relative", width: "100%", aspectRatio: "1/1",
+                  maxWidth: "400px", margin: "auto", borderRadius: "50%",
+                  overflow: "hidden", border: "4px solid var(--border)"
                 }}>
                   <video
                     ref={videoRef}
@@ -553,18 +554,18 @@ export function Attendance() {
                     style={{ width: "100%", height: "100%", objectFit: "cover" }}
                   />
                   <canvas ref={canvasRef} className="attendance-canvas" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", pointerEvents: "none" }} />
-                  
+
                   <div className="attendance-face-overlay" style={{ pointerEvents: "none" }}>
-                    <div className="attendance-face-ring" style={{ 
+                    <div className="attendance-face-ring" style={{
                       position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
                       width: "90%", height: "90%",
-                      borderRadius: "50%", 
+                      borderRadius: "50%",
                       border: isScanning ? "4px dashed var(--accent)" : "4px solid rgba(255,255,255,0.2)",
                       boxShadow: isScanning ? "0 0 15px var(--accent)" : "none",
                       animation: isScanning ? "spinCentered 4s linear infinite" : "none"
                     }} />
                   </div>
-                  
+
                   {/* Idle Mode Button */}
                   {!isScanning && (
                     <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", zIndex: 10 }}>
@@ -577,9 +578,9 @@ export function Attendance() {
                           ✅ Đã hoàn tất các ca hôm nay
                         </div>
                       ) : (
-                        <button 
-                          className="attendance-btn attendance-btn-checkin" 
-                          onClick={() => setIsScanning(true)} 
+                        <button
+                          className="attendance-btn attendance-btn-checkin"
+                          onClick={() => setIsScanning(true)}
                           style={{ fontSize: "1.1rem", padding: "1rem 2rem", boxShadow: "0 4px 20px rgba(201,162,39,0.4)" }}
                         >
                           👆 Bấm vào đây để chấm công
@@ -587,7 +588,7 @@ export function Attendance() {
                       )}
                     </div>
                   )}
-                  
+
                   <style>{`@keyframes spinCentered { 100% { transform: translate(-50%, -50%) rotate(360deg); } }`}</style>
 
                   {/* Liveness UI Instruction */}
@@ -607,8 +608,8 @@ export function Attendance() {
               {/* Face status */}
               <div className="attendance-face-status" style={{ marginTop: "1rem" }}>
                 <div className={`attendance-badge ${faceMatch === true ? "badge-ok" : faceMatch === false ? "badge-err" : "badge-pending"}`}>
-                  {!isScanning 
-                    ? "Nhấn nút để bắt đầu quét" 
+                  {!isScanning
+                    ? "Nhấn nút để bắt đầu quét"
                     : faceMatch === true
                       ? "✓ Khuôn mặt khớp"
                       : faceMatch === false
@@ -630,8 +631,8 @@ export function Attendance() {
                 >
                   📸 Đăng ký khuôn mặt
 
-            </button>
-          )}
+                </button>
+              )}
             </>
           )}
         </div>
@@ -651,8 +652,8 @@ export function Attendance() {
                 scrollWheelZoom={true}
               >
                 <TileLayer
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  attribution='&copy; Google Maps'
+                  url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
                 />
                 {/* Marker quán + vòng tròn bán kính */}
                 <Marker position={[storeLocation.lat, storeLocation.lng]}>

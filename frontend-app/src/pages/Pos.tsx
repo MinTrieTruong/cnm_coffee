@@ -4,6 +4,7 @@ import { io, Socket } from "socket.io-client";
 import { apiBase, apiOrigin } from "../lib/api";
 import { mapFetchError } from "../lib/net";
 import { getStaffInfo, staffApi } from "../lib/staffApi";
+import { PosDeliveryPanel } from "../components/PosDeliveryPanel";
 
 /** Âm thanh nhỏ nhẹ khi nhận yêu cầu thanh toán từ phục vụ. */
 function playPaymentRequestSound() {
@@ -29,12 +30,20 @@ function playPaymentRequestSound() {
   } catch { /* */ }
 }
 
+type Zone = {
+  id: number;
+  name: string;
+  isActive: boolean;
+};
+
 type TableRow = {
   id: number;
   name: string;
   status: string;
   location: string | null;
-  orders: { id: number; status: string; totalAmount: number }[];
+  zoneId?: number;
+  paymentStatus?: string;
+  orders: { id: number; status: string; totalAmount: number; details?: any[] }[];
 };
 
 type PendingDetail = {
@@ -117,12 +126,63 @@ function roundCashAmount(amount: number, roundTo: number) {
 function tableStatusMeta(status: string) {
   if (status === "Occupied")    return { cls: "table-tile-occupied", label: "Có khách" };
   if (status === "Waiting_Pay") return { cls: "table-tile-paying",   label: "Đang thanh toán" };
-  if (status === "Cleaning")    return { cls: "table-tile-cleaning", label: "Vừa thanh toán" };
+  if (status === "Cleaning")   return { cls: "table-tile-cleaning",  label: "Vừa thanh toán" };
   return { cls: "table-tile-empty", label: "Trống" };
+}
+
+function getDrinkBadge(order: any) {
+  if (!order || !order.details || order.details.length === 0) return null;
+  const details = order.details;
+  const readyItems = details.filter((d: any) => d.kdsStatus === "Ready");
+  if (readyItems.length > 0) {
+    const qty = readyItems.reduce((acc: number, d: any) => acc + d.quantity, 0);
+    return (
+      <div style={{
+        position: "absolute", top: -8, right: -8,
+        background: "var(--danger)", color: "#fff",
+        padding: "0.25rem 0.5rem", borderRadius: 12,
+        fontSize: "0.75rem", fontWeight: 700,
+        boxShadow: "0 4px 12px rgba(220, 38, 38, 0.4)",
+        animation: "badge-pulse 1.5s infinite"
+      }}>
+        🥤 {qty} món
+      </div>
+    );
+  }
+  const pendingItems = details.filter((d: any) => ["Hold", "Waiting", "Cooking"].includes(d.kdsStatus));
+  if (pendingItems.length > 0) {
+    return (
+      <div style={{
+        position: "absolute", top: -6, right: -6,
+        background: "rgba(0,0,0,0.6)", color: "#fff",
+        padding: "0.2rem 0.45rem", borderRadius: 8,
+        fontSize: "0.7rem", fontWeight: 700,
+      }}>
+        ⏳ Đang pha
+      </div>
+    );
+  }
+  const servedItems = details.filter((d: any) => d.kdsStatus === "Served");
+  if (servedItems.length === details.length) {
+    return (
+      <div style={{
+        position: "absolute", top: -6, right: -6,
+        background: "#047857", color: "#fff",
+        padding: "0.2rem 0.45rem", borderRadius: 8,
+        fontSize: "0.7rem", fontWeight: 700,
+        boxShadow: "0 2px 8px rgba(16, 185, 129, 0.3)",
+      }}>
+        ✅ Đủ món
+      </div>
+    );
+  }
+  return null;
 }
 
 export function Pos() {
   const info = getStaffInfo();
+  const [zones, setZones] = useState<Zone[]>([]);
+  const [activeZoneId, setActiveZoneId] = useState<number | "all">("all");
   const [tables, setTables] = useState<TableRow[] | null>(null);
   const [pending, setPending] = useState<PendingOrder[]>([]);
   const [settings, setSettings] = useState<StoreSettings | null>(null);
@@ -144,6 +204,13 @@ export function Pos() {
   const [billHistoryLoading, setBillHistoryLoading] = useState(false);
   const [billHistoryErr, setBillHistoryErr] = useState<string | null>(null);
   const [billDetailModal, setBillDetailModal] = useState<BillRecord | null>(null);
+
+  const [menuTableId, setMenuTableId] = useState<number | null>(null);
+  const [moveSourceId, setMoveSourceId] = useState<number | null>(null);
+  const [mergeSourceId, setMergeSourceId] = useState<number | null>(null);
+  const [splitSourceId, setSplitSourceId] = useState<number | null>(null);
+  const [splitItems, setSplitItems] = useState<{orderItemId: number; quantity: number}[]>([]);
+  
 
   /** Mở popup riêng để in bill — đảm bảo chỉ 1 trang, không lẫn layout trang POS */
   function printBill(order: PendingOrder, vatAmount: number, totalAmount: number, vatRate: number) {
@@ -227,7 +294,8 @@ export function Pos() {
   const loadPending = useCallback(async () => {
     try {
       const data = await staffApi<PendingOrder[]>("/api/pos/pending-orders");
-      setPending(data);
+      // Đơn giao COD chưa thu tiền được quản lý ở bảng "Đơn giao hàng" (shipper thu hộ)
+      setPending(data.filter((o) => !(o.orderType === "Delivery" && o.status !== "Paid")));
     } catch {
       setPending([]);
     }
@@ -255,17 +323,27 @@ export function Pos() {
     }
   }, []);
 
+  const loadZones = useCallback(async () => {
+    try {
+      const z = await staffApi<Zone[]>("/api/pos/zones");
+      setZones(z);
+      const savedZone = localStorage.getItem("staff_selected_zone");
+      if (savedZone && savedZone !== "all") {
+        setActiveZoneId(Number(savedZone));
+      }
+    } catch {
+      setZones([]);
+    }
+  }, []);
+
   const refreshAll = useCallback(async () => {
     try {
       setErr(null);
-      await loadTables();
-      await loadShift();
-      await loadPending();
-      await loadSettings();
+      await Promise.all([loadTables(), loadShift(), loadPending(), loadSettings(), loadZones()]);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Lỗi");
     }
-  }, [loadTables, loadShift, loadPending, loadSettings]);
+  }, [loadTables, loadShift, loadPending, loadSettings, loadZones]);
 
   useEffect(() => {
     void refreshAll();
@@ -334,6 +412,65 @@ export function Pos() {
       setTimeout(() => setToast(null), 2200);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Lỗi mở ca");
+    }
+  }
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  const load = refreshAll;
+
+  const [selectedTable, setSelectedTable] = useState<number | null>(null);
+
+  async function executeMove(targetId: number) {
+    if (!moveSourceId) return;
+    try {
+      setErr(null);
+      await staffApi("/api/pos/move-table", {
+        method: "POST",
+        body: JSON.stringify({ sourceTableId: moveSourceId, targetTableId: targetId }),
+      });
+      setMoveSourceId(null);
+      showToast("Chuyển bàn thành công");
+      void load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Lỗi chuyển bàn");
+    }
+  }
+
+  async function executeMerge(targetId: number) {
+    if (!mergeSourceId) return;
+    try {
+      setErr(null);
+      await staffApi("/api/pos/merge-tables", {
+        method: "POST",
+        body: JSON.stringify({ sourceTableId: mergeSourceId, targetTableId: targetId }),
+      });
+      setMergeSourceId(null);
+      showToast("Gộp bàn thành công");
+      void load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Lỗi gộp bàn");
+    }
+  }
+
+  async function executeSplit(originalOrderId: number) {
+    const toMove = splitItems.filter(x => x.quantity > 0);
+    if (toMove.length === 0) return setErr("Vui lòng chọn món để tách");
+    try {
+      setErr(null);
+      await staffApi("/api/pos/split-order", {
+        method: "POST",
+        body: JSON.stringify({ originalOrderId, itemsToMove: toMove }),
+      });
+      setSplitSourceId(null);
+      setSplitItems([]);
+      showToast("Tách bill thành công");
+      void load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Lỗi tách bill");
     }
   }
 
@@ -529,7 +666,7 @@ export function Pos() {
         <div style={{ display: "flex", gap: "0.5rem" }}>
           <Link to="/staff/inventory" className="btn btn-ghost staff-btn-light">Kiểm kho</Link>
           <button type="button" className="btn btn-ghost staff-btn-light"
-            style={showBillHistory ? { background: "rgba(201,162,39,0.15)", borderColor: "#c9a227" } : undefined}
+            style={showBillHistory ? { background: "rgba(146,64,14,0.15)", borderColor: "#92400e" } : undefined}
             onClick={() => {
               const next = !showBillHistory;
               setShowBillHistory(next);
@@ -555,7 +692,7 @@ export function Pos() {
             border: "1px solid var(--border)",
             padding: "0.75rem 1rem",
             borderRadius: "12px",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
+            boxShadow: "var(--shadow-lg)",
             zIndex: 50,
             maxWidth: 360,
             fontSize: "0.92rem",
@@ -616,6 +753,8 @@ export function Pos() {
         )}
       </section>
 
+      <PosDeliveryPanel onToast={showToast} />
+
       <section style={{ marginBottom: "1rem" }}>
         <h2 style={{ fontSize: "1.05rem", margin: "0 0 0.65rem" }}>Đơn chờ thanh toán</h2>
         {shift === undefined && <p className="subtle">Đang kiểm tra ca…</p>}
@@ -656,18 +795,43 @@ export function Pos() {
                     Tạm tính: {formatVnd(o.subTotal)} (chưa gồm VAT / điểm)
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  disabled={shift == null}
-                  onClick={() => {
-                    setBillModal(o);
-                    setBillStep("bill");
-                    setPayOrder(null);
-                  }}
-                >
-                  Xem bill / Thu tiền
-                </button>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={shift == null}
+                    onClick={() => {
+                      setBillModal(o);
+                      setBillStep("bill");
+                      setPayOrder(null);
+                    }}
+                  >
+                    Xem bill / Thu tiền
+                  </button>
+                  {o.status !== "Paid" && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ border: "1px solid var(--danger)", color: "var(--danger)", padding: "0.5rem 0.75rem", fontSize: "0.85rem", whiteSpace: "nowrap" }}
+                      onClick={async () => {
+                        const reason = window.prompt("Lý do hủy đơn (ví dụ: Hết nguyên liệu, Khách đổi ý,...):");
+                        if (reason === null) return;
+                        try {
+                           await staffApi(`/api/orders/${o.id}/cancel`, {
+                             method: "POST",
+                             body: JSON.stringify({ cancelReason: reason.trim() || "Nhân viên hủy đơn" })
+                           });
+                           showToast("Đã hủy đơn thành công.");
+                           void refreshAll();
+                        } catch(e) {
+                           showToast(e instanceof Error ? e.message : "Lỗi hủy đơn");
+                        }
+                      }}
+                    >
+                      Hủy đơn
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           ))}
@@ -677,28 +841,71 @@ export function Pos() {
       {tables && (
         <section>
           <h2 style={{ fontSize: "1.05rem", margin: "0 0 0.65rem" }}>Sơ đồ bàn</h2>
-          <div className="table-legend" style={{ marginBottom: "0.65rem" }}>
+          <div className="table-legend" style={{ marginBottom: "0.65rem", flexWrap: "wrap", rowGap: "0.5rem" }}>
             <span className="table-legend-item">
               <span className="table-status-dot table-tile-empty" /> Trống
             </span>
             <span className="table-legend-item">
-              <span className="table-status-dot table-tile-occupied" /> Có khách
+              <span className="table-status-dot table-tile-occupied" /> Chưa thanh toán
             </span>
             <span className="table-legend-item">
-              <span className="table-status-dot table-tile-paying" /> Đang thanh toán
+              <span className="table-status-dot table-tile-paying" /> Gọi tính tiền
             </span>
             <span className="table-legend-item">
-              <span className="table-status-dot table-tile-cleaning" /> Vừa thanh toán (còn ngồi)
+              <span className="table-status-dot table-tile-cleaning" /> Đã thanh toán
+            </span>
+            <span style={{ margin: "0 0.5rem", color: "var(--muted)" }}>|</span>
+            <span className="table-legend-item" style={{ fontSize: "0.8rem" }}>
+              🥤 Chờ bưng
+            </span>
+            <span className="table-legend-item" style={{ fontSize: "0.8rem" }}>
+              ⏳ Đang pha
+            </span>
+            <span className="table-legend-item" style={{ fontSize: "0.8rem" }}>
+              ✅ Đủ món
             </span>
           </div>
+
+          {/* THAY ĐỔI ZONE */}
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1rem" }}>
+            <button 
+              className={activeZoneId === "all" ? "btn btn-primary" : "btn btn-ghost staff-btn-light"}
+              onClick={() => { setActiveZoneId("all"); localStorage.setItem("staff_selected_zone", "all"); }}
+            >
+              Tất cả Khu vực
+            </button>
+            {zones.map(z => (
+              <button 
+                key={z.id}
+                className={activeZoneId === z.id ? "btn btn-primary" : "btn btn-ghost staff-btn-light"}
+                onClick={() => { setActiveZoneId(z.id); localStorage.setItem("staff_selected_zone", String(z.id)); }}
+              >
+                {z.name}
+              </button>
+            ))}
+          </div>
+
           <div className="table-grid">
-            {tables.map((t) => {
+            {tables.filter(t => activeZoneId === "all" || (t as any).zoneId === activeZoneId).map((t) => {
               const meta = tableStatusMeta(t.status);
               const o = t.orders[0];
               return (
-                <div key={t.id} className={`table-tile ${meta.cls}`}>
+                <div
+                  key={t.id}
+                  className={`table-tile ${meta.cls}`}
+                  style={{ border: selectedTable === t.id ? "2px solid #fff" : undefined }}
+                  onClick={() => setMenuTableId(t.id)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(ev) => {
+                    if (ev.key === "Enter" || ev.key === " ") setMenuTableId(t.id);
+                  }}
+                >
                   <div style={{ fontWeight: 700, fontSize: "1.05rem", lineHeight: 1 }}>{t.name.replace("Bàn ", "")}</div>
-                  <div style={{ fontSize: "0.72rem", opacity: 0.95, marginTop: "0.25rem" }}>{t.location ?? "Tại quán"}</div>
+                  {activeZoneId === "all" && (
+                    <div style={{ fontSize: "0.72rem", opacity: 0.95, marginTop: "0.25rem" }}>{t.location ?? "Tại quán"}</div>
+                  )}
+                  {getDrinkBadge(o)}
                   <div style={{ fontSize: "0.74rem", marginTop: "0.35rem", fontWeight: 600 }}>{meta.label}</div>
                   {o && (
                     <div style={{ fontSize: "0.7rem", marginTop: "0.18rem" }}>
@@ -749,7 +956,7 @@ export function Pos() {
             <>
               {/* Tổng kết ngày */}
               {billHistory.length > 0 && (
-                <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", marginBottom: "0.85rem", padding: "0.65rem 0.85rem", background: "rgba(201,162,39,0.08)", borderRadius: 10, border: "1px solid rgba(201,162,39,0.2)" }}>
+                <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", marginBottom: "0.85rem", padding: "0.65rem 0.85rem", background: "rgba(146,64,14,0.08)", borderRadius: 10, border: "1px solid rgba(146,64,14,0.2)" }}>
                   <div>
                     <div style={{ fontSize: "0.75rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Số đơn</div>
                     <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{billHistory.length}</div>
@@ -789,7 +996,7 @@ export function Pos() {
                     onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setBillDetailModal(b)}
                   >
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, color: "#1a120d", fontSize: "0.92rem" }}>
+                      <div style={{ fontWeight: 700, color: "var(--text)", fontSize: "0.92rem" }}>
                         Bill #{b.id}
                         {b.tableName && <span style={{ fontWeight: 400, color: "#6b5e55", marginLeft: "0.4rem" }}>· {b.tableName}</span>}
                         {!b.tableName && <span style={{ fontWeight: 400, color: "#6b5e55", marginLeft: "0.4rem" }}>· Mang về</span>}
@@ -804,7 +1011,7 @@ export function Pos() {
                       </div>
                     </div>
                     <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontWeight: 700, color: "#1a120d" }}>{formatVnd(b.totalAmount)}</div>
+                      <div style={{ fontWeight: 700, color: "var(--text)" }}>{formatVnd(b.totalAmount)}</div>
                       <div style={{ fontSize: "0.75rem", color: "#6b5e55", marginTop: "0.1rem" }}>{payMethodLabel(b.payMethod)}</div>
                     </div>
                   </div>
@@ -827,7 +1034,7 @@ export function Pos() {
               <button type="button" className="btn btn-ghost" style={{ padding: "0.3rem 0.6rem", fontSize: "0.85rem" }} onClick={() => setBillDetailModal(null)}>✕</button>
             </div>
 
-            <div style={{ fontSize: "0.85rem", marginBottom: "0.75rem", borderBottom: "1px dashed rgba(255,255,255,0.12)", paddingBottom: "0.65rem" }}>
+            <div style={{ fontSize: "0.85rem", marginBottom: "0.75rem", borderBottom: "1px dashed var(--border)", paddingBottom: "0.65rem" }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Giờ vào:</span><span>{new Date(billDetailModal.createdAt).toLocaleString("vi-VN")}</span></div>
               {billDetailModal.tableName && <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Bàn:</span><span>{billDetailModal.tableName}</span></div>}
               {billDetailModal.customerName && <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Khách:</span><span>{billDetailModal.customerName}{billDetailModal.customerPhone ? ` · ${billDetailModal.customerPhone}` : ""}</span></div>}
@@ -837,7 +1044,7 @@ export function Pos() {
 
             <table style={{ width: "100%", fontSize: "0.88rem", borderCollapse: "collapse", marginBottom: "0.65rem" }}>
               <thead>
-                <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.12)" }}>
+                <tr style={{ borderBottom: "1px solid var(--border)" }}>
                   <th style={{ textAlign: "left", paddingBottom: "0.3rem", fontWeight: 600 }}>Món</th>
                   <th style={{ textAlign: "center", paddingBottom: "0.3rem", fontWeight: 600 }}>SL</th>
                   <th style={{ textAlign: "right", paddingBottom: "0.3rem", fontWeight: 600 }}>Thành tiền</th>
@@ -857,11 +1064,11 @@ export function Pos() {
               </tbody>
             </table>
 
-            <div style={{ fontSize: "0.9rem", borderTop: "1px solid rgba(255,255,255,0.12)", paddingTop: "0.65rem" }}>
+            <div style={{ fontSize: "0.9rem", borderTop: "1px solid var(--border)", paddingTop: "0.65rem" }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Tạm tính:</span><span>{formatVnd(billDetailModal.subTotal)}</span></div>
               {billDetailModal.discountAmt > 0 && <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>Giảm giá:</span><span style={{ color: "var(--success)" }}>-{formatVnd(billDetailModal.discountAmt)}</span></div>}
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--muted)" }}>VAT:</span><span>{formatVnd(billDetailModal.vatAmount)}</span></div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: "1rem", marginTop: "0.35rem", paddingTop: "0.35rem", borderTop: "1px solid rgba(255,255,255,0.12)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: "1rem", marginTop: "0.35rem", paddingTop: "0.35rem", borderTop: "1px solid var(--border)" }}>
                 <span>TỔNG:</span><span style={{ color: "var(--accent)" }}>{formatVnd(billDetailModal.totalAmount)}</span>
               </div>
             </div>
@@ -1023,7 +1230,7 @@ export function Pos() {
               ))}
             </ul>
             {payOrder.status === "Paid" ? (
-              <div style={{ margin: "1.5rem 0", padding: "1rem", backgroundColor: "#ecfdf5", borderRadius: "8px", textAlign: "center", border: "1px solid #10b981" }}>
+              <div style={{ margin: "1.5rem 0", padding: "1rem", backgroundColor: "#ecfdf5", borderRadius: "8px", textAlign: "center", border: "1px solid #047857" }}>
                 <strong style={{ color: "#047857", fontSize: "1.1rem" }}>✓ Đã thanh toán {payOrder.payments?.[0]?.method ?? "Online"}</strong>
                 <p style={{ margin: "0.5rem 0 0", color: "#065f46" }}>Số tiền: <strong>{formatVnd(preview.totalAmount)}</strong></p>
                 <p style={{ margin: "0.25rem 0 0", fontSize: "0.85rem", color: "#065f46" }}>Vui lòng nhấn "Xác nhận & In bill" để kết thúc đơn.</p>
@@ -1138,6 +1345,7 @@ export function Pos() {
           </div>
         </div>
       )}
+
     </div>
   );
 }

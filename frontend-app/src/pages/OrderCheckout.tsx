@@ -175,7 +175,7 @@ export function OrderCheckout() {
     if (Number.isNaN(orderId)) return;
     setRequesting(true); setMsg(null);
     try {
-      await api(`/api/orders/${orderId}/request-payment`, { 
+      const res = await api<{ isDelivery?: boolean }>(`/api/orders/${orderId}/request-payment`, { 
         method: "POST", 
         body: JSON.stringify({ 
           sessionId: getTakeawaySessionId(), 
@@ -184,7 +184,12 @@ export function OrderCheckout() {
           voucherCode: voucherApplied?.code ?? null
         }) 
       });
-      setMsg("Đã gửi yêu cầu tới thu ngân.");
+      if (res.isDelivery) {
+        nav(`/order/${orderId}/tracking`, { replace: true });
+        return;
+      } else {
+        setMsg("Đã gửi yêu cầu tới thu ngân.");
+      }
     } catch (e) { setMsg(e instanceof Error ? e.message : "Không gửi được yêu cầu"); }
     finally { setRequesting(false); }
   }
@@ -274,35 +279,35 @@ export function OrderCheckout() {
     const ptsPaid = bill.payments.find(p => p.method === "Points");
     return (
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="site-page" style={{ textAlign: "center", maxWidth: 440, margin: "0 auto", paddingTop: "2rem" }}>
-        <CheckCircle size={64} color="#22c55e" style={{ margin: "0 auto 1rem" }} />
+        <CheckCircle size={64} color="#15803d" style={{ margin: "0 auto 1rem" }} />
         <h1 className="page-title" style={{ color: "var(--text)" }}>Thanh toán thành công</h1>
         <p className="subtle" style={{ marginBottom: "2rem" }}>Cảm ơn bạn đã ghé {bill.storeName}.</p>
 
-        <div style={{ background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.15)", borderRadius: 20, padding: "1.5rem", textAlign: "left", fontSize: "0.95rem" }}>
+        <div style={{ background: "var(--surface2)", border: "1px dashed var(--border)", borderRadius: 20, padding: "1.5rem", textAlign: "left", fontSize: "0.95rem" }}>
           <div style={{ textAlign: "center", fontWeight: 700, fontSize: "1.1rem", marginBottom: "1rem", color: "var(--text)" }}>
             Hóa đơn #{bill.orderId}
           </div>
           {bill.items.map(it => (
-            <div key={it.id} style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", color: "rgba(255,255,255,0.8)" }}>
+            <div key={it.id} style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", color: "var(--text)" }}>
               <span>{it.name} <span style={{ color: "var(--muted)" }}>× {it.quantity}</span></span>
               <span>{formatVnd(it.lineTotal)}</span>
             </div>
           ))}
-          <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", margin: "1rem 0" }} />
+          <div style={{ borderTop: "1px solid var(--border)", margin: "1rem 0" }} />
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
             <span className="subtle">Tạm tính</span><span>{formatVnd(bill.subTotal)}</span>
           </div>
           {bill.discountAmt > 0 && bill.discountAmt !== bill.pointsRedeemAmt && (
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", color: "#22c55e" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", color: "#15803d" }}>
               <span>Giảm giá</span><span>−{formatVnd(bill.discountAmt - bill.pointsRedeemAmt)}</span>
             </div>
           )}
           {bill.pointsRedeemAmt > 0 && (
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", color: "#f59e0b" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", color: "#b45309" }}>
               <span>Đổi điểm ({bill.pointsUsed} pts)</span><span>−{formatVnd(bill.pointsRedeemAmt)}</span>
             </div>
           )}
-          <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", margin: "1rem 0" }} />
+          <div style={{ borderTop: "1px solid var(--border)", margin: "1rem 0" }} />
           <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, fontSize: "1.25rem" }}>
             <span>Đã thanh toán</span>
             <span style={{ color: "var(--accent)" }}>{formatVnd(cashPaid)}</span>
@@ -311,10 +316,15 @@ export function OrderCheckout() {
 
         {user && bill.pointsEarnedPreview > 0 && (
           <div style={{ marginTop: "1.5rem", background: "rgba(245,158,11,0.1)", padding: "1rem", borderRadius: 12, border: "1px solid rgba(245,158,11,0.2)" }}>
-            <span style={{ color: "#f59e0b", fontWeight: 600 }}>⭐ Bạn được cộng thêm +{bill.pointsEarnedPreview} điểm</span>
+            <span style={{ color: "#b45309", fontWeight: 600 }}>⭐ Bạn được cộng thêm +{bill.pointsEarnedPreview} điểm</span>
           </div>
         )}
-        <Link to="/menu" className="btn btn-primary btn-block" style={{ marginTop: "2rem", borderRadius: 999 }}>Tiếp tục khám phá</Link>
+        {bill.orderType === "Delivery" && (
+          <Link to={`/order/${orderId}/tracking`} className="btn btn-block" style={{ marginTop: "1rem", borderRadius: 999, background: "var(--surface2)", color: "#fff", textDecoration: "none", textAlign: "center", padding: "1rem" }}>
+            📍 Theo dõi giao hàng (Map)
+          </Link>
+        )}
+        <Link to="/menu" className="btn btn-primary btn-block" style={{ marginTop: "1rem", borderRadius: 999 }}>Tiếp tục khám phá</Link>
       </motion.div>
     );
   }
@@ -339,21 +349,27 @@ export function OrderCheckout() {
         <h1 className="page-title" style={{ margin: 0, fontSize: "1.75rem", color: "var(--text)" }}>{isDineIn ? "Đơn hàng của bạn" : "Thanh toán"}</h1>
       </div>
       
-      <p style={{ color: "rgba(245,235,227,0.6)", marginBottom: "2rem" }}>
-        {isDineIn ? `Tại bàn${bill.tableName ? ` — ${bill.tableName}` : ""}` : "Đơn mang về"}
+      <p style={{ color: "var(--muted)", marginBottom: "2rem" }}>
+        {bill.orderType === "Delivery" ? "Đơn giao tận nơi" : isDineIn ? `Tại bàn${bill.tableName ? ` — ${bill.tableName}` : ""}` : "Đơn mang về"}
       </p>
+      
+      {bill.orderType === "Delivery" && (
+        <Link to={`/order/${orderId}/tracking`} className="btn btn-block" style={{ marginBottom: "2rem", borderRadius: 999, background: "var(--surface2)", color: "#fff", textDecoration: "none", textAlign: "center", padding: "1rem" }}>
+          📍 Xem hành trình giao hàng (Map)
+        </Link>
+      )}
 
       {/* SECTION 1: ORDER SUMMARY */}
       <div className="checkout-section">
         <h2 style={{ fontSize: "1.1rem", fontFamily: "var(--font-display)", color: "var(--accent)", display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}><Receipt size={18} /> Thông tin đơn hàng</h2>
         <div style={{ padding: "0 0.5rem" }}>
           {bill.items.map((it) => (
-            <div key={it.id} style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", color: "rgba(255,255,255,0.85)" }}>
+            <div key={it.id} style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", color: "var(--text)" }}>
               <span>{it.name} <span style={{ color: "var(--muted)" }}>× {it.quantity}</span></span>
               <span style={{ fontWeight: 500 }}>{formatVnd(it.lineTotal)}</span>
             </div>
           ))}
-          <div style={{ display: "flex", justifyContent: "space-between", marginTop: "1rem", paddingTop: "1rem", borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: "1rem", paddingTop: "1rem", borderTop: "1px solid var(--border)" }}>
             <span className="subtle">Tạm tính</span>
             <span>{formatVnd(bill.subTotal)}</span>
           </div>
@@ -369,13 +385,13 @@ export function OrderCheckout() {
           {/* SECTION 2: LOYALTY POINTS */}
           {user && (bill.customerPoints > 0 || bill.pointsRedeemAmt > 0) && (
             <div className="checkout-section">
-              <h2 style={{ fontSize: "1.1rem", fontFamily: "var(--font-display)", color: "#f59e0b", display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}><Star size={18} /> Điểm tích lũy</h2>
+              <h2 style={{ fontSize: "1.1rem", fontFamily: "var(--font-display)", color: "#b45309", display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}><Star size={18} /> Điểm tích lũy</h2>
               <div style={{ padding: "0 0.5rem" }}>
                 {bill.pointsRedeemAmt > 0 ? (
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ color: "#f59e0b", fontWeight: 600 }}>Đã dùng {bill.pointsUsed} điểm</span>
+                    <span style={{ color: "#b45309", fontWeight: 600 }}>Đã dùng {bill.pointsUsed} điểm</span>
                     <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                      <span style={{ color: "#f59e0b", fontWeight: 600 }}>−{formatVnd(bill.pointsRedeemAmt)}</span>
+                      <span style={{ color: "#b45309", fontWeight: 600 }}>−{formatVnd(bill.pointsRedeemAmt)}</span>
                       <button type="button" disabled={pointsLoading} onClick={() => void removePoints()} style={{ background: "transparent", color: "var(--danger)", border: "none", textDecoration: "underline", cursor: "pointer" }}>Xóa</button>
                     </div>
                   </div>
@@ -383,10 +399,10 @@ export function OrderCheckout() {
                   <div>
                     <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "0.75rem" }}>Bạn có {bill.customerPoints} điểm. Tối đa áp dụng: {bill.maxPointsCanUse}.</p>
                     <div style={{ display: "flex", gap: "0.5rem" }}>
-                      <input type="number" min={1} max={bill.maxPointsCanUse} className="input" placeholder="Số điểm muốn dùng..." value={pointsInput} onChange={e => setPointsInput(e.target.value)} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, padding: "0.75rem" }} />
+                      <input type="number" min={1} max={bill.maxPointsCanUse} className="input" placeholder="Số điểm muốn dùng..." value={pointsInput} onChange={e => setPointsInput(e.target.value)} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "0.75rem" }} />
                       <button type="button" className="btn btn-primary" disabled={pointsLoading || !pointsInput} onClick={() => void applyPoints()} style={{ borderRadius: 8, padding: "0 1.5rem" }}>Áp dụng</button>
                     </div>
-                    {pointsMsg && <p style={{ color: pointsMsg.ok ? "#f59e0b" : "var(--danger)", fontSize: "0.85rem", marginTop: "0.5rem" }}>{pointsMsg.text}</p>}
+                    {pointsMsg && <p style={{ color: pointsMsg.ok ? "#b45309" : "var(--danger)", fontSize: "0.85rem", marginTop: "0.5rem" }}>{pointsMsg.text}</p>}
                   </div>
                 )}
               </div>
@@ -395,39 +411,39 @@ export function OrderCheckout() {
 
           {/* SECTION 3: VOUCHERS */}
           <div className="checkout-section">
-            <h2 style={{ fontSize: "1.1rem", fontFamily: "var(--font-display)", color: "#22c55e", display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}><Ticket size={18} /> Mã giảm giá</h2>
+            <h2 style={{ fontSize: "1.1rem", fontFamily: "var(--font-display)", color: "#15803d", display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}><Ticket size={18} /> Mã giảm giá</h2>
             <div style={{ padding: "0 0.5rem" }}>
               {voucherApplied ? (
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
-                    <span style={{ color: "#22c55e", fontWeight: 600, display: "block" }}>{voucherApplied.code}</span>
-                    <span style={{ fontSize: "0.85rem", color: "rgba(255,255,255,0.5)" }}>{voucherApplied.description}</span>
+                    <span style={{ color: "#15803d", fontWeight: 600, display: "block" }}>{voucherApplied.code}</span>
+                    <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{voucherApplied.description}</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                    <span style={{ color: "#22c55e", fontWeight: 600 }}>−{formatVnd(voucherApplied.discountValue)}</span>
+                    <span style={{ color: "#15803d", fontWeight: 600 }}>−{formatVnd(voucherApplied.discountValue)}</span>
                     <button type="button" onClick={removeVoucher} style={{ background: "transparent", color: "var(--danger)", border: "none", textDecoration: "underline", cursor: "pointer" }}>Xóa</button>
                   </div>
                 </div>
               ) : (
                 <div style={{ position: "relative" }}>
                   <div style={{ display: "flex", gap: "0.5rem" }}>
-                    <input type="text" className="input" placeholder="Nhập hoặc chọn mã..." value={voucherCode} onChange={(e) => { setVoucherCode(e.target.value.toUpperCase()); setShowVoucherDrop(true); }} onFocus={() => setShowVoucherDrop(true)} onBlur={() => setTimeout(() => setShowVoucherDrop(false), 200)} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, padding: "0.75rem", textTransform: "uppercase" }} />
+                    <input type="text" className="input" placeholder="Nhập hoặc chọn mã..." value={voucherCode} onChange={(e) => { setVoucherCode(e.target.value.toUpperCase()); setShowVoucherDrop(true); }} onFocus={() => setShowVoucherDrop(true)} onBlur={() => setTimeout(() => setShowVoucherDrop(false), 200)} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "0.75rem", textTransform: "uppercase" }} />
                     <button type="button" className="btn btn-primary" disabled={voucherLoading || !voucherCode.trim()} onClick={() => void applyVoucher()} style={{ borderRadius: 8, padding: "0 1.5rem" }}>Áp dụng</button>
                   </div>
                   {showVoucherDrop && availableVouchers.length > 0 && (
-                    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: "0.5rem", background: "var(--surface)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, overflow: "hidden", zIndex: 10, boxShadow: "0 10px 25px rgba(0,0,0,0.5)" }}>
+                    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: "0.5rem", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden", zIndex: 10, boxShadow: "var(--shadow-lg)" }}>
                       {availableVouchers.filter((v) => !voucherCode || v.code.includes(voucherCode)).map((v) => (
-                        <button key={v.id} type="button" onMouseDown={() => { setVoucherCode(v.code); setShowVoucherDrop(false); }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "1rem", background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.05)", cursor: "pointer", textAlign: "left", color: "var(--text)" }}>
+                        <button key={v.id} type="button" onMouseDown={() => { setVoucherCode(v.code); setShowVoucherDrop(false); }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "1rem", background: "transparent", border: "none", borderBottom: "1px solid var(--border)", cursor: "pointer", textAlign: "left", color: "var(--text)" }}>
                           <div>
                             <div style={{ fontWeight: 700, color: "var(--accent)" }}>{v.code}</div>
                             <div style={{ fontSize: "0.8rem", color: "var(--muted)", marginTop: "0.2rem" }}>{v.description}</div>
                           </div>
-                          <span style={{ color: "#22c55e", fontWeight: 600 }}>−{formatVnd(v.discountValue)}</span>
+                          <span style={{ color: "#15803d", fontWeight: 600 }}>−{formatVnd(v.discountValue)}</span>
                         </button>
                       ))}
                     </div>
                   )}
-                  {voucherMsg && <p style={{ color: voucherMsg.ok ? "#22c55e" : "var(--danger)", fontSize: "0.85rem", marginTop: "0.5rem" }}>{voucherMsg.text}</p>}
+                  {voucherMsg && <p style={{ color: voucherMsg.ok ? "#15803d" : "var(--danger)", fontSize: "0.85rem", marginTop: "0.5rem" }}>{voucherMsg.text}</p>}
                 </div>
               )}
             </div>
@@ -443,16 +459,16 @@ export function OrderCheckout() {
                   key={m} type="button" onClick={() => handleSelectMethod(m)}
                   style={{
                     flex: 1, minWidth: 120, padding: "1.25rem", borderRadius: 16, display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem",
-                    background: payMethod === m ? "rgba(201,162,39,0.15)" : "rgba(255,255,255,0.03)",
-                    border: `1px solid ${payMethod === m ? "var(--accent)" : "rgba(255,255,255,0.1)"}`,
-                    color: payMethod === m ? "var(--accent)" : "rgba(255,255,255,0.6)",
+                    background: payMethod === m ? "rgba(146,64,14,0.15)" : "#f5f5f4",
+                    border: `1px solid ${payMethod === m ? "var(--accent)" : "#e7e5e4"}`,
+                    color: payMethod === m ? "var(--accent)" : "#57534e",
                     transition: "all 0.2s ease", cursor: "pointer"
                   }}
                 >
                   {m === "counter" && <Banknote size={24} />}
                   {m === "vnpay" && <CreditCard size={24} />}
                   {m === "sepay" && <div style={{ fontWeight: 800, fontSize: "1.2rem", letterSpacing: "-1px" }}>SePay</div>}
-                  <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>{m === "counter" ? "Tiền mặt" : m === "vnpay" ? "Ví VNPay" : "Chuyển khoản"}</span>
+                  <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>{m === "counter" ? (bill.orderType === "Delivery" ? "Tiền mặt (COD)" : "Tại quầy") : m === "vnpay" ? "Ví VNPay" : "Chuyển khoản"}</span>
                 </button>
               ))}
             </div>
@@ -462,7 +478,7 @@ export function OrderCheckout() {
               <span style={{ fontSize: "1.1rem", color: "var(--muted)" }}>Tổng thanh toán</span>
               <div style={{ textAlign: "right" }}>
                 {voucherApplied && (
-                  <div style={{ textDecoration: "line-through", color: "rgba(255,255,255,0.4)", fontSize: "1rem", marginBottom: "0.2rem" }}>
+                  <div style={{ textDecoration: "line-through", color: "var(--muted)", fontSize: "1rem", marginBottom: "0.2rem" }}>
                     {formatVnd(bill.totalAmount)}
                   </div>
                 )}
@@ -475,8 +491,8 @@ export function OrderCheckout() {
             {/* ACTION BUTTON */}
             <div style={{ padding: "0 0.5rem" }}>
               {payMethod === "counter" && (
-                <button type="button" className="btn btn-primary btn-block" disabled={requesting} onClick={() => void requestPayment()} style={{ padding: "1rem", borderRadius: 999, fontSize: "1.1rem", background: "linear-gradient(135deg, #e8b84a 0%, var(--accent) 100%)", color: "#1a120d", boxShadow: "0 8px 20px rgba(201,162,39,0.3)" }}>
-                  {requesting ? "Đang gửi…" : "Yêu cầu thanh toán tại quầy"}
+                <button type="button" className="btn btn-primary btn-block" disabled={requesting} onClick={() => void requestPayment()} style={{ padding: "1rem", borderRadius: 999, fontSize: "1.1rem", background: "var(--accent)", color: "#fff", boxShadow: "0 8px 20px rgba(146,64,14,0.3)" }}>
+                  {requesting ? "Đang gửi…" : (bill.orderType === "Delivery" ? "Xác nhận đặt hàng (COD)" : "Yêu cầu thanh toán tại quầy")}
                 </button>
               )}
               {payMethod === "vnpay" && (
@@ -495,7 +511,7 @@ export function OrderCheckout() {
                 </form>
               )}
               {payMethod === "sepay" && !sepayForm && !sepayLoading && (
-                <button type="button" className="btn btn-block" style={{ padding: "1rem", borderRadius: 999, fontSize: "1.1rem", background: "rgba(255,255,255,0.1)", color: "#fff", border: "none" }}>
+                <button type="button" className="btn btn-block" style={{ padding: "1rem", borderRadius: 999, fontSize: "1.1rem", background: "var(--surface2)", color: "#fff", border: "none" }}>
                   Đang tải SePay...
                 </button>
               )}
@@ -507,8 +523,8 @@ export function OrderCheckout() {
       )}
 
       {bill.status === "Pending_Grace" && (
-        <div style={{ background: "rgba(255,255,255,0.03)", padding: "1.5rem", borderRadius: 16, textAlign: "center" }}>
-          <p style={{ color: "rgba(255,255,255,0.6)", margin: 0 }}>Đơn đang chờ xác nhận từ bếp. Bạn có thể thanh toán sau khi bếp chốt đơn.</p>
+        <div style={{ background: "var(--surface2)", padding: "1.5rem", borderRadius: 16, textAlign: "center" }}>
+          <p style={{ color: "var(--muted)", margin: 0 }}>Đơn đang chờ xác nhận từ bếp. Bạn có thể thanh toán sau khi bếp chốt đơn.</p>
         </div>
       )}
     </motion.div>

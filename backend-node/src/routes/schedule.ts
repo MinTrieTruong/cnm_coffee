@@ -76,94 +76,52 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
   const mgmtOnly = [attachStaff(prisma), requireRoles("Admin")];
 
   /* ══════════════════════════════════════════════════════════════
-     POST /schedule/bulk — NV gửi đăng ký cả tuần (upsert)
-     Body: { week: "YYYY-MM-DD", registrations: [{date, shiftCode, note?}] }
+     POST /schedule/admin — Quản lý gán ca mới
   ══════════════════════════════════════════════════════════════ */
-  r.post("/schedule/bulk", ...anyStaff, async (req, res) => {
+  r.post("/schedule/admin", ...mgmtOnly, async (req, res) => {
     const me = (req as StaffRequest).staffRow!;
-    const { week, registrations } = req.body as {
-      week?: string;
-      registrations?: { date: string; shiftCode: string; note?: string }[];
+    const { staffId, date, shiftCode, managerNote } = req.body as {
+      staffId: number;
+      date: string;
+      shiftCode: string;
+      managerNote?: string;
     };
 
-    if (!week) return res.status(400).json({ error: "Thiếu tham số week." });
-    if (!isWeekEditable(week)) {
-      return res.status(400).json({
-        error: "Chỉ có thể đăng ký tuần này (trước Thứ 7 23:59) hoặc tuần tới.",
-      });
+    if (!staffId || !date || !shiftCode) {
+      return res.status(400).json({ error: "Thiếu staffId, date hoặc shiftCode." });
     }
 
-    const mon = weekMonday(new Date(week));
-    const sun = new Date(mon); sun.setDate(mon.getDate() + 6); sun.setHours(23, 59, 59, 999);
-
-    // Validate shift codes
-    const regs = (registrations ?? []).filter((r2) => VALID_CODES.includes(r2.shiftCode as ShiftCode));
-
-    // Validate rules: không được vừa chọn A vừa SP1, không vừa C vừa SP2 trong cùng ngày.
-    const regsByDate = new Map<string, Set<string>>();
-    for (const r2 of regs) {
-      if (!regsByDate.has(r2.date)) regsByDate.set(r2.date, new Set());
-      regsByDate.get(r2.date)!.add(r2.shiftCode);
-    }
-    for (const [date, codes] of regsByDate.entries()) {
-      if (codes.has("A") && codes.has("SP1")) {
-        return res.status(400).json({ error: `Ngày ${date} không thể chọn cùng lúc Ca A (07:00-12:00) và Ca SP1 (08:30-11:30).` });
-      }
-      if (codes.has("C") && codes.has("SP2")) {
-        return res.status(400).json({ error: `Ngày ${date} không thể chọn cùng lúc Ca C (18:00-00:00) và Ca SP2 (19:00-22:00).` });
-      }
+    if (!VALID_CODES.includes(shiftCode as ShiftCode)) {
+      return res.status(400).json({ error: "Mã ca không hợp lệ." });
     }
 
-    // Xoá toàn bộ PENDING trong tuần đó của nhân viên này
-    await prisma.workSchedule.deleteMany({
-      where: {
-        staffId: me.id,
-        workDate: { gte: mon, lte: sun },
-        status: "PENDING",
-      },
-    });
+    const workDate = new Date(date);
+    const def = SHIFT_DEFS[shiftCode as ShiftCode];
 
-    // Tạo mới (bỏ qua nếu đã có APPROVED cùng ngày + ca)
-    if (regs.length > 0) {
-      const existing = await prisma.workSchedule.findMany({
-        where: {
-          staffId: me.id,
-          workDate: { gte: mon, lte: sun },
+    try {
+      const created = await prisma.workSchedule.create({
+        data: {
+          staffId,
+          workDate,
+          shiftCode,
+          startMin: def.startMin,
+          endMin: def.endMin,
           status: "APPROVED",
+          managerNote: managerNote || null,
+          reviewedBy: me.id,
         },
-        select: { workDate: true, shiftCode: true },
-      });
-      const approvedKeys = new Set(existing.map((e) => `${toDateStr(e.workDate)}_${e.shiftCode}`));
-
-      const toCreate = regs.filter((r2) => {
-        const key = `${r2.date}_${r2.shiftCode}`;
-        return !approvedKeys.has(key);
+        include: { staff: { select: { id: true, fullName: true, role: true } } },
       });
 
-      if (toCreate.length > 0) {
-        const def = (code: string) => SHIFT_DEFS[code as ShiftCode];
-        await prisma.workSchedule.createMany({
-          data: toCreate.map((r2) => ({
-            staffId: me.id,
-            workDate: new Date(r2.date),
-            shiftCode: r2.shiftCode,
-            startMin: def(r2.shiftCode).startMin,
-            endMin: def(r2.shiftCode).endMin,
-            staffNote: r2.note ?? null,
-            status: "PENDING",
-          })),
-          skipDuplicates: true,
-        });
+      io.to(`staff_${staffId}`).emit("schedule:new", { staffId, date });
+      io.to("admin_room").emit("schedule:new", { staffId, date });
+      res.json({ ok: true, schedule: created });
+    } catch (e: any) {
+      if (e.code === "P2002") {
+        return res.status(400).json({ error: "Nhân viên đã được gán ca này trong ngày." });
       }
+      res.status(500).json({ error: "Lỗi máy chủ." });
     }
-
-    io.to("admin_room").emit("schedule:new", { staffId: me.id, week });
-
-    const updated = await prisma.workSchedule.findMany({
-      where: { staffId: me.id, workDate: { gte: mon, lte: sun } },
-      orderBy: [{ workDate: "asc" }, { shiftCode: "asc" }],
-    });
-    res.json({ ok: true, count: regs.length, schedules: updated });
   });
 
   /* ══════════════════════════════════════════════════════════════
@@ -258,18 +216,12 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
   /* ══════════════════════════════════════════════════════════════
      DELETE /schedule/:id
   ══════════════════════════════════════════════════════════════ */
-  r.delete("/schedule/:id", ...anyStaff, async (req, res) => {
+  r.delete("/schedule/:id", ...mgmtOnly, async (req, res) => {
     const id = Number(req.params.id);
-    const me = (req as StaffRequest).staffRow!;
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ." });
 
     const existing = await prisma.workSchedule.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ error: "Không tìm thấy ca." });
-
-    if (me.role !== "Admin") {
-      if (existing.staffId !== me.id)    return res.status(403).json({ error: "Không có quyền." });
-      if (existing.status !== "PENDING") return res.status(400).json({ error: "Chỉ huỷ được ca đang chờ duyệt." });
-    }
 
     await prisma.workSchedule.delete({ where: { id } });
     io.to("admin_room").emit("schedule:deleted", { id });
@@ -302,5 +254,69 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
     res.json({ ok: true, count: result.count });
   });
 
+  /* ══════════════════════════════════════════════════════════════
+     POST /schedule/admin/auto — Tự động xếp lịch
+  ══════════════════════════════════════════════════════════════ */
+  r.post("/schedule/admin/auto", ...mgmtOnly, async (req, res) => {
+    const { week } = req.body as { week?: string };
+    const mon = weekMonday(week ? new Date(week) : new Date());
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6); sun.setHours(23, 59, 59, 999);
+
+    try {
+      // Bypass Prisma client validation for DRAFT because client is not regenerated yet
+      await prisma.$executeRawUnsafe(`DELETE FROM Work_Schedules WHERE Work_Date >= ? AND Work_Date <= ? AND Status = 'DRAFT'`, mon, sun);
+
+      const staffs = await prisma.staff.findMany({ where: { role: { not: "Admin" } } });
+      const leaves = await prisma.leaveRequest.findMany({
+        where: { date: { gte: mon, lte: sun }, status: "APPROVED" }
+      });
+
+      const shiftsToCreate = [];
+      const shiftDefs = [
+        { code: "A", start: 7*60, end: 12*60, reqs: 2 },
+        { code: "B", start: 12*60, end: 17*60, reqs: 2 },
+        { code: "C", start: 17*60, end: 22*60, reqs: 2 },
+      ];
+
+      for (let i = 0; i < 7; i++) {
+        const currentDate = new Date(mon);
+        currentDate.setDate(mon.getDate() + i);
+        const dateString = currentDate.toISOString().split("T")[0];
+
+        const leavesToday = leaves.filter(l => l.date.toISOString().split("T")[0] === dateString);
+        const leaveStaffIds = leavesToday.map(l => l.userId);
+        
+        // Shuffle for random fair assignment
+        let availableStaffs = staffs.filter(s => !leaveStaffIds.includes(s.id)).sort(() => Math.random() - 0.5);
+
+        for (const def of shiftDefs) {
+          for (let j = 0; j < def.reqs; j++) {
+            const assignedStaff = availableStaffs.pop();
+            shiftsToCreate.push({
+              workDate: dateString,
+              shiftCode: def.code,
+              startMin: def.start,
+              endMin: def.end,
+              status: "DRAFT",
+              staffId: assignedStaff ? assignedStaff.id : null,
+            });
+          }
+        }
+      }
+
+      if (shiftsToCreate.length > 0) {
+        const values = shiftsToCreate.map(s => `(${s.staffId || 'NULL'}, '${s.workDate}', '${s.shiftCode}', ${s.startMin}, ${s.endMin}, 'DRAFT', NOW(), NOW())`).join(", ");
+        await prisma.$executeRawUnsafe(`INSERT INTO Work_Schedules (Staff_ID, Work_Date, Shift_Code, Start_Min, End_Min, Status, Created_At, Updated_At) VALUES ${values}`);
+      }
+
+      io.to("admin_room").emit("schedule:updated", { weekStart: mon });
+      res.json({ ok: true, generatedCount: shiftsToCreate.length });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Lỗi xếp lịch tự động." });
+    }
+  });
+
   return r;
 }
+/* TEST */

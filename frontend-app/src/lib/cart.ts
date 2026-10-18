@@ -1,4 +1,4 @@
-import type { Product } from "./api";
+import type { Product, Combo } from "./api";
 
 export type CartItem = {
   productId: number;
@@ -10,6 +10,9 @@ export type CartItem = {
   icePct: 0 | 50 | 100;
   sugar: "0" | "50" | "100";
   notes: string;
+  /// Nếu đây là combo: lưu comboId để truyền lên backend khi tạo đơn
+  comboId?: number | null;
+  isCombo?: boolean;
 };
 
 const CART_KEY = "cmn_cart";
@@ -35,7 +38,7 @@ export function getCart(): CartItem[] {
 
 export function addToCart(
   product: Product,
-  opts: Omit<CartItem, "productId" | "name" | "unitPrice" | "imageUrl">,
+  opts: Omit<CartItem, "productId" | "name" | "imageUrl">,
 ) {
   const items = load();
   // Gộp nếu trùng product + size + đá + đường + notes
@@ -49,7 +52,6 @@ export function addToCart(
     items.push({
       productId: product.id,
       name: product.name,
-      unitPrice: product.sellPrice,
       imageUrl: product.imageUrl,
       ...opts,
     });
@@ -97,4 +99,33 @@ export function clearCartBackup() {
 
 export function cartTotal(items: CartItem[]) {
   return items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+}
+
+/**
+ * Thêm 1 combo vào giỏ hàng.
+ * Combo được lưu như một CartItem duy nhất (diện dạng của combo, không phải từng món riêng lẻ).
+ * Backend sẽ dùng comboId để tra cứu các món bên trong và trừ kho.
+ */
+export function addComboToCart(combo: Combo) {
+  const items = load();
+  // Mỗi combo là một dòng độc lập trong giỏ hàng (không gộp)
+  const existing = items.find((i) => i.comboId === combo.id && i.isCombo);
+  if (existing) {
+    existing.quantity += 1;
+  } else {
+    items.push({
+      productId: 0, // placeholder — backend dùng comboId
+      name: combo.name,
+      imageUrl: combo.imageUrl ?? null,
+      unitPrice: combo.comboPrice,
+      quantity: 1,
+      size: "M",
+      icePct: 100,
+      sugar: "100",
+      notes: "",
+      comboId: combo.id,
+      isCombo: true,
+    });
+  }
+  save(items);
 }

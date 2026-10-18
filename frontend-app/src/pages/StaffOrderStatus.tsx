@@ -59,21 +59,21 @@ type ReadyPopup = {
 const COL_META = {
   Waiting: {
     label: "Chờ làm",
-    color: "#f59e0b",
+    color: "#b45309",
     dimColor: "rgba(245,158,11,0.18)",
     border: "rgba(245,158,11,0.3)",
     headerBg: "rgba(245,158,11,0.08)",
   },
   Cooking: {
     label: "Đang làm",
-    color: "#f97316",
+    color: "#c2410c",
     dimColor: "rgba(249,115,22,0.18)",
     border: "rgba(249,115,22,0.35)",
     headerBg: "rgba(249,115,22,0.08)",
   },
   Ready: {
     label: "Sẵn sàng — bê ra",
-    color: "#4ade80",
+    color: "#15803d",
     dimColor: "rgba(74,222,128,0.18)",
     border: "rgba(74,222,128,0.4)",
     headerBg: "rgba(74,222,128,0.08)",
@@ -126,8 +126,8 @@ function ItemCard({
         {item.priority && (
           <span style={{
             display: "inline-block", alignSelf: "flex-start",
-            background: "rgba(201,162,39,0.18)",
-            border: "1px solid rgba(201,162,39,0.45)",
+            background: "rgba(146,64,14,0.18)",
+            border: "1px solid rgba(146,64,14,0.45)",
             color: "#e8b84a",
             fontSize: "0.68rem", fontWeight: 700,
             letterSpacing: "0.06em",
@@ -147,7 +147,7 @@ function ItemCard({
 
         {/* Ghi chú */}
         {item.customNotes && (
-          <div style={{ fontSize: "0.76rem", color: "rgba(255,255,255,0.45)", fontStyle: "italic" }}>
+          <div style={{ fontSize: "0.76rem", color: "var(--muted)", fontStyle: "italic" }}>
             {item.customNotes}
           </div>
         )}
@@ -163,10 +163,10 @@ function ItemCard({
             {tableName}
           </span>
           <span style={{
-            background: "rgba(255,255,255,0.05)",
-            border: "1px solid rgba(255,255,255,0.1)",
+            background: "var(--surface2)",
+            border: "1px solid var(--border)",
             borderRadius: 6, padding: "0.18rem 0.55rem",
-            fontSize: "0.75rem", color: "rgba(255,255,255,0.45)",
+            fontSize: "0.75rem", color: "var(--muted)",
           }}>
             Bill #{item.orderId}
           </span>
@@ -184,7 +184,7 @@ function ItemCard({
               background: serving ? "rgba(74,222,128,0.1)" : "rgba(74,222,128,0.18)",
               border: "1.5px solid rgba(74,222,128,0.5)",
               borderRadius: 8,
-              color: "#4ade80",
+              color: "#15803d",
               fontWeight: 700,
               fontSize: "0.82rem",
               padding: "0.45rem 0.8rem",
@@ -246,10 +246,10 @@ function StatusColumn({
       {items.length === 0 ? (
         <div style={{
           textAlign: "center",
-          color: "rgba(255,255,255,0.2)",
+          color: "var(--muted)",
           fontSize: "0.82rem",
           padding: "1.75rem 1rem",
-          border: "1px dashed rgba(255,255,255,0.08)",
+          border: "1px dashed var(--border)",
           borderRadius: 10,
         }}>
           Trống
@@ -416,7 +416,7 @@ export function StaffOrderStatus() {
               key={p.id}
               style={{
                 background: "#051a0d",
-                border: "2px solid #4ade80",
+                border: "2px solid #15803d",
                 borderRadius: 14,
                 padding: "0.85rem 1rem",
                 boxShadow: "0 8px 36px rgba(74,222,128,0.35)",
@@ -425,7 +425,7 @@ export function StaffOrderStatus() {
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontWeight: 900, fontSize: "0.78rem", color: "#4ade80", letterSpacing: "0.07em" }}>
+                <span style={{ fontWeight: 900, fontSize: "0.78rem", color: "#15803d", letterSpacing: "0.07em" }}>
                   MON SAN SANG — BE RA NGAY
                 </span>
                 <button
@@ -433,7 +433,7 @@ export function StaffOrderStatus() {
                   onClick={() => setPopups((prev) => prev.filter((x) => x.id !== p.id))}
                   style={{
                     background: "rgba(74,222,128,0.12)", border: "none",
-                    color: "#4ade80", cursor: "pointer",
+                    color: "#15803d", cursor: "pointer",
                     fontSize: "0.95rem", lineHeight: 1,
                     padding: "0.2rem 0.4rem", borderRadius: 5,
                   }}
@@ -443,19 +443,19 @@ export function StaffOrderStatus() {
 
               <div style={{ fontWeight: 800, fontSize: "1.05rem", color: "#fff" }}>
                 {p.productName}
-                <span style={{ color: "#86efac", fontWeight: 700, marginLeft: "0.4rem" }}>x {p.quantity}</span>
+                <span style={{ color: "#15803d", fontWeight: 700, marginLeft: "0.4rem" }}>x {p.quantity}</span>
               </div>
 
               <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap" }}>
                 <span style={{
                   background: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.35)",
                   borderRadius: 6, padding: "0.18rem 0.5rem",
-                  fontSize: "0.78rem", fontWeight: 700, color: "#4ade80",
+                  fontSize: "0.78rem", fontWeight: 700, color: "#15803d",
                 }}>{p.tableName}</span>
                 <span style={{
-                  background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+                  background: "var(--surface2)", border: "1px solid var(--border)",
                   borderRadius: 6, padding: "0.18rem 0.5rem",
-                  fontSize: "0.78rem", color: "rgba(255,255,255,0.5)",
+                  fontSize: "0.78rem", color: "var(--muted)",
                 }}>Bill #{p.orderId}</span>
               </div>
 
@@ -468,7 +468,7 @@ export function StaffOrderStatus() {
                   marginTop: "0.3rem",
                   background: "rgba(74,222,128,0.15)",
                   border: "1.5px solid rgba(74,222,128,0.5)",
-                  borderRadius: 8, color: "#4ade80",
+                  borderRadius: 8, color: "#15803d",
                   fontWeight: 700, fontSize: "0.82rem",
                   padding: "0.4rem 0.75rem",
                   cursor: "pointer", textAlign: "center",
@@ -487,7 +487,7 @@ export function StaffOrderStatus() {
         <div>
           <h1 className="page-title" style={{ margin: 0 }}>Trang thai mon</h1>
           {lastUpdated && (
-            <span style={{ fontSize: "0.73rem", color: "rgba(255,255,255,0.32)", display: "block", marginTop: "0.1rem" }}>
+            <span style={{ fontSize: "0.73rem", color: "var(--muted)", display: "block", marginTop: "0.1rem" }}>
               Cap nhat luc {lastUpdated.toLocaleTimeString("vi-VN")}
             </span>
           )}
@@ -503,7 +503,7 @@ export function StaffOrderStatus() {
       </div>
 
       <p className="subtle" style={{ marginBottom: "0.85rem" }}>
-        Cot <strong style={{ color: "#4ade80" }}>San sang</strong> — bam "Da be ra cho khach" de xoa mon khoi danh sach.
+        Cot <strong style={{ color: "#15803d" }}>San sang</strong> — bam "Da be ra cho khach" de xoa mon khoi danh sach.
       </p>
 
       {err && <p style={{ color: "var(--danger)", marginBottom: "0.75rem" }}>{err}</p>}
@@ -523,7 +523,7 @@ export function StaffOrderStatus() {
             }}>
               <div>
                 <div style={{ fontWeight: 800, fontSize: "1.3rem", color: meta.color, lineHeight: 1 }}>{count}</div>
-                <div style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.38)", marginTop: "0.12rem" }}>{meta.label}</div>
+                <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.12rem" }}>{meta.label}</div>
               </div>
             </div>
           );

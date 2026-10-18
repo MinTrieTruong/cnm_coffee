@@ -6,12 +6,15 @@ import { randomUUID } from "crypto";
 import { attachStaff, requireRoles } from "../middleware/staff.js";
 import { optionalCustomerAuth } from "../middleware/customer.js";
 import { computeBill, computePointsEarned, getStoreSettings } from "../lib/pricing.js";
+import { DS, getStoreLocation, haversineKm, onKitchenProgress, releaseOrderToKitchen, shippingFeeForDistance } from "../lib/delivery.js";
 
 type CartLine = {
   productId: number;
   quantity: number;
   unitPrice: number;
   customNotes?: string;
+  /// Nếu thuộc combo: comboId để lưu vào OrderDetail
+  comboId?: number | null;
 };
 
 const GRACE_MS = 15_000; // 15 giây ân hạn
@@ -245,6 +248,24 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       });
     }
 
+    if (order.orderType === "Delivery") {
+      // COD: chốt số tiền shipper cần thu (bill + phí ship), chuyển sang chờ thu ngân xác nhận
+      const settings = await getStoreSettings(prisma);
+      const { vatAmount, totalAmount } = computeBill(
+        order.subTotal,
+        order.discountAmt + order.pointsRedeemAmt + Math.max(0, discountVoucherAmt),
+        0,
+        settings.pointValueVnd,
+        settings.vatRatePercent,
+      );
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { vatAmount, totalAmount: totalAmount + order.shippingFee },
+      });
+      await releaseOrderToKitchen(prisma, io, order.id);
+      return res.json({ ok: true, isDelivery: true });
+    }
+
     io.to("pos").emit("payment:request", {
       orderId: order.id,
       tableId: order.tableId,
@@ -261,6 +282,10 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       sessionId?: string | null;
       payMode?: "now" | "later";
       lines?: CartLine[];
+      deliveryAddress?: string;
+      customerLat?: number;
+      customerLng?: number;
+      shippingFee?: number;
     };
     const lines = body.lines ?? [];
     if (!lines.length) {
@@ -270,13 +295,30 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     const orderType = body.orderType ?? "Dine-in";
     const payMode = body.payMode ?? "later";
     const isTakeaway = orderType.toLowerCase().includes("take") || orderType === "Takeaway";
-    /** Mang về: luôn chốt xuống bếp ngay, khách xem bill chờ thu ngân (không ân hạn tại chỗ). */
-    const immediatePay = isTakeaway || payMode === "now";
-    if (!isTakeaway && !body.tableId) {
+    const isDelivery = orderType === "Delivery";
+    /** Mang về hoặc Giao hàng: chốt ngay (trừ khi là COD payLater, nhưng demo cứ dùng logic hiện tại). */
+    const immediatePay = isTakeaway || isDelivery || payMode === "now";
+    
+    if (!isTakeaway && !isDelivery && !body.tableId) {
       return res.status(400).json({ error: "Đơn tại quán bắt buộc phải có thông tin bàn." });
     }
+    if (isDelivery && !body.deliveryAddress) {
+      return res.status(400).json({ error: "Đơn giao hàng bắt buộc phải có địa chỉ." });
+    }
+    if (isDelivery && (typeof body.customerLat !== "number" || typeof body.customerLng !== "number")) {
+      return res.status(400).json({ error: "Vui lòng ghim vị trí giao hàng trên bản đồ." });
+    }
+    // Phí ship tính phía server theo khoảng cách từ quán
+    let shippingFee = 0;
+    if (isDelivery) {
+      const store = await getStoreLocation(prisma);
+      shippingFee = shippingFeeForDistance(
+        haversineKm(store, { lat: body.customerLat as number, lng: body.customerLng as number }),
+      );
+    }
+    
     const sessionId =
-      isTakeaway ? body.sessionId ?? randomUUID() : null;
+      (isTakeaway || isDelivery) ? body.sessionId ?? randomUUID() : null;
 
     const maxOrder = (await prisma.order.aggregate({ _max: { id: true } }))._max.id ?? 0;
     const maxDetail = (await prisma.orderDetail.aggregate({ _max: { id: true } }))._max.id ?? 0;
@@ -293,7 +335,11 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
         subTotal,
         discountAmt: 0,
         vatAmount: 0,
-        totalAmount: subTotal,
+        shippingFee,
+        deliveryAddress: body.deliveryAddress ?? null,
+        customerLat: body.customerLat ?? null,
+        customerLng: body.customerLng ?? null,
+        totalAmount: subTotal + shippingFee,
         status: immediatePay ? "Confirmed" : "Pending_Grace",
         graceEndsAt,
         details: {
@@ -308,6 +354,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
               unitPrice: l.unitPrice,
               customNotes: merged || null,
               priority: isTakeaway,
+              comboId: l.comboId ?? null,
               // immediatePay: giữ Hold — chỉ chuyển Waiting sau khi thanh toán xong
               // payLater: giữ Hold — graceWorker chuyển sang Waiting sau ân hạn
               kdsStatus: "Hold",
@@ -330,7 +377,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       tableId: order.tableId,
       payMode,
     });
-    if (immediatePay) {
+    if (immediatePay && !isDelivery) {
       // KHÔNG emit order:new ngay — chờ sau khi thanh toán mới đẩy vào bếp
       io.to("pos").emit("order:confirmed", { orderId: order.id });
       io.to("pos").emit("payment:request", { orderId: order.id, tableId: order.tableId, fromCustomer: true });
@@ -344,20 +391,35 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
 
   r.post("/orders/:id/cancel", async (req, res) => {
     const id = Number(req.params.id);
+    const { cancelReason } = (req.body || {}) as { cancelReason?: string };
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ" });
     const order = await prisma.order.findUnique({ where: { id } });
     if (!order) return res.status(404).json({ error: "Không tìm thấy đơn" });
-    if (order.status !== "Pending_Grace") {
-      return res.status(400).json({ error: "Chỉ hủy được trong thời gian ân hạn." });
+    if (["Paid", "Shipping", "Delivered", "Failed", "Cancelled"].includes(order.status)) {
+      return res.status(400).json({ error: "Không thể hủy đơn ở trạng thái này." });
     }
-    const now = new Date();
-    if (order.graceEndsAt && order.graceEndsAt < now) {
-      return res.status(400).json({ error: "Đã hết thời gian ân hạn." });
+    if (order.deliveryStatus && order.deliveryStatus !== DS.AwaitingConfirm) {
+      return res.status(400).json({ error: "Quán đã nhận đơn, không thể hủy. Vui lòng liên hệ quán." });
     }
+    
+    // Kiểm tra xem đã có thanh toán nào chưa
+    const payments = await prisma.payment.findMany({ where: { orderId: id } });
+    if (payments.length > 0) {
+      return res.status(400).json({ error: "Đơn đã có thanh toán, không thể hủy online." });
+    }
+
     await prisma.order.update({
       where: { id },
-      data: { status: "Cancelled", cancelReason: "Hủy bởi khách (ân hạn)" },
+      data: {
+        status: "Cancelled",
+        cancelReason: cancelReason || "Khách hàng tự hủy",
+        ...(order.deliveryStatus ? { deliveryStatus: DS.Rejected, deliveryNote: "Khách hủy đơn" } : {}),
+      },
     });
+    if (order.deliveryStatus) io.to("pos").emit("delivery:update", { orderIds: [id] });
+    // Thông báo cho POS và Kitchen
+    io.to("pos").emit("order:updated", { id });
+    io.to("kitchen").emit("order:updated", { id });
     res.json({ ok: true });
   });
 
@@ -400,6 +462,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
         orderId: d.orderId,
       });
     }
+    await onKitchenProgress(prisma, io, d.orderId);
     res.json(d);
   });
 

@@ -193,7 +193,7 @@ export function AdminStoreSettings({
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
           
           {/* General Box */}
-          <div style={{ border: "1px solid rgba(255,255,255,0.08)", padding: "1.25rem", borderRadius: "10px", background: "rgba(255,255,255,0.02)" }}>
+          <div style={{ border: "1px solid var(--border)", padding: "1.25rem", borderRadius: "10px", background: "var(--surface2)" }}>
             <h3 style={{ margin: "0 0 1rem", fontSize: "1.05rem" }}>Tài chính & Tích điểm</h3>
             
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
@@ -225,7 +225,7 @@ export function AdminStoreSettings({
           </div>
 
           {/* AI Config Box */}
-          <div style={{ border: "1px solid rgba(201,162,39,0.2)", padding: "1.25rem", borderRadius: "10px", background: "rgba(201,162,39,0.04)" }}>
+          <div style={{ border: "1px solid rgba(146,64,14,0.2)", padding: "1.25rem", borderRadius: "10px", background: "rgba(146,64,14,0.04)" }}>
             <h3 style={{ margin: "0 0 1rem", fontSize: "1.05rem", color: "var(--accent)" }}>Cấu hình AI Nhận diện khuôn mặt</h3>
             
             <div className="field">
@@ -262,7 +262,7 @@ export function AdminStoreSettings({
         {/* Right column: Address, Map & GPS */}
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
           
-          <div style={{ border: "1px solid rgba(255,255,255,0.08)", padding: "1.25rem", borderRadius: "10px", background: "rgba(255,255,255,0.02)", flex: 1, display: "flex", flexDirection: "column" }}>
+          <div style={{ border: "1px solid var(--border)", padding: "1.25rem", borderRadius: "10px", background: "var(--surface2)", flex: 1, display: "flex", flexDirection: "column" }}>
             <h3 style={{ margin: "0 0 1rem", fontSize: "1.05rem" }}>Địa chỉ & Định vị GPS</h3>
             
             {/* Multi-level Address selector (Gộp Phường/Xã) */}
@@ -299,7 +299,7 @@ export function AdminStoreSettings({
             </div>
 
             <div style={{ display: "flex", gap: "0.8rem", marginBottom: "1rem" }}>
-              <button type="button" className="btn btn-ghost" style={{ flex: 1, background: "rgba(201,162,39,0.15)", color: "var(--accent)" }} onClick={() => void handleGeocode()} disabled={busy}>
+              <button type="button" className="btn btn-ghost" style={{ flex: 1, background: "rgba(146,64,14,0.15)", color: "var(--accent)" }} onClick={() => void handleGeocode()} disabled={busy}>
                 📍 Định vị
               </button>
               <button type="button" className="btn btn-ghost" style={{ flex: 1, background: "rgba(39, 201, 128, 0.15)", color: "#27c980" }} onClick={handleCurrentLocation} disabled={busy}>
@@ -311,11 +311,11 @@ export function AdminStoreSettings({
             <div style={{ display: "flex", gap: "1rem", marginBottom: "1rem" }}>
               <div className="field" style={{ flex: 1, marginBottom: 0 }}>
                 <label className="label">Vĩ độ (Lat)</label>
-                <input className="input" style={{ background: "rgba(0,0,0,0.3)" }} readOnly value={lat.toFixed(6)} />
+                <input className="input" style={{ background: "var(--surface)" }} readOnly value={lat.toFixed(6)} />
               </div>
               <div className="field" style={{ flex: 1, marginBottom: 0 }}>
                 <label className="label">Kinh độ (Lng)</label>
-                <input className="input" style={{ background: "rgba(0,0,0,0.3)" }} readOnly value={lng.toFixed(6)} />
+                <input className="input" style={{ background: "var(--surface)" }} readOnly value={lng.toFixed(6)} />
               </div>
               <div className="field" style={{ width: "120px", marginBottom: 0 }}>
                 <label className="label">Bán kính (m)</label>
@@ -323,7 +323,7 @@ export function AdminStoreSettings({
               </div>
             </div>
 
-            <div style={{ minHeight: "320px", flex: 1, borderRadius: "8px", overflow: "hidden", border: "1px solid rgba(201,162,39,0.2)", position: "relative", zIndex: 1 }}>
+            <div style={{ minHeight: "320px", flex: 1, borderRadius: "8px", overflow: "hidden", border: "1px solid rgba(146,64,14,0.2)", position: "relative", zIndex: 1 }}>
               <MapContainer 
                 center={[lat, lng]} 
                 zoom={zoom} 
@@ -331,7 +331,8 @@ export function AdminStoreSettings({
                 style={{ height: "100%", width: "100%", position: "absolute", inset: 0 }}
               >
                 <TileLayer
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  attribution='&copy; Google Maps'
+                  url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
                 />
                 <Marker
                   draggable={true}
@@ -352,7 +353,7 @@ export function AdminStoreSettings({
         </div>
       </div>
 
-      <div style={{ marginTop: "2rem", borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: "1.25rem", display: "flex", justifyContent: "flex-end" }}>
+      <div style={{ marginTop: "2rem", borderTop: "1px solid var(--border)", paddingTop: "1.25rem", display: "flex", justifyContent: "flex-end" }}>
         <button 
           type="submit" 
           className="btn btn-primary" 

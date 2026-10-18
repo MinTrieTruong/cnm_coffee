@@ -64,13 +64,13 @@ export function Welcome() {
     <div className="auth-page">
       <div className="auth-content">
         <div style={{ textAlign: "center", marginBottom: "2rem" }}>
-          <div className="badge" style={{ marginBottom: "1rem", background: "rgba(201,162,39,0.2)", border: "1px solid rgba(201,162,39,0.4)" }}>
+          <div className="badge" style={{ marginBottom: "1rem", background: "rgba(146,64,14,0.2)", border: "1px solid rgba(146,64,14,0.4)" }}>
             Quét mã QR — Đặt món tại bàn
           </div>
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "2.5rem", margin: "0 0 0.5rem", color: "#fff", textShadow: "0 2px 10px rgba(0,0,0,0.5)" }}>
+          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "2.5rem", margin: "0 0 0.5rem", color: "var(--text)" }}>
             TD Coffee
           </h1>
-          <p style={{ color: "rgba(255,255,255,0.7)", margin: 0, fontSize: "0.95rem" }}>
+          <p style={{ color: "var(--text)", margin: 0, fontSize: "0.95rem" }}>
             Đăng nhập để tích điểm & lưu món quen
           </p>
         </div>
@@ -78,7 +78,7 @@ export function Welcome() {
         <div className="glass-box">
           <form onSubmit={onLogin}>
             <div className="field">
-              <label className="label" style={{ color: "rgba(255,255,255,0.6)" }} htmlFor="login">
+              <label className="label" style={{ color: "var(--muted)" }} htmlFor="login">
                 Số điện thoại hoặc Email
               </label>
               <input
@@ -93,7 +93,7 @@ export function Welcome() {
               />
             </div>
             <div className="field" style={{ marginBottom: "1.5rem" }}>
-              <label className="label" style={{ color: "rgba(255,255,255,0.6)" }} htmlFor="password">
+              <label className="label" style={{ color: "var(--muted)" }} htmlFor="password">
                 Mật khẩu
               </label>
               <input
@@ -107,20 +107,20 @@ export function Welcome() {
                 required
               />
             </div>
-            {err && <p style={{ color: "#ef4444", fontSize: "0.9rem", margin: "0 0 1rem" }}>{err}</p>}
+            {err && <p style={{ color: "#b91c1c", fontSize: "0.9rem", margin: "0 0 1rem" }}>{err}</p>}
             <button type="submit" className="auth-btn" disabled={loading}>
               {loading ? "Đang đăng nhập…" : "Đăng nhập"}
             </button>
           </form>
 
-          <p style={{ textAlign: "center", color: "rgba(255,255,255,0.6)", margin: "1.5rem 0 1rem", fontSize: "0.9rem" }}>
+          <p style={{ textAlign: "center", color: "var(--muted)", margin: "1.5rem 0 1rem", fontSize: "0.9rem" }}>
             Chưa có tài khoản?{" "}
             <Link to="/register" style={{ color: "var(--accent)", fontWeight: 600 }}>Đăng ký</Link>
           </p>
 
           <div style={{ position: "relative", textAlign: "center", margin: "1.5rem 0" }}>
-            <div style={{ position: "absolute", top: "50%", left: 0, right: 0, borderTop: "1px dashed rgba(255,255,255,0.2)" }} />
-            <span style={{ background: "rgba(255,255,255,0.05)", padding: "0 10px", position: "relative", fontSize: "0.8rem", color: "rgba(255,255,255,0.5)", textTransform: "uppercase" }}>Hoặc</span>
+            <div style={{ position: "absolute", top: "50%", left: 0, right: 0, borderTop: "1px dashed var(--border)" }} />
+            <span style={{ background: "var(--surface2)", padding: "0 10px", position: "relative", fontSize: "0.8rem", color: "var(--muted)", textTransform: "uppercase" }}>Hoặc</span>
           </div>
 
           <button type="button" className="ghost-btn" onClick={onGuest}>
@@ -129,7 +129,7 @@ export function Welcome() {
         </div>
 
         <footer style={{ textAlign: "center", marginTop: "2rem" }}>
-          <Link to="/staff/login" style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem", textDecoration: "none" }}>
+          <Link to="/staff/login" style={{ color: "var(--muted)", fontSize: "0.85rem", textDecoration: "none" }}>
             Dành cho Nhân sự
           </Link>
         </footer>

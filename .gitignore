@@ -5,3 +5,6 @@ dist/
 .DS_Store
 frontend-app/dist/
 backend-node/uploads/
+*.sql
+*.tsbuildinfo
+.agents/

@@ -148,15 +148,15 @@ export function Kds() {
             left: 0,
             right: 0,
             zIndex: 50,
-            background: "linear-gradient(90deg, #c9a227, #e8b84a)",
-            color: "#1a120d",
+            background: "var(--accent)",
+            color: "#fff",
             fontWeight: 800,
             fontSize: "1.15rem",
             textAlign: "center",
             padding: "0.85rem 1rem",
             letterSpacing: "0.04em",
             animation: "kds-flash 0.5s ease-in-out 3",
-            boxShadow: "0 4px 24px rgba(201,162,39,0.45)",
+            boxShadow: "0 4px 24px rgba(146,64,14,0.45)",
           }}
         >
           🔔 ĐƠN MỚI — CẦN PHA CHẾ!
@@ -171,7 +171,7 @@ export function Kds() {
             left: "50%",
             transform: "translateX(-50%)",
             background: "var(--surface2)",
-            border: "1px solid rgba(255,255,255,0.12)",
+            border: "1px solid var(--border)",
             padding: "0.85rem 1.2rem",
             borderRadius: 12,
             zIndex: 40,
@@ -205,9 +205,9 @@ export function Kds() {
                 style={{
                   textAlign: "left",
                   padding: 0,
-                  border: "2px solid rgba(255,255,255,0.08)",
+                  border: "2px solid var(--border)",
                   cursor: "pointer",
-                  background: "linear-gradient(145deg, var(--surface) 0%, #231a15 100%)",
+                  background: "var(--surface)",
                 }}
               >
                 <div style={{ display: "flex", gap: "0.65rem" }}>
@@ -216,28 +216,28 @@ export function Kds() {
                       width: 72,
                       flexShrink: 0,
                       minHeight: 80,
-                      background: "#1a120d",
+                      background: "var(--surface)",
                       backgroundImage: mediaUrl(r.product.imageUrl) ? `url(${mediaUrl(r.product.imageUrl)})` : undefined,
                       backgroundSize: "cover",
                       backgroundPosition: "center",
                     }}
                   />
                   <div style={{ padding: "0.65rem 0.65rem 0.65rem 0" }}>
-                    {(r.priority || r.order.orderType === "Takeaway") && (
+                    {(r.priority || r.order.orderType === "Takeaway" || r.order.orderType === "Delivery") && (
                       <span
                         style={{
                           display: "inline-block",
                           fontSize: "0.68rem",
                           fontWeight: 800,
                           letterSpacing: "0.06em",
-                          color: "#1a120d",
-                          background: "linear-gradient(90deg, #c9a227, #e8b84a)",
+                          color: "#fff",
+                          background: "var(--accent)",
                           padding: "0.2rem 0.45rem",
                           borderRadius: 6,
                           marginBottom: "0.35rem",
                         }}
                       >
-                        MANG VỀ
+                        {r.order.orderType === "Delivery" ? `🛵 GIAO HÀNG #${r.order.id}` : "MANG VỀ"}
                       </span>
                     )}
                     <div style={{ fontWeight: 700 }}>{r.product.name}</div>
@@ -245,7 +245,7 @@ export function Kds() {
                       {r.customNotes}
                     </div>
                     <div style={{ fontSize: "0.8rem", marginTop: "0.35rem", color: "var(--accent)" }}>
-                      {r.order.table?.name ?? "Mang đi"} · x{r.quantity}
+                      {r.order.table?.name ?? (r.order.orderType === "Delivery" ? "Giao hàng" : "Mang đi")} · x{r.quantity}
                     </div>
                   </div>
                 </div>
@@ -269,7 +269,7 @@ export function Kds() {
                 style={{
                   textAlign: "left",
                   padding: 0,
-                  border: "2px solid #c9a227",
+                  border: "2px solid #92400e",
                   cursor: "pointer",
                   background: "linear-gradient(145deg, #3a3025 0%, #2a2118 100%)",
                 }}
@@ -280,28 +280,28 @@ export function Kds() {
                       width: 72,
                       flexShrink: 0,
                       minHeight: 80,
-                      background: "#1a120d",
+                      background: "var(--surface)",
                       backgroundImage: mediaUrl(r.product.imageUrl) ? `url(${mediaUrl(r.product.imageUrl)})` : undefined,
                       backgroundSize: "cover",
                       backgroundPosition: "center",
                     }}
                   />
                   <div style={{ padding: "0.65rem 0.65rem 0.65rem 0" }}>
-                    {(r.priority || r.order.orderType === "Takeaway") && (
+                    {(r.priority || r.order.orderType === "Takeaway" || r.order.orderType === "Delivery") && (
                       <span
                         style={{
                           display: "inline-block",
                           fontSize: "0.68rem",
                           fontWeight: 800,
                           letterSpacing: "0.06em",
-                          color: "#1a120d",
-                          background: "linear-gradient(90deg, #c9a227, #e8b84a)",
+                          color: "#fff",
+                          background: "var(--accent)",
                           padding: "0.2rem 0.45rem",
                           borderRadius: 6,
                           marginBottom: "0.35rem",
                         }}
                       >
-                        MANG VỀ
+                        {r.order.orderType === "Delivery" ? `🛵 GIAO HÀNG #${r.order.id}` : "MANG VỀ"}
                       </span>
                     )}
                     <div style={{ fontWeight: 700 }}>{r.product.name}</div>

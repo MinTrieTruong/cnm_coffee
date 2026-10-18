@@ -45,28 +45,34 @@ export function ProductDetail() {
     );
   }
 
-  const priceAdj = size === "S" ? -3000 : size === "L" ? 5000 : 0;
-  const unitPrice = Math.max(0, p.sellPrice + priceAdj);
+  let priceAdj = 0;
+  if (size === "S") {
+    priceAdj = (p.priceSizeS != null) ? (p.priceSizeS - p.sellPrice) : -3000;
+  } else if (size === "L") {
+    priceAdj = (p.priceSizeL != null) ? (p.priceSizeL - p.sellPrice) : 5000;
+  }
+  const basePrice = Math.max(0, p.sellPrice + priceAdj);
+  const hasDiscount = p.discountPercent && p.discountPercent > 0;
+  const unitPrice = hasDiscount
+    ? Math.round(basePrice * (1 - p.discountPercent! / 100))
+    : basePrice;
+
+  const isFood = p.category?.name?.toLowerCase().includes("đồ ăn") || p.category?.name?.toLowerCase().includes("bánh");
 
   function onAdd() {
     if (!p) return;
-    const lineProduct: Product = {
-      id: p.id,
-      categoryId: p.categoryId,
-      name: p.name,
-      costPrice: p.costPrice,
-      sellPrice: unitPrice,
-      isActive: p.isActive,
-      imageUrl: p.imageUrl,
-      category: p.category,
-    };
-    const noteParts = [`Size ${size}`, `Đá ${icePct}%`, `Đường ${sugar}%`];
+    const noteParts = [];
+    if (!isFood) {
+      noteParts.push(`Size ${size}`, `Đá ${icePct}%`, `Đường ${sugar}%`);
+    }
     if (notes.trim()) noteParts.push(notes.trim());
-    addToCart(lineProduct, {
+    
+    addToCart(p, {
+      unitPrice,
       quantity: qty,
-      size,
-      icePct,
-      sugar,
+      size: isFood ? "M" : size,
+      icePct: isFood ? 100 : icePct,
+      sugar: isFood ? "100" : sugar,
       notes: noteParts.join(" · "),
     });
     nav("/cart");
@@ -92,14 +98,26 @@ export function ProductDetail() {
           <div style={{ 
             width: "100%", aspectRatio: "4/5", 
             borderRadius: 24, overflow: "hidden", 
-            background: "#1a120d", 
-            boxShadow: "0 20px 40px rgba(0,0,0,0.4)",
+            background: "var(--surface)", 
+            boxShadow: "var(--shadow-lg)",
             position: "relative"
           }}>
             {p.imageUrl && (
               <img src={mediaUrl(p.imageUrl)} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             )}
             <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0) 60%, rgba(0,0,0,0.8) 100%)" }} />
+            {hasDiscount && (
+              <span style={{
+                position: "absolute", top: 16, right: 16,
+                background: "linear-gradient(135deg, #e53e3e 0%, #c53030 100%)",
+                color: "#fff", fontWeight: 800, fontSize: "1rem",
+                padding: "0.4rem 1rem", borderRadius: 12,
+                boxShadow: "0 4px 15px rgba(229, 62, 62, 0.5)",
+                zIndex: 2
+              }}>
+                -{p.discountPercent}%
+              </span>
+            )}
           </div>
         </div>
 
@@ -108,65 +126,84 @@ export function ProductDetail() {
           <div>
             <h1 style={{ fontFamily: "var(--font-display)", fontSize: "2.5rem", margin: "0 0 0.5rem", lineHeight: 1.2 }}>{p.name}</h1>
             <p style={{ color: "var(--muted)", fontSize: "1.1rem", margin: "0 0 1rem" }}>{p.category?.name}</p>
-            <div style={{ fontSize: "1.8rem", fontWeight: 700, color: "var(--accent)" }}>
-              {formatVnd(unitPrice)}
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+              {hasDiscount ? (
+                <>
+                  <span style={{ fontSize: "1.8rem", fontWeight: 800, color: "#e53e3e" }}>
+                    {formatVnd(unitPrice)}
+                  </span>
+                  <span style={{ fontSize: "1.15rem", fontWeight: 400, color: "rgba(184,169,154,0.6)", textDecoration: "line-through" }}>
+                    {formatVnd(basePrice)}
+                  </span>
+                </>
+              ) : (
+                <span style={{ fontSize: "1.8rem", fontWeight: 700, color: "var(--accent)" }}>
+                  {formatVnd(unitPrice)}
+                </span>
+              )}
             </div>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
             {/* SIZE */}
-            <div>
-              <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem" }}>Kích cỡ</div>
-              <div style={{ display: "flex", background: "rgba(255,255,255,0.03)", borderRadius: 999, padding: "0.25rem", border: "1px solid rgba(255,255,255,0.05)", position: "relative" }}>
-                {(["S", "M", "L"] as const).map((s) => (
-                  <button
-                    key={s} type="button" onClick={() => setSize(s)}
-                    style={{ flex: 1, position: "relative", zIndex: 1, background: "transparent", border: "none", padding: "0.75rem 0", color: size === s ? "#1a120d" : "var(--text)", fontWeight: size === s ? 700 : 500, fontSize: "1rem", cursor: "pointer", transition: "color 0.2s" }}
-                  >
-                    {size === s && (
-                      <motion.div layoutId="size-bg" style={{ position: "absolute", inset: 0, background: "linear-gradient(135deg, #e8b84a 0%, var(--accent) 100%)", borderRadius: 999, zIndex: -1, boxShadow: "0 4px 12px rgba(201,162,39,0.3)" }} transition={{ type: "spring", bounce: 0.2, duration: 0.6 }} />
-                    )}
-                    {s}
-                  </button>
-                ))}
+            {!isFood && (
+              <div>
+                <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem" }}>Kích cỡ</div>
+                <div style={{ display: "flex", background: "var(--surface2)", borderRadius: 999, padding: "0.25rem", border: "1px solid var(--border)", position: "relative" }}>
+                  {(["S", "M", "L"] as const).map((s) => (
+                    <button
+                      key={s} type="button" onClick={() => setSize(s)}
+                      style={{ flex: 1, position: "relative", zIndex: 1, background: "transparent", border: "none", padding: "0.75rem 0", color: size === s ? "#fff" : "var(--text)", fontWeight: size === s ? 700 : 500, fontSize: "1rem", cursor: "pointer", transition: "color 0.2s" }}
+                    >
+                      {size === s && (
+                        <motion.div layoutId="size-bg" style={{ position: "absolute", inset: 0, background: "var(--accent)", borderRadius: 999, zIndex: -1, boxShadow: "0 4px 12px rgba(146,64,14,0.3)" }} transition={{ type: "spring", bounce: 0.2, duration: 0.6 }} />
+                      )}
+                      {s}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* ĐÁ */}
-            <div>
-              <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem" }}>Lượng đá</div>
-              <div style={{ display: "flex", background: "rgba(255,255,255,0.03)", borderRadius: 999, padding: "0.25rem", border: "1px solid rgba(255,255,255,0.05)", position: "relative" }}>
-                {([0, 50, 100] as const).map((v) => (
-                  <button
-                    key={v} type="button" onClick={() => setIcePct(v)}
-                    style={{ flex: 1, position: "relative", zIndex: 1, background: "transparent", border: "none", padding: "0.6rem 0", color: icePct === v ? "#1a120d" : "var(--text)", fontWeight: icePct === v ? 700 : 500, fontSize: "0.95rem", cursor: "pointer", transition: "color 0.2s" }}
-                  >
-                    {icePct === v && (
-                      <motion.div layoutId="ice-bg" style={{ position: "absolute", inset: 0, background: "linear-gradient(135deg, #e8b84a 0%, var(--accent) 100%)", borderRadius: 999, zIndex: -1, boxShadow: "0 4px 12px rgba(201,162,39,0.3)" }} transition={{ type: "spring", bounce: 0.2, duration: 0.6 }} />
-                    )}
-                    {v}%
-                  </button>
-                ))}
+            {!isFood && (
+              <div>
+                <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem" }}>Lượng đá</div>
+                <div style={{ display: "flex", background: "var(--surface2)", borderRadius: 999, padding: "0.25rem", border: "1px solid var(--border)", position: "relative" }}>
+                  {([0, 50, 100] as const).map((v) => (
+                    <button
+                      key={v} type="button" onClick={() => setIcePct(v)}
+                      style={{ flex: 1, position: "relative", zIndex: 1, background: "transparent", border: "none", padding: "0.6rem 0", color: icePct === v ? "#fff" : "var(--text)", fontWeight: icePct === v ? 700 : 500, fontSize: "0.95rem", cursor: "pointer", transition: "color 0.2s" }}
+                    >
+                      {icePct === v && (
+                        <motion.div layoutId="ice-bg" style={{ position: "absolute", inset: 0, background: "var(--accent)", borderRadius: 999, zIndex: -1, boxShadow: "0 4px 12px rgba(146,64,14,0.3)" }} transition={{ type: "spring", bounce: 0.2, duration: 0.6 }} />
+                      )}
+                      {v}%
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* ĐƯỜNG */}
-            <div>
-              <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem" }}>Lượng đường</div>
-              <div style={{ display: "flex", background: "rgba(255,255,255,0.03)", borderRadius: 999, padding: "0.25rem", border: "1px solid rgba(255,255,255,0.05)", position: "relative" }}>
-                {(["0", "50", "100"] as const).map((v) => (
-                  <button
-                    key={v} type="button" onClick={() => setSugar(v)}
-                    style={{ flex: 1, position: "relative", zIndex: 1, background: "transparent", border: "none", padding: "0.6rem 0", color: sugar === v ? "#1a120d" : "var(--text)", fontWeight: sugar === v ? 700 : 500, fontSize: "0.95rem", cursor: "pointer", transition: "color 0.2s" }}
-                  >
-                    {sugar === v && (
-                      <motion.div layoutId="sugar-bg" style={{ position: "absolute", inset: 0, background: "linear-gradient(135deg, #e8b84a 0%, var(--accent) 100%)", borderRadius: 999, zIndex: -1, boxShadow: "0 4px 12px rgba(201,162,39,0.3)" }} transition={{ type: "spring", bounce: 0.2, duration: 0.6 }} />
-                    )}
-                    {v}%
-                  </button>
-                ))}
+            {!isFood && (
+              <div>
+                <div style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem" }}>Lượng đường</div>
+                <div style={{ display: "flex", background: "var(--surface2)", borderRadius: 999, padding: "0.25rem", border: "1px solid var(--border)", position: "relative" }}>
+                  {(["0", "50", "100"] as const).map((v) => (
+                    <button
+                      key={v} type="button" onClick={() => setSugar(v)}
+                      style={{ flex: 1, position: "relative", zIndex: 1, background: "transparent", border: "none", padding: "0.6rem 0", color: sugar === v ? "#fff" : "var(--text)", fontWeight: sugar === v ? 700 : 500, fontSize: "0.95rem", cursor: "pointer", transition: "color 0.2s" }}
+                    >
+                      {sugar === v && (
+                        <motion.div layoutId="sugar-bg" style={{ position: "absolute", inset: 0, background: "var(--accent)", borderRadius: 999, zIndex: -1, boxShadow: "0 4px 12px rgba(146,64,14,0.3)" }} transition={{ type: "spring", bounce: 0.2, duration: 0.6 }} />
+                      )}
+                      {v}%
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* GHI CHÚ */}
             <div>
@@ -176,20 +213,20 @@ export function ProductDetail() {
                 placeholder="Ít đá, thêm kem, không ống hút…"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: "1rem", color: "var(--text)", width: "100%", fontSize: "1rem" }}
+                style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 16, padding: "1rem", color: "var(--text)", width: "100%", fontSize: "1rem" }}
               />
             </div>
           </div>
 
-          <div style={{ height: "1px", background: "rgba(255,255,255,0.08)", margin: "0.5rem 0" }} />
+          <div style={{ height: "1px", background: "var(--surface2)", margin: "0.5rem 0" }} />
 
           {/* SỐ LƯỢNG & MUA */}
           <div style={{ display: "flex", gap: "1.5rem", alignItems: "center" }}>
-            <div style={{ display: "flex", alignItems: "center", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 999, padding: "0.25rem" }}>
+            <div style={{ display: "flex", alignItems: "center", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 999, padding: "0.25rem" }}>
               <button
                 type="button" onClick={() => setQty((q) => Math.max(1, q - 1))}
-                style={{ width: 44, height: 44, borderRadius: "50%", background: "transparent", border: "none", color: qty <= 1 ? "rgba(255,255,255,0.2)" : "var(--text)", display: "flex", alignItems: "center", justifyContent: "center", cursor: qty <= 1 ? "not-allowed" : "pointer", transition: "background 0.2s" }}
-                onMouseEnter={(e) => { if(qty>1) e.currentTarget.style.background = "rgba(255,255,255,0.05)" }}
+                style={{ width: 44, height: 44, borderRadius: "50%", background: "transparent", border: "none", color: qty <= 1 ? "#d6d3d1" : "var(--text)", display: "flex", alignItems: "center", justifyContent: "center", cursor: qty <= 1 ? "not-allowed" : "pointer", transition: "background 0.2s" }}
+                onMouseEnter={(e) => { if(qty>1) e.currentTarget.style.background = "#f5f5f4" }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
               >
                 <Minus size={20} />
@@ -198,7 +235,7 @@ export function ProductDetail() {
               <button
                 type="button" onClick={() => setQty((q) => Math.min(20, q + 1))}
                 style={{ width: 44, height: 44, borderRadius: "50%", background: "transparent", border: "none", color: "var(--text)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "background 0.2s" }}
-                onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.05)"}
+                onMouseEnter={(e) => e.currentTarget.style.background = "#f5f5f4"}
                 onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
               >
                 <Plus size={20} />
@@ -209,11 +246,11 @@ export function ProductDetail() {
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               type="button" className="btn btn-primary" onClick={onAdd}
-              style={{ flex: 1, padding: "1.2rem", borderRadius: 999, fontSize: "1.1rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.75rem", background: "linear-gradient(135deg, #e8b84a 0%, var(--accent) 100%)", boxShadow: "0 10px 25px rgba(201,162,39,0.3)" }}
+              style={{ flex: 1, padding: "1.2rem", borderRadius: 999, fontSize: "1.1rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.75rem", background: "var(--accent)", boxShadow: "0 10px 25px rgba(146,64,14,0.3)" }}
             >
               <ShoppingBag size={22} />
               {qty > 1
-                ? `Thêm ${qty} ly — ${formatVnd(unitPrice * qty)}`
+                ? `Thêm ${qty} món — ${formatVnd(unitPrice * qty)}`
                 : `Thêm vào giỏ hàng`}
             </motion.button>
           </div>

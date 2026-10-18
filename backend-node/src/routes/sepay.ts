@@ -3,6 +3,8 @@ import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
 import { SePayPgClient } from "sepay-pg-node";
 import crypto from "crypto";
+import { deductInventoryForOrder } from "../lib/inventory.js";
+import { releaseOrderToKitchen } from "../lib/delivery.js";
 
 export function sepayRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
@@ -60,7 +62,7 @@ export function sepayRouter(prisma: PrismaClient, io: Server) {
       settings.pointValueVnd,
       settings.vatRatePercent,
     );
-    const chargeAmount = Math.max(1000, Math.round(computed.totalAmount));
+    const chargeAmount = Math.max(1000, Math.round(computed.totalAmount + Number(order.shippingFee || 0)));
 
     // Save the voucherCode temporarily in cancelReason (format VOUCHER:code:discount)
     await prisma.order.update({
@@ -177,7 +179,7 @@ export function sepayRouter(prisma: PrismaClient, io: Server) {
   return r;
 }
 
-import { computeBill, getStoreSettings } from "../lib/pricing.js";
+import { computeBill, getStoreSettings, computePointsEarned } from "../lib/pricing.js";
 import { rankTierFromLifetimeSpend } from "../lib/rank.js";
 
 /** Hàm dùng chung: cập nhật đơn thành Paid + tạo Payment record + emit socket */
@@ -209,6 +211,7 @@ async function confirmOrderPaid(
     settings.pointValueVnd,
     settings.vatRatePercent,
   );
+  const finalTotal = computed.totalAmount + Number(order.shippingFee || 0);
 
   await prisma.$transaction(async (tx) => {
     // Re-check order status within transaction to prevent race conditions
@@ -236,17 +239,18 @@ async function confirmOrderPaid(
         status: "Paid",
         discountAmt: Number(order.discountAmt) + voucherDiscount,
         vatAmount: computed.vatAmount,
-        totalAmount: computed.totalAmount,
+        totalAmount: finalTotal,
         cancelReason: null,
       } 
     });
     if (updateResult.count === 0) return; // Đã được xử lý bởi request khác
+    await deductInventoryForOrder(tx, orderId);
 
     await tx.payment.create({
       data: {
         orderId,
         method:    "SePay",
-        amount:    Math.round(computed.totalAmount),
+        amount:    Math.round(finalTotal),
         transCode,
       },
     });
@@ -261,7 +265,7 @@ async function confirmOrderPaid(
     if (order.customerId) {
       const customer = await tx.customer.findUnique({ where: { id: order.customerId } });
       if (customer) {
-        const pointsEarned = Math.floor(computed.totalAmount * (settings.pointEarnPercent / 100));
+        const pointsEarned = computePointsEarned(computed.totalAmount, settings.pointEarnEveryVnd, settings.pointEarnEach);
         const prevPaid = await tx.order.aggregate({
           where: { customerId: order.customerId, status: "Paid" },
           _sum: { totalAmount: true },
@@ -314,21 +318,8 @@ async function confirmOrderPaid(
     method: "SePay",
   });
 
-  // Đẩy món vào bếp
-  const holdDetails = await prisma.orderDetail.findMany({
-    where: { orderId, kdsStatus: "Hold" },
-  });
-  if (holdDetails.length > 0) {
-    await prisma.orderDetail.updateMany({
-      where: { orderId, kdsStatus: "Hold" },
-      data: { kdsStatus: "Waiting" },
-    });
-    const kdsDetails = await prisma.orderDetail.findMany({
-      where: { orderId },
-      include: { product: true, order: { include: { table: true } } },
-    });
-    io.to("kds").emit("order:new", { orderId, details: kdsDetails });
-  }
+  // Đẩy món vào bếp (đơn giao hàng: chờ thu ngân xác nhận trước)
+  await releaseOrderToKitchen(prisma, io, orderId);
 }
 
 

@@ -48,7 +48,7 @@ export function ReviewList({
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
         <h2 style={{ fontFamily: "var(--font-display)", fontSize: titleSize, margin: 0 }}>
           {title}
-          <span style={{ marginLeft: "0.75rem", fontSize: "1rem", color: "#f59e0b", fontFamily: "inherit" }}>
+          <span style={{ marginLeft: "0.75rem", fontSize: "1rem", color: "#b45309", fontFamily: "inherit" }}>
             ★ {avgRating}
           </span>
         </h2>
@@ -57,7 +57,7 @@ export function ReviewList({
           value={filter}
           onChange={(e) => setFilter(e.target.value as any)}
           style={{
-            background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)",
+            background: "var(--surface2)", border: "1px solid var(--border)",
             color: "var(--fg)", borderRadius: 6, padding: "0.4rem 0.6rem", fontSize: "0.85rem",
             outline: "none", cursor: "pointer"
           }}
@@ -75,7 +75,7 @@ export function ReviewList({
                onClick={() => setSelectedReview(r)}
                onMouseEnter={(e) => {
                  (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)";
-                 (e.currentTarget as HTMLElement).style.boxShadow = "0 6px 20px rgba(0,0,0,0.3)";
+                 (e.currentTarget as HTMLElement).style.boxShadow = "var(--shadow-lg)";
                }}
                onMouseLeave={(e) => {
                  (e.currentTarget as HTMLElement).style.transform = "";
@@ -84,7 +84,7 @@ export function ReviewList({
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: (r.comment || r.imageUrl) ? "0.5rem" : 0 }}>
               <div style={{ display: "flex" }}>
                 {[1, 2, 3, 4, 5].map((s) => (
-                  <span key={s} style={{ color: s <= r.rating ? "#f59e0b" : "rgba(255,255,255,0.15)", fontSize: "0.95rem" }}>★</span>
+                  <span key={s} style={{ color: s <= r.rating ? "#b45309" : "#d6d3d1", fontSize: "0.95rem" }}>★</span>
                 ))}
               </div>
               <strong style={{ fontSize: "0.9rem" }}>{r.customer.fullName}</strong>
@@ -124,11 +124,11 @@ export function ReviewList({
       {selectedReview && (
         <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", backdropFilter: "blur(4px)" }} onClick={() => setSelectedReview(null)}>
           <div className="card" style={{ maxWidth: 500, width: "100%", padding: "1.5rem", position: "relative", maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
-            <button style={{ position: "absolute", top: "1rem", right: "1rem", background: "rgba(255,255,255,0.1)", border: "none", borderRadius: "50%", width: 32, height: 32, color: "var(--fg)", fontSize: "1.2rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setSelectedReview(null)}>✕</button>
+            <button style={{ position: "absolute", top: "1rem", right: "1rem", background: "var(--surface2)", border: "none", borderRadius: "50%", width: 32, height: 32, color: "var(--fg)", fontSize: "1.2rem", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setSelectedReview(null)}>✕</button>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1rem", marginTop: "0.5rem" }}>
               <div style={{ display: "flex" }}>
                 {[1, 2, 3, 4, 5].map((s) => (
-                  <span key={s} style={{ color: s <= selectedReview.rating ? "#f59e0b" : "rgba(255,255,255,0.15)", fontSize: "1.2rem" }}>★</span>
+                  <span key={s} style={{ color: s <= selectedReview.rating ? "#b45309" : "#d6d3d1", fontSize: "1.2rem" }}>★</span>
                 ))}
               </div>
               <strong style={{ fontSize: "1.05rem" }}>{selectedReview.customer.fullName}</strong>
