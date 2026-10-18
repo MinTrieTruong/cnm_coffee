@@ -9,6 +9,7 @@
  * 1. Check-in: Xác minh khuôn mặt + GPS trong phạm vi 50m
  * 2. Check-out: Nếu dư >30 phút → hiện Modal xin tăng ca
  */
+import { MapPin, Video, Map as MapIcon, CheckCircle2, X } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -219,7 +220,7 @@ export function Attendance() {
         if (faceData.registered && faceData.descriptor) {
           setSavedDescriptor(new Float32Array(faceData.descriptor));
           setFaceRegistered(true);
-          setFaceStatus("Đã có dữ liệu khuôn mặt ✓");
+          setFaceStatus("Đã có dữ liệu khuôn mặt");
         } else {
           setFaceStatus("Chưa đăng ký khuôn mặt — bấm 'Đăng ký' để lưu");
           setFaceRegistered(false);
@@ -252,7 +253,7 @@ export function Attendance() {
       if (faceWarningTimer.current) clearTimeout(faceWarningTimer.current);
       faceWarningTimer.current = window.setTimeout(() => {
         setFaceMatch(null);
-        setFaceStatus("⚠ Không tìm thấy khuôn mặt. Vui lòng kiểm tra lại ánh sáng (tránh ngược sáng) hoặc tháo khẩu trang.");
+        setFaceStatus("Không tìm thấy khuôn mặt. Vui lòng kiểm tra lại ánh sáng (tránh ngược sáng) hoặc tháo khẩu trang.");
       }, 5000);
     };
     resetWarningTimer();
@@ -350,7 +351,7 @@ export function Attendance() {
       });
       setSavedDescriptor(new Float32Array(descriptor));
       setFaceRegistered(true);
-      setFaceStatus("Đăng ký khuôn mặt thành công ✓");
+      setFaceStatus("Đăng ký khuôn mặt thành công");
       setMessage({ text: "Đã lưu dữ liệu khuôn mặt!", type: "ok" });
     } catch (e) {
       setMessage({ text: String(e instanceof Error ? e.message : e), type: "err" });
@@ -506,7 +507,7 @@ export function Attendance() {
   return (
     <div className="attendance-page">
       <h1 className="attendance-title">
-        <span className="attendance-title-icon">📍</span>
+        <span className="attendance-title-icon"><MapPin size={16} aria-hidden /></span>
         Chấm Công
       </h1>
 
@@ -514,7 +515,7 @@ export function Attendance() {
       {message && (
         <div className={`attendance-toast attendance-toast-${message.type}`}>
           <span>{message.text}</span>
-          <button onClick={() => setMessage(null)}>✕</button>
+          <button onClick={() => setMessage(null)} aria-label="Đóng"><X size={16} /></button>
         </div>
       )}
 
@@ -523,18 +524,18 @@ export function Attendance() {
         {/* ─── LEFT: Camera ─── */}
         <div className="attendance-panel attendance-camera-panel">
           <div className="attendance-panel-header">
-            <span className="attendance-panel-icon">🎥</span>
+            <span className="attendance-panel-icon"><Video size={16} aria-hidden /></span>
             Nhận diện khuôn mặt
           </div>
           {isSuccess ? (
             <div style={{ textAlign: "center", padding: "3rem 1rem", border: "1px solid rgba(201,162,39,0.2)", borderRadius: "10px", background: "rgba(201,162,39,0.05)" }}>
-              <div style={{ fontSize: "4rem", marginBottom: "1rem" }}>✅</div>
+              <div style={{ marginBottom: "1rem", color: "var(--o-success)", display: "flex", justifyContent: "center" }}><CheckCircle2 size={48} aria-hidden /></div>
               <h2 style={{ color: "var(--accent)", marginBottom: "1rem", fontSize: "1.5rem" }}>Chấm công thành công!</h2>
               <p style={{ fontSize: "1.2rem", color: "var(--muted)", marginBottom: "2rem" }}>
                 Thời gian: <strong style={{ color: "#fff" }}>{successTime}</strong>
               </p>
               <button className="attendance-btn attendance-btn-secondary" onClick={() => window.location.href = "/"}>
-                🏠 Quay lại trang chủ
+                Quay lại trang chủ
               </button>
             </div>
           ) : (
@@ -571,11 +572,11 @@ export function Attendance() {
                     <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", zIndex: 10 }}>
                       {!isInRange ? (
                         <div style={{ color: "#ef4444", fontWeight: "bold", background: "rgba(0,0,0,0.8)", padding: "15px 20px", borderRadius: "10px", textAlign: "center", border: "1px solid #ef4444" }}>
-                          {distance === null ? "⏳ Đang định vị GPS..." : `❌ Ngoài phạm vi quán (${distance}m)`}
+                          {distance === null ? "Đang định vị GPS..." : `Ngoài phạm vi quán (${distance}m)`}
                         </div>
                       ) : (!canCheckIn && !canCheckOut && schedules.length > 0) ? (
                         <div style={{ color: "#22c55e", fontWeight: "bold", background: "rgba(0,0,0,0.8)", padding: "15px 20px", borderRadius: "10px", textAlign: "center", border: "1px solid #22c55e" }}>
-                          ✅ Đã hoàn tất các ca hôm nay
+                          Đã hoàn tất các ca hôm nay
                         </div>
                       ) : (
                         <button
@@ -583,7 +584,7 @@ export function Attendance() {
                           onClick={() => setIsScanning(true)}
                           style={{ fontSize: "1.1rem", padding: "1rem 2rem", boxShadow: "0 4px 20px rgba(201,162,39,0.4)" }}
                         >
-                          👆 Bấm vào đây để chấm công
+                          Bấm vào đây để chấm công
                         </button>
                       )}
                     </div>
@@ -599,7 +600,7 @@ export function Attendance() {
                   )}
                   {isScanning && faceMatch === true && livenessStep === 4 && (
                     <div style={{ position: "absolute", bottom: "20px", left: "10%", right: "10%", background: "rgba(34, 197, 94, 0.85)", color: "#fff", padding: "10px", borderRadius: "10px", textAlign: "center", fontWeight: "bold" }}>
-                      ✓ Đã xác thực bảo mật
+                      Đã xác thực bảo mật
                     </div>
                   )}
                 </div>
@@ -611,12 +612,12 @@ export function Attendance() {
                   {!isScanning
                     ? "Nhấn nút để bắt đầu quét"
                     : faceMatch === true
-                      ? "✓ Khuôn mặt khớp"
+                      ? "Khuôn mặt khớp"
                       : faceMatch === false
-                        ? "✗ Không khớp"
+                        ? "Không khớp"
                         : faceRegistered
-                          ? "⏳ Đang nhận diện..."
-                          : "⚠ Chưa đăng ký"}
+                          ? "Đang nhận diện..."
+                          : "Chưa đăng ký"}
                 </div>
                 <p className="attendance-face-hint">{isScanning ? faceStatus : "Hệ thống đang ở chế độ chờ"}</p>
               </div>
@@ -629,7 +630,7 @@ export function Attendance() {
                   disabled={loading}
                   style={{ marginTop: "1rem" }}
                 >
-                  📸 Đăng ký khuôn mặt
+                  Đăng ký khuôn mặt
 
                 </button>
               )}
@@ -640,7 +641,7 @@ export function Attendance() {
         {/* ─── RIGHT: Map ─── */}
         <div className="attendance-panel attendance-map-panel">
           <div className="attendance-panel-header">
-            <span className="attendance-panel-icon">🗺️</span>
+            <span className="attendance-panel-icon"><MapIcon size={16} aria-hidden /></span>
             Vị trí GPS
           </div>
           <div className="attendance-map-wrap">
@@ -657,7 +658,7 @@ export function Attendance() {
                 />
                 {/* Marker quán + vòng tròn bán kính */}
                 <Marker position={[storeLocation.lat, storeLocation.lng]}>
-                  <Popup>📍 Vị trí quán TD Coffee</Popup>
+                  <Popup>Vị trí quán TD Coffee</Popup>
                 </Marker>
                 <Circle
                   center={[storeLocation.lat, storeLocation.lng]}
@@ -672,7 +673,7 @@ export function Attendance() {
                 {/* Marker vị trí nhân viên */}
                 {userPos && (
                   <Marker position={[userPos.lat, userPos.lng]} icon={staffIcon}>
-                    <Popup>👤 Vị trí của bạn ({info?.fullName})</Popup>
+                    <Popup>Vị trí của bạn ({info?.fullName})</Popup>
                   </Marker>
                 )}
                 <FitBounds
@@ -692,9 +693,9 @@ export function Attendance() {
             <div className={`attendance-badge ${isInRange ? "badge-ok" : "badge-err"}`}>
               {distance !== null
                 ? isInRange
-                  ? `✓ Trong phạm vi (${distance}m)`
-                  : `✗ Ngoài phạm vi (${distance}m)`
-                : "⏳ Đang xác định vị trí..."}
+                  ? `Trong phạm vi (${distance}m)`
+                  : `Ngoài phạm vi (${distance}m)`
+                : "Đang xác định vị trí..."}
             </div>
           </div>
         </div>
@@ -719,15 +720,15 @@ export function Attendance() {
                 </div>
                 <div className="schedule-card-status">
                   {s.actualCheckIn && s.actualCheckOut ? (
-                    <span className="badge-ok">✓ Hoàn tất</span>
+                    <span className="badge-ok">Hoàn tất</span>
                   ) : s.actualCheckIn ? (
-                    <span className="badge-pending">⏱ Đang làm</span>
+                    <span className="badge-pending">Đang làm</span>
                   ) : (
                     <span className="badge-err">○ Chưa check-in</span>
                   )}
                   {s.isOvertime && (
                     <span className="badge-overtime">
-                      🕐 Tăng ca {s.overtimeMinutes ? `(${s.overtimeMinutes}p duyệt)` : "(chờ duyệt)"}
+                      Tăng ca {s.overtimeMinutes ? `(${s.overtimeMinutes}p duyệt)` : "(chờ duyệt)"}
                     </span>
                   )}
                 </div>
@@ -748,7 +749,7 @@ export function Attendance() {
       {/* ── Action buttons removed (auto-submit replaces them) ── */}
       <div className="attendance-actions">
         {!canCheckIn && !canCheckOut && schedules.length > 0 && (
-          <div className="attendance-done-msg">✅ Đã hoàn tất tất cả ca hôm nay!</div>
+          <div className="attendance-done-msg">Đã hoàn tất tất cả ca hôm nay!</div>
         )}
       </div>
 
@@ -762,8 +763,8 @@ export function Attendance() {
         <div className="attendance-modal-overlay" onClick={() => setShowOvertimeModal(false)}>
           <div className="attendance-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2 className="modal-title">🕐 Yêu cầu tăng ca</h2>
-              <button className="modal-close" onClick={() => setShowOvertimeModal(false)}>✕</button>
+              <h2 className="modal-title">Yêu cầu tăng ca</h2>
+              <button className="modal-close" onClick={() => setShowOvertimeModal(false)} aria-label="Đóng"><X size={16} /></button>
             </div>
 
             <div className="modal-body">
@@ -817,7 +818,7 @@ export function Attendance() {
                 onClick={handleOvertimeSubmit}
                 disabled={loading || !staffNote.trim()}
               >
-                {loading ? "⏳ Đang gửi..." : "📨 Gửi yêu cầu tăng ca"}
+                {loading ? "Đang gửi..." : "Gửi yêu cầu tăng ca"}
               </button>
             </div>
           </div>

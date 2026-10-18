@@ -159,7 +159,7 @@ export function Kds() {
             boxShadow: "0 4px 24px rgba(146,64,14,0.45)",
           }}
         >
-          🔔 ĐƠN MỚI — CẦN PHA CHẾ!
+          ĐƠN MỚI — CẦN PHA CHẾ!
         </div>
       )}
 
@@ -237,7 +237,7 @@ export function Kds() {
                           marginBottom: "0.35rem",
                         }}
                       >
-                        {r.order.orderType === "Delivery" ? `🛵 GIAO HÀNG #${r.order.id}` : "MANG VỀ"}
+                        {r.order.orderType === "Delivery" ? `GIAO HÀNG #${r.order.id}` : "MANG VỀ"}
                       </span>
                     )}
                     <div style={{ fontWeight: 700 }}>{r.product.name}</div>
@@ -269,9 +269,9 @@ export function Kds() {
                 style={{
                   textAlign: "left",
                   padding: 0,
-                  border: "2px solid #92400e",
+                  border: "1px solid var(--o-warning)",
                   cursor: "pointer",
-                  background: "linear-gradient(145deg, #3a3025 0%, #2a2118 100%)",
+                  background: "var(--o-warning-bg)",
                 }}
               >
                 <div style={{ display: "flex", gap: "0.65rem" }}>
@@ -301,7 +301,7 @@ export function Kds() {
                           marginBottom: "0.35rem",
                         }}
                       >
-                        {r.order.orderType === "Delivery" ? `🛵 GIAO HÀNG #${r.order.id}` : "MANG VỀ"}
+                        {r.order.orderType === "Delivery" ? `GIAO HÀNG #${r.order.id}` : "MANG VỀ"}
                       </span>
                     )}
                     <div style={{ fontWeight: 700 }}>{r.product.name}</div>

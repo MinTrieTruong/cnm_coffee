@@ -4,10 +4,7 @@ import { io, Socket } from "socket.io-client";
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import {
-  Camera, CheckCircle2, ChevronDown, ChevronUp, Crosshair, MapPin, Navigation, Package,
-  Phone, Power, RefreshCw, Store, X, XCircle,
-} from "lucide-react";
+import { Camera, CheckCircle2, ChevronDown, ChevronUp, Crosshair, MapPin, Navigation, Package, Phone, Power, RefreshCw, Store, X, XCircle, Bike } from "lucide-react";
 import { apiOrigin, mediaUrl } from "../lib/api";
 import { getStaffInfo, staffApi } from "../lib/staffApi";
 import {
@@ -472,7 +469,7 @@ export function ShipperDashboard() {
       {alertOrder && (
         <div className="sp-overlay" role="alertdialog" aria-label="Đơn mới">
           <div className="sp-alert">
-            <div className="sp-alert-icon">🛵</div>
+            <div className="sp-alert-icon"><Bike size={40} aria-hidden /></div>
             <h3>Bạn có đơn mới #{alertOrder}</h3>
             <p>Hệ thống đã gán đơn cho bạn. Hãy đến quán lấy hàng.</p>
             <button type="button" className="sp-btn sp-btn-primary sp-btn-block" onClick={() => setAlertOrder(null)}>Đã hiểu</button>

@@ -464,8 +464,8 @@ export function AdminCombos() {
                   {comboPrice > 0 && originalPrice > 0 && (
                     <div className={`admin-combo-savings-preview ${comboPrice >= originalPrice ? "admin-combo-savings-preview--error" : ""}`}>
                       {comboPrice >= originalPrice
-                        ? "⚠️ Giá combo phải nhỏ hơn giá gốc!"
-                        : `✅ Khách tiết kiệm ${formatVnd(savings)} (−${savingsPct}%)`}
+                        ? "Giá combo phải nhỏ hơn giá gốc!"
+                        : `Khách tiết kiệm ${formatVnd(savings)} (−${savingsPct}%)`}
                     </div>
                   )}
 

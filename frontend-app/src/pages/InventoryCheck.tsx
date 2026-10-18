@@ -1,3 +1,4 @@
+import { Check } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getStaffInfo, staffApi } from "../lib/staffApi";
@@ -155,7 +156,7 @@ export function InventoryCheck() {
           boxShadow: "0 4px 12px rgba(16, 185, 129, 0.3)", zIndex: 100,
           fontWeight: 500, display: "flex", alignItems: "center", gap: "0.5rem"
         }}>
-          <span>✓</span> {toast}
+          {toast}
         </div>
       )}
 
@@ -201,7 +202,7 @@ export function InventoryCheck() {
               opacity: selectedItemIds.size === 0 ? 0.6 : 1
             }}
           >
-            <span>✍️</span> Tạo phiếu đề xuất ({selectedItemIds.size})
+            Tạo phiếu đề xuất ({selectedItemIds.size})
           </button>
         </div>
 
@@ -242,7 +243,7 @@ export function InventoryCheck() {
                   background: isSelected ? "var(--primary)" : "transparent",
                   display: "flex", alignItems: "center", justifyContent: "center"
                 }}>
-                  {isSelected && <span style={{ color: "#fff", fontSize: "12px", fontWeight: "bold" }}>✓</span>}
+                  {isSelected && <Check size={12} color="#fff" aria-hidden />}
                 </div>
 
                 <div style={{ paddingRight: "2rem" }}>
@@ -271,7 +272,7 @@ export function InventoryCheck() {
                       fontSize: "0.75rem", fontWeight: 700,
                       display: "flex", alignItems: "center", gap: "0.25rem"
                     }}>
-                      ⚠️ Sắp hết
+                      Sắp hết
                     </div>
                   )}
                 </div>
@@ -309,7 +310,7 @@ export function InventoryCheck() {
                       background: pr.status === "APPROVED" ? "#dbeafe" : pr.status === "COMPLETED" ? "#d1fae5" : "#fef3c7", 
                       color: pr.status === "APPROVED" ? "#1d4ed8" : pr.status === "COMPLETED" ? "#047857" : "#b45309" 
                     }}>
-                      {pr.status === "PENDING" ? "⏳ Chờ duyệt" : pr.status === "APPROVED" ? "📦 Đã duyệt & Đang chờ báo giá" : "✅ Hoàn tất"}
+                      {pr.status === "PENDING" ? "Chờ duyệt" : pr.status === "APPROVED" ? "Đã duyệt & Đang chờ báo giá" : "Hoàn tất"}
                     </span>
                   </div>
                 </div>

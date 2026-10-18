@@ -87,7 +87,7 @@ function getDrinkBadge(order: any) {
         boxShadow: "0 4px 12px rgba(220, 38, 38, 0.4)",
         animation: "badge-pulse 1.5s infinite"
       }}>
-        🥤 {qty} món
+        {qty} món
       </div>
     );
   }
@@ -100,7 +100,7 @@ function getDrinkBadge(order: any) {
         padding: "0.2rem 0.45rem", borderRadius: 8,
         fontSize: "0.7rem", fontWeight: 700,
       }}>
-        ⏳ Đang pha
+        Đang pha
       </div>
     );
   }
@@ -114,7 +114,7 @@ function getDrinkBadge(order: any) {
         fontSize: "0.7rem", fontWeight: 700,
         boxShadow: "0 2px 8px rgba(16, 185, 129, 0.3)",
       }}>
-        ✅ Đủ món
+        Đủ món
       </div>
     );
   }
@@ -412,12 +412,11 @@ export function StaffTables() {
             <div
               key={i}
               style={{
-                background: "linear-gradient(135deg, #1a2e1a 0%, #0f3d1f 100%)",
-                border: "2px solid #15803d",
-                borderRadius: 14,
-                padding: "1rem 1.1rem",
-                boxShadow: "0 8px 32px rgba(74,222,128,0.3)",
-                animation: "slide-in-right 0.35s cubic-bezier(.22,1,.36,1)",
+                background: "var(--o-success-bg)",
+                border: "1px solid var(--o-success)",
+                borderRadius: 4,
+                padding: "0.75rem 1rem",
+                boxShadow: "var(--o-shadow-pop)",
                 display: "flex",
                 flexDirection: "column",
                 gap: "0.35rem",
@@ -425,7 +424,7 @@ export function StaffTables() {
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
                 <div style={{ fontWeight: 800, fontSize: "0.88rem", color: "#15803d", letterSpacing: "0.05em" }}>
-                  ✅ MÓN SẴN SÀNG
+                  MÓN SẴN SÀNG
                 </div>
                 <button
                   type="button"
@@ -436,11 +435,11 @@ export function StaffTables() {
                   ×
                 </button>
               </div>
-              <div style={{ fontWeight: 700, fontSize: "1.05rem", color: "#fff" }}>
+              <div style={{ fontWeight: 700, fontSize: "1.05rem", color: "var(--o-text)" }}>
                 {n.productName} <span style={{ color: "#15803d" }}>× {n.quantity}</span>
               </div>
               <div style={{ fontSize: "0.88rem", color: "#15803d" }}>
-                📍 {n.tableName} · Đơn #{n.orderId}
+                {n.tableName} · Đơn #{n.orderId}
               </div>
               <div style={{ fontSize: "0.8rem", color: "#15803d", marginTop: "0.2rem" }}>
                 Vui lòng ra bê nước cho khách!
@@ -490,13 +489,13 @@ export function StaffTables() {
             </span>
             <span style={{ margin: "0 0.5rem", color: "var(--muted)" }}>|</span>
             <span className="table-legend-item" style={{ fontSize: "0.8rem" }}>
-              🥤 Chờ bưng
+              Chờ bưng
             </span>
             <span className="table-legend-item" style={{ fontSize: "0.8rem" }}>
-              ⏳ Đang pha
+              Đang pha
             </span>
             <span className="table-legend-item" style={{ fontSize: "0.8rem" }}>
-              ✅ Đủ món
+              Đủ món
             </span>
           </div>
 

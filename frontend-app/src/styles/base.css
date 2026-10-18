@@ -633,3 +633,11 @@ button.o-status-step { cursor: pointer; }
   .o-form-body { padding: 10px; }
   .o-list-wrap { max-height: none; }
 }
+
+/* Ô/khung của các trang thao tác nhanh cũ: bo góc theo token */
+.o-app .table-tile,
+.o-app .attendance-panel,
+.o-app .attendance-toast,
+.o-app .attendance-modal,
+.o-app .admin-combo-modal { border-radius: var(--o-radius) !important; }
+.o-app .table-tile { box-shadow: none; }

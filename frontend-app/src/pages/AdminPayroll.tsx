@@ -122,7 +122,7 @@ export function AdminPayroll() {
             {Array.from({ length: 12 }).map((_, i) => <option key={i + 1} value={i + 1}>Tháng {i + 1}</option>)}
           </select>
           <input className="input" type="number" value={year} onChange={e => setYear(Number(e.target.value))} style={{ width: 80 }} />
-          <button className="btn btn-outline" onClick={() => setShowConfig(true)}>⚙️ Cấu hình</button>
+          <button className="btn btn-outline" onClick={() => setShowConfig(true)}>Cấu hình</button>
         </div>
       </div>
 
@@ -130,7 +130,7 @@ export function AdminPayroll() {
       
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
         <button className="btn btn-primary" onClick={finalize} disabled={payslips.length === 0 || payslips.every(p => p.status === "PAID")}>Chốt Lương</button>
-        <button className="btn btn-outline" onClick={exportExcel}>⬇️ Xuất Excel</button>
+        <button className="btn btn-outline" onClick={exportExcel}>Xuất Excel</button>
       </div>
 
       <div style={{ overflowX: "auto" }}>

@@ -300,10 +300,10 @@ export function AdminStoreSettings({
 
             <div style={{ display: "flex", gap: "0.8rem", marginBottom: "1rem" }}>
               <button type="button" className="btn btn-ghost" style={{ flex: 1, background: "rgba(146,64,14,0.15)", color: "var(--accent)" }} onClick={() => void handleGeocode()} disabled={busy}>
-                📍 Định vị
+                Định vị
               </button>
               <button type="button" className="btn btn-ghost" style={{ flex: 1, background: "rgba(39, 201, 128, 0.15)", color: "#27c980" }} onClick={handleCurrentLocation} disabled={busy}>
-                🧭 Vị trí hiện tại
+                Vị trí hiện tại
               </button>
             </div>
 

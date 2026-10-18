@@ -205,7 +205,7 @@ export function StaffChat() {
       <aside className="staff-chat-sidebar">
         <div className="staff-chat-sidebar-header">
           <h2 className="staff-chat-title">
-            💬 Tin nhắn
+            Tin nhắn
             {openCount > 0 && <span className="staff-chat-badge">{openCount}</span>}
           </h2>
           <label className="staff-chat-toggle-label">
@@ -264,7 +264,7 @@ export function StaffChat() {
       <main className="staff-chat-main">
         {!selected ? (
           <div className="staff-chat-placeholder">
-            <span>👆 Chọn một phiên chat để xem</span>
+            <span>Chọn một phiên chat để xem</span>
           </div>
         ) : (
           <>

@@ -2,6 +2,7 @@
  * AdminSchedule.tsx — Bảng lịch làm việc tổng hợp cho Quản lý (v2)
  * Layout: Hàng = Nhân viên, Cột = Thứ 2-CN, mỗi ô = danh sách ca
  */
+import { Check, Pencil, Trash2 } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { io, type Socket } from "socket.io-client";
@@ -121,9 +122,9 @@ function EditModal({ ws, staffList, onSave, onClose }: {
           <div>
             <label style={{ fontSize: "0.8rem", color: "#4b5563", display: "block", marginBottom: 4 }}>Trạng thái</label>
             <select className="input" value={status} onChange={(e) => setStatus(e.target.value as WS["status"])} style={{ width: "100%" }}>
-              <option value="PENDING">⏳ Chờ duyệt</option>
-              <option value="APPROVED">✅ Đã duyệt</option>
-              <option value="REJECTED">❌ Từ chối</option>
+              <option value="PENDING">Chờ duyệt</option>
+              <option value="APPROVED">Đã duyệt</option>
+              <option value="REJECTED">Từ chối</option>
             </select>
           </div>
         </div>
@@ -187,16 +188,16 @@ export function AdminSchedule({ embedded = false }: { embedded?: boolean } = {})
   }, [loadAll]);
 
   async function quickApprove(id: number) {
-    try { await staffApi(`/api/schedule/${id}`, { method: "PUT", body: JSON.stringify({ status: "APPROVED" }) }); showToast("✅ Đã duyệt ca"); }
+    try { await staffApi(`/api/schedule/${id}`, { method: "PUT", body: JSON.stringify({ status: "APPROVED" }) }); showToast("Đã duyệt ca"); }
     catch (e) { setErr(e instanceof Error ? e.message : "Lỗi"); }
   }
   async function saveEdit(id: number, data: object) {
     await staffApi(`/api/schedule/${id}`, { method: "PUT", body: JSON.stringify(data) });
-    showToast("💾 Đã lưu");
+    showToast("Đã lưu");
   }
   async function deleteShift(id: number) {
     if (!confirm("Xoá ca này?")) return;
-    try { await staffApi(`/api/schedule/${id}`, { method: "DELETE" }); showToast("🗑 Đã xoá"); }
+    try { await staffApi(`/api/schedule/${id}`, { method: "DELETE" }); showToast("Đã xoá"); }
     catch (e) { setErr(e instanceof Error ? e.message : "Lỗi"); }
   }
   async function publishWeek() {
@@ -204,7 +205,7 @@ export function AdminSchedule({ embedded = false }: { embedded?: boolean } = {})
     setPublishing(true);
     try {
       const res = await staffApi<{ count: number }>("/api/schedule/admin/publish", { method: "POST", body: JSON.stringify({ week: weekKey(currentWeek) }) });
-      showToast(`✅ Đã chốt ${res.count} ca`);
+      showToast(`Đã chốt ${res.count} ca`);
     } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi chốt lịch"); }
     finally { setPublishing(false); }
   }
@@ -214,7 +215,7 @@ export function AdminSchedule({ embedded = false }: { embedded?: boolean } = {})
     setLoading(true);
     try {
       const res = await staffApi<{ generatedCount: number }>("/api/schedule/admin/auto", { method: "POST", body: JSON.stringify({ week: weekKey(currentWeek) }) });
-      showToast(`✅ Đã tự động tạo ${res.generatedCount} ca nháp`);
+      showToast(`Đã tự động tạo ${res.generatedCount} ca nháp`);
       await loadAll();
     } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi xếp lịch"); }
     finally { setLoading(false); }
@@ -271,7 +272,7 @@ export function AdminSchedule({ embedded = false }: { embedded?: boolean } = {})
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem", flexWrap: "wrap", color: "#111827" }}>
         {!embedded && isMgmt && <Link to="/admin?tab=schedule" className="btn btn-ghost" style={{ padding: "0.35rem 0.75rem", fontSize: "0.85rem", color: "#374151", border: "1px solid #d1d5db", borderRadius: 8, background: "#fff" }}>← Quản trị</Link>}
         <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, flex: 1, color: "#111827" }}>
-          📅 {isMgmt ? "Quản lý lịch làm việc" : "Bảng lịch tổng"}
+          {isMgmt ? "Quản lý lịch làm việc" : "Bảng lịch tổng"}
           {pendingCount > 0 && (
             <span style={{ marginLeft: "0.65rem", fontSize: "0.7rem", fontWeight: 700, background: "#b45309", color: "#fff", borderRadius: 999, padding: "0.12rem 0.5rem" }}>
               {pendingCount} chờ duyệt
@@ -282,11 +283,11 @@ export function AdminSchedule({ embedded = false }: { embedded?: boolean } = {})
           <div style={{ display: "flex", gap: "0.5rem" }}>
             <button type="button" className="btn" disabled={loading}
               onClick={() => void autoSchedule()} style={{ fontSize: "0.85rem", padding: "0.45rem 1rem", background: "#8b5cf6", color: "white" }}>
-              ✨ Tự động xếp lịch
+              Tự động xếp lịch
             </button>
             <button type="button" className="btn btn-primary" disabled={publishing || pendingCount === 0}
               onClick={() => void publishWeek()} style={{ fontSize: "0.85rem", padding: "0.45rem 1rem" }}>
-              {publishing ? "Đang chốt…" : `🔒 Chốt lịch (${pendingCount})`}
+              {publishing ? "Đang chốt…" : `Chốt lịch (${pendingCount})`}
             </button>
           </div>
         )}
@@ -305,14 +306,14 @@ export function AdminSchedule({ embedded = false }: { embedded?: boolean } = {})
       {/* Filter */}
       <div style={{ display: "flex", gap: "0.6rem", marginBottom: "1rem", flexWrap: "wrap" }}>
         <select style={{ minWidth: 140, fontSize: "0.83rem", padding: "0.4rem 0.75rem", border: "1px solid #d1d5db", borderRadius: 8, background: "#fff", color: "#111827" }} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as typeof filterStatus)}>
-          <option value="ALL">📋 Tất cả</option>
-          <option value="PENDING">⏳ Chờ duyệt</option>
-          <option value="APPROVED">✅ Đã duyệt</option>
-          <option value="REJECTED">❌ Từ chối</option>
+          <option value="ALL">Tất cả</option>
+          <option value="PENDING">Chờ duyệt</option>
+          <option value="APPROVED">Đã duyệt</option>
+          <option value="REJECTED">Từ chối</option>
         </select>
         <select style={{ minWidth: 160, fontSize: "0.83rem", padding: "0.4rem 0.75rem", border: "1px solid #d1d5db", borderRadius: 8, background: "#fff", color: "#111827" }} value={filterStaff}
           onChange={(e) => setFilterStaff(e.target.value === "ALL" ? "ALL" : Number(e.target.value))}>
-          <option value="ALL">👥 Tất cả nhân viên</option>
+          <option value="ALL">Tất cả nhân viên</option>
           {staffList.map((s) => <option key={s.id} value={s.id}>{s.fullName}</option>)}
         </select>
       </div>
@@ -446,15 +447,15 @@ export function AdminSchedule({ embedded = false }: { embedded?: boolean } = {})
                     return (
                       <div key={ws.id} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: "0.55rem 0.65rem", borderBottom: "1px solid #e5e7eb", background: "#f9fafb", gap: "0.5rem", flexWrap: "wrap" }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "#111827" }}>{ws.staff?.fullName || "⚠️ Cần phân công"}</div>
+                          <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "#111827" }}>{ws.staff?.fullName || "Cần phân công"}</div>
                           <div style={{ fontSize: "0.75rem", color: sh?.color }}>{sh?.name} · {sh?.label}</div>
                           <div style={{ fontSize: "0.72rem", color: SC[ws.status] }}>{SL[ws.status]}</div>
-                          {ws.managerNote && <div style={{ fontSize: "0.7rem", color: "#fb923c" }}>💬 {ws.managerNote}</div>}
+                          {ws.managerNote && <div style={{ fontSize: "0.7rem", color: "#fb923c" }}>{ws.managerNote}</div>}
                         </div>
                         <div style={{ display: "flex", gap: "0.3rem" }}>
-                          {isMgmt && ws.status === "PENDING" && <AB color="#15803d" onClick={() => void quickApprove(ws.id)}>✓</AB>}
-                          {isMgmt && <AB color="#1d4ed8" onClick={() => setEditWs(ws)}>✏️</AB>}
-                          {isMgmt && <AB color="#b91c1c" onClick={() => void deleteShift(ws.id)}>🗑</AB>}
+                          {isMgmt && ws.status === "PENDING" && <AB color="#15803d" onClick={() => void quickApprove(ws.id)}><Check size={14} aria-label="Duyệt" /></AB>}
+                          {isMgmt && <AB color="#1d4ed8" onClick={() => setEditWs(ws)}><Pencil size={14} aria-label="Sửa" /></AB>}
+                          {isMgmt && <AB color="#b91c1c" onClick={() => void deleteShift(ws.id)}><Trash2 size={14} aria-label="Xóa" /></AB>}
                         </div>
                       </div>
                     );
@@ -469,7 +470,7 @@ export function AdminSchedule({ embedded = false }: { embedded?: boolean } = {})
       {!loading && (
         <div style={{ marginTop: "2rem", background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", overflow: "hidden", marginBottom: "2rem" }}>
           <div style={{ padding: "0.75rem 1rem", background: "#f3f4f6", borderBottom: "1px solid #e5e7eb", fontWeight: 700, color: "#111827" }}>
-            📊 Tổng nhân sự làm việc (Chỉ tính ca đã Duyệt)
+            Tổng nhân sự làm việc (Chỉ tính ca đã Duyệt)
           </div>
           <div style={{ overflowX: "auto" }}>
             <table data-no-cards style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem", minWidth: 600 }}>

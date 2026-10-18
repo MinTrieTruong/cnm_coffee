@@ -121,16 +121,23 @@ export function compressImage(file: File, maxSize = 1280, quality = 0.75): Promi
 
 /* ─────────────── Marker icons (divIcon, không phụ thuộc ảnh ngoài) ─────────────── */
 
+/* Icon lucide dạng SVG nội tuyến (không dùng emoji) */
+const svg = (paths: string, size = 16, color = "#fff") =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+const COFFEE = '<path d="M10 2v2"/><path d="M14 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/><path d="M6 2v2"/>';
+const HOUSE = '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>';
+const BIKE = '<circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/>';
+
 export const storeIcon = L.divIcon({
   className: "dl-marker",
-  html: `<div class="dl-pin dl-pin-store"><span>☕</span></div>`,
+  html: `<div class="dl-pin dl-pin-store"><span>${svg(COFFEE)}</span></div>`,
   iconSize: [36, 44],
   iconAnchor: [18, 42],
 });
 
 export const homeIcon = L.divIcon({
   className: "dl-marker",
-  html: `<div class="dl-pin dl-pin-home"><span>🏠</span></div>`,
+  html: `<div class="dl-pin dl-pin-home"><span>${svg(HOUSE)}</span></div>`,
   iconSize: [36, 44],
   iconAnchor: [18, 42],
 });
@@ -146,7 +153,7 @@ export function stopIcon(n: number, active = false) {
 
 export const riderIcon = L.divIcon({
   className: "dl-marker",
-  html: `<div class="dl-rider"><span class="dl-rider-pulse"></span><span class="dl-rider-dot">🛵</span></div>`,
+  html: `<div class="dl-rider"><span class="dl-rider-pulse"></span><span class="dl-rider-dot">${svg(BIKE, 20, "#6f4e37")}</span></div>`,
   iconSize: [44, 44],
   iconAnchor: [22, 22],
 });

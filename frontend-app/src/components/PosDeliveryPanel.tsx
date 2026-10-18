@@ -57,7 +57,7 @@ export function PosDeliveryPanel({ onToast }: { onToast: (m: string) => void }) 
     socket.emit("join", "pos");
     socket.emit("join", "staff");
     socket.on("delivery:new", (p: { orderId: number }) => {
-      toastRef.current(`🛵 Đơn giao hàng mới #${p.orderId} — cần xác nhận`);
+      toastRef.current(`Đơn giao hàng mới #${p.orderId} — cần xác nhận`);
       setCol("new");
       void load();
     });
@@ -131,8 +131,8 @@ export function PosDeliveryPanel({ onToast }: { onToast: (m: string) => void }) 
                 {o.deliveryStatus === "Preparing" && (
                   <div className="pd-progress"><span style={{ width: `${(ready / Math.max(1, o.details.length)) * 100}%` }} /><em>{ready}/{o.details.length} món xong</em></div>
                 )}
-                {o.shipper && <div className="pd-line pd-sub">🛵 {o.shipper.fullName}{o.routeSeq ? ` · điểm #${o.routeSeq}` : ""}</div>}
-                {o.deliveryStatus === "Ready" && <div className="pd-line pd-sub">⏳ Đang chờ tài xế rảnh…</div>}
+                {o.shipper && <div className="pd-line pd-sub">{o.shipper.fullName}{o.routeSeq ? ` · điểm #${o.routeSeq}` : ""}</div>}
+                {o.deliveryStatus === "Ready" && <div className="pd-line pd-sub">Đang chờ tài xế rảnh…</div>}
                 {o.deliveryStatus === "Failed" && <div className="pd-line" style={{ color: "var(--danger)" }}>{o.deliveryNote}</div>}
                 {o.deliveryProofUrl && (
                   <a href={mediaUrl(o.deliveryProofUrl)} target="_blank" rel="noreferrer" className="pd-proof">

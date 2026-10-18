@@ -1,3 +1,4 @@
+import { CheckCircle2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { format, startOfWeek, addWeeks, eachDayOfInterval, addDays, isSameDay, parseISO } from "date-fns";
@@ -74,7 +75,7 @@ export function WorkSchedule() {
     <div style={{ padding: "1rem 0.75rem", maxWidth: 1000, margin: "0 auto", color: "#111827" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem", flexWrap: "wrap", color: "#111827" }}>
         <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, flex: 1 }}>
-          📅 Lịch làm việc của bạn — {info?.fullName}
+          Lịch làm việc của bạn — {info?.fullName}
         </h2>
       </div>
 
@@ -134,7 +135,7 @@ export function WorkSchedule() {
                           alignItems: "center", justifyContent: "center", gap: "0.3rem",
                         }}>
                           {isAssigned ? (
-                            <span style={{ fontSize: "1.2rem" }}>✅</span>
+                            <CheckCircle2 size={16} color="var(--o-success)" aria-label="Có ca" />
                           ) : (
                             <span style={{ color: "#d1d5db", fontSize: "0.75rem" }}>—</span>
                           )}
@@ -146,7 +147,7 @@ export function WorkSchedule() {
                 </tr>
               ))}
               <tr style={{ borderTop: "2px solid #e5e7eb", background: "#f3f4f6" }}>
-                <td style={{ padding: "0.55rem 0.75rem", fontSize: "0.8rem", fontWeight: 700, color: "var(--accent)", borderRight: "1px solid #e5e7eb" }}>⏱ Tổng / ngày</td>
+                <td style={{ padding: "0.55rem 0.75rem", fontSize: "0.8rem", fontWeight: 700, color: "var(--accent)", borderRight: "1px solid #e5e7eb" }}>Tổng / ngày</td>
                 {weekDays.map((day) => {
                   const h = hoursForDay(toDateStr(day));
                   return (
@@ -163,7 +164,7 @@ export function WorkSchedule() {
 
       <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "1.5rem" }}>
         <div style={{ background: "rgba(var(--accent-rgb),0.1)", border: "1px solid rgba(var(--accent-rgb),0.25)", borderRadius: 10, padding: "0.55rem 1.1rem", fontWeight: 700, fontSize: "0.95rem", color: "var(--accent)" }}>
-          ⏱ Tổng cộng: {totalHours} giờ / tuần
+          Tổng cộng: {totalHours} giờ / tuần
         </div>
       </div>
     </div>

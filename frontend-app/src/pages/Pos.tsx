@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { io, Socket } from "socket.io-client";
@@ -145,7 +146,7 @@ function getDrinkBadge(order: any) {
         boxShadow: "0 4px 12px rgba(220, 38, 38, 0.4)",
         animation: "badge-pulse 1.5s infinite"
       }}>
-        🥤 {qty} món
+        {qty} món
       </div>
     );
   }
@@ -158,7 +159,7 @@ function getDrinkBadge(order: any) {
         padding: "0.2rem 0.45rem", borderRadius: 8,
         fontSize: "0.7rem", fontWeight: 700,
       }}>
-        ⏳ Đang pha
+        Đang pha
       </div>
     );
   }
@@ -172,7 +173,7 @@ function getDrinkBadge(order: any) {
         fontSize: "0.7rem", fontWeight: 700,
         boxShadow: "0 2px 8px rgba(16, 185, 129, 0.3)",
       }}>
-        ✅ Đủ món
+        Đủ món
       </div>
     );
   }
@@ -250,7 +251,7 @@ export function Pos() {
 </head>
 <body>
   <div class="wrap">
-    <h1>☕ TD COFFEE</h1>
+    <h1>TD COFFEE</h1>
     <div class="sub">——— HÓA ĐƠN TẠM TÍNH ———<br/>Bill #${order.id}</div>
     <div class="info">
       <div><span>Giờ vào:</span><span>${new Date(order.createdAt).toLocaleString("vi-VN")}</span></div>
@@ -266,7 +267,7 @@ export function Pos() {
       <div><span>VAT (${vatRate}%):</span><span>${new Intl.NumberFormat("vi-VN").format(vatAmount)}&nbsp;đ</span></div>
       <div class="grand"><span>TỔNG PHẢI THU:</span><span>${new Intl.NumberFormat("vi-VN").format(totalAmount)}&nbsp;đ</span></div>
     </div>
-    <div class="footer">Cảm ơn quý khách! Hẹn gặp lại ☕</div>
+    <div class="footer">Cảm ơn quý khách! Hẹn gặp lại</div>
   </div>
   <script>window.onload = function() { window.print(); window.close(); }<\/script>
 </body>
@@ -568,7 +569,7 @@ export function Pos() {
 <html lang="vi"><head><meta charset="utf-8"/><title>Bill #${b.id}</title>
 <style>@page{size:80mm auto;margin:6mm}*{box-sizing:border-box;margin:0;padding:0;font-family:monospace;font-size:13px;color:#000}body{width:80mm}.wrap{border:1px solid #000;padding:8px}h1{text-align:center;font-size:15px;margin-bottom:2px}.sub{text-align:center;font-size:11px;color:#555;margin-bottom:8px}.info{font-size:12px;margin-bottom:8px;border-bottom:1px dashed #999;padding-bottom:6px}.info div{display:flex;justify-content:space-between;margin-top:2px}table{width:100%;border-collapse:collapse;margin-bottom:8px}thead tr{border-bottom:1px solid #444}th{font-weight:700;padding-bottom:3px}td,th{padding:2px 0;vertical-align:top}th:nth-child(2),td:nth-child(2){text-align:center;width:24px}th:nth-child(3),td:nth-child(3){text-align:right}.totals{border-top:1px solid #444;padding-top:6px;font-size:12px}.totals div{display:flex;justify-content:space-between;margin-top:2px}.grand{font-weight:700;font-size:14px;border-top:1px solid #000;padding-top:4px;margin-top:4px}.footer{text-align:center;font-size:11px;color:#555;margin-top:8px}.reprint{text-align:center;font-size:10px;color:#c00;margin-top:4px;font-weight:bold}</style></head>
 <body><div class="wrap">
-<h1>☕ TD COFFEE</h1>
+<h1>TD COFFEE</h1>
 <div class="sub">——— HÓA ĐƠN ———<br/>Bill #${b.id}</div>
 <div class="info">
   <div><span>Giờ:</span><span>${new Date(b.createdAt).toLocaleString("vi-VN")}</span></div>
@@ -583,8 +584,8 @@ export function Pos() {
   <div><span>VAT:</span><span>${new Intl.NumberFormat("vi-VN").format(b.vatAmount)}&nbsp;đ</span></div>
   <div class="grand"><span>TỔNG:</span><span>${new Intl.NumberFormat("vi-VN").format(b.totalAmount)}&nbsp;đ</span></div>
 </div>
-<div class="reprint">[★ BẢN SAO — Đã thanh toán ${b.paidAt ? new Date(b.paidAt).toLocaleString("vi-VN") : ""} ★]</div>
-<div class="footer">Cảm ơn quý khách! Hẹn gặp lại ☕</div></div>
+<div class="reprint">[BẢN SAO — Đã thanh toán ${b.paidAt ? new Date(b.paidAt).toLocaleString("vi-VN") : ""}]</div>
+<div class="footer">Cảm ơn quý khách! Hẹn gặp lại</div></div>
 <script>window.onload=function(){window.print();window.close()}<\/script></body></html>`);
     win.document.close();
   }
@@ -615,7 +616,7 @@ export function Pos() {
               setShowBillHistory(next);
               if (next) void loadBills(billDate);
             }}>
-            🗂 Lịch sử bill
+            Lịch sử bill
           </button>
           <button type="button" className="btn btn-ghost staff-btn-light" onClick={() => void refreshAll()}>
             Làm mới
@@ -799,13 +800,13 @@ export function Pos() {
             </span>
             <span style={{ margin: "0 0.5rem", color: "var(--muted)" }}>|</span>
             <span className="table-legend-item" style={{ fontSize: "0.8rem" }}>
-              🥤 Chờ bưng
+              Chờ bưng
             </span>
             <span className="table-legend-item" style={{ fontSize: "0.8rem" }}>
-              ⏳ Đang pha
+              Đang pha
             </span>
             <span className="table-legend-item" style={{ fontSize: "0.8rem" }}>
-              ✅ Đủ món
+              Đủ món
             </span>
           </div>
 
@@ -868,8 +869,8 @@ export function Pos() {
           <section className="card" style={{ padding: "1rem 1.15rem", width: "100%", maxWidth: 600, maxHeight: "90vh", overflowY: "auto", margin: 0 }}
             onClick={(e) => e.stopPropagation()}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.65rem", marginBottom: "0.85rem" }}>
-              <h2 style={{ fontSize: "1.1rem", margin: 0 }}>🗂 Lịch sử bill</h2>
-              <button type="button" className="btn btn-ghost" style={{ padding: "0.3rem 0.6rem", fontSize: "0.85rem" }} onClick={() => setShowBillHistory(false)}>✕</button>
+              <h2 style={{ fontSize: "1.1rem", margin: 0 }}>Lịch sử bill</h2>
+              <button type="button" className="btn btn-ghost" style={{ padding: "0.3rem 0.6rem", fontSize: "0.85rem" }} onClick={() => setShowBillHistory(false)} aria-label="Đóng"><X size={16} /></button>
             </div>
             <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", marginBottom: "1rem" }}>
               <input
@@ -973,7 +974,7 @@ export function Pos() {
             onClick={(e) => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.85rem" }}>
               <h3 style={{ margin: 0, fontSize: "1rem" }}>Bill #{billDetailModal.id}</h3>
-              <button type="button" className="btn btn-ghost" style={{ padding: "0.3rem 0.6rem", fontSize: "0.85rem" }} onClick={() => setBillDetailModal(null)}>✕</button>
+              <button type="button" className="btn btn-ghost" style={{ padding: "0.3rem 0.6rem", fontSize: "0.85rem" }} onClick={() => setBillDetailModal(null)} aria-label="Đóng"><X size={16} /></button>
             </div>
 
             <div style={{ fontSize: "0.85rem", marginBottom: "0.75rem", borderBottom: "1px dashed var(--border)", paddingBottom: "0.65rem" }}>
@@ -1017,7 +1018,7 @@ export function Pos() {
 
             <div style={{ marginTop: "1rem", display: "flex", gap: "0.5rem" }}>
               <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={() => printHistoryBill(billDetailModal)}>
-                🖨 In lại bill
+                In lại bill
               </button>
               <button type="button" className="btn btn-ghost" onClick={() => setBillDetailModal(null)}>Đóng</button>
             </div>
@@ -1045,7 +1046,7 @@ export function Pos() {
             style={{ padding: "1.25rem", maxWidth: 440, width: "100%", overflowY: "auto", maxHeight: "90vh" }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ marginTop: 0, textAlign: "center", letterSpacing: "0.05em" }}>☕ TD COFFEE</h3>
+            <h3 style={{ marginTop: 0, textAlign: "center", letterSpacing: "0.05em" }}>TD COFFEE</h3>
             <p style={{ textAlign: "center", fontSize: "0.82rem", margin: "-0.25rem 0 0.5rem", color: "var(--muted)" }}>
               ————— HÓA ĐƠN TẠM TÍNH —————
             </p>
@@ -1113,7 +1114,7 @@ export function Pos() {
             </div>
 
             <p style={{ textAlign: "center", fontSize: "0.78rem", color: "var(--muted)", marginTop: "0.85rem", marginBottom: 0 }}>
-              Cảm ơn quý khách! Hẹn gặp lại ☕
+              Cảm ơn quý khách! Hẹn gặp lại
             </p>
 
             <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "1rem" }}>
@@ -1122,7 +1123,7 @@ export function Pos() {
                 className="btn btn-ghost"
                 onClick={() => printBill(billModal, billPreview.vatAmount, billPreview.totalAmount, settings.vatRatePercent)}
               >
-                🖨 In bill tạm tính
+                In bill tạm tính
               </button>
               <button
                 type="button"
@@ -1136,7 +1137,7 @@ export function Pos() {
                   setBillStep("pay");
                 }}
               >
-                💳 Thu tiền
+                Thu tiền
               </button>
               <button type="button" className="btn btn-ghost" onClick={() => setBillModal(null)}>
                 Đóng
@@ -1173,7 +1174,7 @@ export function Pos() {
             </ul>
             {payOrder.status === "Paid" ? (
               <div style={{ margin: "1.5rem 0", padding: "1rem", backgroundColor: "#ecfdf5", borderRadius: "8px", textAlign: "center", border: "1px solid #047857" }}>
-                <strong style={{ color: "#047857", fontSize: "1.1rem" }}>✓ Đã thanh toán {payOrder.payments?.[0]?.method ?? "Online"}</strong>
+                <strong style={{ color: "#047857", fontSize: "1.1rem" }}>Đã thanh toán {payOrder.payments?.[0]?.method ?? "Online"}</strong>
                 <p style={{ margin: "0.5rem 0 0", color: "#065f46" }}>Số tiền: <strong>{formatVnd(preview.totalAmount)}</strong></p>
                 <p style={{ margin: "0.25rem 0 0", fontSize: "0.85rem", color: "#065f46" }}>Vui lòng nhấn "Xác nhận & In bill" để kết thúc đơn.</p>
               </div>
@@ -1251,7 +1252,7 @@ export function Pos() {
                     </div>
                     {preview.change !== null && Number(cashGiven.replace(/\D/g, "")) > 0 && (
                       <span style={{ fontSize: "0.9rem", marginTop: "0.35rem", display: "block", color: preview.change >= 0 ? "var(--success)" : "var(--danger)" }}>
-                        {preview.change >= 0 ? `✓ Tiền thừa: ${formatVnd(preview.change)}` : `✗ Còn thiếu: ${formatVnd(Math.abs(preview.change))}`}
+                        {preview.change >= 0 ? `Tiền thừa: ${formatVnd(preview.change)}` : `Còn thiếu: ${formatVnd(Math.abs(preview.change))}`}
                       </span>
                     )}
                   </div>
