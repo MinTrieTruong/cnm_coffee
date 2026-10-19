@@ -268,25 +268,9 @@ export function firstPathOf(app: AppDef, role: string) {
 }
 
 /** Trang mặc định sau đăng nhập theo vai trò */
-export function defaultRouteForRole(role: string): string {
-  switch (role) {
-    case "Admin":
-    case "Owner":
-      return "/app/overview/home";
-    case "Cashier":
-      return "/pos";
-    case "Kitchen":
-      return "/app/kitchen/kds";
-    case "Waiter":
-      return "/app/tables/floor";
-    case "Shipper":
-      return "/app/delivery/shipper";
-    case "Purchasing":
-    case "Manager":
-      return "/app/purchase/orders";
-    default:
-      return "/app/hr/attendance";
-  }
+/** Trang mặc định sau đăng nhập: mọi vai trò vào Trang chủ (ca hôm nay + chức năng theo nhóm) */
+export function defaultRouteForRole(_role: string): string {
+  return "/app/overview/home";
 }
 
 /** Ánh xạ URL cũ → URL mới */

@@ -95,19 +95,19 @@ const I: Record<string, NavItem> = {
 
 /** Luôn có trong "Thêm" của mọi nhân viên (Đổi mật khẩu & Đăng xuất là hành động, do BottomNav vẽ) */
 export const STAFF_COMMON_MORE: NavItem[] = [
-  I.home,
   { id: "my-schedule", label: "Lịch cá nhân", short: "Lịch", icon: CalendarCheck, to: "/app/hr/my-schedule" },
   { id: "my-requests", label: "Đề xuất cá nhân", short: "Đề xuất", icon: FileText, to: "/app/hr/requests" },
   { id: "payslips", label: "Phiếu lương", short: "Lương", icon: Wallet, to: "/app/hr/payslips" },
 ];
 
 export const NAV_BY_ROLE: Record<string, RoleNav> = {
-  Waiter: { primary: [I.floor, I.orderStatus, I.chat, I.attendance] },
-  Cashier: { primary: [I.pos, I.floor, I.onlineOrders, I.attendance], more: [I.chat, I.schedule] },
-  Kitchen: { primary: [I.kds, I.stockCheck, I.attendance, I.schedule] },
-  Shipper: { primary: [I.shipOrders, I.shipMap, I.shipHistory, I.attendance], more: [I.schedule] },
-  Purchasing: { primary: [I.purchase, I.suppliers, I.stock, I.attendance] },
-  Manager: { primary: [I.purchase, I.suppliers, I.stock, I.attendance] },
+  // Mọi vai trò: Trang chủ · 2 việc chính của vai trò · Chấm công; phần còn lại ở Trang chủ và "Thêm"
+  Waiter: { primary: [I.home, I.floor, I.orderStatus, I.attendance], more: [I.chat] },
+  Cashier: { primary: [I.home, I.pos, I.onlineOrders, I.attendance], more: [I.floor, I.chat, I.schedule] },
+  Kitchen: { primary: [I.home, I.kds, I.stockCheck, I.attendance], more: [I.schedule] },
+  Shipper: { primary: [I.home, I.shipOrders, I.shipMap, I.attendance], more: [I.shipHistory, I.schedule] },
+  Purchasing: { primary: [I.home, I.purchase, I.stock, I.attendance], more: [I.suppliers] },
+  Manager: { primary: [I.home, I.purchase, I.stock, I.attendance], more: [I.suppliers] },
   // Quản lý: việc hằng ngày ở thanh đáy; các nhóm chức năng còn lại nằm ở Trang chủ và "Thêm"
   Admin: { primary: [I.home, I.orders, I.attendance, I.schedule], more: [I.overview, I.inventoryApp, I.hrApp], moreAllApps: true },
   Owner: { primary: [I.home, I.orders, I.attendance, I.schedule], more: [I.storesCompare, I.stores, I.overview, I.inventoryApp, I.hrApp], moreAllApps: true },
