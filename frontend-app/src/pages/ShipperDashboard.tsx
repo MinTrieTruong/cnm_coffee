@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { io, Socket } from "socket.io-client";
+import { Socket } from "socket.io-client";
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { Camera, CheckCircle2, ChevronDown, ChevronUp, Crosshair, MapPin, Navigation, Package, Phone, Power, RefreshCw, Store, X, XCircle, Bike } from "lucide-react";
-import { apiOrigin, mediaUrl } from "../lib/api";
-import { getStaffInfo, staffApi } from "../lib/staffApi";
+import { mediaUrl } from "../lib/api";
+import { getStaffInfo, staffApi, staffSocket as openStaffSocket } from "../lib/staffApi";
 import {
   compressImage, fetchRoadRoute, formatKm, formatVnd, googleMapsDir, haversineKm,
   meIcon, stopIcon, storeIcon, type LatLng,
@@ -126,7 +126,7 @@ export function ShipperDashboard() {
   useEffect(() => {
     if (!allowed || !info) return;
     void load();
-    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"] });
+    const socket: Socket = openStaffSocket();
     socket.emit("join", `staff_${info.id}`);
     socket.on("shipper:new_order", (p: { orderId: number }) => {
       setAlertOrder(p.orderId);

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, type FormEvent } from "react";
-import { io, type Socket } from "socket.io-client";
-import { apiBase, apiOrigin } from "../lib/api";
-import { getStaffInfo, getStaffToken } from "../lib/staffApi";
+import type { Socket } from "socket.io-client";
+import { apiBase } from "../lib/api";
+import { getStaffInfo, getStaffToken, staffSocket as openStaffSocket } from "../lib/staffApi";
 
 /* ── Types ─────────────────────────────────────────────────────────── */
 interface ChatMsg {
@@ -25,7 +25,7 @@ interface ChatSession {
 let staffSocket: Socket | null = null;
 function getSocket(): Socket {
   if (!staffSocket) {
-    staffSocket = io(apiOrigin(), { transports: ["websocket", "polling"] });
+    staffSocket = openStaffSocket();
   }
   return staffSocket;
 }

@@ -181,6 +181,7 @@ export function sepayRouter(prisma: PrismaClient, io: Server) {
 
 import { computeBill, getStoreSettings, computePointsEarned } from "../lib/pricing.js";
 import { rankTierFromLifetimeSpend } from "../lib/rank.js";
+import { toStore } from "../lib/storeScope.js";
 
 /** Hàm dùng chung: cập nhật đơn thành Paid + tạo Payment record + emit socket */
 async function confirmOrderPaid(
@@ -295,7 +296,7 @@ async function confirmOrderPaid(
   // Thông báo POS: đơn đã thanh toán qua SePay (không cần thu ngân xác nhận)
   const tableLabel = order.table ? order.table.name : "Mang về";
   const customerLabel = order.customer?.fullName ?? "Vãng lai";
-  io.to("pos").emit("payment:done", {
+  toStore(io, "pos", order.storeId).emit("payment:done", {
     orderId,
     method: "SePay",
     amount: order.totalAmount,
@@ -303,7 +304,7 @@ async function confirmOrderPaid(
     customerLabel,
     isOnline: true,
   });
-  io.to("staff").emit("payment:done", {
+  toStore(io, "staff", order.storeId).emit("payment:done", {
     orderId,
     method: "SePay",
     amount: order.totalAmount,

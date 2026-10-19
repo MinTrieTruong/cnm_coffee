@@ -1,7 +1,8 @@
 import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
-import { attachStaff, requireRoles, type StaffRequest } from "../middleware/staff.js";
+import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
+import { inStore, mustStoreId, storeWhere, toStore } from "../lib/storeScope.js";
 import { computePointsEarned, getStoreSettings } from "../lib/pricing.js";
 import { rankTierFromLifetimeSpend } from "../lib/rank.js";
 import { deductInventoryForOrder } from "../lib/inventory.js";
@@ -35,16 +36,17 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
   const auth = attachStaff(prisma);
   const cashier = [auth, requireRoles("Cashier", "Admin", "Manager")];
-  const shipperOnly = [auth, requireRoles("Shipper", "Admin", "Manager")];
+  const shipperOnly = [auth, requireRoles("Shipper", "Admin", "Manager"), requireStore];
 
   /* ═══════════════════════ THU NGÂN ═══════════════════════ */
 
   /** Bảng điều phối: đơn giao đang xử lý + trạng thái shipper */
-  r.get("/delivery/board", ...cashier, async (_req, res) => {
+  r.get("/delivery/board", ...cashier, async (req, res) => {
     const since = new Date(Date.now() - 12 * 3600_000);
     const [orders, shippers] = await Promise.all([
       prisma.order.findMany({
         where: {
+          ...storeWhere(req),
           orderType: "Delivery",
           OR: [
             { deliveryStatus: { in: [DS.AwaitingConfirm, DS.Preparing, DS.Ready, DS.Assigned, DS.Delivering] } },
@@ -55,7 +57,7 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
         orderBy: { id: "desc" },
       }),
       prisma.staff.findMany({
-        where: { role: "Shipper", status: "Active" },
+        where: { ...storeWhere(req), role: "Shipper", status: "Active" },
         select: {
           id: true, fullName: true, phone: true, shipperOnline: true, lastLat: true, lastLng: true, lastLocationAt: true,
           ordersShipped: { where: { deliveryStatus: { in: ACTIVE_SHIPPER_STATUSES } }, select: { id: true } },
@@ -72,14 +74,14 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
   r.post("/delivery/:id/confirm", ...cashier, async (req, res) => {
     const id = Number(req.params.id);
     const order = await prisma.order.findUnique({ where: { id } });
-    if (!order || order.orderType !== "Delivery") return res.status(404).json({ error: "Không tìm thấy đơn giao hàng" });
+    if (!order || !inStore(req, order) || order.orderType !== "Delivery") return res.status(404).json({ error: "Không tìm thấy đơn giao hàng" });
     if (order.deliveryStatus !== DS.AwaitingConfirm) return res.status(400).json({ error: "Đơn không ở trạng thái chờ xác nhận" });
     await prisma.order.update({
       where: { id },
       data: { deliveryStatus: DS.Preparing, confirmedAt: new Date(), staffId: (req as StaffRequest).staffRow!.id },
     });
     await pushHoldToKitchen(prisma, io, id);
-    emitDeliveryChanged(io, [id]);
+    emitDeliveryChanged(io, order.storeId, [id]);
     res.json({ ok: true });
   });
 
@@ -88,7 +90,7 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
     const id = Number(req.params.id);
     const reason = String((req.body as { reason?: string })?.reason ?? "").trim() || "Quán không thể nhận đơn";
     const order = await prisma.order.findUnique({ where: { id } });
-    if (!order || order.orderType !== "Delivery") return res.status(404).json({ error: "Không tìm thấy đơn giao hàng" });
+    if (!order || !inStore(req, order) || order.orderType !== "Delivery") return res.status(404).json({ error: "Không tìm thấy đơn giao hàng" });
     if (order.deliveryStatus !== DS.AwaitingConfirm) return res.status(400).json({ error: "Chỉ từ chối được đơn đang chờ xác nhận" });
     await prisma.order.update({
       where: { id },
@@ -99,7 +101,7 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
         ...(order.status === "Paid" ? {} : { status: "Cancelled", cancelReason: reason }),
       },
     });
-    emitDeliveryChanged(io, [id]);
+    emitDeliveryChanged(io, order.storeId, [id]);
     res.json({ ok: true });
   });
 
@@ -108,11 +110,11 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
     const id = Number(req.params.id);
     const shipperId = Number((req.body as { shipperId?: number })?.shipperId);
     const order = await prisma.order.findUnique({ where: { id } });
-    if (!order || order.orderType !== "Delivery") return res.status(404).json({ error: "Không tìm thấy đơn giao hàng" });
+    if (!order || !inStore(req, order) || order.orderType !== "Delivery") return res.status(404).json({ error: "Không tìm thấy đơn giao hàng" });
     if (![DS.Ready, DS.Assigned].includes(order.deliveryStatus as never)) {
       return res.status(400).json({ error: "Chỉ gán được đơn đã pha xong và chưa lấy hàng" });
     }
-    const shipper = await prisma.staff.findFirst({ where: { id: shipperId, role: "Shipper", status: "Active" } });
+    const shipper = await prisma.staff.findFirst({ where: { id: shipperId, role: "Shipper", status: "Active", storeId: order.storeId } });
     if (!shipper) return res.status(404).json({ error: "Shipper không tồn tại" });
     const prev = order.shipperId;
     await prisma.order.update({
@@ -122,7 +124,7 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
     await recomputeRoute(prisma, shipperId);
     if (prev && prev !== shipperId) await recomputeRoute(prisma, prev);
     io.to(`staff_${shipperId}`).emit("shipper:new_order", { orderId: id });
-    emitDeliveryChanged(io, [id], prev && prev !== shipperId ? [shipperId, prev] : [shipperId]);
+    emitDeliveryChanged(io, order.storeId, [id], prev && prev !== shipperId ? [shipperId, prev] : [shipperId]);
     res.json({ ok: true });
   });
 
@@ -134,7 +136,7 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
     const [store, active, history] = await Promise.all([
-      getStoreLocation(prisma),
+      getStoreLocation(prisma, mustStoreId(req)),
       prisma.order.findMany({
         where: { shipperId: me.id, deliveryStatus: { in: ACTIVE_SHIPPER_STATUSES } },
         include: orderInclude,
@@ -182,7 +184,7 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
       if (busy > 0) return res.status(400).json({ error: "Hoàn tất các đơn đang giao trước khi tạm nghỉ" });
     }
     await prisma.staff.update({ where: { id: me.id }, data: { shipperOnline: online } });
-    io.to("pos").emit("delivery:update", { shipperId: me.id });
+    toStore(io, "pos", mustStoreId(req)).emit("delivery:update", { shipperId: me.id });
     if (online) await dispatchReadyOrders(prisma, io);
     res.json({ ok: true, online });
   });
@@ -202,7 +204,7 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
     });
     const payload = { shipperId: me.id, lat, lng, heading: heading ?? null, at: now.toISOString() };
     for (const o of active) io.to(`tracking:${o.id}`).emit("delivery:location", { orderId: o.id, ...payload });
-    io.to("pos").emit("shipper:location", payload);
+    toStore(io, "pos", mustStoreId(req)).emit("shipper:location", payload);
     res.json({ ok: true });
   });
 
@@ -224,7 +226,7 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
       prisma.orderDetail.updateMany({ where: { orderId: { in: orderIds }, kdsStatus: "Ready" }, data: { kdsStatus: "Served" } }),
     ]);
     await recomputeRoute(prisma, me.id);
-    emitDeliveryChanged(io, orderIds, [me.id]);
+    emitDeliveryChanged(io, mustStoreId(req), orderIds, [me.id]);
     res.json({ ok: true, orderIds });
   });
 
@@ -234,7 +236,7 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
     const id = Number(req.params.id);
     const { photo, note } = req.body as { photo?: string; note?: string };
     const order = await prisma.order.findUnique({ where: { id }, include: { customer: true } });
-    if (!order || (order.shipperId !== me.id && me.role === "Shipper")) return res.status(404).json({ error: "Không tìm thấy đơn" });
+    if (!order || !inStore(req, order) || (order.shipperId !== me.id && me.role === "Shipper")) return res.status(404).json({ error: "Không tìm thấy đơn" });
     if (order.deliveryStatus !== DS.Delivering) return res.status(400).json({ error: "Đơn chưa ở trạng thái đang giao" });
     if (!photo) return res.status(400).json({ error: "Cần chụp ảnh xác nhận đã giao" });
 
@@ -281,8 +283,8 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
     });
 
     await recomputeRoute(prisma, me.id);
-    emitDeliveryChanged(io, [id], [me.id]);
-    if (cod > 0) io.to("pos").emit("payment:done", { orderId: id, isOnline: true, method: "COD", customerLabel: order.customer?.fullName });
+    emitDeliveryChanged(io, order.storeId, [id], [me.id]);
+    if (cod > 0) toStore(io, "pos", order.storeId).emit("payment:done", { orderId: id, isOnline: true, method: "COD", customerLabel: order.customer?.fullName });
     await dispatchReadyOrders(prisma, io);
     res.json({ ok: true, proofUrl, codCollected: cod });
   });
@@ -294,7 +296,7 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
     const { reason, photo } = req.body as { reason?: string; photo?: string };
     if (!reason?.trim()) return res.status(400).json({ error: "Cần nhập lý do" });
     const order = await prisma.order.findUnique({ where: { id } });
-    if (!order || (order.shipperId !== me.id && me.role === "Shipper")) return res.status(404).json({ error: "Không tìm thấy đơn" });
+    if (!order || !inStore(req, order) || (order.shipperId !== me.id && me.role === "Shipper")) return res.status(404).json({ error: "Không tìm thấy đơn" });
     if (order.deliveryStatus !== DS.Delivering) return res.status(400).json({ error: "Đơn chưa ở trạng thái đang giao" });
     let proofUrl: string | null = null;
     if (photo) {
@@ -311,7 +313,7 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
       },
     });
     await recomputeRoute(prisma, me.id);
-    emitDeliveryChanged(io, [id], [me.id]);
+    emitDeliveryChanged(io, order.storeId, [id], [me.id]);
     await dispatchReadyOrders(prisma, io);
     res.json({ ok: true });
   });
@@ -324,7 +326,7 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ" });
     const order = await prisma.order.findUnique({ where: { id }, include: orderInclude });
     if (!order || order.orderType !== "Delivery") return res.status(404).json({ error: "Không tìm thấy đơn giao hàng" });
-    const store = await getStoreLocation(prisma);
+    const store = await getStoreLocation(prisma, order.storeId);
     const dest = { lat: order.customerLat ?? store.lat, lng: order.customerLng ?? store.lng };
 
     let stopsBefore = 0;

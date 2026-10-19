@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { io, Socket } from "socket.io-client";
-import { apiBase, apiOrigin } from "../lib/api";
-import { mapFetchError } from "../lib/net";
-import { getStaffInfo, staffApi } from "../lib/staffApi";
+import { Socket } from "socket.io-client";
+import { apiOrigin } from "../lib/api";
+import { getStaffInfo, staffApi, staffSocket as openStaffSocket } from "../lib/staffApi";
 
 /** Phát âm thanh ding khi món sẵn sàng phục vụ. */
 function playReadySound() {
@@ -165,15 +164,7 @@ export function StaffTables() {
   const load = useCallback(async () => {
     try {
       setErr(null);
-      const base = apiBase();
-      let res: Response;
-      try {
-        res = await fetch(`${base}/api/pos/tables`);
-      } catch (e) {
-        throw mapFetchError(e);
-      }
-      if (!res.ok) throw new Error("Không tải được bàn");
-      setTables((await res.json()) as TableRow[]);
+      setTables(await staffApi<TableRow[]>("/api/pos/tables"));
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Lỗi");
     }
@@ -208,7 +199,7 @@ export function StaffTables() {
 
   // Socket: nhận thông báo từ backend
   useEffect(() => {
-    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"] });
+    const socket: Socket = openStaffSocket();
     socket.emit("join", "staff");
     socket.emit("join", "pos"); // nhận luôn payment:done để refresh sơ đồ bàn
 
@@ -663,7 +654,7 @@ export function StaffTables() {
                 {products.filter((p) => activeCat === null || p.categoryId === activeCat).map((p) => {
                   const line = menuLines[p.id];
                   const qty = line?.qty ?? 0;
-                  const imgUrl = p.imageUrl ? (p.imageUrl.startsWith("http") ? p.imageUrl : `http://localhost:4000${p.imageUrl}`) : null;
+                  const imgUrl = p.imageUrl ? (p.imageUrl.startsWith("http") ? p.imageUrl : `${apiOrigin()}${p.imageUrl}`) : null;
                   return (
                     <div key={p.id} style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.5rem 0.6rem", background: qty > 0 ? "#f0faf4" : "#faf8f5", borderRadius: 10, border: qty > 0 ? "1px solid #15803d" : "1px solid #e5ddd5", transition: "all 0.15s" }}>
                       <div style={{ width: 48, height: 48, borderRadius: 8, flexShrink: 0, background: "#f5f0eb", overflow: "hidden" }}>

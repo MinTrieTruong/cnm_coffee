@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
-import { getStoreSettings } from "./pricing.js";
+import { toStore } from "./storeScope.js";
 
 /**
  * Luồng giao hàng (Order.deliveryStatus):
@@ -123,13 +123,14 @@ export function optimizeRoute<T extends LatLng>(start: LatLng, stops: T[]): T[] 
   return route;
 }
 
-export async function getStoreLocation(prisma: PrismaClient) {
-  const s = await getStoreSettings(prisma);
-  return { lat: s.storeLat, lng: s.storeLng, address: s.storeAddress ?? null };
+/** Toạ độ chi nhánh — điểm xuất phát của shipper và gốc tính phí ship */
+export async function getStoreLocation(prisma: PrismaClient, storeId: number) {
+  const s = await prisma.store.findUniqueOrThrow({ where: { id: storeId } });
+  return { lat: s.lat, lng: s.lng, address: s.address ?? null };
 }
 
-export function emitDeliveryChanged(io: Server, orderIds: number[], shipperIds: number[] = []) {
-  io.to("pos").emit("delivery:update", { orderIds });
+export function emitDeliveryChanged(io: Server, storeId: number, orderIds: number[], shipperIds: number[] = []) {
+  toStore(io, "pos", storeId).emit("delivery:update", { orderIds });
   for (const id of orderIds) io.to(`tracking:${id}`).emit("delivery:status", { orderId: id });
   for (const sid of shipperIds) io.to(`staff_${sid}`).emit("shipper:refresh", { orderIds });
 }
@@ -140,15 +141,16 @@ export function emitDeliveryChanged(io: Server, orderIds: number[], shipperIds: 
  * nếu đang giao → xuất phát từ vị trí GPS hiện tại.
  */
 export async function recomputeRoute(prisma: PrismaClient, shipperId: number) {
-  const [store, shipper, orders] = await Promise.all([
-    getStoreLocation(prisma),
+  const [shipper, orders] = await Promise.all([
     prisma.staff.findUnique({ where: { id: shipperId } }),
     prisma.order.findMany({
       where: { shipperId, deliveryStatus: { in: ACTIVE_SHIPPER_STATUSES } },
-      select: { id: true, customerLat: true, customerLng: true, deliveryStatus: true },
+      select: { id: true, storeId: true, customerLat: true, customerLng: true, deliveryStatus: true },
     }),
   ]);
   if (!orders.length) return [];
+  // Shipper chỉ nhận đơn của chi nhánh mình nên mọi đơn cùng một điểm xuất phát
+  const store = await getStoreLocation(prisma, orders[0].storeId);
   const anyAssigned = orders.some((o) => o.deliveryStatus === DS.Assigned);
   const start: LatLng =
     !anyAssigned && shipper?.lastLat != null && shipper.lastLng != null
@@ -196,13 +198,18 @@ export async function dispatchReadyOrders(prisma: PrismaClient, io: Server) {
   });
   if (!ready.length) return;
 
-  const store = await getStoreLocation(prisma);
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
+  const locations = new Map<number, LatLng>();
 
   for (const order of ready) {
+    let store = locations.get(order.storeId);
+    if (!store) {
+      store = await getStoreLocation(prisma, order.storeId);
+      locations.set(order.storeId, store);
+    }
     const shippers = await prisma.staff.findMany({
-      where: { role: "Shipper", status: "Active", shipperOnline: true },
+      where: { role: "Shipper", status: "Active", shipperOnline: true, storeId: order.storeId },
       include: {
         ordersShipped: {
           where: {
@@ -215,7 +222,7 @@ export async function dispatchReadyOrders(prisma: PrismaClient, io: Server) {
         },
       },
     });
-    if (!shippers.length) break;
+    if (!shippers.length) continue;
 
     const dest: LatLng = { lat: order.customerLat ?? store.lat, lng: order.customerLng ?? store.lng };
     const withLoad = shippers.map((s) => {
@@ -257,7 +264,7 @@ export async function dispatchReadyOrders(prisma: PrismaClient, io: Server) {
     if (res.count === 0) continue;
     await recomputeRoute(prisma, chosen.s.id);
     io.to(`staff_${chosen.s.id}`).emit("shipper:new_order", { orderId: order.id });
-    emitDeliveryChanged(io, [order.id], [chosen.s.id]);
+    emitDeliveryChanged(io, order.storeId, [order.id], [chosen.s.id]);
   }
 }
 
@@ -272,8 +279,8 @@ export async function releaseOrderToKitchen(prisma: PrismaClient, io: Server, or
   if (order.orderType === "Delivery") {
     if (!order.deliveryStatus) {
       await prisma.order.update({ where: { id: orderId }, data: { deliveryStatus: DS.AwaitingConfirm } });
-      io.to("pos").emit("delivery:new", { orderId });
-      emitDeliveryChanged(io, [orderId]);
+      toStore(io, "pos", order.storeId).emit("delivery:new", { orderId });
+      emitDeliveryChanged(io, order.storeId, [orderId]);
     }
     return;
   }
@@ -283,12 +290,13 @@ export async function releaseOrderToKitchen(prisma: PrismaClient, io: Server, or
 export async function pushHoldToKitchen(prisma: PrismaClient, io: Server, orderId: number) {
   const hold = await prisma.orderDetail.count({ where: { orderId, kdsStatus: "Hold" } });
   if (hold === 0) return;
+  const { storeId } = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, select: { storeId: true } });
   await prisma.orderDetail.updateMany({ where: { orderId, kdsStatus: "Hold" }, data: { kdsStatus: "Waiting" } });
   const kdsDetails = await prisma.orderDetail.findMany({
     where: { orderId },
     include: { product: true, order: { include: { table: true } } },
   });
-  io.to("kds").emit("order:new", { orderId, details: kdsDetails });
+  toStore(io, "kds", storeId).emit("order:new", { orderId, details: kdsDetails });
 }
 
 /** Bếp cập nhật món: nếu là đơn giao và mọi món đã xong → Ready → điều phối shipper */
@@ -298,7 +306,7 @@ export async function onKitchenProgress(prisma: PrismaClient, io: Server, orderI
   const done = order.details.every((d) => ["Ready", "Served", "Cancelled"].includes(d.kdsStatus));
   if (!done) return;
   await prisma.order.update({ where: { id: orderId }, data: { deliveryStatus: DS.Ready, readyAt: new Date() } });
-  emitDeliveryChanged(io, [orderId]);
+  emitDeliveryChanged(io, order.storeId, [orderId]);
   await dispatchReadyOrders(prisma, io);
 }
 

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { io, Socket } from "socket.io-client";
+import { Socket } from "socket.io-client";
 import { Bike, Check, MapPin, Phone, X } from "lucide-react";
-import { apiOrigin, mediaUrl } from "../lib/api";
-import { staffApi } from "../lib/staffApi";
+import { mediaUrl } from "../lib/api";
+import { staffApi, staffSocket as openStaffSocket } from "../lib/staffApi";
 import { deliveryLabel, formatVnd } from "../lib/delivery";
 
 type BoardOrder = {
@@ -53,7 +53,7 @@ export function PosDeliveryPanel({ onToast }: { onToast: (m: string) => void }) 
 
   useEffect(() => {
     void load();
-    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"] });
+    const socket: Socket = openStaffSocket();
     socket.emit("join", "pos");
     socket.emit("join", "staff");
     socket.on("delivery:new", (p: { orderId: number }) => {

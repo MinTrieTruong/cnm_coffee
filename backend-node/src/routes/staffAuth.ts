@@ -14,7 +14,7 @@ export function staffAuthRouter(prisma: PrismaClient) {
     if (!username?.trim() || !password) {
       return res.status(400).json({ error: "Thiếu tên đăng nhập hoặc mật khẩu." });
     }
-    const staff = await prisma.staff.findFirst({ where: { username: username.trim() } });
+    const staff = await prisma.staff.findFirst({ where: { username: username.trim() }, include: { store: true } });
     if (!staff || staff.status !== "Active") {
       return res.status(401).json({ error: "Sai thông tin đăng nhập hoặc tài khoản đã khóa." });
     }
@@ -29,14 +29,17 @@ export function staffAuthRouter(prisma: PrismaClient) {
         username: staff.username,
         fullName: staff.fullName,
         role: staff.role,
+        storeId: staff.storeId,
+        storeName: staff.store?.name ?? null,
       },
     });
   });
 
-  /** Public — chỉ trả tên/role để hiển thị danh sách chọn nhân viên trên trang login */
-  r.get("/staff/members", async (_req, res) => {
+  /** Public — chỉ trả tên/role để hiển thị danh sách chọn nhân viên trên trang login. `?store=` lọc theo chi nhánh. */
+  r.get("/staff/members", async (req, res) => {
+    const store = Number(req.query.store);
     const rows = await prisma.staff.findMany({
-      where: { status: "Active" },
+      where: { status: "Active", ...(Number.isInteger(store) && store > 0 ? { storeId: store } : {}) },
       orderBy: [{ role: "asc" }, { fullName: "asc" }],
       select: { id: true, fullName: true, role: true, username: true },
     });

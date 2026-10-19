@@ -3,7 +3,9 @@ import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
 import type { Request } from "express";
 import { randomUUID } from "crypto";
-import { attachStaff, requireRoles } from "../middleware/staff.js";
+import { attachStaff, requireRoles, requireStore } from "../middleware/staff.js";
+import { inStore, storeWhere, toStore } from "../lib/storeScope.js";
+import { resolveCustomerStore } from "../lib/stores.js";
 import { optionalCustomerAuth } from "../middleware/customer.js";
 import { computeBill, computePointsEarned, getStoreSettings } from "../lib/pricing.js";
 import { DS, getStoreLocation, haversineKm, onKitchenProgress, releaseOrderToKitchen, shippingFeeForDistance } from "../lib/delivery.js";
@@ -21,7 +23,7 @@ const GRACE_MS = 15_000; // 15 giây ân hạn
 
 export function ordersRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
-  const kitchenAuth = [attachStaff(prisma), requireRoles("Kitchen", "Admin")];
+  const kitchenAuth = [attachStaff(prisma), requireRoles("Kitchen", "Admin"), requireStore];
 
   r.get("/orders/:id", async (req, res) => {
     const id = Number(req.params.id);
@@ -266,7 +268,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       return res.json({ ok: true, isDelivery: true });
     }
 
-    io.to("pos").emit("payment:request", {
+    toStore(io, "pos", order.storeId).emit("payment:request", {
       orderId: order.id,
       tableId: order.tableId,
       fromCustomer: true,
@@ -277,6 +279,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
   r.post("/orders", async (req, res) => {
     const body = req.body as {
       tableId?: number | null;
+      storeId?: number | null;
       customerId?: number | null;
       orderType?: string;
       sessionId?: string | null;
@@ -308,10 +311,15 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     if (isDelivery && (typeof body.customerLat !== "number" || typeof body.customerLng !== "number")) {
       return res.status(400).json({ error: "Vui lòng ghim vị trí giao hàng trên bản đồ." });
     }
-    // Phí ship tính phía server theo khoảng cách từ quán
+    // Đơn tại bàn theo chi nhánh của bàn; mang về/giao hàng theo chi nhánh khách chọn
+    const resolved = await resolveCustomerStore(prisma, isTakeaway || isDelivery ? null : body.tableId, body.storeId);
+    if ("error" in resolved) return res.status(400).json({ error: resolved.error });
+    const { storeId } = resolved;
+
+    // Phí ship tính phía server theo khoảng cách từ chi nhánh
     let shippingFee = 0;
     if (isDelivery) {
-      const store = await getStoreLocation(prisma);
+      const store = await getStoreLocation(prisma, storeId);
       shippingFee = shippingFeeForDistance(
         haversineKm(store, { lat: body.customerLat as number, lng: body.customerLng as number }),
       );
@@ -324,6 +332,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
 
     const order = await prisma.order.create({
       data: {
+        storeId,
         tableId: body.tableId ?? null,
         customerId: body.customerId ?? null,
         staffId: null,
@@ -368,15 +377,16 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       });
     }
 
-    io.to("pos").emit("order:pending_grace", {
+    const pos = toStore(io, "pos", storeId);
+    pos.emit("order:pending_grace", {
       orderId: order.id,
       tableId: order.tableId,
       payMode,
     });
     if (immediatePay && !isDelivery) {
       // KHÔNG emit order:new ngay — chờ sau khi thanh toán mới đẩy vào bếp
-      io.to("pos").emit("order:confirmed", { orderId: order.id });
-      io.to("pos").emit("payment:request", { orderId: order.id, tableId: order.tableId, fromCustomer: true });
+      pos.emit("order:confirmed", { orderId: order.id });
+      pos.emit("payment:request", { orderId: order.id, tableId: order.tableId, fromCustomer: true });
     }
 
     res.status(201).json({
@@ -412,19 +422,19 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
         ...(order.deliveryStatus ? { deliveryStatus: DS.Rejected, deliveryNote: "Khách hủy đơn" } : {}),
       },
     });
-    if (order.deliveryStatus) io.to("pos").emit("delivery:update", { orderIds: [id] });
-    // Thông báo cho POS và Kitchen
-    io.to("pos").emit("order:updated", { id });
-    io.to("kitchen").emit("order:updated", { id });
+    if (order.deliveryStatus) toStore(io, "pos", order.storeId).emit("delivery:update", { orderIds: [id] });
+    // Thông báo cho POS và bếp
+    toStore(io, "pos", order.storeId).emit("order:updated", { id });
+    toStore(io, "kds", order.storeId).emit("order:updated", { id });
     res.json({ ok: true });
   });
 
-  r.get("/kds/queue", ...kitchenAuth, async (_req, res) => {
+  r.get("/kds/queue", ...kitchenAuth, async (req, res) => {
     const details = await prisma.orderDetail.findMany({
       where: {
         kdsStatus: { in: ["Waiting", "Cooking"] },
         // Bao gồm cả "Paid": đơn takeaway/payNow đã thanh toán trước, pha chế sau
-        order: { status: { in: ["Confirmed", "Paid"] } },
+        order: { ...storeWhere(req), status: { in: ["Confirmed", "Paid"] } },
       },
       include: {
         product: true,
@@ -439,18 +449,21 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     const id = Number(req.params.id);
     const { kdsStatus } = req.body as { kdsStatus?: string };
     if (!kdsStatus) return res.status(400).json({ error: "Thiếu kdsStatus" });
+    const cur = await prisma.orderDetail.findUnique({ where: { id }, include: { order: true } });
+    if (!cur || !inStore(req, cur.order)) return res.status(404).json({ error: "Không tìm thấy món." });
+    if (!["Confirmed", "Paid"].includes(cur.order.status)) {
+      return res.status(400).json({ error: "Đơn chưa xác nhận xuống bếp." });
+    }
     const d = await prisma.orderDetail.update({
       where: { id },
       data: { kdsStatus },
       include: { product: true, order: { include: { table: true } } },
     });
-    if (!["Confirmed", "Paid"].includes(d.order.status)) {
-      return res.status(400).json({ error: "Đơn chưa xác nhận xuống bếp." });
-    }
-    io.to("staff").emit("kds:update", d);
+    const staffRoom = toStore(io, "staff", d.order.storeId);
+    staffRoom.emit("kds:update", d);
     // Thông báo món sẵn sàng phục vụ tới màn hình phục vụ
     if (kdsStatus === "Ready") {
-      io.to("staff").emit("kds:ready", {
+      staffRoom.emit("kds:ready", {
         detailId: d.id,
         productName: d.product.name,
         quantity: d.quantity,

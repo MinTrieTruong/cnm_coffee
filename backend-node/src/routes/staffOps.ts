@@ -2,7 +2,9 @@ import { Router } from "express";
 import { randomUUID } from "crypto";
 import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
-import { attachStaff, requireRoles, type StaffRequest } from "../middleware/staff.js";
+import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
+import { inStore, mustStoreId, storeWhere, toStore } from "../lib/storeScope.js";
+import { unsellableProductIds } from "../lib/storeProducts.js";
 import { computeBill, getStoreSettings } from "../lib/pricing.js";
 
 /**
@@ -28,13 +30,13 @@ export function takeawayRouter() {
 export function staffOpsRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
   const auth = attachStaff(prisma);
-  const waiterOps = [auth, requireRoles("Waiter", "Admin", "Cashier")];
+  const waiterOps = [auth, requireRoles("Waiter", "Admin", "Cashier"), requireStore];
 
   r.get("/staff/tables/:id/context", ...waiterOps, async (req, res) => {
     const tableId = Number(req.params.id);
     if (!tableId) return res.status(400).json({ error: "Bàn không hợp lệ." });
     const table = await prisma.cafeTable.findUnique({ where: { id: tableId } });
-    if (!table) return res.status(404).json({ error: "Không tìm thấy bàn." });
+    if (!table || !inStore(req, table)) return res.status(404).json({ error: "Không tìm thấy bàn." });
     let activeOrder = await prisma.order.findFirst({
       where: { tableId, status: "Confirmed", payments: { none: {} } },
       include: {
@@ -74,8 +76,8 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
       prisma.cafeTable.findUnique({ where: { id: tableId } }),
       prisma.product.findUnique({ where: { id: productId } }),
     ]);
-    if (!table) return res.status(404).json({ error: "Không tìm thấy bàn." });
-    if (!product || !product.isActive || product.outOfStock) {
+    if (!table || !inStore(req, table)) return res.status(404).json({ error: "Không tìm thấy bàn." });
+    if (!product || (await unsellableProductIds(prisma, table.storeId, [product])).has(product.id)) {
       return res.status(400).json({ error: "Món không còn phục vụ." });
     }
     let customerId: number | null = null;
@@ -92,6 +94,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
       if (!active) {
         active = await tx.order.create({
           data: {
+            storeId: table.storeId,
             tableId,
             customerId,
             staffId: (req as StaffRequest).staffRow!.id,
@@ -130,7 +133,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
         },
       });
     });
-    io.to("kds").emit("order:new", { tableId });
+    toStore(io, "kds", table.storeId).emit("order:new", { tableId });
     res.status(201).json(order);
   });
 
@@ -142,7 +145,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
       where: { id: detailId },
       include: { order: { include: { payments: true } } },
     });
-    if (!detail || detail.orderId !== orderId) {
+    if (!detail || detail.orderId !== orderId || !inStore(req, detail.order)) {
       return res.status(404).json({ error: "Không tìm thấy món trong đơn." });
     }
     if (detail.order.status !== "Confirmed" || detail.order.payments.length > 0) {
@@ -184,8 +187,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
 
   r.post(
     "/staff/orders/request-payment",
-    auth,
-    requireRoles("Waiter", "Admin", "Cashier"),
+    ...waiterOps,
     async (req, res) => {
       const { orderId, method } = req.body as { orderId?: number; method?: string };
       if (!orderId) return res.status(400).json({ error: "Thiếu orderId" });
@@ -198,7 +200,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
           payments: true,
         },
       });
-      if (!order || order.status !== "Confirmed") {
+      if (!order || !inStore(req, order) || order.status !== "Confirmed") {
         return res.status(400).json({ error: "Đơn không hợp lệ" });
       }
       if (order.payments.length > 0) {
@@ -212,7 +214,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
           data: { status: "Waiting_Pay" },
         });
       }
-      io.to("pos").emit("payment:request", { orderId, tableId: order.tableId, preferredMethod: method ?? null });
+      toStore(io, "pos", order.storeId).emit("payment:request", { orderId, tableId: order.tableId, preferredMethod: method ?? null });
       res.json({
         ok: true,
         bill: {
@@ -241,6 +243,8 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
   r.post("/staff/tables/:id/clean", ...waiterOps, async (req, res) => {
     const tableId = Number(req.params.id);
     if (!tableId) return res.status(400).json({ error: "Bàn không hợp lệ." });
+    const t = await prisma.cafeTable.findUnique({ where: { id: tableId } });
+    if (!t || !inStore(req, t)) return res.status(404).json({ error: "Không tìm thấy bàn." });
     const open = await prisma.order.findFirst({
       where: { tableId, status: "Confirmed", payments: { none: {} } },
       select: { id: true },
@@ -261,18 +265,18 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
     const tableId = Number(req.params.id);
     if (!tableId) return res.status(400).json({ error: "Bàn không hợp lệ." });
     const t = await prisma.cafeTable.findUnique({ where: { id: tableId } });
-    if (!t) return res.status(404).json({ error: "Không tìm thấy bàn." });
+    if (!t || !inStore(req, t)) return res.status(404).json({ error: "Không tìm thấy bàn." });
     if (t.status !== "Cleaning") {
       return res.status(400).json({ error: "Bàn không ở trạng thái chờ báo trống." });
     }
     const table = await prisma.cafeTable.update({ where: { id: tableId }, data: { status: "Empty" } });
-    io.to("pos").emit("table:cleared", { tableId });
-    io.to("staff").emit("table:cleared", { tableId });
+    toStore(io, "pos", t.storeId).emit("table:cleared", { tableId });
+    toStore(io, "staff", t.storeId).emit("table:cleared", { tableId });
     res.json({ ok: true, table });
   });
 
 
-  r.post("/staff/orders/merge", auth, requireRoles("Waiter", "Admin"), async (req, res) => {
+  r.post("/staff/orders/merge", auth, requireRoles("Waiter", "Admin"), requireStore, async (req, res) => {
     const { fromOrderId, toOrderId } = req.body as { fromOrderId?: number; toOrderId?: number };
     if (!fromOrderId || !toOrderId || fromOrderId === toOrderId) {
       return res.status(400).json({ error: "Thiếu hoặc trùng mã đơn" });
@@ -281,7 +285,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
       prisma.order.findUnique({ where: { id: fromOrderId }, include: { payments: true } }),
       prisma.order.findUnique({ where: { id: toOrderId } }),
     ]);
-    if (!from || !to) return res.status(404).json({ error: "Không tìm thấy đơn" });
+    if (!from || !to || !inStore(req, from) || !inStore(req, to)) return res.status(404).json({ error: "Không tìm thấy đơn" });
     if (from.payments.length > 0 || from.status !== "Confirmed") {
       return res.status(400).json({ error: "Chỉ gộp đơn chưa thanh toán" });
     }
@@ -303,7 +307,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
     res.json({ ok: true, mergedInto: toOrderId, subTotal });
   });
 
-  r.post("/kitchen/requests", auth, requireRoles("Kitchen", "Admin"), async (req, res) => {
+  r.post("/kitchen/requests", auth, requireRoles("Kitchen", "Admin"), requireStore, async (req, res) => {
     const staff = (req as StaffRequest).staffRow!;
     const { itemId, requestQty, note } = req.body as {
       itemId?: number;
@@ -315,6 +319,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
     }
     const row = await prisma.inventoryRequest.create({
       data: {
+        storeId: mustStoreId(req),
         staffId: staff.id,
         itemId,
         requestQty,
@@ -323,7 +328,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
       },
       include: { item: true },
     });
-    io.to("pos").emit("inventory:request", { id: row.id });
+    toStore(io, "pos", row.storeId).emit("inventory:request", { id: row.id });
     res.status(201).json(row);
   });
 
@@ -336,8 +341,10 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
     "/staff/inventory/requests",
     auth,
     requireRoles("Cashier", "Waiter", "Admin", "Kitchen"),
+    requireStore,
     async (req, res) => {
       const staff = (req as StaffRequest).staffRow!;
+      const storeId = mustStoreId(req);
       const { items, note: globalNote } = req.body as {
         items?: { itemId: number; requestQty: number; note?: string }[];
         note?: string;
@@ -359,6 +366,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
         items.map((it) =>
           prisma.inventoryRequest.create({
             data: {
+              storeId,
               staffId: staff.id,
               itemId: it.itemId,
               requestQty: it.requestQty,
@@ -371,7 +379,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
       );
 
       // Notify admin
-      io.to("pos").emit("inventory:restock_request", {
+      toStore(io, "pos", storeId).emit("inventory:restock_request", {
         count: created.length,
         itemNames: created.map((r) => r.item.name).join(", "),
       });
@@ -412,11 +420,12 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
     "/staff/order-items/live",
     auth,
     requireRoles("Waiter", "Admin", "Cashier", "Kitchen"),
-    async (_req, res) => {
+    requireStore,
+    async (req, res) => {
       const items = await prisma.orderDetail.findMany({
         where: {
           kdsStatus: { in: ["Waiting", "Cooking", "Ready"] },
-          order: { status: { in: ["Confirmed", "Paid"] } },
+          order: { ...storeWhere(req), status: { in: ["Confirmed", "Paid"] } },
         },
         include: {
           product: { select: { id: true, name: true, imageUrl: true } },
@@ -441,11 +450,12 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
     "/staff/order-items/:id/served",
     auth,
     requireRoles("Waiter", "Admin", "Cashier"),
+    requireStore,
     async (req, res) => {
       const id = Number(req.params.id);
       if (!id) return res.status(400).json({ error: "ID không hợp lệ." });
-      const detail = await prisma.orderDetail.findUnique({ where: { id } });
-      if (!detail) return res.status(404).json({ error: "Không tìm thấy món." });
+      const detail = await prisma.orderDetail.findUnique({ where: { id }, include: { order: true } });
+      if (!detail || !inStore(req, detail.order)) return res.status(404).json({ error: "Không tìm thấy món." });
       if (detail.kdsStatus !== "Ready") {
         return res.status(400).json({ error: "Chỉ xác nhận bê khi món đã sẵn sàng (Ready)." });
       }
@@ -454,7 +464,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
         data: { kdsStatus: "Served" },
       });
       // Thông báo cho các màn hình staff biết món đã được bê
-      io.to("staff").emit("kds:served", { detailId: id });
+      toStore(io, "staff", detail.order.storeId).emit("kds:served", { detailId: id });
       res.json(updated);
     },
   );

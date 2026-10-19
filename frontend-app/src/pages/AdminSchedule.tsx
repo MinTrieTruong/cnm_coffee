@@ -5,11 +5,11 @@
 import { Check, Pencil, Trash2 } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { io, type Socket } from "socket.io-client";
+import type { Socket } from "socket.io-client";
 import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, eachDayOfInterval, isSameDay, parseISO } from "date-fns";
 import { vi } from "date-fns/locale";
-import { staffApi, getStaffInfo } from "../lib/staffApi";
-import { apiOrigin } from "../lib/api";
+import { staffApi, getStaffInfo, staffSocket as openStaffSocket } from "../lib/staffApi";
+
 
 const SHIFTS = [
   { code: "A", name: "Ca A", label: "07:00–12:00", hours: 5, color: "#3b82f6" }, // Xanh dương
@@ -179,7 +179,7 @@ export function AdminSchedule({ embedded = false }: { embedded?: boolean } = {})
   useEffect(() => { void loadAll(); }, [loadAll]);
 
   useEffect(() => {
-    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"] });
+    const socket: Socket = openStaffSocket();
     socket.emit("join", "admin_room");
     const refresh = () => void loadAll();
     ["schedule:new", "schedule:updated", "schedule:deleted", "schedule:published"].forEach((ev) => socket.on(ev, refresh));

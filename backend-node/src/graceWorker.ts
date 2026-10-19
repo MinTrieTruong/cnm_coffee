@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
+import { toStore } from "./lib/storeScope.js";
 
 /** QTNV-01: hết ân hạn → Confirmed, đẩy KDS (Waiting), không đẩy khi Hold */
 export function startGraceWorker(prisma: PrismaClient, io: Server) {
@@ -27,8 +28,8 @@ export function startGraceWorker(prisma: PrismaClient, io: Server) {
         where: { orderId: o.id },
         include: { product: true, order: { include: { table: true } } },
       });
-      io.to("kds").emit("order:new", { orderId: o.id, details });
-      io.to("pos").emit("order:confirmed", { orderId: o.id });
+      toStore(io, "kds", o.storeId).emit("order:new", { orderId: o.id, details });
+      toStore(io, "pos", o.storeId).emit("order:confirmed", { orderId: o.id });
     }
   };
   setInterval(() => {

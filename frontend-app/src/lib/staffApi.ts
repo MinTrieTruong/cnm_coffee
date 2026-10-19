@@ -1,7 +1,18 @@
+import { io, type Socket } from "socket.io-client";
 import { mapFetchError } from "./net";
-import { apiBase } from "./api";
+import { apiBase, apiOrigin } from "./api";
 
 const STAFF_TOKEN_KEY = "cmn_staff_token";
+/** Chi nhánh Owner đang chọn (nhân viên thường luôn làm ở chi nhánh của mình) */
+const OWNER_STORE_KEY = "cmn_staff_store";
+
+export type StaffInfo = {
+  id: number;
+  role: string;
+  fullName?: string;
+  storeId?: number | null;
+  storeName?: string | null;
+};
 
 export function getStaffToken(): string | null {
   return localStorage.getItem(STAFF_TOKEN_KEY);
@@ -10,16 +21,60 @@ export function getStaffToken(): string | null {
 export function clearStaffSession() {
   localStorage.removeItem(STAFF_TOKEN_KEY);
   localStorage.removeItem("cmn_staff_info");
+  localStorage.removeItem(OWNER_STORE_KEY);
 }
 
-export function getStaffInfo(): { id: number; role: string; fullName?: string } | null {
+export function getStaffInfo(): StaffInfo | null {
   const raw = localStorage.getItem("cmn_staff_info");
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as { id: number; role: string; fullName?: string };
+    return JSON.parse(raw) as StaffInfo;
   } catch {
     return null;
   }
+}
+
+export function isOwnerRole(role: string | undefined) {
+  return role === "Owner";
+}
+
+/** Owner: chi nhánh đang chọn, `null` = tất cả chi nhánh. */
+export function getOwnerStore(): number | null {
+  const n = Number(localStorage.getItem(OWNER_STORE_KEY));
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+export function setOwnerStore(storeId: number | null) {
+  if (storeId == null) localStorage.removeItem(OWNER_STORE_KEY);
+  else localStorage.setItem(OWNER_STORE_KEY, String(storeId));
+}
+
+/** Chi nhánh đang làm việc của phiên nhân sự hiện tại. */
+export function activeStoreId(): number | null {
+  const info = getStaffInfo();
+  if (!info) return null;
+  return isOwnerRole(info.role) ? getOwnerStore() : info.storeId ?? null;
+}
+
+function setStoreHeader(headers: Headers) {
+  const info = getStaffInfo();
+  const sid = getOwnerStore();
+  if (isOwnerRole(info?.role) && sid != null) headers.set("X-Store-Id", String(sid));
+}
+
+/**
+ * Socket cho màn hình nhân sự: gửi token để server cho vào phòng của chi nhánh
+ * (client vẫn `emit("join", "pos" | "kds" | "staff" | "admin_room")` như cũ).
+ */
+export function staffSocket(): Socket {
+  const info = getStaffInfo();
+  return io(apiOrigin(), {
+    transports: ["websocket", "polling"],
+    auth: {
+      token: getStaffToken(),
+      ...(isOwnerRole(info?.role) && getOwnerStore() != null ? { storeId: getOwnerStore() } : {}),
+    },
+  });
 }
 
 export async function staffApi<T>(path: string, init?: RequestInit): Promise<T> {
@@ -27,6 +82,7 @@ export async function staffApi<T>(path: string, init?: RequestInit): Promise<T> 
   headers.set("Content-Type", "application/json");
   const t = getStaffToken();
   if (t) headers.set("Authorization", `Bearer ${t}`);
+  setStoreHeader(headers);
   const base = apiBase();
   let res: Response;
   try {
@@ -61,6 +117,7 @@ export async function staffDownloadBlob(path: string): Promise<Blob> {
   const t = getStaffToken();
   const headers = new Headers();
   if (t) headers.set("Authorization", `Bearer ${t}`);
+  setStoreHeader(headers);
   const base = apiBase();
   let res: Response;
   try {

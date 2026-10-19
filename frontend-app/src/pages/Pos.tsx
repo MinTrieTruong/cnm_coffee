@@ -1,10 +1,8 @@
 import { X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { io, Socket } from "socket.io-client";
-import { apiBase, apiOrigin } from "../lib/api";
-import { mapFetchError } from "../lib/net";
-import { getStaffInfo, staffApi } from "../lib/staffApi";
+import { Socket } from "socket.io-client";
+import { getStaffInfo, staffApi, staffSocket as openStaffSocket } from "../lib/staffApi";
 import { PosDeliveryPanel } from "../components/PosDeliveryPanel";
 import { useHideBottomNav } from "../components/BottomNav";
 
@@ -279,16 +277,7 @@ export function Pos() {
   }
 
   const loadTables = useCallback(async () => {
-    const base = apiBase();
-    let res: Response;
-    try {
-      res = await fetch(`${base}/api/pos/tables`);
-    } catch (e) {
-      throw mapFetchError(e);
-    }
-    if (!res.ok) throw new Error("Không tải được bàn");
-    const data = (await res.json()) as TableRow[];
-    setTables(data);
+    setTables(await staffApi<TableRow[]>("/api/pos/tables"));
   }, []);
 
   const loadPending = useCallback(async () => {
@@ -350,7 +339,7 @@ export function Pos() {
   }, [refreshAll]);
 
   useEffect(() => {
-    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"] });
+    const socket: Socket = openStaffSocket();
     socket.emit("join", "pos");
     socket.emit("join", "staff");
     socket.on("payment:done", (payload?: { orderId: number; isOnline?: boolean; method?: string; tableLabel?: string; customerLabel?: string }) => {

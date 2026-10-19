@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { io, Socket } from "socket.io-client";
-import { apiOrigin, mediaUrl } from "../lib/api";
-import { getStaffInfo, staffApi } from "../lib/staffApi";
+import { Socket } from "socket.io-client";
+import { mediaUrl } from "../lib/api";
+import { getStaffInfo, staffApi, staffSocket as openStaffSocket } from "../lib/staffApi";
 
 /* ─── Âm thanh ─── */
 function playReadySound() {
@@ -333,7 +333,7 @@ export function StaffOrderStatus() {
 
   /* Socket */
   useEffect(() => {
-    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"] });
+    const socket: Socket = openStaffSocket();
     socket.emit("join", "staff");
     socket.emit("join", "kds");
 

@@ -1,10 +1,10 @@
 import { CheckCircle2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { io, type Socket } from "socket.io-client";
+import type { Socket } from "socket.io-client";
 import { format, startOfWeek, addWeeks, eachDayOfInterval, addDays, isSameDay, parseISO } from "date-fns";
 import { vi } from "date-fns/locale";
-import { staffApi, getStaffInfo } from "../lib/staffApi";
-import { apiOrigin } from "../lib/api";
+import { staffApi, getStaffInfo, staffSocket as openStaffSocket } from "../lib/staffApi";
+
 
 const SHIFTS = [
   { code: "A",   name: "Ca A",   label: "07:00 – 12:00", hours: 5,  color: "#3b82f6" },
@@ -52,7 +52,7 @@ export function WorkSchedule() {
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
-    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"] });
+    const socket: Socket = openStaffSocket();
     if (info) socket.emit("join", `staff_${info.id}`);
     const refresh = () => void load();
     socket.on("schedule:updated", refresh);

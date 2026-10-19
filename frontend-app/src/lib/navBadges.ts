@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { io, type Socket } from "socket.io-client";
-import { apiOrigin } from "./api";
-import { staffApi } from "./staffApi";
+import type { Socket } from "socket.io-client";
+
+import { staffApi, staffSocket as openStaffSocket } from "./staffApi";
 import type { BadgeKey } from "./navConfig";
 
 type Counts = Partial<Record<BadgeKey, number>>;
@@ -47,7 +47,7 @@ export function useStaffBadges(role: string | undefined, staffId: number | undef
     };
     void refresh();
 
-    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"] });
+    const socket: Socket = openStaffSocket();
     if (wantKds) socket.emit("join", "kds");
     if (wantDelivery) socket.emit("join", "pos");
     if (wantShipper) socket.emit("join", `staff_${staffId}`);

@@ -34,6 +34,7 @@ import { procurementRouter } from "./routes/procurement.js";
 import { addressesRouter } from "./routes/addresses.js";
 import { customerRouter } from "./routes/customer.js";
 import { deliveryRouter } from "./routes/delivery.js";
+import { storesRouter } from "./routes/stores.js";
 import { startDispatchWorker } from "./lib/delivery.js";
 import { registerSocketHandlers } from "./socket/handlers.js";
 import { startGraceWorker } from "./graceWorker.js";
@@ -72,6 +73,7 @@ app.use("/api/admin", supplierRouter());
 app.use("/api/admin", auditRouter());
 app.use("/api/admin", reportsRouter());
 app.use("/api", formulaRouter(prisma));
+app.use("/api", storesRouter(prisma));
 app.use("/api", catalogRouter(prisma));
 app.use("/api", menuRouter(prisma));
 app.use("/api", ordersRouter(prisma, io));
@@ -96,7 +98,7 @@ app.use("/api", procurementRouter(prisma));
 app.use("/api/customer-addresses", addressesRouter(prisma));
 app.use("/api/customer", customerRouter(prisma));
 
-registerSocketHandlers(io);
+registerSocketHandlers(io, prisma);
 startGraceWorker(prisma, io);
 startDispatchWorker(prisma, io);
 

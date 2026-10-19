@@ -6,6 +6,7 @@ import { computeBill, getStoreSettings, computePointsEarned } from "../lib/prici
 import { rankTierFromLifetimeSpend } from "../lib/rank.js";
 import { deductInventoryForOrder } from "../lib/inventory.js";
 import { releaseOrderToKitchen } from "../lib/delivery.js";
+import { toStore } from "../lib/storeScope.js";
 
 export function vnpayRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
@@ -215,7 +216,7 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
     if (updatedOrder) {
       const tableLabel = updatedOrder.table ? updatedOrder.table.name : "Mang về";
       const customerLabel = updatedOrder.customer?.fullName ?? "Vãng lai";
-      io.to("pos").emit("payment:done", {
+      toStore(io, "pos", updatedOrder.storeId).emit("payment:done", {
         orderId,
         method: "VNPay",
         amount: chargeAmount,
@@ -223,7 +224,7 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
         customerLabel,
         isOnline: true,
       });
-      io.to("staff").emit("payment:done", {
+      toStore(io, "staff", updatedOrder.storeId).emit("payment:done", {
         orderId,
         method: "VNPay",
         amount: chargeAmount,
@@ -362,7 +363,7 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
       // Thông báo POS
       const tableLabel = updatedOrder.table ? updatedOrder.table.name : "Mang về";
       const customerLabel = updatedOrder.customer?.fullName ?? "Vãng lai";
-      io.to("pos").emit("payment:done", {
+      toStore(io, "pos", updatedOrder.storeId).emit("payment:done", {
         orderId,
         method: "VNPay",
         amount: updatedOrder.totalAmount,
@@ -370,7 +371,7 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
         customerLabel,
         isOnline: true,
       });
-      io.to("staff").emit("payment:done", {
+      toStore(io, "staff", updatedOrder.storeId).emit("payment:done", {
         orderId,
         method: "VNPay",
         amount: updatedOrder.totalAmount,

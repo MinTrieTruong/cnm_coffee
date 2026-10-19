@@ -1,7 +1,9 @@
 import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
-import { attachStaff, requireRoles, type StaffRequest } from "../middleware/staff.js";
+import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
+import { inStore, storeWhere, toStore } from "../lib/storeScope.js";
+import { resolveCustomerStore } from "../lib/stores.js";
 import { optionalCustomerAuth } from "../middleware/customer.js";
 import type { Request } from "express";
 
@@ -25,7 +27,7 @@ function botReply(text: string): string | null {
 
 export function chatRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
-  const staffAuth = [attachStaff(prisma), requireRoles("Admin", "Cashier", "Waiter", "Kitchen")];
+  const staffAuth = [attachStaff(prisma), requireRoles("Admin", "Cashier", "Waiter", "Kitchen"), requireStore];
 
   /* ─────────────────────────────────────────────────────────────────────
      POST /chat
@@ -34,10 +36,11 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
   ───────────────────────────────────────────────────────────────────── */
   r.post("/chat", optionalCustomerAuth, async (req, res) => {
     const customerId = (req as CustReq).customerId ?? null;
-    const { message, sessionId: bodySessionId, tableId, guestName } = req.body as {
+    const { message, sessionId: bodySessionId, tableId, guestName, storeId: wantedStore } = req.body as {
       message?: string;
       sessionId?: number | null;
       tableId?: number | null;
+      storeId?: number | null;
       guestName?: string;
     };
 
@@ -56,8 +59,11 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
         const cust = await prisma.customer.findUnique({ where: { id: customerId }, select: { fullName: true, phone: true } });
         displayName = cust?.fullName || cust?.phone || "Khách";
       }
+      const resolved = await resolveCustomerStore(prisma, tableId, wantedStore, { fallbackFirst: true });
+      if ("error" in resolved) return res.status(400).json({ error: resolved.error });
       session = await prisma.chatSession.create({
         data: {
+          storeId: resolved.storeId,
           customerId,
           guestName: displayName,
           tableId: tableId ?? null,
@@ -94,7 +100,7 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
     }
 
     // Escalate tới nhân viên qua socket
-    io.to("staff").emit("chat:escalate", {
+    toStore(io, "staff", session.storeId).emit("chat:escalate", {
       sessionId: session.id,
       guestName: senderName,
       tableId: session.tableId,
@@ -134,9 +140,9 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
      GET /staff/chat/sessions
      Nhân viên lấy danh sách phiên đang mở (có tin nhắn gần nhất)
   ───────────────────────────────────────────────────────────────────── */
-  r.get("/staff/chat/sessions", ...staffAuth, async (_req, res) => {
+  r.get("/staff/chat/sessions", ...staffAuth, async (req, res) => {
     const sessions = await prisma.chatSession.findMany({
-      where: { status: "open" },
+      where: { ...storeWhere(req), status: "open" },
       orderBy: { updatedAt: "desc" },
       include: {
         messages: {
@@ -156,6 +162,7 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = 30;
     const sessions = await prisma.chatSession.findMany({
+      where: storeWhere(req),
       orderBy: { updatedAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
@@ -176,7 +183,7 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
       where: { id },
       include: { messages: { orderBy: { createdAt: "asc" } } },
     });
-    if (!session) return res.status(404).json({ error: "Không tìm thấy" });
+    if (!session || !inStore(req, session)) return res.status(404).json({ error: "Không tìm thấy" });
     res.json(session);
   });
 
@@ -193,7 +200,7 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
     if (!msgBody?.trim()) return res.status(400).json({ error: "Nội dung trống" });
 
     const session = await prisma.chatSession.findUnique({ where: { id } });
-    if (!session) return res.status(404).json({ error: "Không tìm thấy phiên" });
+    if (!session || !inStore(req, session)) return res.status(404).json({ error: "Không tìm thấy phiên" });
 
     const msg = await prisma.chatMessage.create({
       data: {
@@ -212,7 +219,7 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
       sessionId: id,
       message: msg,
     });
-    io.to("staff").emit("chat:reply", {
+    toStore(io, "staff", session.storeId).emit("chat:reply", {
       sessionId: id,
       message: msg,
     });
@@ -226,12 +233,14 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
   ───────────────────────────────────────────────────────────────────── */
   r.patch("/staff/chat/sessions/:id/close", ...staffAuth, async (req, res) => {
     const id = Number(req.params.id);
+    const cur = await prisma.chatSession.findUnique({ where: { id } });
+    if (!cur || !inStore(req, cur)) return res.status(404).json({ error: "Không tìm thấy phiên" });
     const updated = await prisma.chatSession.update({
       where: { id },
       data: { status: "closed" },
     });
     io.to(`chat:${id}`).emit("chat:closed", { sessionId: id });
-    io.to("staff").emit("chat:session_closed", { sessionId: id });
+    toStore(io, "staff", updated.storeId).emit("chat:session_closed", { sessionId: id });
     res.json(updated);
   });
 

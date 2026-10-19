@@ -1,44 +1,39 @@
 import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
-import type { Request, Response, NextFunction } from "express";
-import { verifyToken, type StaffPayload } from "../lib/jwt.js";
+import type { Request } from "express";
 import { audit } from "../lib/audit.js";
+import { attachStaff, isAdminLike, requireStore, type StaffRequest } from "../middleware/staff.js";
+import { mustStoreId, storeWhere } from "../lib/storeScope.js";
+import { storeStockOf, withStoreStock } from "../lib/inventory.js";
 
-function staffAuth(req: Request, res: Response, next: NextFunction) {
-  const h = req.headers.authorization;
-  const token = h?.startsWith("Bearer ") ? h.slice(7) : null;
-  if (!token) return res.status(401).json({ error: "Cần đăng nhập nhân sự." });
-  try {
-    const p = verifyToken<StaffPayload>(token);
-    if (p.typ !== "staff") return res.status(403).json({ error: "Không phải tài khoản nhân sự." });
-    (req as Request & { staff?: StaffPayload }).staff = p;
-    next();
-  } catch {
-    return res.status(401).json({ error: "Token không hợp lệ." });
-  }
+function me(req: Request) {
+  const s = (req as StaffRequest).staffRow!;
+  return { sub: s.id, role: s.role };
 }
 
 export function shiftsRouter(prisma: PrismaClient) {
   const r = Router();
+  // Ca và kiểm kho luôn gắn với 1 chi nhánh
+  const staffAuth = [attachStaff(prisma), requireStore];
 
-  r.get("/shifts/open", staffAuth, async (req, res) => {
-    const p = (req as Request & { staff?: StaffPayload }).staff!;
-    if (p.role !== "Cashier" && p.role !== "Admin") {
+  r.get("/shifts/open", ...staffAuth, async (req, res) => {
+    const p = me(req);
+    if (p.role !== "Cashier" && !isAdminLike(p.role)) {
       return res.status(403).json({ error: "Chỉ thu ngân hoặc quản lý mở ca." });
     }
     const open = await prisma.shift.findFirst({
-      where: { staffId: p.sub, endTime: null },
+      where: { ...storeWhere(req), staffId: p.sub, endTime: null },
       orderBy: { id: "desc" },
     });
     res.json({ shift: open });
   });
 
-  r.post("/shifts/open", staffAuth, async (req, res) => {
-    const p = (req as Request & { staff?: StaffPayload }).staff!;
-    if (p.role !== "Cashier" && p.role !== "Admin") {
+  r.post("/shifts/open", ...staffAuth, async (req, res) => {
+    const p = me(req);
+    if (p.role !== "Cashier" && !isAdminLike(p.role)) {
       return res.status(403).json({ error: "Chỉ thu ngân hoặc quản lý mở ca." });
     }
-    const existing = await prisma.shift.findFirst({ where: { staffId: p.sub, endTime: null } });
+    const existing = await prisma.shift.findFirst({ where: { ...storeWhere(req), staffId: p.sub, endTime: null } });
     if (existing) {
       return res.status(409).json({ error: "Đã có ca đang mở.", shift: existing });
     }
@@ -46,6 +41,7 @@ export function shiftsRouter(prisma: PrismaClient) {
     const cash = typeof startingCash === "number" ? startingCash : 0;
     const shift = await prisma.shift.create({
       data: {
+        storeId: mustStoreId(req),
         staffId: p.sub,
         startTime: new Date(),
         startingCash: cash,
@@ -55,9 +51,9 @@ export function shiftsRouter(prisma: PrismaClient) {
     res.status(201).json(shift);
   });
 
-  r.post("/shifts/close", staffAuth, async (req, res) => {
-    const p = (req as Request & { staff?: StaffPayload }).staff!;
-    if (p.role !== "Cashier" && p.role !== "Admin") {
+  r.post("/shifts/close", ...staffAuth, async (req, res) => {
+    const p = me(req);
+    if (p.role !== "Cashier" && !isAdminLike(p.role)) {
       return res.status(403).json({ error: "Chỉ thu ngân hoặc quản lý đóng ca." });
     }
     const { actualCash } = req.body as { actualCash?: number };
@@ -65,7 +61,7 @@ export function shiftsRouter(prisma: PrismaClient) {
       return res.status(400).json({ error: "Nhập số tiền mặt thực tế đếm được." });
     }
     const open = await prisma.shift.findFirst({
-      where: { staffId: p.sub, endTime: null },
+      where: { ...storeWhere(req), staffId: p.sub, endTime: null },
       orderBy: { id: "desc" },
     });
     if (!open) return res.status(400).json({ error: "Không có ca đang mở." });
@@ -91,7 +87,7 @@ export function shiftsRouter(prisma: PrismaClient) {
    * Trả về danh sách toàn bộ nguyên liệu trong kho để nhân viên xem khi kiểm kho.
    * Mọi nhân viên đã đăng nhập đều được xem.
    */
-  r.get("/shifts/inventory", staffAuth, async (_req, res) => {
+  r.get("/shifts/inventory", ...staffAuth, async (req, res) => {
     const items = await prisma.inventoryItem.findMany({
       orderBy: { id: "asc" },
       select: {
@@ -100,13 +96,12 @@ export function shiftsRouter(prisma: PrismaClient) {
         category: true,
         skuCode: true,
         unit: true,
-        stockQty: true,
-        minLevel: true,
         imageUrl: true,
         unitCostPrice: true,
+        storeStocks: storeStockOf(mustStoreId(req)),
       },
     });
-    res.json(items);
+    res.json(items.map(withStoreStock));
   });
 
   /**
@@ -120,8 +115,8 @@ export function shiftsRouter(prisma: PrismaClient) {
    * - Không thay đổi stockQty trong DB — chỉ là nhật ký kiểm kho.
    *   stockQty chỉ thay đổi khi admin duyệt phiếu nhập hàng.
    */
-  r.post("/shifts/inventory/check", staffAuth, async (req, res) => {
-    const p = (req as Request & { staff?: StaffPayload }).staff!;
+  r.post("/shifts/inventory/check", ...staffAuth, async (req, res) => {
+    const p = me(req);
 
     const { checkType, items, shiftId: bodyShiftId } = req.body as {
       checkType?: "open" | "close";
@@ -140,7 +135,7 @@ export function shiftsRouter(prisma: PrismaClient) {
     let shiftId: number | null = bodyShiftId ?? null;
     if (!shiftId) {
       const openShift = await prisma.shift.findFirst({
-        where: { staffId: p.sub, endTime: null },
+        where: { ...storeWhere(req), staffId: p.sub, endTime: null },
         orderBy: { id: "desc" },
       });
       shiftId = openShift?.id ?? null;
@@ -157,7 +152,7 @@ export function shiftsRouter(prisma: PrismaClient) {
       const dayStart = new Date(today); dayStart.setHours(0, 0, 0, 0);
       const dayEnd   = new Date(today); dayEnd.setHours(23, 59, 59, 999);
       const hasOpenLog = await prisma.shiftInventoryLog.findFirst({
-        where: { checkType: "open", checkedAt: { gte: dayStart, lte: dayEnd } },
+        where: { ...storeWhere(req), checkType: "open", checkedAt: { gte: dayStart, lte: dayEnd } },
       });
       if (!hasOpenLog) {
         return res.status(400).json({ error: "Chưa có log kiểm kho mở ca hôm nay. Hãy mở ca trước." });
@@ -167,6 +162,7 @@ export function shiftsRouter(prisma: PrismaClient) {
     // Tạo logs hàng loạt (shiftId có thể null với Kitchen)
     await prisma.shiftInventoryLog.createMany({
       data: items.map((it) => ({
+        storeId: mustStoreId(req),
         shiftId: shiftId,
         itemId: it.itemId,
         checkType,
@@ -188,8 +184,8 @@ export function shiftsRouter(prisma: PrismaClient) {
    * Trả về log kiểm kho của ngày chỉ định (mặc định hôm nay).
    * Nếu có ca (Cashier) thì cũng bao gồm log theo shiftId của ngày đó.
    */
-  r.get("/shifts/inventory/log", staffAuth, async (req, res) => {
-    const p = (req as Request & { staff?: StaffPayload }).staff!;
+  r.get("/shifts/inventory/log", ...staffAuth, async (req, res) => {
+    const p = me(req);
     const dateStr = req.query.date as string | undefined;
     const date = dateStr ? new Date(dateStr) : new Date();
     const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0);
@@ -197,7 +193,7 @@ export function shiftsRouter(prisma: PrismaClient) {
 
     // Lấy tất cả log trong ngày (không phân biệt shiftId)
     const logs = await prisma.shiftInventoryLog.findMany({
-      where: { checkedAt: { gte: dayStart, lte: dayEnd } },
+      where: { ...storeWhere(req), checkedAt: { gte: dayStart, lte: dayEnd } },
       include: { item: { select: { name: true, unit: true } } },
       orderBy: { checkedAt: "asc" },
     });

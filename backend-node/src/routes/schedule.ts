@@ -12,7 +12,8 @@
 import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
-import { attachStaff, requireRoles, type StaffRequest } from "../middleware/staff.js";
+import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
+import { inStore, mustStoreId, storeWhere, toStore } from "../lib/storeScope.js";
 
 /* ── Ca cố định ─────────────────────────────────────────────────── */
 export const SHIFT_DEFS = {
@@ -73,7 +74,7 @@ function isWeekEditable(weekStr: string): boolean {
 export function scheduleRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
   const anyStaff = [attachStaff(prisma)];
-  const mgmtOnly = [attachStaff(prisma), requireRoles("Admin")];
+  const mgmtOnly = [attachStaff(prisma), requireRoles("Admin"), requireStore];
 
   /* ══════════════════════════════════════════════════════════════
      POST /schedule/admin — Quản lý gán ca mới
@@ -95,12 +96,19 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
       return res.status(400).json({ error: "Mã ca không hợp lệ." });
     }
 
+    const storeId = mustStoreId(req);
+    const target = await prisma.staff.findUnique({ where: { id: staffId }, select: { storeId: true } });
+    if (!target || target.storeId !== storeId) {
+      return res.status(400).json({ error: "Nhân viên không thuộc chi nhánh này." });
+    }
+
     const workDate = new Date(date);
     const def = SHIFT_DEFS[shiftCode as ShiftCode];
 
     try {
       const created = await prisma.workSchedule.create({
         data: {
+          storeId,
           staffId,
           workDate,
           shiftCode,
@@ -114,7 +122,7 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
       });
 
       io.to(`staff_${staffId}`).emit("schedule:new", { staffId, date });
-      io.to("admin_room").emit("schedule:new", { staffId, date });
+      toStore(io, "admin_room", storeId).emit("schedule:new", { staffId, date });
       res.json({ ok: true, schedule: created });
     } catch (e: any) {
       if (e.code === "P2002") {
@@ -154,12 +162,12 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
 
     const [schedules, staffList] = await Promise.all([
       prisma.workSchedule.findMany({
-        where: { workDate: { gte: mon, lte: sun } },
+        where: { ...storeWhere(req), workDate: { gte: mon, lte: sun } },
         include: { staff: { select: { id: true, fullName: true, role: true } } },
         orderBy: [{ workDate: "asc" }, { shiftCode: "asc" }],
       }),
       prisma.staff.findMany({
-        where: { status: "Active" },
+        where: { ...storeWhere(req), status: "Active", role: { not: "Owner" } },
         select: { id: true, fullName: true, role: true, phone: true },
         orderBy: { fullName: "asc" },
       }),
@@ -181,7 +189,7 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ." });
 
     const existing = await prisma.workSchedule.findUnique({ where: { id } });
-    if (!existing) return res.status(404).json({ error: "Không tìm thấy ca." });
+    if (!existing || !inStore(req, existing)) return res.status(404).json({ error: "Không tìm thấy ca." });
 
     const { status, shiftCode, managerNote, staffId: newStaffId } = req.body as {
       status?: "APPROVED" | "REJECTED" | "PENDING";
@@ -193,6 +201,13 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
     const newCode = (shiftCode && VALID_CODES.includes(shiftCode as ShiftCode))
       ? shiftCode : existing.shiftCode;
     const def = SHIFT_DEFS[newCode as ShiftCode];
+
+    if (newStaffId != null && newStaffId !== existing.staffId) {
+      const target = await prisma.staff.findUnique({ where: { id: newStaffId }, select: { storeId: true } });
+      if (!target || target.storeId !== existing.storeId) {
+        return res.status(400).json({ error: "Nhân viên không thuộc chi nhánh này." });
+      }
+    }
 
     const updated = await prisma.workSchedule.update({
       where: { id },
@@ -209,7 +224,7 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
     });
 
     io.to(`staff_${updated.staffId}`).emit("schedule:updated", updated);
-    io.to("admin_room").emit("schedule:updated", updated);
+    toStore(io, "admin_room", updated.storeId).emit("schedule:updated", updated);
     res.json(updated);
   });
 
@@ -221,10 +236,10 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ." });
 
     const existing = await prisma.workSchedule.findUnique({ where: { id } });
-    if (!existing) return res.status(404).json({ error: "Không tìm thấy ca." });
+    if (!existing || !inStore(req, existing)) return res.status(404).json({ error: "Không tìm thấy ca." });
 
     await prisma.workSchedule.delete({ where: { id } });
-    io.to("admin_room").emit("schedule:deleted", { id });
+    toStore(io, "admin_room", existing.storeId).emit("schedule:deleted", { id });
     io.to(`staff_${existing.staffId}`).emit("schedule:deleted", { id });
     res.json({ ok: true });
   });
@@ -238,19 +253,20 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
     const mon = weekMonday(week ? new Date(week) : new Date());
     const sun = new Date(mon); sun.setDate(mon.getDate() + 6); sun.setHours(23, 59, 59, 999);
 
+    const storeId = mustStoreId(req);
     const result = await prisma.workSchedule.updateMany({
-      where: { workDate: { gte: mon, lte: sun }, status: "PENDING" },
+      where: { storeId, workDate: { gte: mon, lte: sun }, status: "PENDING" },
       data: { status: "APPROVED", reviewedBy: me.id },
     });
 
     const affected = await prisma.workSchedule.findMany({
-      where: { workDate: { gte: mon, lte: sun }, status: "APPROVED" },
+      where: { storeId, workDate: { gte: mon, lte: sun }, status: "APPROVED" },
       select: { staffId: true }, distinct: ["staffId"],
     });
     affected.forEach(({ staffId }) => {
       io.to(`staff_${staffId}`).emit("schedule:published", { weekStart: mon, weekEnd: sun });
     });
-    io.to("admin_room").emit("schedule:published", { weekStart: mon, weekEnd: sun, count: result.count });
+    toStore(io, "admin_room", storeId).emit("schedule:published", { weekStart: mon, weekEnd: sun, count: result.count });
     res.json({ ok: true, count: result.count });
   });
 
@@ -262,11 +278,12 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
     const mon = weekMonday(week ? new Date(week) : new Date());
     const sun = new Date(mon); sun.setDate(mon.getDate() + 6); sun.setHours(23, 59, 59, 999);
 
+    const storeId = mustStoreId(req);
     try {
       // Bypass Prisma client validation for DRAFT because client is not regenerated yet
-      await prisma.$executeRawUnsafe(`DELETE FROM Work_Schedules WHERE Work_Date >= ? AND Work_Date <= ? AND Status = 'DRAFT'`, mon, sun);
+      await prisma.$executeRawUnsafe(`DELETE FROM Work_Schedules WHERE Store_ID = ? AND Work_Date >= ? AND Work_Date <= ? AND Status = 'DRAFT'`, storeId, mon, sun);
 
-      const staffs = await prisma.staff.findMany({ where: { role: { not: "Admin" } } });
+      const staffs = await prisma.staff.findMany({ where: { storeId, status: "Active", role: { notIn: ["Admin", "Owner"] } } });
       const leaves = await prisma.leaveRequest.findMany({
         where: { date: { gte: mon, lte: sun }, status: "APPROVED" }
       });
@@ -305,11 +322,11 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
       }
 
       if (shiftsToCreate.length > 0) {
-        const values = shiftsToCreate.map(s => `(${s.staffId || 'NULL'}, '${s.workDate}', '${s.shiftCode}', ${s.startMin}, ${s.endMin}, 'DRAFT', NOW(), NOW())`).join(", ");
-        await prisma.$executeRawUnsafe(`INSERT INTO Work_Schedules (Staff_ID, Work_Date, Shift_Code, Start_Min, End_Min, Status, Created_At, Updated_At) VALUES ${values}`);
+        const values = shiftsToCreate.map(s => `(${storeId}, ${s.staffId || 'NULL'}, '${s.workDate}', '${s.shiftCode}', ${s.startMin}, ${s.endMin}, 'DRAFT', NOW(), NOW())`).join(", ");
+        await prisma.$executeRawUnsafe(`INSERT INTO Work_Schedules (Store_ID, Staff_ID, Work_Date, Shift_Code, Start_Min, End_Min, Status, Created_At, Updated_At) VALUES ${values}`);
       }
 
-      io.to("admin_room").emit("schedule:updated", { weekStart: mon });
+      toStore(io, "admin_room", storeId).emit("schedule:updated", { weekStart: mon });
       res.json({ ok: true, generatedCount: shiftsToCreate.length });
     } catch (e) {
       console.error(e);
