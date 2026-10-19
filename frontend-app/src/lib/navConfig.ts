@@ -66,6 +66,7 @@ const withView = (path: string, view: string | null) => (p: string, s: string) =
 
 /* ─────────── Mục dùng chung ─────────── */
 const I: Record<string, NavItem> = {
+  home: { id: "home", label: "Trang chủ", short: "Trang chủ", icon: Home, to: "/app/overview/home" },
   attendance: { id: "attendance", label: "Chấm công", short: "Chấm công", icon: Clock, to: "/app/hr/attendance" },
   floor: { id: "floor", label: "Sơ đồ bàn", short: "Bàn", icon: LayoutGrid, to: "/app/tables/floor" },
   orderStatus: { id: "order-status", label: "Trạng thái món", short: "Món", icon: ListChecks, to: "/app/tables/order-status" },
@@ -83,17 +84,18 @@ const I: Record<string, NavItem> = {
   suppliers: { id: "suppliers", label: "Nhà cung cấp", short: "NCC", icon: Truck, to: "/app/purchase/suppliers" },
   stock: { id: "stock", label: "Tồn kho", short: "Tồn kho", icon: Warehouse, to: "/app/inventory/stock" },
   // Quản lý: "Tổng quan / Kho / Nhân sự" khớp theo cả app
-  overview: { id: "overview", label: "Tổng quan", short: "Tổng quan", icon: LayoutDashboard, to: "/app/overview/dashboard", match: startsWith("/app/overview") },
+  overview: { id: "overview", label: "Tổng quan", short: "Tổng quan", icon: LayoutDashboard, to: "/app/overview/dashboard", match: (p: string) => startsWith("/app/overview")(p) && p !== "/app/overview/home" },
   // "Đơn hàng" chưa có màn riêng → màn đơn chờ thanh toán / đơn giao của POS
   orders: { id: "orders", label: "Đơn hàng", short: "Đơn hàng", icon: ReceiptText, to: "/pos", badge: "deliveryNew" },
   inventoryApp: { id: "inventory", label: "Kho", short: "Kho", icon: Warehouse, to: "/app/inventory/stock", match: startsWith("/app/inventory") },
   storesCompare: { id: "stores-compare", label: "So sánh chi nhánh", short: "Chi nhánh", icon: Store, to: "/app/overview/compare" },
   stores: { id: "stores", label: "Quản lý chi nhánh", short: "Chi nhánh", icon: Store, to: "/app/settings/stores" },
-  hrApp: { id: "hr", label: "Nhân sự", short: "Nhân sự", icon: UsersRound, to: "/app/hr/employees", match: (p: string) => startsWith("/app/hr")(p) && p !== "/app/hr/attendance" },
+  hrApp: { id: "hr", label: "Nhân sự", short: "Nhân sự", icon: UsersRound, to: "/app/hr/employees", match: (p: string) => startsWith("/app/hr")(p) && !["/app/hr/attendance", "/app/hr/schedule"].includes(p) },
 };
 
 /** Luôn có trong "Thêm" của mọi nhân viên (Đổi mật khẩu & Đăng xuất là hành động, do BottomNav vẽ) */
 export const STAFF_COMMON_MORE: NavItem[] = [
+  I.home,
   { id: "my-schedule", label: "Lịch cá nhân", short: "Lịch", icon: CalendarCheck, to: "/app/hr/my-schedule" },
   { id: "my-requests", label: "Đề xuất cá nhân", short: "Đề xuất", icon: FileText, to: "/app/hr/requests" },
   { id: "payslips", label: "Phiếu lương", short: "Lương", icon: Wallet, to: "/app/hr/payslips" },
@@ -106,8 +108,9 @@ export const NAV_BY_ROLE: Record<string, RoleNav> = {
   Shipper: { primary: [I.shipOrders, I.shipMap, I.shipHistory, I.attendance], more: [I.schedule] },
   Purchasing: { primary: [I.purchase, I.suppliers, I.stock, I.attendance] },
   Manager: { primary: [I.purchase, I.suppliers, I.stock, I.attendance] },
-  Admin: { primary: [I.overview, I.orders, I.inventoryApp, I.hrApp], more: [I.attendance], moreAllApps: true },
-  Owner: { primary: [I.overview, I.orders, I.inventoryApp, I.hrApp], more: [I.storesCompare, I.stores, I.attendance], moreAllApps: true },
+  // Quản lý: việc hằng ngày ở thanh đáy; các nhóm chức năng còn lại nằm ở Trang chủ và "Thêm"
+  Admin: { primary: [I.home, I.orders, I.attendance, I.schedule], more: [I.overview, I.inventoryApp, I.hrApp], moreAllApps: true },
+  Owner: { primary: [I.home, I.orders, I.attendance, I.schedule], more: [I.storesCompare, I.stores, I.overview, I.inventoryApp, I.hrApp], moreAllApps: true },
 };
 
 /** Tab khách hàng (tối đa 5, không có "Thêm") */

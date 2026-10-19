@@ -3,6 +3,9 @@
 -- Chạy: docker exec -i cmn-mysql mysql -uroot -proot coffee_shop_db < prisma/sql/001_chain_stores.sql
 -- Sau đó: npx tsx prisma/store-migration.ts (tạo tài khoản Owner).
 
+-- Client mysql mặc định không dùng utf8mb4 → tên tiếng Việt bị lỗi mã hoá nếu thiếu dòng này
+SET NAMES utf8mb4;
+
 -- AlterTable
 ALTER TABLE `Audit_Logs` ADD COLUMN `Store_ID` INTEGER NULL;
 

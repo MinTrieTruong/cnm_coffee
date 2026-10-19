@@ -52,6 +52,7 @@ const CustomerForm = L(() => import("../modules/sales/Customers"), "CustomerForm
 const ReviewList = L(() => import("../modules/sales/Reviews"), "ReviewList");
 const ReviewForm = L(() => import("../modules/sales/Reviews"), "ReviewForm");
 
+const Home = L(() => import("../modules/overview/Home"), "Home");
 const Dashboard = L(() => import("../modules/overview/Dashboard"), "Dashboard");
 const Revenue = L(() => import("../modules/overview/Revenue"), "Revenue");
 const Profit = L(() => import("../modules/overview/Profit"), "Profit");
@@ -114,6 +115,7 @@ export const APPS: AppDef[] = [
     label: "Tổng quan",
     icon: LayoutDashboard,
     menus: [
+      { id: "home", label: "Trang chủ", roles: "all", component: Home, layout: "full" },
       { id: "dashboard", label: "Bảng điều khiển", roles: ADMIN, component: Dashboard, layout: "erp" },
       { id: "revenue", label: "Doanh thu", roles: ADMIN, component: Revenue, layout: "erp" },
       { id: "profit", label: "Lợi nhuận", roles: ADMIN, component: Profit, layout: "erp" },
@@ -270,7 +272,7 @@ export function defaultRouteForRole(role: string): string {
   switch (role) {
     case "Admin":
     case "Owner":
-      return "/app/overview/dashboard";
+      return "/app/overview/home";
     case "Cashier":
       return "/pos";
     case "Kitchen":

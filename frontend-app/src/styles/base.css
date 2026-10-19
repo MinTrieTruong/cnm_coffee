@@ -692,3 +692,135 @@ button.o-status-step { cursor: pointer; }
   }
   .o-mobile-subnav a.active { background: var(--o-primary-soft); border-color: var(--o-primary); color: var(--o-primary); font-weight: 600; }
 }
+
+/* ═══════════ Trang chủ nhân viên (Tổng quan › Trang chủ) ═══════════ */
+.o-home {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 20px 16px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.o-home-title { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; }
+.o-home-sub { margin: 4px 0 0; color: var(--o-muted); font-size: var(--o-fs-sm); }
+.o-home-date::first-letter { text-transform: uppercase; }
+
+/* Ca hôm nay */
+.o-home-shift {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--o-surface);
+  border: 1px solid var(--o-border);
+  border-left: 4px solid var(--o-border-strong);
+  border-radius: var(--o-radius);
+}
+.o-home-shift.is-due { border-left-color: var(--o-warning); }
+.o-home-shift.is-working { border-left-color: var(--o-success); }
+.o-home-shift.is-done { border-left-color: var(--o-primary); }
+.o-home-shift-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--o-radius-lg);
+  display: grid;
+  place-items: center;
+  background: var(--o-surface-alt);
+  color: var(--o-text-2);
+  flex-shrink: 0;
+}
+.is-due .o-home-shift-icon { background: var(--o-warning-bg); color: var(--o-warning); }
+.is-working .o-home-shift-icon { background: var(--o-success-bg); color: var(--o-success); }
+.o-home-shift-icon svg { width: 20px; height: 20px; }
+.o-home-shift-text { flex: 1; min-width: 0; }
+.o-home-shift-title { font-weight: 600; }
+.o-home-shift-detail { color: var(--o-muted); font-size: var(--o-fs-sm); margin-top: 2px; }
+.o-home-shift-cta { height: 36px; }
+
+/* Chỉ số hôm nay */
+.o-home-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.o-home-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  background: var(--o-surface);
+  border: 1px solid var(--o-border);
+  border-radius: var(--o-radius);
+  color: var(--o-text) !important;
+  text-decoration: none !important;
+  transition: border-color 120ms ease;
+}
+.o-home-stat:hover { border-color: var(--o-primary); }
+.o-home-stat-label { color: var(--o-muted); font-size: var(--o-fs-sm); }
+.o-home-stat-value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.o-home-stat.is-attention { background: var(--o-warning-bg); border-color: #fde68a; }
+.o-home-stat.is-attention .o-home-stat-value { color: var(--o-warning); }
+
+/* Nhóm chức năng */
+.o-home-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.o-home-group {
+  background: var(--o-surface);
+  border: 1px solid var(--o-border);
+  border-radius: var(--o-radius);
+  padding: 12px 12px 8px;
+}
+.o-home-group-title {
+  margin: 0 0 8px 4px;
+  font-size: var(--o-fs-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--o-text-2);
+}
+.o-home-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 4px; }
+.o-home-tile {
+  min-height: 84px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 10px 4px 8px;
+  border-radius: var(--o-radius);
+  color: var(--o-text) !important;
+  text-decoration: none !important;
+  text-align: center;
+  font-size: var(--o-fs-sm);
+  line-height: 1.25;
+  touch-action: manipulation;
+  transition: background-color 120ms ease;
+}
+.o-home-tile:hover { background: var(--o-surface-alt); }
+.o-home-tile:active { background: var(--o-primary-soft); }
+.o-home-tile:focus-visible,
+.o-home-stat:focus-visible { outline: 2px solid var(--o-primary); outline-offset: 2px; }
+.o-home-tile-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--o-radius-lg);
+  display: grid;
+  place-items: center;
+  background: var(--o-primary-soft);
+  color: var(--o-primary);
+}
+.o-home-tile-icon svg { width: 20px; height: 20px; }
+.o-home-tile-label { overflow-wrap: anywhere; }
+
+@media (max-width: 1023px) {
+  .o-home-groups { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 768px) {
+  .o-home { padding: 12px 12px 24px; gap: 12px; }
+  .o-home-title { font-size: 18px; }
+  .o-home-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .o-home-stat-value { font-size: 17px; }
+  .o-home-shift { flex-wrap: wrap; }
+  .o-home-shift-cta { width: 100%; height: 44px; }
+  .o-home-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; }
+  .o-home-tile { min-height: 76px; font-size: var(--o-fs-xs); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .o-home-tile, .o-home-stat { transition: none; }
+}
