@@ -1,6 +1,6 @@
 import { Coffee } from "lucide-react";
 import { mediaUrl } from "../../lib/api";
-import { activeStoreId, staffApi } from "../../lib/staffApi";
+import { activeStoreId, getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
 import { Badge, EmptyState, RecordList, errMsg, formatVnd, type Column } from "../../components/erp";
 import { useRecordNav, useResource } from "../shared";
 
@@ -31,6 +31,8 @@ export function ProductList() {
   const { data: rows, loading, error, setError, reload } = useResource<ProductRow[]>("/api/admin/products", []);
   const go = useRecordNav(PRODUCTS_BASE);
   const storeId = activeStoreId();
+  // Món & giá dùng chung cả chuỗi: chỉ Chủ chuỗi tạo/sửa; Quản lý chi nhánh bật/tắt tại chi nhánh
+  const owner = isOwnerRole(getStaffInfo()?.role);
 
   /** Bật/tắt bán hoặc báo hết tại chi nhánh đang chọn */
   async function setAtStore(list: ProductRow[], patch: { isAvailable?: boolean; outOfStock?: boolean }) {
@@ -84,15 +86,18 @@ export function ProductList() {
       key: "active",
       label: "Đang bán (chuỗi)",
       value: (p) => (p.isActive ? 1 : 0),
-      render: (p) => (
-        <input
-          type="checkbox"
-          checked={p.isActive}
-          aria-label={`Đang bán ${p.name}`}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => void setActive([p], e.target.checked)}
-        />
-      ),
+      render: (p) =>
+        owner ? (
+          <input
+            type="checkbox"
+            checked={p.isActive}
+            aria-label={`Đang bán ${p.name}`}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => void setActive([p], e.target.checked)}
+          />
+        ) : (
+          <Badge tone={p.isActive ? "success" : "neutral"}>{p.isActive ? "Có" : "Ngưng"}</Badge>
+        ),
     },
     ...(storeId == null
       ? []
@@ -140,14 +145,14 @@ export function ProductList() {
 
   return (
     <RecordList
-      crumbs={[{ label: "Món & giá" }]}
+      crumbs={[{ label: owner ? "Món & giá" : "Thực đơn chi nhánh" }]}
       rows={rows}
       columns={columns}
       rowKey={(p) => p.id}
       loading={loading}
       error={error}
       onOpen={(p) => go.open(p.id)}
-      onCreate={go.create}
+      onCreate={owner ? go.create : undefined}
       searchText={(p) => `${p.name} ${p.sku ?? ""} ${p.category?.name ?? ""}`}
       filters={[
         { id: "active", label: "Đang bán", test: (p) => p.isActive },
@@ -177,8 +182,12 @@ export function ProductList() {
         },
       }}
       bulkActions={[
-        { label: "Mở bán (chuỗi)", onClick: (list) => setActive(list, true) },
-        { label: "Ngưng bán (chuỗi)", onClick: (list) => setActive(list, false) },
+        ...(owner
+          ? [
+              { label: "Mở bán (chuỗi)", onClick: (list: ProductRow[]) => setActive(list, true) },
+              { label: "Ngưng bán (chuỗi)", onClick: (list: ProductRow[]) => setActive(list, false) },
+            ]
+          : []),
         ...(storeId == null
           ? []
           : [

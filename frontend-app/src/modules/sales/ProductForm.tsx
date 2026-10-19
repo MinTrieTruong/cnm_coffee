@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { mediaUrl } from "../../lib/api";
-import { staffApi } from "../../lib/staffApi";
+import { getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
 import { Button, Field, FormGroup, FormGroups, FormView, StatusBar, Tabs, errMsg, formatVnd } from "../../components/erp";
 import { ImageField, TagsInput, digits, parseTags, useRecordNav, useResource } from "../shared";
 import { PRODUCTS_BASE, type ProductRow } from "./ProductList";
@@ -143,6 +143,8 @@ export function ProductForm({ recordId }: { recordId?: string }) {
     <FormView
       crumbs={[{ label: "Món & giá", to: PRODUCTS_BASE }, { label: isNew ? "Mới" : record!.name }]}
       editing={editing}
+      // Món dùng chung cả chuỗi — chỉ Chủ chuỗi sửa
+      canEdit={isOwnerRole(getStaffInfo()?.role)}
       onEdit={() => setEditing(true)}
       onSave={() => void save()}
       onDiscard={() => {

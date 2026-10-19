@@ -96,9 +96,10 @@ docker exec cmn-mysql mysql -uroot -proot coffee_shop_db -e "SET FOREIGN_KEY_CHE
 docker exec -i cmn-mysql mysql -uroot -proot coffee_shop_db < prisma/sql/001_chain_stores.sql
 docker exec -i cmn-mysql mysql -uroot -proot coffee_shop_db < prisma/sql/002_drop_item_stock.sql
 docker exec -i cmn-mysql mysql -uroot -proot coffee_shop_db < prisma/sql/003_store_settings_cleanup.sql
+docker exec -i cmn-mysql mysql -uroot -proot coffee_shop_db < prisma/sql/004_requests_fulfilled.sql
 npx prisma generate
 npm run db:owner          # tạo tài khoản Chủ chuỗi: owner / owner123 (đổi bằng OWNER_PASSWORD)
-npm run db:seed-store2    # tuỳ chọn: Chi nhánh #2 mẫu
+npm run db:seed-store2    # Chi nhánh #2 mẫu + tài khoản Thủ kho `kho` cho Chi nhánh #1
 ```
 
 ---
@@ -113,7 +114,10 @@ npm run db:seed-store2    # tuỳ chọn: Chi nhánh #2 mẫu
 | Phục vụ | `waiter` | `staff123` | `/staff/tables` |
 | Bếp | `kitchen` | `staff123` | `/kds` |
 | Chủ chuỗi | `owner` | `staff123` (seed) / `owner123` (db:owner) | `/app/overview/dashboard` |
-| Nhân viên Chi nhánh #2 | `admin2`, `cashier2`, `kitchen2`, `waiter2`, `shipper2` | `staff123` | sau `npm run db:seed-store2` |
+| Thủ kho | `kho` | `staff123` | `/app/overview/home` |
+| Nhân viên Chi nhánh #2 | `admin2`, `cashier2`, `kitchen2`, `waiter2`, `shipper2`, `kho2` | `staff123` | sau `npm run db:seed-store2` |
+
+**Phân vai:** Chủ chuỗi quản lý thực đơn, giá, khuyến mãi, website, nhà cung cấp, chi nhánh. Quản lý chi nhánh quản lý nhân sự, duyệt phiếu/đơn từ/mua hàng, xem báo cáo chi nhánh. Thủ kho làm kho & mua hàng. Thu ngân, phục vụ, pha chế, shipper làm việc trong ca.
 
 Chủ chuỗi chọn chi nhánh ở thanh trên cùng (hoặc "Tất cả chi nhánh" để xem báo cáo tổng). Nhân viên chỉ thấy dữ liệu chi nhánh của mình.
 

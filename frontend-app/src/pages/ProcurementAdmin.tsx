@@ -2,26 +2,30 @@ import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ShoppingCart, FilePlus, Package, FolderOpen, FileText, Download, X, Search, ArrowLeft } from "lucide-react";
-import { staffApi } from "../lib/staffApi";
+import { getStaffInfo, isAdminRole, staffApi } from "../lib/staffApi";
 
 export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = {}) {
+  // Thủ kho lập đề xuất & nhận hàng; Quản lý chi nhánh duyệt đề xuất & chọn báo giá
+  const role = getStaffInfo()?.role;
+  const keeper = role === "Warehouse";
+  const approver = isAdminRole(role);
   const navigate = useNavigate();
   const [tab, setTab] = useState<"pr" | "rfq" | "po" | "drive">("pr");
-  
+
   const [prs, setPrs] = useState<any[]>([]);
   const [rfqs, setRfqs] = useState<any[]>([]);
   const [pos, setPos] = useState<any[]>([]);
   const [docs, setDocs] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
-  
+
   const [showCreatePr, setShowCreatePr] = useState(false);
   const [newPrItems, setNewPrItems] = useState<{itemId: number, qty: number, note: string}[]>([]);
-  
+
   const [selectedRfq, setSelectedRfq] = useState<any>(null);
-  
+
   const [receivingPo, setReceivingPo] = useState<any>(null);
   const [expiries, setExpiries] = useState<Record<number, string>>({}); // itemId -> date
-  
+
   const [previewDoc, setPreviewDoc] = useState<any>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
@@ -49,7 +53,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
       console.error("[ProcurementAdmin] loadData error:", e);
     }
   }
-  
+
   async function loadInventory() {
     try {
       setInventory(await staffApi<any[]>("/api/admin/inventory"));
@@ -102,7 +106,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
         return;
       }
     }
-    
+
     if (!window.confirm("Xác nhận nhập kho hàng hóa (GRN)? Hệ thống sẽ tự động cập nhật số lượng tồn.")) return;
     try {
       await staffApi(`/api/purchasing/orders/${receivingPo.id}/receive`, {
@@ -154,7 +158,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
             </h1>
           </div>
         )}
-        {tab === "pr" && (
+        {tab === "pr" && keeper && (
           <button className="primary-btn" onClick={() => setShowCreatePr(true)}>
             <FilePlus size={18} /> Tạo Phiếu Đề Xuất (PR)
           </button>
@@ -234,7 +238,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                 <span style={{ padding: "0.25rem 0.75rem", borderRadius: 999, fontSize: "0.85rem", background: pr.status === "APPROVED" ? "rgba(59,130,246,0.2)" : pr.status === "COMPLETED" ? "rgba(16,185,129,0.2)" : "rgba(245,158,11,0.2)", color: pr.status === "APPROVED" ? "#3b82f6" : pr.status === "COMPLETED" ? "#047857" : "#b45309" }}>
                   {pr.status === "PENDING" ? "Chờ Duyệt" : pr.status === "APPROVED" ? "Đã Duyệt (Đang lấy báo giá)" : "Hoàn Tất"}
                 </span>
-                {pr.status === "PENDING" && (
+                {pr.status === "PENDING" && approver && (
                   <button className="primary-btn" style={{ padding: "0.4rem 1rem", fontSize: "0.9rem" }} onClick={() => approvePR(pr.id)}>
                     Duyệt & Tạo RFQ
                   </button>
@@ -277,7 +281,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <button className="secondary-btn" onClick={() => setSelectedRfq(null)} style={{ marginBottom: "1rem" }}>Quay lại</button>
           <h2>So sánh báo giá cho: {selectedRfq.code}</h2>
-          
+
           {selectedRfq.quotes.length === 0 ? (
             <p style={{ color: "var(--muted)" }}>Chưa có nhà cung cấp nào gửi báo giá.</p>
           ) : (
@@ -290,9 +294,11 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                     {selectedRfq.quotes.map((q:any) => (
                       <th key={q.id} style={{ padding: "1rem", textAlign: "right" }}>
                         <div style={{ color: "var(--accent)" }}>{q.supplier.name}</div>
-                        <button className="primary-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem", marginTop: "0.5rem" }} onClick={() => selectQuote(selectedRfq.id, q.id)}>
-                          Chốt Báo giá & Tạo PO
-                        </button>
+                        {approver && (
+                          <button className="primary-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem", marginTop: "0.5rem" }} onClick={() => selectQuote(selectedRfq.id, q.id)}>
+                            Chốt Báo giá & Tạo PO
+                          </button>
+                        )}
                       </th>
                     ))}
                   </tr>
@@ -366,7 +372,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                   </tbody>
                 </table>
               </div>
-              {po.status === "PENDING" && (
+              {po.status === "PENDING" && keeper && (
                 <div style={{ marginTop: "1rem", textAlign: "right" }}>
                   <button className="primary-btn" onClick={() => setReceivingPo(po)}>
                     <Package size={16} /> Nhận Hàng (Tạo Phiếu Nhập)
@@ -385,7 +391,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} style={{ background: "var(--bg)", width: "100%", maxWidth: 600, padding: "2rem", borderRadius: 12, border: "1px solid var(--border)", maxHeight: "90vh", overflowY: "auto" }}>
               <h2 style={{ margin: "0 0 1rem 0", color: "var(--accent)" }}>Nhập Kho - {receivingPo.code}</h2>
               <p style={{ color: "var(--muted)", marginBottom: "2rem" }}>Vui lòng kiểm tra số lượng và nhập Hạn sử dụng (Expiry Date) cho từng lô hàng.</p>
-              
+
               <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
                 {receivingPo.quote.rfq.requisition.items.map((i: any) => (
                   <div key={i.id} style={{ background: "var(--surface2)", padding: "1rem", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
@@ -406,7 +412,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                   </div>
                 ))}
               </div>
-              
+
               <div style={{ display: "flex", gap: "1rem", marginTop: "2rem", justifyContent: "flex-end" }}>
                 <button className="secondary-btn" onClick={() => setReceivingPo(null)}>Hủy</button>
                 <button className="primary-btn" onClick={receiveOrder}>Xác nhận Nhập Kho (Tạo GRN)</button>
@@ -440,7 +446,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
               <option value="GRN">Phiếu Nhập Kho (GRN)</option>
             </select>
           </div>
-          
+
           {/* Drive Grid */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "1.5rem" }}>
             {filteredDocs.length === 0 ? <p style={{ color: "var(--muted)", gridColumn: "1/-1" }}>Không tìm thấy tài liệu nào.</p> : filteredDocs.map(d => (
@@ -475,7 +481,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
               </div>
               <button className="icon-btn" style={{ color: "#fff" }} onClick={() => setPreviewDoc(null)}><X size={24}/></button>
             </div>
-            
+
             <div style={{ flex: 1, overflowY: "auto", display: "flex", justifyContent: "center", paddingBottom: "2rem" }}>
               {/* Vùng Render HTML để in PDF */}
               <div ref={printRef} style={{ background: "#fff", color: "#000", width: "210mm", minHeight: "297mm", padding: "20mm", fontFamily: "serif", boxShadow: "var(--shadow-lg)" }}>
@@ -483,19 +489,19 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                   <h1 style={{ margin: 0, fontSize: "24px", textTransform: "uppercase" }}>Cộng Hòa Xã Hội Chủ Nghĩa Việt Nam</h1>
                   <h2 style={{ margin: "5px 0 0 0", fontSize: "16px" }}>Độc lập - Tự do - Hạnh phúc</h2>
                 </div>
-                
+
                 <h1 style={{ textAlign: "center", fontSize: "28px", marginTop: "30px", marginBottom: "10px" }}>
                   {previewDoc.type === "PR" ? "PHIẾU YÊU CẦU MUA HÀNG" : previewDoc.type === "RFQ" ? "PHIẾU YÊU CẦU BÁO GIÁ" : previewDoc.type === "PO" ? "ĐƠN ĐẶT HÀNG" : "PHIẾU NHẬP KHO"}
                 </h1>
                 <div style={{ textAlign: "center", fontStyle: "italic", marginBottom: "40px" }}>Số: {previewDoc.code}</div>
-                
+
                 <div style={{ marginBottom: "20px", fontSize: "16px", lineHeight: "1.5" }}>
                   <p><strong>Ngày lập chứng từ:</strong> {new Date(previewDoc.date).toLocaleDateString("vi-VN")}</p>
                   <p><strong>Loại chứng từ:</strong> {previewDoc.type}</p>
                   <p><strong>Nội dung:</strong> {previewDoc.title}</p>
                   <p><strong>Trạng thái:</strong> {previewDoc.status}</p>
                 </div>
-                
+
                 {/* Giả lập thông tin bảng */}
                 <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "30px" }}>
                   <thead>
@@ -513,7 +519,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                     </tr>
                   </tbody>
                 </table>
-                
+
                 <div style={{ display: "flex", justifyContent: "space-between", marginTop: "80px", textAlign: "center" }}>
                   <div>
                     <strong>Người lập phiếu</strong>

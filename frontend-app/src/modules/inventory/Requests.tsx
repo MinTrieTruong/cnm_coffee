@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ClipboardList } from "lucide-react";
-import { staffApi } from "../../lib/staffApi";
+import { getStaffInfo, isAdminRole, staffApi } from "../../lib/staffApi";
 import { Badge, Button, EmptyState, Field, FormGroup, FormGroups, FormView, Kpi, RecordList, StatusBar, errMsg, fmtDateTime, type Tone } from "../../components/erp";
 import { useRecordNav, useResource } from "../shared";
 
@@ -20,7 +20,8 @@ type RequestRow = {
 const BASE = "/app/inventory/requests";
 const STATUS: Record<string, { label: string; tone: Tone }> = {
   Pending: { label: "Chờ duyệt", tone: "warning" },
-  Approved: { label: "Đã duyệt", tone: "success" },
+  Approved: { label: "Đã duyệt — chờ kho", tone: "info" },
+  Fulfilled: { label: "Hoàn tất", tone: "success" },
   Rejected: { label: "Từ chối", tone: "danger" },
 };
 const typeLabel = (t: string) => (t === "Restock" ? "Nhập hàng" : "Xin NL pha chế");
@@ -41,7 +42,8 @@ export function RequestList() {
         <div className="o-kpis">
           <Kpi label="Tổng phiếu" value={rows.length} />
           <Kpi label="Chờ duyệt" value={count("Pending")} tone={count("Pending") ? "warning" : undefined} />
-          <Kpi label="Đã duyệt" value={count("Approved")} tone="success" />
+          <Kpi label="Chờ kho thực hiện" value={count("Approved")} tone={count("Approved") ? "info" : undefined} />
+          <Kpi label="Hoàn tất" value={count("Fulfilled")} tone="success" />
           <Kpi label="Từ chối" value={count("Rejected")} tone={count("Rejected") ? "danger" : undefined} />
         </div>
       }
@@ -84,6 +86,24 @@ export function RequestForm({ recordId }: { recordId?: string }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Quản lý duyệt/từ chối; Thủ kho giao nguyên liệu (phiếu bếp) hoặc xác nhận hàng về (phiếu nhập)
+  const role = getStaffInfo()?.role;
+  const approver = isAdminRole(role);
+  const keeper = role === "Warehouse";
+
+  async function fulfill() {
+    if (!r) return;
+    setBusy(true);
+    try {
+      await staffApi(`/api/admin/requests/${r.id}/fulfill`, { method: "POST" });
+      await list.reload();
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function decide(status: "Approved" | "Rejected") {
     if (!r) return;
     setBusy(true);
@@ -112,16 +132,20 @@ export function RequestForm({ recordId }: { recordId?: string }) {
       canEdit={false}
       error={err}
       actions={
-        r.status === "Pending" ? (
+        r.status === "Pending" && approver ? (
           <>
             <Button variant="primary" onClick={() => void decide("Approved")} disabled={busy}>Duyệt</Button>
             <Button variant="danger" onClick={() => void decide("Rejected")} disabled={busy}>Từ chối</Button>
           </>
+        ) : r.status === "Approved" && keeper ? (
+          <Button variant="primary" onClick={() => void fulfill()} disabled={busy}>
+            {r.type === "Restock" ? "Xác nhận hàng đã nhập" : "Xuất kho giao bếp"}
+          </Button>
         ) : undefined
       }
       statusBar={
         <StatusBar
-          steps={r.status === "Rejected" ? [{ id: "Pending", label: "Chờ duyệt" }, { id: "Rejected", label: "Từ chối" }] : [{ id: "Pending", label: "Chờ duyệt" }, { id: "Approved", label: "Đã duyệt" }]}
+          steps={r.status === "Rejected" ? [{ id: "Pending", label: "Chờ duyệt" }, { id: "Rejected", label: "Từ chối" }] : [{ id: "Pending", label: "Chờ duyệt" }, { id: "Approved", label: "Đã duyệt" }, { id: "Fulfilled", label: r.type === "Restock" ? "Đã nhập kho" : "Đã giao bếp" }]}
           current={current}
         />
       }

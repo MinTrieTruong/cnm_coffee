@@ -739,7 +739,7 @@ button.o-status-step { cursor: pointer; }
 .o-home-shift-cta { height: 36px; }
 
 /* Chỉ số hôm nay */
-.o-home-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.o-home-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
 .o-home-stat {
   display: flex;
   flex-direction: column;
@@ -758,6 +758,43 @@ button.o-status-step { cursor: pointer; }
 .o-home-stat.is-attention { background: var(--o-warning-bg); border-color: #fde68a; }
 .o-home-stat.is-attention .o-home-stat-value { color: var(--o-warning); }
 
+/* Việc chờ xử lý (Quản lý / Thủ kho) */
+.o-home-todo {
+  background: var(--o-surface);
+  border: 1px solid var(--o-border);
+  border-radius: var(--o-radius);
+  padding: 12px 12px 6px;
+}
+.o-home-todo-list { list-style: none; margin: 0; padding: 0; }
+.o-home-todo-list li + li { border-top: 1px solid var(--o-border); }
+.o-home-todo-item {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+  color: var(--o-text) !important;
+  text-decoration: none !important;
+  border-radius: var(--o-radius);
+}
+.o-home-todo-item:hover { background: var(--o-surface-alt); }
+.o-home-todo-item:focus-visible { outline: 2px solid var(--o-primary); outline-offset: 2px; }
+.o-home-todo-item svg { color: var(--o-muted); }
+.o-home-todo-count {
+  min-width: 28px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: var(--o-radius);
+  display: grid;
+  place-items: center;
+  background: var(--o-warning-bg);
+  color: var(--o-warning);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.o-home-todo-text { flex: 1; min-width: 0; }
+.o-home-todo-empty { margin: 0 4px 8px; color: var(--o-muted); font-size: var(--o-fs-sm); }
+
 /* Nhóm chức năng */
 .o-home-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .o-home-group {
@@ -766,6 +803,7 @@ button.o-status-step { cursor: pointer; }
   border-radius: var(--o-radius);
   padding: 12px 12px 8px;
 }
+.o-home-group.is-support { border-style: dashed; background: transparent; }
 .o-home-group-title {
   margin: 0 0 8px 4px;
   font-size: var(--o-fs-sm);
