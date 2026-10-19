@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { attachStaff, requireRoles } from "../middleware/staff.js";
+import { inStore, storeWhere } from "../lib/storeScope.js";
 import exceljs from "exceljs";
 
 const r = Router();
@@ -42,9 +43,9 @@ r.get("/payroll/calculate", auth, requireRoles("Admin"), async (req, res) => {
   const startOfMonth = new Date(year, month - 1, 1);
   const endOfMonth = new Date(year, month, 1);
 
-  // Lấy tất cả nhân viên
+  // Nhân viên của chi nhánh đang xem (Owner xem tất cả → mọi chi nhánh)
   const staffs = await prisma.staff.findMany({
-    where: { status: "Active" }
+    where: { ...storeWhere(req), status: "Active", role: { not: "Owner" } }
   });
 
   const results = [];
@@ -117,8 +118,8 @@ r.get("/payroll/calculate", auth, requireRoles("Admin"), async (req, res) => {
 // 4. Cập nhật thưởng riêng
 r.post("/payroll/update-bonus", auth, requireRoles("Admin"), async (req, res) => {
   const { payslipId, individualBonus } = req.body;
-  const payslip = await prisma.payslip.findUnique({ where: { id: Number(payslipId) } });
-  if (!payslip) return res.status(404).json({ error: "Không tìm thấy phiếu lương" });
+  const payslip = await prisma.payslip.findUnique({ where: { id: Number(payslipId) }, include: { staff: true } });
+  if (!payslip || !inStore(req, payslip.staff)) return res.status(404).json({ error: "Không tìm thấy phiếu lương" });
 
   const timeSalary = Math.round(payslip.dailyRate * payslip.actualWorkedDays);
   const netSalary = timeSalary + payslip.allowance + payslip.globalBonus + Number(individualBonus);
@@ -135,7 +136,7 @@ r.post("/payroll/update-bonus", auth, requireRoles("Admin"), async (req, res) =>
 r.post("/payroll/finalize", auth, requireRoles("Admin"), async (req, res) => {
   const { month, year } = req.body;
   await prisma.payslip.updateMany({
-    where: { month: Number(month), year: Number(year) },
+    where: { month: Number(month), year: Number(year), staff: storeWhere(req) },
     data: { status: "PAID" }
   });
   res.json({ ok: true });
@@ -147,8 +148,8 @@ r.get("/payroll/export", auth, requireRoles("Admin"), async (req, res) => {
   const year = Number(req.query.year);
 
   const payslips = await prisma.payslip.findMany({
-    where: { month, year },
-    include: { staff: true }
+    where: { month, year, staff: storeWhere(req) },
+    include: { staff: { include: { store: { select: { name: true } } } } }
   });
 
   const workbook = new exceljs.Workbook();
@@ -157,6 +158,7 @@ r.get("/payroll/export", auth, requireRoles("Admin"), async (req, res) => {
   sheet.columns = [
     { header: "Mã NV", key: "staffId", width: 10 },
     { header: "Tên NV", key: "staffName", width: 25 },
+    { header: "Chi nhánh", key: "storeName", width: 25 },
     { header: "Lương Cơ Bản", key: "baseSalary", width: 15 },
     { header: "Công Chuẩn", key: "standardDays", width: 15 },
     { header: "Ngày Làm Thực Tế", key: "actualWorkedDays", width: 20 },
@@ -173,6 +175,7 @@ r.get("/payroll/export", auth, requireRoles("Admin"), async (req, res) => {
     sheet.addRow({
       staffId: p.staffId,
       staffName: p.staff.fullName,
+      storeName: p.staff.store?.name ?? "",
       baseSalary: p.baseSalary,
       standardDays: p.standardDays,
       actualWorkedDays: p.actualWorkedDays,

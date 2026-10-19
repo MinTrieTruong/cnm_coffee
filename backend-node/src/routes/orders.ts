@@ -5,7 +5,8 @@ import type { Request } from "express";
 import { randomUUID } from "crypto";
 import { attachStaff, requireRoles, requireStore } from "../middleware/staff.js";
 import { inStore, storeWhere, toStore } from "../lib/storeScope.js";
-import { resolveCustomerStore } from "../lib/stores.js";
+import { resolveCustomerStore, voucherStoreError } from "../lib/stores.js";
+import { unsellableProductIds } from "../lib/storeProducts.js";
 import { optionalCustomerAuth } from "../middleware/customer.js";
 import { computeBill, computePointsEarned, getStoreSettings } from "../lib/pricing.js";
 import { DS, getStoreLocation, haversineKm, onKitchenProgress, releaseOrderToKitchen, shippingFeeForDistance } from "../lib/delivery.js";
@@ -45,6 +46,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       include: {
         details: { include: { product: true }, orderBy: { id: "asc" } },
         table: true,
+        store: { select: { name: true, address: true } },
         customer: { select: { id: true, fullName: true, phone: true, points: true } },
         payments: { orderBy: { id: "asc" } },
       },
@@ -84,7 +86,9 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       : 0;
 
     res.json({
-      storeName: process.env.STORE_NAME ?? "TD Coffee",
+      storeName: order.store.name,
+      storeAddress: order.store.address,
+      storeId: order.storeId,
       orderId: order.id,
       status: order.status,
       orderType: order.orderType,
@@ -233,14 +237,20 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     } else {
       return res.status(400).json({ error: "Không xác định được quyền trên đơn này." });
     }
+    const discountVoucherAmt = body.discountVoucherAmt ?? 0;
+    const voucherCode = body.voucherCode ?? null;
+    if (voucherCode) {
+      const v = await prisma.voucher.findUnique({ where: { code: voucherCode.trim().toUpperCase() } });
+      if (!v) return res.status(400).json({ error: "Mã voucher không tồn tại." });
+      const storeErr = await voucherStoreError(prisma, v.id, order.storeId);
+      if (storeErr) return res.status(400).json({ error: storeErr });
+    }
     if (order.tableId) {
       await prisma.cafeTable.update({
         where: { id: order.tableId },
         data: { status: "Waiting_Pay" },
       });
     }
-    const discountVoucherAmt = body.discountVoucherAmt ?? 0;
-    const voucherCode = body.voucherCode ?? null;
     if (discountVoucherAmt > 0 || voucherCode) {
       await prisma.order.update({
         where: { id: order.id },
@@ -315,6 +325,16 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     const resolved = await resolveCustomerStore(prisma, isTakeaway || isDelivery ? null : body.tableId, body.storeId);
     if ("error" in resolved) return res.status(400).json({ error: resolved.error });
     const { storeId } = resolved;
+
+    const productIds = [...new Set(lines.map((l) => l.productId))];
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, isActive: true, outOfStock: true },
+    });
+    const unsellable = await unsellableProductIds(prisma, storeId, products);
+    if (products.length !== productIds.length || unsellable.size > 0) {
+      return res.status(400).json({ error: "Một số món không còn phục vụ tại chi nhánh này." });
+    }
 
     // Phí ship tính phía server theo khoảng cách từ chi nhánh
     let shippingFee = 0;

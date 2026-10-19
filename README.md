@@ -80,6 +80,27 @@ npm install
 npm run dev
 ```
 
+`npm run db:seed` tạo sẵn Chi nhánh #1. Muốn có thêm Chi nhánh #2 để thử chuỗi cửa hàng: `npm run db:seed-store2`.
+
+### Nâng cấp DB đang có dữ liệu lên chuỗi cửa hàng
+
+Chỉ làm 1 lần trên DB tạo trước khi có tính năng chuỗi (dữ liệu cũ trở thành Chi nhánh #1). **Dừng backend trước.**
+
+```bash
+cd backend-node
+# Sao lưu trước
+docker exec cmn-mysql mysqldump -uroot -proot --single-transaction coffee_shop_db > ../backup_before_chain.sql
+# ID đơn hàng tự tăng (MySQL không cho db push đổi cột có khoá ngoại)
+docker exec cmn-mysql mysql -uroot -proot coffee_shop_db -e "SET FOREIGN_KEY_CHECKS=0; ALTER TABLE Orders MODIFY Order_ID INT NOT NULL AUTO_INCREMENT; ALTER TABLE Order_Details MODIFY Detail_ID INT NOT NULL AUTO_INCREMENT; SET FOREIGN_KEY_CHECKS=1;"
+# Chạy lần lượt các migration chuỗi cửa hàng
+docker exec -i cmn-mysql mysql -uroot -proot coffee_shop_db < prisma/sql/001_chain_stores.sql
+docker exec -i cmn-mysql mysql -uroot -proot coffee_shop_db < prisma/sql/002_drop_item_stock.sql
+docker exec -i cmn-mysql mysql -uroot -proot coffee_shop_db < prisma/sql/003_store_settings_cleanup.sql
+npx prisma generate
+npm run db:owner          # tạo tài khoản Chủ chuỗi: owner / owner123 (đổi bằng OWNER_PASSWORD)
+npm run db:seed-store2    # tuỳ chọn: Chi nhánh #2 mẫu
+```
+
 ---
 
 ## 🔑 Tài khoản demo
@@ -91,6 +112,10 @@ npm run dev
 | Thu ngân | `cashier` | `staff123` | `/pos` |
 | Phục vụ | `waiter` | `staff123` | `/staff/tables` |
 | Bếp | `kitchen` | `staff123` | `/kds` |
+| Chủ chuỗi | `owner` | `staff123` (seed) / `owner123` (db:owner) | `/app/overview/dashboard` |
+| Nhân viên Chi nhánh #2 | `admin2`, `cashier2`, `kitchen2`, `waiter2`, `shipper2` | `staff123` | sau `npm run db:seed-store2` |
+
+Chủ chuỗi chọn chi nhánh ở thanh trên cùng (hoặc "Tất cả chi nhánh" để xem báo cáo tổng). Nhân viên chỉ thấy dữ liệu chi nhánh của mình.
 
 ---
 

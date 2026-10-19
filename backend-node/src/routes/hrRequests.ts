@@ -1,12 +1,18 @@
 import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
-import { attachStaff, requireRoles, type StaffRequest } from "../middleware/staff.js";
+import type { Request } from "express";
+import { attachStaff, isAdminLike, requireRoles, type StaffRequest } from "../middleware/staff.js";
+import { inStore, storeWhere } from "../lib/storeScope.js";
 
 export function hrRequestsRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
   const anyStaff = [attachStaff(prisma)];
   const mgmtOnly = [attachStaff(prisma), requireRoles("Admin")];
+
+  /** Đơn từ không có cột chi nhánh — xét theo chi nhánh của nhân viên làm đơn */
+  const sameStore = async (req: Request, staffId: number) =>
+    inStore(req, await prisma.staff.findUnique({ where: { id: staffId }, select: { storeId: true } }));
 
   // ══════════════════════════════════════════════════════════════
   // Leave Requests (Xin nghỉ)
@@ -32,7 +38,7 @@ export function hrRequestsRouter(prisma: PrismaClient, io: Server) {
 
   r.get("/hr/leave", ...anyStaff, async (req, res) => {
     const me = (req as StaffRequest).staffRow!;
-    const where = me.role === "Admin" ? {} : { userId: me.id };
+    const where = isAdminLike(me.role) ? { user: storeWhere(req) } : { userId: me.id };
     const requests = await prisma.leaveRequest.findMany({
       where,
       include: { user: { select: { fullName: true } } },
@@ -48,6 +54,11 @@ export function hrRequestsRouter(prisma: PrismaClient, io: Server) {
 
     if (!["APPROVED", "REJECTED"].includes(status)) {
       return res.status(400).json({ error: "Trạng thái không hợp lệ." });
+    }
+
+    const cur = await prisma.leaveRequest.findUnique({ where: { id } });
+    if (!cur || !(await sameStore(req, cur.userId))) {
+      return res.status(404).json({ error: "Không tìm thấy đơn." });
     }
 
     try {
@@ -84,6 +95,16 @@ export function hrRequestsRouter(prisma: PrismaClient, io: Server) {
   r.post("/hr/swap", ...anyStaff, async (req, res) => {
     const me = (req as StaffRequest).staffRow!;
     const { targetUserId, scheduleId, reason } = req.body;
+    const [target, schedule] = await Promise.all([
+      prisma.staff.findUnique({ where: { id: Number(targetUserId) }, select: { storeId: true } }),
+      prisma.workSchedule.findUnique({ where: { id: Number(scheduleId) }, select: { staffId: true } }),
+    ]);
+    if (!target || target.storeId !== me.storeId) {
+      return res.status(400).json({ error: "Chỉ đổi ca được với nhân viên cùng chi nhánh." });
+    }
+    if (!schedule || schedule.staffId !== me.id) {
+      return res.status(400).json({ error: "Ca không hợp lệ." });
+    }
     try {
       const request = await prisma.shiftSwapRequest.create({
         data: {
@@ -101,7 +122,7 @@ export function hrRequestsRouter(prisma: PrismaClient, io: Server) {
 
   r.get("/hr/swap", ...anyStaff, async (req, res) => {
     const me = (req as StaffRequest).staffRow!;
-    const where = me.role === "Admin" ? {} : { 
+    const where = isAdminLike(me.role) ? { requester: storeWhere(req) } : {
       OR: [{ requesterId: me.id }, { targetUserId: me.id }]
     };
     const requests = await prisma.shiftSwapRequest.findMany({
@@ -151,6 +172,11 @@ export function hrRequestsRouter(prisma: PrismaClient, io: Server) {
       return res.status(400).json({ error: "Trạng thái không hợp lệ." });
     }
 
+    const cur = await prisma.shiftSwapRequest.findUnique({ where: { id } });
+    if (!cur || !(await sameStore(req, cur.requesterId))) {
+      return res.status(404).json({ error: "Không tìm thấy đơn." });
+    }
+
     try {
       const request = await prisma.shiftSwapRequest.update({
         where: { id },
@@ -196,7 +222,7 @@ export function hrRequestsRouter(prisma: PrismaClient, io: Server) {
 
   r.get("/hr/attendance", ...anyStaff, async (req, res) => {
     const me = (req as StaffRequest).staffRow!;
-    const where = me.role === "Admin" ? {} : { userId: me.id };
+    const where = isAdminLike(me.role) ? { user: storeWhere(req) } : { userId: me.id };
     const requests = await prisma.attendanceAdjustment.findMany({
       where,
       include: { user: { select: { fullName: true } } },
@@ -212,6 +238,11 @@ export function hrRequestsRouter(prisma: PrismaClient, io: Server) {
 
     if (!["APPROVED", "REJECTED"].includes(status)) {
       return res.status(400).json({ error: "Trạng thái không hợp lệ." });
+    }
+
+    const cur = await prisma.attendanceAdjustment.findUnique({ where: { id } });
+    if (!cur || !(await sameStore(req, cur.userId))) {
+      return res.status(404).json({ error: "Không tìm thấy đơn." });
     }
 
     try {

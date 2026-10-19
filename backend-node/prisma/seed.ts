@@ -118,6 +118,7 @@ async function main() {
         location: `Tầng ${Math.floor(i / 20) + 1}`,
         capacity: 4,
         qrCode: `http://localhost:5173/?table=${id}`,
+        storeId: store.id,
         status: id === 1 ? "Occupied" : "Empty",
       };
     }),
@@ -139,10 +140,10 @@ async function main() {
   const staffPass = await bcrypt.hash("staff123", 10);
   await prisma.staff.createMany({
     data: [
-      { id: 1, username: "admin", passwordHash: staffPass, fullName: "Quản lý", role: "Admin", hireDate: new Date() },
-      { id: 2, username: "cashier", passwordHash: staffPass, fullName: "Thu ngân Demo", role: "Cashier", hireDate: new Date() },
-      { id: 3, username: "kitchen", passwordHash: staffPass, fullName: "Pha chế Demo", role: "Kitchen", hireDate: new Date() },
-      { id: 4, username: "waiter", passwordHash: staffPass, fullName: "Phục vụ Demo", role: "Waiter", hireDate: new Date() },
+      { id: 1, username: "admin", passwordHash: staffPass, fullName: "Quản lý", role: "Admin", storeId: store.id, hireDate: new Date() },
+      { id: 2, username: "cashier", passwordHash: staffPass, fullName: "Thu ngân Demo", role: "Cashier", storeId: store.id, hireDate: new Date() },
+      { id: 3, username: "kitchen", passwordHash: staffPass, fullName: "Pha chế Demo", role: "Kitchen", storeId: store.id, hireDate: new Date() },
+      { id: 4, username: "waiter", passwordHash: staffPass, fullName: "Phục vụ Demo", role: "Waiter", storeId: store.id, hireDate: new Date() },
       { id: 5, username: "owner", passwordHash: staffPass, fullName: "Chủ chuỗi", role: "Owner", storeId: null, hireDate: new Date() },
     ],
   });
@@ -169,6 +170,7 @@ async function main() {
   await prisma.order.create({
     data: {
       id: 1,
+      storeId: store.id,
       tableId: 1,
       customerId: 1,
       staffId: 3,

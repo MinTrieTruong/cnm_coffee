@@ -872,10 +872,6 @@ export function adminRouter(prisma: PrismaClient) {
         cashRoundTo: 1000,
         pointEarnEveryVnd: 1000,
         pointEarnEach: 100,
-        storeLat: 10.7769,
-        storeLng: 106.7009,
-        storeAddress: null,
-        allowedRadius: 50,
         faceMatchThreshold: 0.5,
       },
       update: {},
@@ -883,7 +879,8 @@ export function adminRouter(prisma: PrismaClient) {
     res.json(s);
   });
 
-  r.patch("/settings", ...admin, async (req, res) => {
+  // Cấu hình chung cả chuỗi (VAT, điểm, làm tròn) — chỉ Chủ chuỗi sửa
+  r.patch("/settings", auth, requireRoles("Owner"), async (req, res) => {
     const b = req.body as Partial<{
       vatRatePercent: number;
       pointPerVnd: number;
@@ -891,10 +888,6 @@ export function adminRouter(prisma: PrismaClient) {
       cashRoundTo: number;
       pointEarnEveryVnd: number;
       pointEarnEach: number;
-      storeLat: number | null;
-      storeLng: number | null;
-      storeAddress: string | null;
-      allowedRadius: number;
       faceMatchThreshold: number;
     }>;
     res.json(
@@ -908,10 +901,6 @@ export function adminRouter(prisma: PrismaClient) {
           cashRoundTo: b.cashRoundTo ?? 1000,
           pointEarnEveryVnd: b.pointEarnEveryVnd ?? 1000,
           pointEarnEach: b.pointEarnEach ?? 100,
-          storeLat: b.storeLat ?? 10.7769,
-          storeLng: b.storeLng ?? 106.7009,
-          storeAddress: b.storeAddress ?? null,
-          allowedRadius: b.allowedRadius ?? 50,
           faceMatchThreshold: b.faceMatchThreshold ?? 0.5,
         },
         update: {
@@ -921,10 +910,6 @@ export function adminRouter(prisma: PrismaClient) {
           cashRoundTo: b.cashRoundTo,
           pointEarnEveryVnd: b.pointEarnEveryVnd,
           pointEarnEach: b.pointEarnEach,
-          storeLat: b.storeLat ?? undefined,
-          storeLng: b.storeLng ?? undefined,
-          storeAddress: b.storeAddress,
-          allowedRadius: b.allowedRadius,
           faceMatchThreshold: b.faceMatchThreshold,
         },
       }),

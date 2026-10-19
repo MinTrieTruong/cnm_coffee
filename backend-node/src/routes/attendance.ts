@@ -11,7 +11,9 @@
  */
 import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
-import { attachStaff, requireRoles, type StaffRequest } from "../middleware/staff.js";
+import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
+import { inStore, mustStoreId } from "../lib/storeScope.js";
+import { getStoreSettings } from "../lib/pricing.js";
 
 /* ── Haversine formula ──────────────────────────────────────────── */
 function haversineDistance(
@@ -52,25 +54,24 @@ export function attendanceRouter(prisma: PrismaClient) {
   const r = Router();
   const anyStaff = [attachStaff(prisma)];
   const mgmtOnly = [attachStaff(prisma), requireRoles("Admin")];
+  /** Chấm công tại chi nhánh của nhân viên (Owner: chi nhánh đang chọn) */
+  const atStore = [attachStaff(prisma), requireStore];
 
   /* ══════════════════════════════════════════════════════════════════
      GET /attendance/store-location — Lấy tọa độ quán + bán kính
   ══════════════════════════════════════════════════════════════════ */
-  r.get("/attendance/store-location", ...anyStaff, async (_req, res) => {
-    const settings = await prisma.storeSettings.findFirst();
-    if (!settings) {
-      return res.json({
-        storeLat: 10.7769,
-        storeLng: 106.7009,
-        allowedRadius: 50,
-        faceMatchThreshold: 0.5,
-      });
-    }
+  r.get("/attendance/store-location", ...atStore, async (req, res) => {
+    const [store, settings] = await Promise.all([
+      prisma.store.findUniqueOrThrow({ where: { id: mustStoreId(req) } }),
+      getStoreSettings(prisma),
+    ]);
     res.json({
-      lat: settings?.storeLat ?? null,
-      lng: settings?.storeLng ?? null,
-      radius: settings?.allowedRadius ?? 50,
-      faceMatchThreshold: settings?.faceMatchThreshold ?? 0.5,
+      storeId: store.id,
+      storeName: store.name,
+      lat: store.lat,
+      lng: store.lng,
+      radius: store.allowedRadius,
+      faceMatchThreshold: settings.faceMatchThreshold,
     });
   });
 
@@ -119,7 +120,7 @@ export function attendanceRouter(prisma: PrismaClient) {
      POST /attendance/clock — Check-in / Check-out
      Body: { lat, lng, type: "in" | "out", scheduleId? }
   ══════════════════════════════════════════════════════════════════ */
-  r.post("/attendance/clock", ...anyStaff, async (req, res) => {
+  r.post("/attendance/clock", ...atStore, async (req, res) => {
     const me = (req as StaffRequest).staffRow!;
     const { lat, lng, type, scheduleId } = req.body as {
       lat: number;
@@ -135,11 +136,11 @@ export function attendanceRouter(prisma: PrismaClient) {
       return res.status(400).json({ error: "type phải là 'in' hoặc 'out'." });
     }
 
-    // Lấy cấu hình quán
-    const settings = await prisma.storeSettings.findFirst();
-    const storeLat = settings?.storeLat ?? 10.7769;
-    const storeLng = settings?.storeLng ?? 106.7009;
-    const allowedRadius = settings?.allowedRadius ?? 50;
+    // Toạ độ + bán kính của chi nhánh nhân viên làm việc
+    const store = await prisma.store.findUniqueOrThrow({ where: { id: mustStoreId(req) } });
+    const storeLat = store.lat;
+    const storeLng = store.lng;
+    const allowedRadius = store.allowedRadius;
 
     // Kiểm tra khoảng cách GPS
     const distance = haversineDistance(lat, lng, storeLat, storeLng);
@@ -322,7 +323,7 @@ export function attendanceRouter(prisma: PrismaClient) {
       where: { id: scheduleId },
     });
 
-    if (!schedule) {
+    if (!schedule || !inStore(req, schedule)) {
       return res.status(404).json({ error: "Không tìm thấy ca." });
     }
 

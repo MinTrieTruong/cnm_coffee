@@ -7,28 +7,20 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// Cấu hình chung (1 dòng): VAT, quy đổi điểm
+/// Cấu hình chung cả chuỗi (1 dòng): VAT, quy đổi điểm. Toạ độ/bán kính nằm ở từng Store.
 model StoreSettings {
-  id                 Int     @id @default(1)
-  vatRatePercent     Int     @default(10) @map("VAT_Rate_Percent")
+  id                 Int   @id @default(1)
+  vatRatePercent     Int   @default(10) @map("VAT_Rate_Percent")
   /// Legacy — không dùng cho công thức tích điểm mới
-  pointPerVnd        Int     @default(10000) @map("Point_Per_VND")
+  pointPerVnd        Int   @default(10000) @map("Point_Per_VND")
   /// 1 điểm đổi được bao nhiêu VND giảm trừ (1 = 1 điểm = 1đ)
-  pointValueVnd      Int     @default(1) @map("Point_Value_VND")
-  cashRoundTo        Int     @default(1000) @map("Cash_Round_To")
+  pointValueVnd      Int   @default(1) @map("Point_Value_VND")
+  cashRoundTo        Int   @default(1000) @map("Cash_Round_To")
   /// Cứ mỗi N VND thành tiền thanh toán → cộng `pointEarnEach` điểm
-  pointEarnEveryVnd  Int     @default(1000) @map("Point_Earn_Every_VND")
-  pointEarnEach      Int     @default(100) @map("Point_Earn_Each")
-  /// Vĩ độ quán (GPS chấm công)
-  storeLat           Float   @default(10.7769) @map("Store_Lat")
-  /// Kinh độ quán (GPS chấm công)
-  storeLng           Float   @default(106.7009) @map("Store_Lng")
-  /// Địa chỉ quán
-  storeAddress       String? @map("Store_Address") @db.VarChar(255)
-  /// Bán kính cho phép chấm công (mét)
-  allowedRadius      Int     @default(50) @map("Allowed_Radius")
+  pointEarnEveryVnd  Int   @default(1000) @map("Point_Earn_Every_VND")
+  pointEarnEach      Int   @default(100) @map("Point_Earn_Each")
   /// Độ nhạy nhận diện khuôn mặt (FaceID) - càng thấp càng khắt khe
-  faceMatchThreshold Float   @default(0.5) @map("Face_Match_Threshold")
+  faceMatchThreshold Float @default(0.5) @map("Face_Match_Threshold")
 
   @@map("Store_Settings")
 }
@@ -125,8 +117,8 @@ model Zone {
   isActive Boolean     @default(true) @map("Is_Active")
   tables   CafeTable[]
 
-  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
-  storeId Int   @default(1) @map("Store_ID")
+  /// Chi nhánh
+  storeId Int   @map("Store_ID")
   store   Store @relation(fields: [storeId], references: [id])
 
   @@index([storeId])
@@ -148,8 +140,8 @@ model CafeTable {
   mergedTables CafeTable[] @relation("MergedTables")
   orders       Order[]
 
-  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
-  storeId Int   @default(1) @map("Store_ID")
+  /// Chi nhánh
+  storeId Int   @map("Store_ID")
   store   Store @relation(fields: [storeId], references: [id])
 
   @@index([storeId])
@@ -241,8 +233,8 @@ model Staff {
   lastLng        Float?    @map("Last_Lng")
   lastLocationAt DateTime? @map("Last_Location_At")
 
-  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
-  storeId Int?   @default(1) @map("Store_ID")
+  /// Chi nhánh
+  storeId Int?   @map("Store_ID")
   store   Store? @relation(fields: [storeId], references: [id])
 
   @@index([storeId])
@@ -263,8 +255,8 @@ model Shift {
   payments      Payment[]
   inventoryLogs ShiftInventoryLog[]
 
-  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
-  storeId Int   @default(1) @map("Store_ID")
+  /// Chi nhánh
+  storeId Int   @map("Store_ID")
   store   Store @relation(fields: [storeId], references: [id])
 
   @@index([storeId])
@@ -321,8 +313,8 @@ model Order {
   payments Payment[]
   reviews  Review[]
 
-  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
-  storeId Int   @default(1) @map("Store_ID")
+  /// Chi nhánh
+  storeId Int   @map("Store_ID")
   store   Store @relation(fields: [storeId], references: [id])
 
   @@index([storeId])
@@ -397,8 +389,8 @@ model InventoryRequest {
   approvedBy   Staff?        @relation("ApprovedByStaff", fields: [approvedById], references: [id])
   receipt      StockReceipt?
 
-  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
-  storeId Int   @default(1) @map("Store_ID")
+  /// Chi nhánh
+  storeId Int   @map("Store_ID")
   store   Store @relation(fields: [storeId], references: [id])
 
   @@index([storeId])
@@ -425,8 +417,8 @@ model StockReceipt {
   receivedBy   Staff             @relation(fields: [receivedById], references: [id])
   supplierRel  Supplier?         @relation(fields: [supplierId], references: [id])
 
-  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
-  storeId Int   @default(1) @map("Store_ID")
+  /// Chi nhánh
+  storeId Int   @map("Store_ID")
   store   Store @relation(fields: [storeId], references: [id])
 
   @@index([storeId])
@@ -464,7 +456,7 @@ model AuditLog {
   createdAt DateTime @default(now()) @map("Created_At")
   staff     Staff?   @relation(fields: [staffId], references: [id])
 
-  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
+  /// Chi nhánh
   storeId Int?   @map("Store_ID")
   store   Store? @relation(fields: [storeId], references: [id])
 
@@ -485,8 +477,8 @@ model ShiftInventoryLog {
   shift     Shift?        @relation(fields: [shiftId], references: [id])
   item      InventoryItem @relation(fields: [itemId], references: [id])
 
-  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
-  storeId Int   @default(1) @map("Store_ID")
+  /// Chi nhánh
+  storeId Int   @map("Store_ID")
   store   Store @relation(fields: [storeId], references: [id])
 
   @@index([storeId])
@@ -666,8 +658,8 @@ model WorkSchedule {
 
   staff             Staff?             @relation(fields: [staffId], references: [id])
   shiftSwapRequests ShiftSwapRequest[]
-  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
-  storeId           Int                @default(1) @map("Store_ID")
+  /// Chi nhánh
+  storeId           Int                @map("Store_ID")
   store             Store              @relation(fields: [storeId], references: [id])
 
   @@unique([staffId, workDate, shiftCode])
@@ -690,8 +682,8 @@ model ChatSession {
   createdAt  DateTime      @default(now()) @map("Created_At")
   updatedAt  DateTime      @updatedAt @map("Updated_At")
   messages   ChatMessage[]
-  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
-  storeId    Int           @default(1) @map("Store_ID")
+  /// Chi nhánh
+  storeId    Int           @map("Store_ID")
   store      Store         @relation(fields: [storeId], references: [id])
 
   @@index([status])
@@ -795,8 +787,8 @@ model InventoryTransaction {
 
   item InventoryItem @relation(fields: [itemId], references: [id])
 
-  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
-  storeId Int   @default(1) @map("Store_ID")
+  /// Chi nhánh
+  storeId Int   @map("Store_ID")
   store   Store @relation(fields: [storeId], references: [id])
 
   @@index([storeId])
@@ -816,8 +808,8 @@ model PurchaseRequisition {
   items PurchaseRequisitionItem[]
   rfqs  RequestForQuotation[]
 
-  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
-  storeId Int   @default(1) @map("Store_ID")
+  /// Chi nhánh
+  storeId Int   @map("Store_ID")
   store   Store @relation(fields: [storeId], references: [id])
 
   @@index([storeId])
@@ -883,8 +875,8 @@ model GoodsReceipt {
   receivedBy Staff              @relation(fields: [receivedById], references: [id])
   items      GoodsReceiptItem[]
 
-  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
-  storeId Int   @default(1) @map("Store_ID")
+  /// Chi nhánh
+  storeId Int   @map("Store_ID")
   store   Store @relation(fields: [storeId], references: [id])
 
   @@index([storeId])
@@ -917,8 +909,8 @@ model InventoryBatch {
   item    InventoryItem    @relation(fields: [itemId], references: [id])
   grnItem GoodsReceiptItem @relation(fields: [grnItemId], references: [id])
 
-  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
-  storeId Int   @default(1) @map("Store_ID")
+  /// Chi nhánh
+  storeId Int   @map("Store_ID")
   store   Store @relation(fields: [storeId], references: [id])
 
   @@index([storeId])
@@ -954,8 +946,8 @@ model PurchaseOrder {
   supplier Supplier       @relation(fields: [supplierId], references: [id])
   receipts GoodsReceipt[]
 
-  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
-  storeId Int   @default(1) @map("Store_ID")
+  /// Chi nhánh
+  storeId Int   @map("Store_ID")
   store   Store @relation(fields: [storeId], references: [id])
 
   @@index([storeId])

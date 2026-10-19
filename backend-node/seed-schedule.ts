@@ -5,7 +5,7 @@ async function main() {
     where: { fullName: { contains: 'phục vụ demo' } }
   });
   
-  if (!staff) return;
+  if (!staff || !staff.storeId) return;
 
   // Insert missing 23rd
   const date23 = new Date('2026-08-23T00:00:00Z');
@@ -17,6 +17,7 @@ async function main() {
   if (!existing) {
     await prisma.workSchedule.create({
       data: {
+        storeId: staff.storeId,
         staffId: staff.id,
         workDate: date23,
         shiftCode: 'SP2',

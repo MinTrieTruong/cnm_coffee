@@ -1,22 +1,33 @@
 import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
+import { hiddenProductIds, storeFromQuery } from "../lib/storeProducts.js";
 
 const AI_URL = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
 
 export function menuRouter(prisma: PrismaClient) {
   const r = Router();
 
+  /** Toạ độ chi nhánh `?store=` (mặc định chi nhánh đầu tiên) + danh sách chi nhánh đang hoạt động */
   r.get("/store-config", async (req, res) => {
-    const s = await prisma.storeSettings.findUnique({ where: { id: 1 } });
+    const stores = await prisma.store.findMany({
+      where: { isActive: true },
+      orderBy: { id: "asc" },
+      select: { id: true, code: true, name: true, address: true, lat: true, lng: true, allowedRadius: true },
+    });
+    const wanted = storeFromQuery(req.query.store);
+    const s = stores.find((x) => x.id === wanted) ?? stores[0];
     res.json({
-      storeLat: s?.storeLat ?? null,
-      storeLng: s?.storeLng ?? null,
+      storeId: s?.id ?? null,
+      storeLat: s?.lat ?? null,
+      storeLng: s?.lng ?? null,
       gpsRadius: s?.allowedRadius ?? 0,
+      stores,
     });
   });
 
   /** ── Homepage data (Flash Sale + Best Sellers + Category tree) ── */
-  r.get("/homepage", async (_req, res) => {
+  r.get("/homepage", async (req, res) => {
+    const hidden = await hiddenProductIds(prisma, storeFromQuery(req.query.store));
     // Category tree: only root categories (parentId = null) with nested children
     const categories = await prisma.category.findMany({
       where: { parentId: null },
@@ -36,21 +47,22 @@ export function menuRouter(prisma: PrismaClient) {
 
     // Flash Sale products: have discountPercent
     const flashSale = await prisma.product.findMany({
-      where: { isActive: true, outOfStock: false, discountPercent: { not: null, gt: 0 } },
+      where: { isActive: true, outOfStock: false, discountPercent: { not: null, gt: 0 }, id: { notIn: [...hidden] } },
       include: { category: true },
       orderBy: { discountPercent: "desc" },
     });
 
     // Best Sellers
     const bestSellers = await prisma.product.findMany({
-      where: { isActive: true, outOfStock: false, isBestSeller: true },
+      where: { isActive: true, outOfStock: false, isBestSeller: true, id: { notIn: [...hidden] } },
       include: { category: true },
       orderBy: { id: "asc" },
     });
 
     // Hot Combos — cho section carousel trên trang chủ
+    // Combo có món chi nhánh không bán thì ẩn cả combo
     const hotCombos = await prisma.combo.findMany({
-      where: { isActive: true, isHot: true },
+      where: { isActive: true, isHot: true, items: { none: { productId: { in: [...hidden] } } } },
       include: {
         items: {
           include: {
@@ -84,7 +96,8 @@ export function menuRouter(prisma: PrismaClient) {
       orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
     });
     
-    let where: any = { isActive: true, outOfStock: false };
+    const hidden = await hiddenProductIds(prisma, storeFromQuery(req.query.store));
+    let where: any = { isActive: true, outOfStock: false, id: { notIn: [...hidden] } };
     if (search) {
       where.name = { contains: search }; // note: MySQL handles case-insensitivity by default
     }

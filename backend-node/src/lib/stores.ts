@@ -29,3 +29,15 @@ export async function resolveCustomerStore(
   if (active.length === 1 || (opts.fallbackFirst && active.length > 0)) return { storeId: active[0].id };
   return { error: "Vui lòng chọn chi nhánh." };
 }
+
+/** Voucher có dùng được tại chi nhánh không. Voucher không gắn chi nhánh nào = toàn chuỗi. */
+export async function voucherStoreError(
+  prisma: PrismaClient,
+  voucherId: number,
+  storeId: number | null,
+): Promise<string | null> {
+  const stores = await prisma.voucherStore.findMany({ where: { voucherId }, select: { storeId: true } });
+  if (stores.length === 0) return null;
+  if (storeId == null) return "Vui lòng chọn chi nhánh để áp dụng voucher này.";
+  return stores.some((s) => s.storeId === storeId) ? null : "Voucher không áp dụng tại chi nhánh này.";
+}

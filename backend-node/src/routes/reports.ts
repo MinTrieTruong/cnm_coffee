@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { PrismaClient } from "@prisma/client";
 import { attachStaff, requireRoles } from "../middleware/staff.js";
+import { storeWhere } from "../lib/storeScope.js";
 
 const prisma = new PrismaClient();
 
@@ -24,7 +25,7 @@ export function reportsRouter() {
     to.setHours(23, 59, 59, 999);
 
     const payments = await prisma.payment.findMany({
-      where: { paymentTime: { gte: from, lte: to }, order: { status: "Paid" } },
+      where: { paymentTime: { gte: from, lte: to }, order: { ...storeWhere(req), status: "Paid" } },
       include: { order: { select: { status: true } } },
     });
 
@@ -69,13 +70,14 @@ export function reportsRouter() {
     to.setHours(23, 59, 59, 999);
 
     const [total, orders] = await Promise.all([
-      prisma.order.count({ where: { createdAt: { gte: from, lte: to } } }),
+      prisma.order.count({ where: { ...storeWhere(req), createdAt: { gte: from, lte: to } } }),
       prisma.order.findMany({
-        where: { createdAt: { gte: from, lte: to } },
+        where: { ...storeWhere(req), createdAt: { gte: from, lte: to } },
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,
         take: limit,
         include: {
+          store:   { select: { name: true } },
           staff:   { select: { fullName: true, username: true } },
           table:   { select: { name: true } },
           details: { include: { product: { select: { name: true } } } },
@@ -100,10 +102,11 @@ export function reportsRouter() {
     to.setHours(23, 59, 59, 999);
 
     const orders = await prisma.order.findMany({
-      where: { createdAt: { gte: from, lte: to } },
+      where: { ...storeWhere(req), createdAt: { gte: from, lte: to } },
       orderBy: { createdAt: "desc" },
       take: 5000,
       include: {
+        store:    { select: { name: true } },
         staff:    { select: { fullName: true, username: true } },
         table:    { select: { name: true } },
         customer: { select: { fullName: true, phone: true } },
@@ -115,7 +118,7 @@ export function reportsRouter() {
     const esc = (s: string | null | undefined) => `"${String(s ?? "").replace(/"/g, '""')}"`;
 
     const header = [
-      "Mã ĐH", "Ngày giờ", "Loại", "Bàn", "Nhân viên", "Khách hàng", "SĐT khách",
+      "Mã ĐH", "Ngày giờ", "Chi nhánh", "Loại", "Bàn", "Nhân viên", "Khách hàng", "SĐT khách",
       "Danh sách món", "Tạm tính", "Giảm giá", "VAT", "Tổng tiền",
       "Phương thức TT", "Trạng thái",
     ].map(esc).join(",");
@@ -126,6 +129,7 @@ export function reportsRouter() {
       return [
         o.id,
         new Date(o.createdAt).toLocaleString("vi-VN"),
+        o.store.name,
         o.orderType,
         o.table?.name ?? "Mang về",
         o.staff?.fullName ?? "—",
@@ -161,7 +165,7 @@ export function reportsRouter() {
     to.setHours(23, 59, 59, 999);
 
     const lines = await prisma.orderDetail.findMany({
-      where: { order: { status: "Paid", createdAt: { gte: from, lte: to } } },
+      where: { order: { ...storeWhere(req), status: "Paid", createdAt: { gte: from, lte: to } } },
       include: { product: { select: { name: true, sellPrice: true, costPrice: true } } },
     });
 
@@ -195,13 +199,13 @@ export function reportsRouter() {
 
     // 1. Doanh thu từ đơn đã thanh toán
     const payments = await prisma.payment.findMany({
-      where: { paymentTime: { gte: from, lte: to }, order: { status: "Paid" } },
+      where: { paymentTime: { gte: from, lte: to }, order: { ...storeWhere(req), status: "Paid" } },
     });
     const totalRevenue = payments.reduce((s, p) => s + p.amount, 0);
 
     // 2. Giá vốn từ chi tiết đơn × costPrice sản phẩm
     const orderLines = await prisma.orderDetail.findMany({
-      where: { order: { status: "Paid", createdAt: { gte: from, lte: to } } },
+      where: { order: { ...storeWhere(req), status: "Paid", createdAt: { gte: from, lte: to } } },
       include: {
         product: { select: { name: true, costPrice: true, sellPrice: true } },
         order: { select: { createdAt: true } },
@@ -221,7 +225,7 @@ export function reportsRouter() {
 
     // 3. Chi phí nguyên liệu nhập kho trong kỳ (từ StockReceipt)
     const receipts = await prisma.stockReceipt.findMany({
-      where: { receivedAt: { gte: from, lte: to } },
+      where: { ...storeWhere(req), receivedAt: { gte: from, lte: to } },
       include: { item: { select: { unitCostPrice: true } } },
     });
     const totalIngredientCost = receipts.reduce((s, r) => {
@@ -255,6 +259,66 @@ export function reportsRouter() {
       grossProfit,
       byDay,
       byProduct: Object.values(byProduct).sort((a, b) => b.revenue - a.revenue).slice(0, 20),
+    });
+  });
+
+  /**
+   * GET /api/admin/reports/stores-compare?from=&to=
+   * So sánh các chi nhánh (chỉ Chủ chuỗi): doanh thu thực thu, số đơn, giá trị đơn TB, lợi nhuận gộp.
+   */
+  r.get("/reports/stores-compare", auth, requireRoles("Owner"), async (req, res) => {
+    const fromStr = req.query.from as string | undefined;
+    const toStr   = req.query.to   as string | undefined;
+    const from = fromStr ? new Date(fromStr) : (() => { const d = new Date(); d.setDate(d.getDate() - 29); d.setHours(0,0,0,0); return d; })();
+    const to   = toStr   ? new Date(toStr)   : new Date();
+    from.setHours(0, 0, 0, 0);
+    to.setHours(23, 59, 59, 999);
+
+    const [stores, payments, orders, lines] = await Promise.all([
+      prisma.store.findMany({ orderBy: { id: "asc" }, select: { id: true, code: true, name: true, isActive: true } }),
+      prisma.payment.findMany({
+        where: { paymentTime: { gte: from, lte: to }, method: { not: "Points" }, order: { status: "Paid" } },
+        select: { amount: true, order: { select: { storeId: true } } },
+      }),
+      prisma.order.groupBy({
+        by: ["storeId"],
+        where: { status: "Paid", createdAt: { gte: from, lte: to } },
+        _count: { _all: true },
+        _sum: { totalAmount: true },
+      }),
+      prisma.orderDetail.findMany({
+        where: { order: { status: "Paid", createdAt: { gte: from, lte: to } } },
+        select: { quantity: true, product: { select: { costPrice: true } }, order: { select: { storeId: true } } },
+      }),
+    ]);
+
+    const revenue = new Map<number, number>();
+    for (const p of payments) revenue.set(p.order.storeId, (revenue.get(p.order.storeId) ?? 0) + p.amount);
+    const cost = new Map<number, number>();
+    for (const l of lines) cost.set(l.order.storeId, (cost.get(l.order.storeId) ?? 0) + l.quantity * l.product.costPrice);
+
+    const rows = stores.map((s) => {
+      const o = orders.find((x) => x.storeId === s.id);
+      const orderCount = o?._count._all ?? 0;
+      const rev = revenue.get(s.id) ?? 0;
+      return {
+        ...s,
+        revenue: rev,
+        orders: orderCount,
+        avgOrderValue: orderCount ? Math.round((o?._sum.totalAmount ?? 0) / orderCount) : 0,
+        grossProfit: rev - (cost.get(s.id) ?? 0),
+      };
+    });
+
+    res.json({
+      from: from.toISOString().slice(0, 10),
+      to: to.toISOString().slice(0, 10),
+      stores: rows,
+      total: {
+        revenue: rows.reduce((s, r) => s + r.revenue, 0),
+        orders: rows.reduce((s, r) => s + r.orders, 0),
+        grossProfit: rows.reduce((s, r) => s + r.grossProfit, 0),
+      },
     });
   });
 
