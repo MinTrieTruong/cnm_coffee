@@ -248,7 +248,7 @@ model Shift {
 }
 
 model Order {
-  id              Int       @id @map("Order_ID")
+  id              Int       @id @default(autoincrement()) @map("Order_ID")
   tableId         Int?      @map("Table_ID")
   customerId      Int?      @map("Customer_ID")
   staffId         Int?      @map("Staff_ID")
@@ -301,7 +301,7 @@ model Order {
 }
 
 model OrderDetail {
-  id          Int     @id @map("Detail_ID")
+  id          Int     @id @default(autoincrement()) @map("Detail_ID")
   orderId     Int     @map("Order_ID")
   productId   Int     @map("Product_ID")
   /// Nếu đây là 1 dòng thuộc combo, lưu comboId để biết (nullable)

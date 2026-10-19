@@ -320,13 +320,10 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     const sessionId =
       (isTakeaway || isDelivery) ? body.sessionId ?? randomUUID() : null;
 
-    const maxOrder = (await prisma.order.aggregate({ _max: { id: true } }))._max.id ?? 0;
-    const maxDetail = (await prisma.orderDetail.aggregate({ _max: { id: true } }))._max.id ?? 0;
     const graceEndsAt = immediatePay ? null : new Date(Date.now() + GRACE_MS);
 
     const order = await prisma.order.create({
       data: {
-        id: maxOrder + 1,
         tableId: body.tableId ?? null,
         customerId: body.customerId ?? null,
         staffId: null,
@@ -343,12 +340,11 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
         status: immediatePay ? "Confirmed" : "Pending_Grace",
         graceEndsAt,
         details: {
-          create: lines.map((l, i) => {
+          create: lines.map((l) => {
             const base = (l.customNotes ?? "").trim();
             const taPrefix = isTakeaway ? "[MANG VỀ — ưu tiên] " : "";
             const merged = `${taPrefix}${base}`.trim();
             return {
-              id: maxDetail + i + 1,
               productId: l.productId,
               quantity: l.quantity,
               unitPrice: l.unitPrice,

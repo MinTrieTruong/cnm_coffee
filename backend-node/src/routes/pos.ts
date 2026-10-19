@@ -439,11 +439,8 @@ export function posRouter(prisma: PrismaClient, io: Server) {
     
     try {
       await prisma.$transaction(async (tx) => {
-        const maxOrder = await tx.order.aggregate({ _max: { id: true } });
-        const newOrderId = (maxOrder._max.id ?? 0) + 1;
         const newOrder = await tx.order.create({
           data: {
-            id: newOrderId,
             tableId: order.tableId,
             customerId: order.customerId,
             staffId: order.staffId,
@@ -455,9 +452,6 @@ export function posRouter(prisma: PrismaClient, io: Server) {
           }
         });
         
-        const maxDetail = await tx.orderDetail.aggregate({ _max: { id: true } });
-        let nextDetailId = (maxDetail._max.id ?? 0) + 1;
-        
         for (const move of itemsToMove) {
           const d = order.details.find(x => x.id === move.orderItemId);
           if (!d || move.quantity <= 0 || move.quantity > d.quantity) throw new Error("Invalid quantity for " + move.orderItemId);
@@ -468,7 +462,6 @@ export function posRouter(prisma: PrismaClient, io: Server) {
             await tx.orderDetail.update({ where: { id: d.id }, data: { quantity: d.quantity - move.quantity } });
             await tx.orderDetail.create({
               data: {
-                id: nextDetailId++,
                 orderId: newOrder.id,
                 productId: d.productId,
                 comboId: d.comboId,

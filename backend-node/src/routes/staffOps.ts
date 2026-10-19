@@ -90,10 +90,8 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
         orderBy: { id: "desc" },
       });
       if (!active) {
-        const maxOrder = (await tx.order.aggregate({ _max: { id: true } }))._max.id ?? 0;
         active = await tx.order.create({
           data: {
-            id: maxOrder + 1,
             tableId,
             customerId,
             staffId: (req as StaffRequest).staffRow!.id,
@@ -107,10 +105,8 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
           },
         });
       }
-      const maxDetail = (await tx.orderDetail.aggregate({ _max: { id: true } }))._max.id ?? 0;
       await tx.orderDetail.create({
         data: {
-          id: maxDetail + 1,
           orderId: active.id,
           productId,
           quantity,
