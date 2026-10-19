@@ -11,6 +11,7 @@ import {
   defaultRouteForRole,
   firstPathOf,
   isLeaf,
+  listed,
   locate,
   visibleApps,
   type AppDef,
@@ -18,6 +19,7 @@ import {
 } from "../../apps/registry";
 import { Dropdown } from "./ControlPanel";
 import { StoreSwitcher } from "./StoreSwitcher";
+import { roleLabel } from "../../lib/roles";
 import { Alert, Button, EmptyState, Field, Modal } from "./primitives";
 
 function useOutsideClose(open: boolean, close: () => void) {
@@ -72,7 +74,8 @@ export function AppShell() {
 
   const contentClass = leaf.layout === "erp" ? "o-content o-content-full" : leaf.layout === "full" ? "o-content o-content-full" : "o-content o-content-legacy";
   const labelOf = (l: MenuLeaf) => (l.labelFor ? l.labelFor(role) : l.label);
-  const appLeaves = app.menus.flatMap((m) => (isLeaf(m) ? [m] : m.children)).filter((l) => canSee(l, role));
+  // Menu chỉ liệt kê mục của vai trò; màn "hỗ trợ ca" của quản lý mở từ Trang chủ
+  const appLeaves = app.menus.flatMap((m) => (isLeaf(m) ? [m] : m.children)).filter((l) => listed(l, role));
   const mobileNav = staffNav(role);
 
   return (
@@ -101,14 +104,14 @@ export function AppShell() {
         <nav className="o-nav-menus" aria-label={`Menu ${app.label}`}>
           {app.menus.map((m) => {
             if (isLeaf(m)) {
-              if (!canSee(m, role)) return null;
+              if (!listed(m, role)) return null;
               return (
                 <Link key={m.id} to={appPath(app, m)} className={m.id === leaf.id ? "o-nav-btn active" : "o-nav-btn"} aria-current={m.id === leaf.id ? "page" : undefined}>
                   {labelOf(m)}
                 </Link>
               );
             }
-            const kids = m.children.filter((c) => canSee(c, role));
+            const kids = m.children.filter((c) => listed(c, role));
             if (!kids.length) return null;
             if (kids.length === 1) {
               const k = kids[0];
@@ -151,13 +154,13 @@ export function AppShell() {
             <button type="button" className="o-nav-btn" onClick={toggle} aria-expanded={open} aria-label="Tài khoản">
               <UserRound size={16} aria-hidden />
               <span className="o-nav-user-name">{info.fullName ?? "Nhân viên"}</span>
-              <span className="o-nav-user-role">{role}</span>
+              <span className="o-nav-user-role">{roleLabel(role)}</span>
             </button>
           )}
         >
           {() => (
             <>
-              <div className="o-dropdown-header">{info.fullName ?? "Nhân viên"} · {role}</div>
+              <div className="o-dropdown-header">{info.fullName ?? "Nhân viên"} · {roleLabel(role)}</div>
               <Link to="/menu" className="o-dropdown-item"><Store size={16} aria-hidden /> Trang khách</Link>
               <div className="o-dropdown-sep" />
               <button type="button" className="o-dropdown-item" onClick={logout}><LogOut size={16} aria-hidden /> Đăng xuất</button>
@@ -196,7 +199,7 @@ export function AppShell() {
         more={{
           items: mobileNav.more,
           apps: mobileNav.moreApps,
-          profile: { name: info.fullName ?? "Nhân viên", role },
+          profile: { name: info.fullName ?? "Nhân viên", role: roleLabel(role) },
           onChangePassword: () => setPwOpen(true),
           onLogout: logout,
         }}

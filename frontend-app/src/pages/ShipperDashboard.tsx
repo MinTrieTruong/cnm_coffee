@@ -87,7 +87,7 @@ function Recenter({ to, nonce }: { to: LatLng | null; nonce: number }) {
 
 export function ShipperDashboard() {
   const info = getStaffInfo();
-  const allowed = !!info && (["Shipper", "Manager"].includes(info.role) || isAdminRole(info.role));
+  const allowed = !!info && (info.role === "Shipper" || isAdminRole(info.role));
 
   const [data, setData] = useState<MeData | null>(null);
   const [err, setErr] = useState<string | null>(null);

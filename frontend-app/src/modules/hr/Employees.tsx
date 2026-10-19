@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Lock, ScanFace, Users } from "lucide-react";
 import { activeStoreId, getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
+import { BRANCH_STAFF_ROLES, ROLE_LABEL } from "../../lib/roles";
 import {
   Badge, Button, Chatter, EmptyState, Field, FormGroup, FormGroups, FormView, RecordList, StatusBar, Tabs,
   errMsg, fmtDate, formatVnd,
@@ -26,10 +27,9 @@ type StaffRow = {
 type StoreOpt = { id: number; name: string };
 
 const BASE = "/app/hr/employees";
-const ROLES = ["Admin", "Cashier", "Kitchen", "Waiter", "Shipper"];
-const ROLE_LABEL: Record<string, string> = { Owner: "Chủ chuỗi", Admin: "Quản lý", Cashier: "Thu ngân", Kitchen: "Pha chế", Waiter: "Phục vụ", Shipper: "Giao hàng" };
-/** Chủ chuỗi được tạo thêm tài khoản Chủ chuỗi */
-const rolesFor = (owner: boolean) => (owner ? ["Owner", ...ROLES] : ROLES);
+const ROLES = ["Admin", ...BRANCH_STAFF_ROLES];
+/** Quản lý chi nhánh chỉ tạo nhân viên chi nhánh; Chủ chuỗi tạo thêm Quản lý và Chủ chuỗi */
+const rolesFor = (owner: boolean) => (owner ? ["Owner", ...ROLES] : BRANCH_STAFF_ROLES);
 
 export function EmployeeList() {
   const { data: rows, loading, error } = useResource<StaffRow[]>("/api/admin/staff", []);
@@ -240,8 +240,8 @@ export function EmployeeForm({ recordId }: { recordId?: string }) {
             </Field>
           )}
           <Field label="Vai trò">
-            <select className="o-input" value={form.role} disabled={ro} onChange={(e) => set("role", e.target.value)}>
-              {rolesFor(owner).map((r) => <option key={r} value={r}>{ROLE_LABEL[r] ?? r}</option>)}
+            <select className="o-input" value={form.role} disabled={ro || (!owner && !BRANCH_STAFF_ROLES.includes(form.role))} onChange={(e) => set("role", e.target.value)}>
+              {[...rolesFor(owner), ...(rolesFor(owner).includes(form.role) ? [] : [form.role])].map((r) => <option key={r} value={r}>{ROLE_LABEL[r] ?? r}</option>)}
             </select>
           </Field>
           {owner && form.role !== "Owner" && (

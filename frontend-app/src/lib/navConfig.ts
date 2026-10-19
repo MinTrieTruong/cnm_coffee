@@ -6,12 +6,15 @@
  */
 import {
   Bike,
+  ArrowRightLeft,
   CalendarCheck,
   CalendarDays,
   ChefHat,
   ClipboardCheck,
+  ClipboardList,
   Clock,
   Coffee,
+  FileCheck,
   FileText,
   History,
   Home,
@@ -88,6 +91,11 @@ const I: Record<string, NavItem> = {
   // "Đơn hàng" chưa có màn riêng → màn đơn chờ thanh toán / đơn giao của POS
   orders: { id: "orders", label: "Đơn hàng", short: "Đơn hàng", icon: ReceiptText, to: "/pos", badge: "deliveryNew" },
   inventoryApp: { id: "inventory", label: "Kho", short: "Kho", icon: Warehouse, to: "/app/inventory/stock", match: startsWith("/app/inventory") },
+  products: { id: "products", label: "Thực đơn & giá", short: "Thực đơn", icon: Coffee, to: "/app/sales/products" },
+  employees: { id: "employees", label: "Nhân viên", short: "Nhân viên", icon: UsersRound, to: "/app/hr/employees" },
+  approvals: { id: "approvals", label: "Duyệt đơn từ", short: "Duyệt", icon: FileCheck, to: "/app/hr/approvals" },
+  invRequests: { id: "inv-requests", label: "Phiếu xin nguyên liệu", short: "Phiếu NL", icon: ClipboardList, to: "/app/inventory/requests" },
+  transfers: { id: "transfers", label: "Chuyển kho", short: "Chuyển kho", icon: ArrowRightLeft, to: "/app/inventory/transfers" },
   storesCompare: { id: "stores-compare", label: "So sánh chi nhánh", short: "Chi nhánh", icon: Store, to: "/app/overview/compare" },
   stores: { id: "stores", label: "Quản lý chi nhánh", short: "Chi nhánh", icon: Store, to: "/app/settings/stores" },
   hrApp: { id: "hr", label: "Nhân sự", short: "Nhân sự", icon: UsersRound, to: "/app/hr/employees", match: (p: string) => startsWith("/app/hr")(p) && !["/app/hr/attendance", "/app/hr/schedule"].includes(p) },
@@ -106,11 +114,11 @@ export const NAV_BY_ROLE: Record<string, RoleNav> = {
   Cashier: { primary: [I.home, I.pos, I.onlineOrders, I.attendance], more: [I.floor, I.chat, I.schedule] },
   Kitchen: { primary: [I.home, I.kds, I.stockCheck, I.attendance], more: [I.schedule] },
   Shipper: { primary: [I.home, I.shipOrders, I.shipMap, I.attendance], more: [I.shipHistory, I.schedule] },
-  Purchasing: { primary: [I.home, I.purchase, I.stock, I.attendance], more: [I.suppliers] },
-  Manager: { primary: [I.home, I.purchase, I.stock, I.attendance], more: [I.suppliers] },
-  // Quản lý: việc hằng ngày ở thanh đáy; các nhóm chức năng còn lại nằm ở Trang chủ và "Thêm"
-  Admin: { primary: [I.home, I.orders, I.attendance, I.schedule], more: [I.overview, I.inventoryApp, I.hrApp], moreAllApps: true },
-  Owner: { primary: [I.home, I.orders, I.attendance, I.schedule], more: [I.storesCompare, I.stores, I.overview, I.inventoryApp, I.hrApp], moreAllApps: true },
+  Warehouse: { primary: [I.home, I.stock, I.invRequests, I.attendance], more: [I.stockCheck, I.transfers, I.purchase, I.suppliers] },
+  // Quản lý chi nhánh: duyệt & lịch; thao tác ca nằm ở nhóm "Theo dõi ca" của Trang chủ
+  Admin: { primary: [I.home, I.approvals, I.schedule, I.attendance], more: [I.overview, I.invRequests, I.employees], moreAllApps: true },
+  // Chủ chuỗi: việc của cả chuỗi
+  Owner: { primary: [I.home, I.storesCompare, I.products, I.employees], more: [I.stores, I.overview], moreAllApps: true },
 };
 
 /** Tab khách hàng (tối đa 5, không có "Thêm") */

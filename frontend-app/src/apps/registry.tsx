@@ -13,6 +13,7 @@ import {
   Warehouse,
 } from "lucide-react";
 import type { IconType } from "../components/erp";
+import { getOwnerStore } from "../lib/staffApi";
 
 /* ── Nạp lười từng màn hình để giảm dung lượng tải ban đầu ── */
 type AnyComp = ComponentType<Record<string, unknown>>;
@@ -91,6 +92,8 @@ export type MenuLeaf = {
   /** Màn hình form /app/<app>/<menu>/:id */
   form?: LazyExoticComponent<AnyComp>;
   layout: Layout;
+  /** Vai trò vào được để hỗ trợ ca nhưng không hiện trong menu */
+  supportFor?: string[];
 };
 
 export type MenuNode = MenuLeaf | { id: string; label: string; children: MenuLeaf[] };
@@ -104,10 +107,17 @@ export type AppDef = {
   href?: string;
 };
 
-const ADMIN = ["Admin"];
-/** Chỉ Chủ chuỗi (Owner còn thấy mọi mục của Admin — xem canSee) */
+/* ── Nhóm vai trò (xem lib/roles.ts) ── */
+/** Chủ chuỗi: dữ liệu dùng chung cả chuỗi */
 const OWNER = ["Owner"];
-const OPS = ["Admin", "Waiter", "Kitchen", "Cashier", "Shipper"];
+/** Quản lý chi nhánh (Owner thấy thêm các mục này khi đang chọn 1 chi nhánh — xem canSee) */
+const ADMIN = ["Admin"];
+const CHAIN_AND_BRANCH = ["Owner", "Admin"];
+const STOCK = ["Admin", "Warehouse"];
+/** Nhân viên có lịch/đơn từ cá nhân */
+const STAFF = ["Admin", "Warehouse", "Waiter", "Kitchen", "Cashier", "Shipper"];
+/** Quản lý vào được màn thao tác ca để hỗ trợ, nhưng không hiện trong menu (nhóm "Theo dõi ca" ở Trang chủ) */
+const SUPPORT = ["Admin"];
 
 export const APPS: AppDef[] = [
   {
@@ -116,23 +126,24 @@ export const APPS: AppDef[] = [
     icon: LayoutDashboard,
     menus: [
       { id: "home", label: "Trang chủ", roles: "all", component: Home, layout: "full" },
-      { id: "dashboard", label: "Bảng điều khiển", roles: ADMIN, component: Dashboard, layout: "erp" },
-      { id: "revenue", label: "Doanh thu", roles: ADMIN, component: Revenue, layout: "erp" },
-      { id: "profit", label: "Lợi nhuận", roles: ADMIN, component: Profit, layout: "erp" },
+      { id: "dashboard", label: "Bảng điều khiển", roles: CHAIN_AND_BRANCH, component: Dashboard, layout: "erp" },
+      { id: "revenue", label: "Doanh thu", roles: CHAIN_AND_BRANCH, component: Revenue, layout: "erp" },
+      { id: "profit", label: "Lợi nhuận", roles: CHAIN_AND_BRANCH, component: Profit, layout: "erp" },
       { id: "compare", label: "So sánh chi nhánh", roles: OWNER, component: StoresCompare, layout: "erp" },
     ],
   },
   {
     id: "sales",
-    label: "Bán hàng",
+    label: "Thực đơn & khuyến mãi",
     icon: ShoppingBag,
     menus: [
-      { id: "products", label: "Món & giá", roles: ADMIN, component: ProductList, form: ProductForm, layout: "erp" },
-      { id: "categories", label: "Danh mục", roles: ADMIN, component: CategoryList, layout: "erp" },
-      { id: "combos", label: "Combo", roles: ADMIN, component: AdminCombos, layout: "legacy" },
-      { id: "vouchers", label: "Voucher", roles: ADMIN, component: VoucherList, form: VoucherForm, layout: "erp" },
-      { id: "customers", label: "Khách hàng", roles: ADMIN, component: CustomerList, form: CustomerForm, layout: "erp" },
-      { id: "reviews", label: "Đánh giá", roles: ADMIN, component: ReviewList, form: ReviewForm, layout: "erp" },
+      // Quản lý chi nhánh: xem, bật/tắt & báo hết món tại chi nhánh; giá/món do Chủ chuỗi sửa
+      { id: "products", label: "Món & giá", labelFor: (r) => (r === "Admin" ? "Thực đơn chi nhánh" : "Món & giá"), roles: CHAIN_AND_BRANCH, component: ProductList, form: ProductForm, layout: "erp" },
+      { id: "categories", label: "Danh mục", roles: OWNER, component: CategoryList, layout: "erp" },
+      { id: "combos", label: "Combo", roles: OWNER, component: AdminCombos, layout: "legacy" },
+      { id: "vouchers", label: "Voucher", roles: CHAIN_AND_BRANCH, component: VoucherList, form: VoucherForm, layout: "erp" },
+      { id: "customers", label: "Khách hàng", roles: OWNER, component: CustomerList, form: CustomerForm, layout: "erp" },
+      { id: "reviews", label: "Đánh giá", roles: CHAIN_AND_BRANCH, component: ReviewList, form: ReviewForm, layout: "erp" },
     ],
   },
   {
@@ -140,18 +151,18 @@ export const APPS: AppDef[] = [
     label: "Điểm bán (POS)",
     icon: Monitor,
     href: "/pos",
-    menus: [{ id: "pos", label: "Thu ngân", roles: ["Admin", "Cashier"], component: Pos, layout: "full" }],
+    menus: [{ id: "pos", label: "Thu ngân", roles: ["Admin", "Cashier"], supportFor: SUPPORT, component: Pos, layout: "full" }],
   },
   {
     id: "tables",
     label: "Bàn & phục vụ",
     icon: UtensilsCrossed,
     menus: [
-      { id: "floor", label: "Sơ đồ bàn", roles: ["Admin", "Waiter", "Cashier"], component: StaffTables, layout: "full" },
+      { id: "floor", label: "Sơ đồ bàn", roles: ["Admin", "Waiter", "Cashier"], supportFor: SUPPORT, component: StaffTables, layout: "full" },
       { id: "zones", label: "Bàn & khu vực", roles: ADMIN, component: AdminZones, layout: "legacy" },
       { id: "qr", label: "Mã QR", roles: ADMIN, component: QrGenerator, props: { embedded: true }, layout: "legacy" },
-      { id: "order-status", label: "Trạng thái món", roles: ["Admin", "Waiter"], component: StaffOrderStatus, layout: "full" },
-      { id: "chat", label: "Tin nhắn", roles: ["Admin", "Cashier", "Waiter"], component: StaffChat, layout: "full" },
+      { id: "order-status", label: "Trạng thái món", roles: ["Admin", "Waiter"], supportFor: SUPPORT, component: StaffOrderStatus, layout: "full" },
+      { id: "chat", label: "Tin nhắn", roles: ["Admin", "Cashier", "Waiter"], supportFor: SUPPORT, component: StaffChat, layout: "full" },
     ],
   },
   {
@@ -159,8 +170,8 @@ export const APPS: AppDef[] = [
     label: "Bếp & pha chế",
     icon: ChefHat,
     menus: [
-      { id: "kds", label: "KDS", roles: ["Admin", "Kitchen"], component: Kds, layout: "full" },
-      { id: "formulas", label: "Định mức NL", roles: ADMIN, component: IngredientFormula, props: { embedded: true }, layout: "legacy" },
+      { id: "kds", label: "KDS", roles: ["Admin", "Kitchen"], supportFor: SUPPORT, component: Kds, layout: "full" },
+      { id: "formulas", label: "Định mức NL", roles: OWNER, component: IngredientFormula, props: { embedded: true }, layout: "legacy" },
     ],
   },
   {
@@ -168,10 +179,10 @@ export const APPS: AppDef[] = [
     label: "Kho",
     icon: Warehouse,
     menus: [
-      { id: "stock", label: "Tồn kho", roles: ADMIN, component: StockList, form: StockForm, layout: "erp" },
-      { id: "check", label: "Kiểm kho", roles: ["Admin", "Kitchen"], component: InventoryCheck, layout: "full" },
-      { id: "requests", label: "Phiếu xin NL", roles: ADMIN, component: RequestList, form: RequestForm, layout: "erp" },
-      { id: "transfers", label: "Chuyển kho", roles: ADMIN, component: TransferList, layout: "erp" },
+      { id: "stock", label: "Tồn kho", roles: STOCK, component: StockList, form: StockForm, layout: "erp" },
+      { id: "check", label: "Kiểm kho", roles: ["Warehouse", "Kitchen"], component: InventoryCheck, layout: "full" },
+      { id: "requests", label: "Phiếu xin NL", roles: STOCK, component: RequestList, form: RequestForm, layout: "erp" },
+      { id: "transfers", label: "Chuyển kho", roles: ["Warehouse"], component: TransferList, layout: "erp" },
     ],
   },
   {
@@ -179,8 +190,8 @@ export const APPS: AppDef[] = [
     label: "Mua hàng",
     icon: ShoppingCart,
     menus: [
-      { id: "orders", label: "Mua hàng", roles: ["Admin", "Purchasing", "Manager"], component: ProcurementAdmin, props: { embedded: true }, layout: "legacy" },
-      { id: "suppliers", label: "Nhà cung cấp", roles: ADMIN, component: SupplierList, form: SupplierForm, layout: "erp" },
+      { id: "orders", label: "Mua hàng", roles: STOCK, component: ProcurementAdmin, props: { embedded: true }, layout: "legacy" },
+      { id: "suppliers", label: "Nhà cung cấp", roles: ["Owner", "Warehouse"], component: SupplierList, form: SupplierForm, layout: "erp" },
     ],
   },
   {
@@ -188,8 +199,8 @@ export const APPS: AppDef[] = [
     label: "Giao hàng",
     icon: Bike,
     menus: [
-      { id: "orders", label: "Trạng thái đơn", roles: ["Admin", "Cashier"], component: DeliveryBoard, layout: "legacy" },
-      { id: "shipper", label: "Shipper", roles: ["Admin", "Shipper"], component: ShipperDashboard, layout: "full" },
+      { id: "orders", label: "Trạng thái đơn", roles: ["Admin", "Cashier"], supportFor: SUPPORT, component: DeliveryBoard, layout: "legacy" },
+      { id: "shipper", label: "Shipper", roles: ["Shipper"], component: ShipperDashboard, layout: "full" },
     ],
   },
   {
@@ -197,7 +208,7 @@ export const APPS: AppDef[] = [
     label: "Nhân sự",
     icon: UsersRound,
     menus: [
-      { id: "employees", label: "Nhân viên", roles: ADMIN, component: EmployeeList, form: EmployeeForm, layout: "erp" },
+      { id: "employees", label: "Nhân viên", roles: CHAIN_AND_BRANCH, component: EmployeeList, form: EmployeeForm, layout: "erp" },
       {
         id: "time",
         label: "Lịch & chấm công",
@@ -205,13 +216,13 @@ export const APPS: AppDef[] = [
           {
             id: "schedule",
             label: "Bảng lịch tổng",
-            labelFor: (r) => (r === "Admin" || r === "Owner" || r === "Cashier" ? "Quản lý lịch" : "Bảng lịch tổng"),
-            roles: ["Admin", "Cashier", "Kitchen", "Waiter", "Shipper"],
+            labelFor: (r) => (r === "Admin" || r === "Owner" ? "Quản lý lịch" : "Bảng lịch tổng"),
+            roles: STAFF,
             component: AdminSchedule,
             props: { embedded: true },
             layout: "legacy",
           },
-          { id: "my-schedule", label: "Lịch cá nhân", roles: OPS, component: WorkSchedule, layout: "legacy" },
+          { id: "my-schedule", label: "Lịch cá nhân", roles: STAFF, component: WorkSchedule, layout: "legacy" },
           { id: "attendance", label: "Chấm công", roles: "all", component: Attendance, layout: "full" },
         ],
       },
@@ -228,7 +239,7 @@ export const APPS: AppDef[] = [
         label: "Đơn từ",
         children: [
           { id: "approvals", label: "Duyệt đơn từ", roles: ADMIN, component: AdminHrRequests, layout: "legacy" },
-          { id: "requests", label: "Đơn từ của tôi", roles: OPS, component: HrRequests, layout: "legacy" },
+          { id: "requests", label: "Đơn từ của tôi", roles: STAFF, component: HrRequests, layout: "legacy" },
         ],
       },
     ],
@@ -237,37 +248,52 @@ export const APPS: AppDef[] = [
     id: "website",
     label: "Website",
     icon: Globe,
-    menus: [{ id: "posts", label: "Bài đăng", roles: ADMIN, component: PostList, form: PostForm, layout: "erp" }],
+    menus: [{ id: "posts", label: "Bài đăng", roles: OWNER, component: PostList, form: PostForm, layout: "erp" }],
   },
   {
     id: "settings",
     label: "Cấu hình",
     icon: Cog,
     menus: [
-      { id: "stores", label: "Chi nhánh", roles: ADMIN, component: StoreList, form: StoreForm, layout: "erp" },
-      { id: "store", label: "Cài đặt chung", roles: ADMIN, component: StoreSettings, layout: "erp" },
-      { id: "audit", label: "Nhật ký hệ thống", roles: ADMIN, component: AuditLog, layout: "erp" },
+      { id: "stores", label: "Chi nhánh", roles: CHAIN_AND_BRANCH, component: StoreList, form: StoreForm, layout: "erp" },
+      { id: "store", label: "Cài đặt chung", roles: OWNER, component: StoreSettings, layout: "erp" },
+      { id: "audit", label: "Nhật ký hệ thống", roles: CHAIN_AND_BRANCH, component: AuditLog, layout: "erp" },
     ],
   },
 ];
 
 /* ── Tiện ích phân quyền & điều hướng ── */
 export const isLeaf = (m: MenuNode): m is MenuLeaf => !("children" in m);
+
+/**
+ * Vai trò được mở màn hình này không.
+ * Chủ chuỗi thấy thêm mục của Quản lý chi nhánh khi đang chọn 1 chi nhánh
+ * (ở chế độ "Tất cả chi nhánh" chỉ thấy việc của chuỗi).
+ */
 export const canSee = (leaf: MenuLeaf, role: string) =>
-  leaf.roles === "all" || leaf.roles.includes(role) || (role === "Owner" && leaf.roles.includes("Admin"));
+  leaf.roles === "all" ||
+  leaf.roles.includes(role) ||
+  (role === "Owner" && leaf.roles.includes("Admin") && getOwnerStore() != null);
+
+/** Có hiện trong menu/lưới ứng dụng không (màn "hỗ trợ ca" của quản lý chỉ mở từ Trang chủ) */
+export const listed = (leaf: MenuLeaf, role: string) => {
+  if (!canSee(leaf, role)) return false;
+  const support = leaf.supportFor ?? [];
+  return !(support.includes(role) || (role === "Owner" && support.includes("Admin") && !leaf.roles.includes("Owner")));
+};
+
 export const leavesOf = (app: AppDef): MenuLeaf[] => app.menus.flatMap((m) => (isLeaf(m) ? [m] : m.children));
 export const appPath = (app: AppDef, leaf: MenuLeaf) => (app.href && leaf.id === app.menus[0].id ? app.href : `/app/${app.id}/${leaf.id}`);
 
 export function visibleApps(role: string) {
-  return APPS.filter((a) => leavesOf(a).some((l) => canSee(l, role)));
+  return APPS.filter((a) => leavesOf(a).some((l) => listed(l, role)));
 }
 
 export function firstPathOf(app: AppDef, role: string) {
-  const leaf = leavesOf(app).find((l) => canSee(l, role));
+  const leaf = leavesOf(app).find((l) => listed(l, role)) ?? leavesOf(app).find((l) => canSee(l, role));
   return leaf ? appPath(app, leaf) : "/staff/login";
 }
 
-/** Trang mặc định sau đăng nhập theo vai trò */
 /** Trang mặc định sau đăng nhập: mọi vai trò vào Trang chủ (ca hôm nay + chức năng theo nhóm) */
 export function defaultRouteForRole(_role: string): string {
   return "/app/overview/home";
