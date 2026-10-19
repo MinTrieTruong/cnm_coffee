@@ -8,6 +8,8 @@ export function formulaRouter(prisma: PrismaClient) {
   const r = Router();
   const auth = attachStaff(prisma);
   const adminOnly = [auth, requireRoles("Admin")];
+  // Định mức dùng chung cả chuỗi — chỉ Chủ chuỗi sửa
+  const owner = [auth, requireRoles("Owner")];
 
   // ─── GET /api/admin/formulas ────────────────────────────────────────────────
   // Trả về tất cả định mức, group theo sản phẩm
@@ -24,7 +26,7 @@ export function formulaRouter(prisma: PrismaClient) {
 
   // ─── POST /api/admin/formulas ───────────────────────────────────────────────
   // Upsert 1 dòng định mức { productId, itemId, qtyPerUnit, note? }
-  r.post("/admin/formulas", ...adminOnly, async (req, res) => {
+  r.post("/admin/formulas", ...owner, async (req, res) => {
     const { productId, itemId, qtyPerUnit, recipeUnit, conversionFactor, note } = req.body as {
       productId?: number;
       itemId?: number;
@@ -50,7 +52,7 @@ export function formulaRouter(prisma: PrismaClient) {
   });
 
   // ─── DELETE /api/admin/formulas/:id ────────────────────────────────────────
-  r.delete("/admin/formulas/:id", ...adminOnly, async (req, res) => {
+  r.delete("/admin/formulas/:id", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     if (!id) return res.status(400).json({ error: "ID không hợp lệ." });
     await prisma.productFormula.delete({ where: { id } });

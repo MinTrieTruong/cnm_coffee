@@ -14,7 +14,8 @@ import { audit } from "../lib/audit.js";
  */
 export function stockTransferRouter(prisma: PrismaClient) {
   const r = Router();
-  const admin = [attachStaff(prisma), requireRoles("Admin")];
+  // Thủ kho thực hiện, Quản lý chi nhánh cũng thao tác được
+  const admin = [attachStaff(prisma), requireRoles("Admin", "Warehouse")];
   const storeAdmin = [...admin, requireStore];
 
   const include = {

@@ -9,7 +9,9 @@ const prisma = new PrismaClient();
 export function supplierRouter() {
   const r = Router();
   const auth = attachStaff(prisma);
-  const admin = [auth, requireRoles("Admin")];
+  // Nhà cung cấp dùng chung cả chuỗi: Chủ chuỗi quản lý; quản lý chi nhánh & thủ kho xem
+  const admin = [auth, requireRoles("Admin", "Warehouse")];
+  const owner = [auth, requireRoles("Owner")];
 
   // GET /api/admin/suppliers
   r.get("/suppliers", ...admin, async (_req, res) => {
@@ -18,7 +20,7 @@ export function supplierRouter() {
   });
 
   // POST /api/admin/suppliers
-  r.post("/suppliers", ...admin, async (req, res) => {
+  r.post("/suppliers", ...owner, async (req, res) => {
     const staff = (req as StaffRequest).staffRow!;
     const { name, phone, address, email, note, username, password } = req.body as {
       name?: string; phone?: string; address?: string; email?: string; note?: string; username?: string; password?: string;
@@ -51,7 +53,7 @@ export function supplierRouter() {
   });
 
   // PATCH /api/admin/suppliers/:id
-  r.patch("/suppliers/:id", ...admin, async (req, res) => {
+  r.patch("/suppliers/:id", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     const staff = (req as StaffRequest).staffRow!;
     const { name, phone, address, email, note, isActive, username, password } = req.body as {
@@ -86,7 +88,7 @@ export function supplierRouter() {
   });
 
   // DELETE /api/admin/suppliers/:id (soft delete)
-  r.delete("/suppliers/:id", ...admin, async (req, res) => {
+  r.delete("/suppliers/:id", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     const staff = (req as StaffRequest).staffRow!;
     await prisma.supplier.update({ where: { id }, data: { isActive: false } });

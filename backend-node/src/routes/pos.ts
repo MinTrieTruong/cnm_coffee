@@ -12,7 +12,7 @@ export function posRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
   const auth = attachStaff(prisma);
   const cashier = [auth, requireRoles("Cashier", "Admin"), requireStore];
-  const floor = [auth, requireRoles("Waiter", "Cashier", "Admin", "Manager"), requireStore];
+  const floor = [auth, requireRoles("Waiter", "Cashier", "Admin"), requireStore];
 
   r.get("/pos/zones", auth, async (req, res) => {
     res.json(await prisma.zone.findMany({ where: { ...storeWhere(req), isActive: true }, orderBy: { id: "asc" } }));
@@ -437,7 +437,7 @@ export function posRouter(prisma: PrismaClient, io: Server) {
     res.json({ ok: true });
   });
 
-  r.post("/pos/split-order", auth, requireRoles("Cashier", "Admin", "Manager"), requireStore, async (req, res) => {
+  r.post("/pos/split-order", auth, requireRoles("Cashier", "Admin"), requireStore, async (req, res) => {
     const { originalOrderId, itemsToMove } = req.body as { originalOrderId: number; itemsToMove: { orderItemId: number; quantity: number }[] };
     if (!originalOrderId || !itemsToMove || itemsToMove.length === 0) return res.status(400).json({ error: "Thiếu thông tin split" });
     const order = await prisma.order.findUnique({ where: { id: originalOrderId }, include: { details: true } });

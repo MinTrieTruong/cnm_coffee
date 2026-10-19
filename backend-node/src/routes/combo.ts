@@ -6,6 +6,8 @@ import { saveDataUrlImage } from "../lib/uploadImage.js";
 export function comboRouter(prisma: PrismaClient) {
   const r = Router();
   const admin = [attachStaff(prisma), requireRoles("Admin")];
+  // Combo dùng chung cả chuỗi — chỉ Chủ chuỗi sửa
+  const owner = [attachStaff(prisma), requireRoles("Owner")];
 
   // ────────────────────────────────────────────────────────────────────────────
   // PUBLIC ENDPOINTS
@@ -139,7 +141,7 @@ export function comboRouter(prisma: PrismaClient) {
    * POST /api/admin/combos — Tạo combo mới
    * Body: { name, description?, imageUrl? (URL string hoặc base64), comboPrice, isHot, isActive, products: [{productId, quantity}] }
    */
-  r.post("/admin/combos", ...admin, async (req, res) => {
+  r.post("/admin/combos", ...owner, async (req, res) => {
     try {
       const body = req.body as {
         name: string;
@@ -209,7 +211,7 @@ export function comboRouter(prisma: PrismaClient) {
    * PUT /api/admin/combos/:id — Cập nhật combo
    * Xóa ComboItem cũ → tạo lại
    */
-  r.put("/admin/combos/:id", ...admin, async (req, res) => {
+  r.put("/admin/combos/:id", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ" });
 
@@ -305,7 +307,7 @@ export function comboRouter(prisma: PrismaClient) {
   });
 
   /** PATCH /api/admin/combos/:id/toggle-hot — Bật/tắt isHot */
-  r.patch("/admin/combos/:id/toggle-hot", ...admin, async (req, res) => {
+  r.patch("/admin/combos/:id/toggle-hot", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ" });
     try {
@@ -324,7 +326,7 @@ export function comboRouter(prisma: PrismaClient) {
   });
 
   /** PATCH /api/admin/combos/:id/toggle-active — Bật/tắt isActive */
-  r.patch("/admin/combos/:id/toggle-active", ...admin, async (req, res) => {
+  r.patch("/admin/combos/:id/toggle-active", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ" });
     try {
@@ -343,7 +345,7 @@ export function comboRouter(prisma: PrismaClient) {
   });
 
   /** DELETE /api/admin/combos/:id — Xóa cứng combo */
-  r.delete("/admin/combos/:id", ...admin, async (req, res) => {
+  r.delete("/admin/combos/:id", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ" });
     try {

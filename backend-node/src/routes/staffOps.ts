@@ -340,7 +340,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
   r.post(
     "/staff/inventory/requests",
     auth,
-    requireRoles("Cashier", "Waiter", "Admin", "Kitchen"),
+    requireRoles("Cashier", "Waiter", "Admin", "Kitchen", "Warehouse"),
     requireStore,
     async (req, res) => {
       const staff = (req as StaffRequest).staffRow!;
@@ -395,7 +395,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
   r.get(
     "/staff/inventory/requests",
     auth,
-    requireRoles("Cashier", "Waiter", "Admin", "Kitchen"),
+    requireRoles("Cashier", "Waiter", "Admin", "Kitchen", "Warehouse"),
     async (req, res) => {
       const staff = (req as StaffRequest).staffRow!;
       const rows = await prisma.inventoryRequest.findMany({

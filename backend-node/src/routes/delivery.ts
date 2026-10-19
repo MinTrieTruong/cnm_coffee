@@ -35,8 +35,8 @@ function codAmountOf(o: { status: string; totalAmount: number }) {
 export function deliveryRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
   const auth = attachStaff(prisma);
-  const cashier = [auth, requireRoles("Cashier", "Admin", "Manager")];
-  const shipperOnly = [auth, requireRoles("Shipper", "Admin", "Manager"), requireStore];
+  const cashier = [auth, requireRoles("Cashier", "Admin")];
+  const shipperOnly = [auth, requireRoles("Shipper", "Admin"), requireStore];
 
   /* ═══════════════════════ THU NGÂN ═══════════════════════ */
 

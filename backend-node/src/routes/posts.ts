@@ -5,6 +5,8 @@ import { attachStaff, requireRoles } from "../middleware/staff.js";
 export function postsRouter(prisma: PrismaClient) {
   const r = Router();
   const adminOnly = [attachStaff(prisma), requireRoles("Admin")];
+  // Website của cả chuỗi — chỉ Chủ chuỗi đăng bài
+  const owner = [attachStaff(prisma), requireRoles("Owner")];
 
   /** GET /posts — danh sách bài đăng công khai (khách xem) */
   r.get("/posts", async (_req, res) => {
@@ -57,7 +59,7 @@ export function postsRouter(prisma: PrismaClient) {
   });
 
   /** POST /posts — tạo bài mới */
-  r.post("/posts", ...adminOnly, async (req, res) => {
+  r.post("/posts", ...owner, async (req, res) => {
     const { title, body, imageUrl, pinned, isPublished } = req.body as {
       title: string; body: string;
       imageUrl?: string | null; pinned?: boolean; isPublished?: boolean;
@@ -78,7 +80,7 @@ export function postsRouter(prisma: PrismaClient) {
   });
 
   /** PATCH /posts/:id — sửa bài */
-  r.patch("/posts/:id", ...adminOnly, async (req, res) => {
+  r.patch("/posts/:id", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ." });
     const { title, body, imageUrl, pinned, isPublished } = req.body as Partial<{
@@ -99,7 +101,7 @@ export function postsRouter(prisma: PrismaClient) {
   });
 
   /** DELETE /posts/:id — xóa bài */
-  r.delete("/posts/:id", ...adminOnly, async (req, res) => {
+  r.delete("/posts/:id", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ." });
     await prisma.post.delete({ where: { id } });

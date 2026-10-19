@@ -9,6 +9,15 @@ import { verifyToken, type StaffPayload } from "../lib/jwt.js";
  */
 export type StaffRequest = Request & { staffRow?: Staff; storeId?: number | null };
 
+/**
+ * Vai trò:
+ * - Owner (Chủ chuỗi): việc dùng chung cả chuỗi; có mọi quyền của Admin trên mọi chi nhánh.
+ * - Admin (Quản lý chi nhánh): vận hành & duyệt trong 1 chi nhánh.
+ * - Warehouse (Thủ kho), Cashier, Waiter, Kitchen, Shipper: nhân viên chi nhánh.
+ */
+export const BRANCH_STAFF_ROLES = ["Cashier", "Waiter", "Kitchen", "Shipper", "Warehouse"];
+export const ALL_ROLES = ["Owner", "Admin", ...BRANCH_STAFF_ROLES];
+
 /** Owner (Chủ chuỗi) có mọi quyền của Admin, trên mọi chi nhánh. */
 export function isOwner(role: string) {
   return role === "Owner";

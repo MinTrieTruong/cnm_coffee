@@ -144,6 +144,7 @@ async function main() {
       { id: 2, username: "cashier", passwordHash: staffPass, fullName: "Thu ngân Demo", role: "Cashier", storeId: store.id, hireDate: new Date() },
       { id: 3, username: "kitchen", passwordHash: staffPass, fullName: "Pha chế Demo", role: "Kitchen", storeId: store.id, hireDate: new Date() },
       { id: 4, username: "waiter", passwordHash: staffPass, fullName: "Phục vụ Demo", role: "Waiter", storeId: store.id, hireDate: new Date() },
+      { id: 6, username: "kho", passwordHash: staffPass, fullName: "Thủ kho Demo", role: "Warehouse", storeId: store.id, hireDate: new Date() },
       { id: 5, username: "owner", passwordHash: staffPass, fullName: "Chủ chuỗi", role: "Owner", storeId: null, hireDate: new Date() },
     ],
   });

@@ -10,9 +10,10 @@ import { adjustStoreStock } from "../lib/inventory.js";
 export function procurementRouter(prisma: PrismaClient) {
   const r = Router();
   const authStaff = attachStaff(prisma);
-  const purchasing = [authStaff, requireRoles("Admin", "Purchasing", "Manager")];
-  /** Thao tác ghi: luôn trên 1 chi nhánh cụ thể */
+  /** Thủ kho lập đề xuất & nhận hàng; Quản lý chi nhánh duyệt đề xuất & chọn báo giá */
+  const purchasing = [authStaff, requireRoles("Admin", "Warehouse")];
   const purchasingStore = [...purchasing, requireStore];
+  const approver = [authStaff, requireRoles("Admin"), requireStore];
   const authSupp = attachSupplier(prisma);
 
   // --- SUPPLIER PORTAL ---
@@ -103,7 +104,7 @@ export function procurementRouter(prisma: PrismaClient) {
   // --- INTERNAL PURCHASING / ADMIN ---
 
   // 1. Tạo PR
-  r.post("/purchasing/requisitions", authStaff, requireStore, async (req, res) => {
+  r.post("/purchasing/requisitions", ...purchasingStore, async (req, res) => {
     const staff = (req as StaffRequest).staffRow!;
     const { note, items } = req.body as { note?: string, items: { itemId: number, qty: number, note?: string }[] };
 
@@ -160,7 +161,7 @@ export function procurementRouter(prisma: PrismaClient) {
   });
 
   // 3. Duyệt PR -> Tự động sinh RFQ
-  r.post("/purchasing/requisitions/:id/approve", ...purchasingStore, async (req, res) => {
+  r.post("/purchasing/requisitions/:id/approve", ...approver, async (req, res) => {
     const prId = Number(req.params.id);
     const pr = await prisma.purchaseRequisition.findUnique({ where: { id: prId } });
     if (!pr || !inStore(req, pr) || pr.status !== "PENDING") return res.status(400).json({ error: "PR not found or not pending" });
@@ -196,7 +197,7 @@ export function procurementRouter(prisma: PrismaClient) {
   });
 
   // 5. Chốt Quote -> Tạo PO
-  r.post("/purchasing/rfqs/:id/select-quote", ...purchasingStore, async (req, res) => {
+  r.post("/purchasing/rfqs/:id/select-quote", ...approver, async (req, res) => {
     const rfqId = Number(req.params.id);
     const { quoteId } = req.body as { quoteId: number };
 

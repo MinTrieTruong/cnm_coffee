@@ -51,13 +51,16 @@ async function main() {
     ["kitchen2", "Pha chế CN2", "Kitchen"],
     ["waiter2", "Phục vụ CN2", "Waiter"],
     ["shipper2", "Shipper CN2", "Shipper"],
+    ["kho2", "Thủ kho CN2", "Warehouse"],
   ];
-  for (const [username, fullName, role] of members) {
+  // DB nâng cấp từ bản 1 quán chưa có Thủ kho cho Chi nhánh #1
+  const extra: [string, string, string, number][] = [["kho", "Thủ kho Demo", "Warehouse", 1]];
+  for (const [username, fullName, role, storeId] of [...members.map((m) => [...m, store.id] as [string, string, string, number]), ...extra]) {
     const found = await prisma.staff.findUnique({ where: { username } });
     if (found) continue;
     const maxId = (await prisma.staff.aggregate({ _max: { id: true } }))._max.id ?? 0;
     await prisma.staff.create({
-      data: { id: maxId + 1, username, passwordHash: hash, fullName, role, storeId: store.id },
+      data: { id: maxId + 1, username, passwordHash: hash, fullName, role, storeId },
     });
   }
 
@@ -73,7 +76,7 @@ async function main() {
     });
   }
 
-  console.log(`✅ CN2: 10 bàn (ID 101–110), ${members.length} nhân viên (mật khẩu staff123), ${items.length} nguyên liệu`);
+  console.log(`✅ CN2: 10 bàn (ID 101–110), ${members.length} nhân viên (mật khẩu staff123), ${items.length} nguyên liệu; Thủ kho CN1: kho`);
 }
 
 main()

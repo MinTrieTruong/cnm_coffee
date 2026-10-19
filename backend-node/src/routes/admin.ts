@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { attachStaff, isOwner, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
+import { ALL_ROLES, BRANCH_STAFF_ROLES, attachStaff, isOwner, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
 import { saveDataUrlImage } from "../lib/uploadImage.js";
 import { audit } from "../lib/audit.js";
 import { inStore, mustStoreId, reqStoreId, storeWhere } from "../lib/storeScope.js";
@@ -14,6 +14,11 @@ export function adminRouter(prisma: PrismaClient) {
   const admin = [auth, requireRoles("Admin")];
   /** Thao tác trên 1 chi nhánh cụ thể (Owner phải chọn chi nhánh) */
   const storeAdmin = [...admin, requireStore];
+  /** Dữ liệu dùng chung cả chuỗi (món, danh mục, nguyên liệu, khách hàng) — chỉ Chủ chuỗi ghi */
+  const owner = [auth, requireRoles("Owner")];
+  /** Kho chi nhánh: Thủ kho làm, Quản lý chi nhánh xem/duyệt */
+  const stock = [auth, requireRoles("Admin", "Warehouse")];
+  const stockStore = [...stock, requireStore];
 
   /** Tồn kho của chi nhánh đang chọn; Owner xem tất cả → cộng dồn mọi chi nhánh */
   const stockOf = async (storeId: number | null) => {
@@ -50,7 +55,7 @@ export function adminRouter(prisma: PrismaClient) {
     return candidate;
   };
 
-  r.get("/stats", ...admin, async (req, res) => {
+  r.get("/stats", ...stock, async (req, res) => {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     const weekAgo = new Date();
@@ -91,6 +96,29 @@ export function adminRouter(prisma: PrismaClient) {
       prisma.staff.count({ where: { ...storeWhere(req), status: "Active" } }),
       prisma.inventoryRequest.count({ where: { ...storeWhere(req), status: "Pending" } }),
     ]);
+    // Việc chờ xử lý của chi nhánh (đơn từ lọc theo chi nhánh của nhân viên)
+    const byStaff = { user: storeWhere(req) };
+    const [approvedRequests, pendingLeave, pendingSwap, pendingAdjust, pendingPR, incomingTransfers, openPO] = await Promise.all([
+      prisma.inventoryRequest.count({ where: { ...storeWhere(req), status: "Approved" } }),
+      prisma.leaveRequest.count({ where: { ...byStaff, status: "PENDING" } }),
+      prisma.shiftSwapRequest.count({ where: { requester: storeWhere(req), status: "PENDING", targetUserStatus: "ACCEPTED" } }),
+      prisma.attendanceAdjustment.count({ where: { ...byStaff, status: "PENDING" } }),
+      prisma.purchaseRequisition.count({ where: { ...storeWhere(req), status: "PENDING" } }),
+      prisma.stockTransfer.count({ where: { status: "SHIPPED", ...(reqStoreId(req) == null ? {} : { toStoreId: reqStoreId(req)! }) } }),
+      prisma.purchaseOrder.count({ where: { ...storeWhere(req), status: { not: "DELIVERED" } } }),
+    ]);
+    const pending = {
+      requests: pendingReq,
+      approvedRequests,
+      leave: pendingLeave,
+      swap: pendingSwap,
+      adjust: pendingAdjust,
+      purchaseRequisitions: pendingPR,
+      incomingTransfers,
+      openPurchaseOrders: openPO,
+    };
+    // Thủ kho chỉ cần việc chờ, không xem doanh thu
+    if ((req as StaffRequest).staffRow!.role === "Warehouse") return res.json({ pending });
     res.json({
       todayOrders,
       todayRevenue: todayRev._sum.totalAmount ?? 0,
@@ -102,6 +130,7 @@ export function adminRouter(prisma: PrismaClient) {
       tables,
       staff,
       pendingRequests: pendingReq,
+      pending,
     });
   });
 
@@ -137,7 +166,7 @@ export function adminRouter(prisma: PrismaClient) {
     res.json(row);
   });
 
-  r.post("/products", ...admin, async (req, res) => {
+  r.post("/products", ...owner, async (req, res) => {
     const b = req.body as {
       categoryId?: number;
       name?: string;
@@ -174,7 +203,7 @@ export function adminRouter(prisma: PrismaClient) {
     res.status(201).json(p);
   });
 
-  r.patch("/products/:id", ...admin, async (req, res) => {
+  r.patch("/products/:id", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     const b = req.body as Partial<{
       name: string;
@@ -211,7 +240,7 @@ export function adminRouter(prisma: PrismaClient) {
     res.json(await prisma.category.findMany({ orderBy: { sortOrder: "asc" } }));
   });
 
-  r.post("/categories", ...admin, async (req, res) => {
+  r.post("/categories", ...owner, async (req, res) => {
     const { name, sortOrder } = req.body as { name?: string; sortOrder?: number };
     if (!name?.trim()) return res.status(400).json({ error: "Thiếu tên" });
     const maxId = (await prisma.category.aggregate({ _max: { id: true } }))._max.id ?? 0;
@@ -221,13 +250,13 @@ export function adminRouter(prisma: PrismaClient) {
     res.status(201).json(c);
   });
 
-  r.patch("/categories/:id", ...admin, async (req, res) => {
+  r.patch("/categories/:id", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     const b = req.body as { name?: string; sortOrder?: number };
     res.json(await prisma.category.update({ where: { id }, data: b }));
   });
 
-  r.delete("/categories/:id", ...admin, async (req, res) => {
+  r.delete("/categories/:id", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     const cnt = await prisma.product.count({ where: { categoryId: id } });
     if (cnt > 0) {
@@ -307,8 +336,10 @@ export function adminRouter(prisma: PrismaClient) {
       return res.status(400).json({ error: "Thiếu mật khẩu, họ tên hoặc role." });
     }
     const actorRow = (req as StaffRequest).staffRow!;
-    if (isOwner(b.role) && !isOwner(actorRow.role)) {
-      return res.status(403).json({ error: "Chỉ Chủ chuỗi được tạo tài khoản Chủ chuỗi." });
+    if (!ALL_ROLES.includes(b.role)) return res.status(400).json({ error: "Vai trò không hợp lệ." });
+    // Quản lý chi nhánh chỉ tạo nhân viên chi nhánh; Quản lý/Chủ chuỗi do Chủ chuỗi tạo
+    if (!isOwner(actorRow.role) && !BRANCH_STAFF_ROLES.includes(b.role)) {
+      return res.status(403).json({ error: "Chỉ Chủ chuỗi được tạo tài khoản Quản lý chi nhánh hoặc Chủ chuỗi." });
     }
     // Admin tạo nhân viên cho chi nhánh mình; Owner chọn chi nhánh (body hoặc chi nhánh đang xem)
     const storeId = isOwner(b.role) ? null : isOwner(actorRow.role) ? (b.storeId ?? reqStoreId(req)) : actorRow.storeId;
@@ -371,8 +402,13 @@ export function adminRouter(prisma: PrismaClient) {
     };
     const target = await prisma.staff.findUnique({ where: { id } });
     if (!target || !inStore(req, target)) return res.status(404).json({ error: "Không tìm thấy nhân viên." });
-    if (!isOwner(actor.role) && (isOwner(target.role) || isOwner(b.role ?? "") || b.storeId !== undefined)) {
-      return res.status(403).json({ error: "Chỉ Chủ chuỗi được đổi chi nhánh hoặc sửa tài khoản Chủ chuỗi." });
+    if (b.role !== undefined && !ALL_ROLES.includes(b.role)) return res.status(400).json({ error: "Vai trò không hợp lệ." });
+    if (!isOwner(actor.role)) {
+      // Quản lý chi nhánh: sửa nhân viên chi nhánh (hoặc chính mình nhưng không đổi vai trò)
+      const editable = BRANCH_STAFF_ROLES.includes(target.role) || (target.id === actor.id && b.role === undefined);
+      if (!editable || (b.role !== undefined && !BRANCH_STAFF_ROLES.includes(b.role)) || b.storeId !== undefined) {
+        return res.status(403).json({ error: "Chỉ Chủ chuỗi được sửa tài khoản quản lý hoặc đổi chi nhánh." });
+      }
     }
     const data: Record<string, unknown> = { ...b };
     if (b.password) {
@@ -400,7 +436,7 @@ export function adminRouter(prisma: PrismaClient) {
     if (actor.id === id) return res.status(400).json({ error: "Không thể tự xóa chính mình." });
     const target = await prisma.staff.findUnique({ where: { id } });
     if (!target || !inStore(req, target)) return res.status(404).json({ error: "Không tìm thấy nhân viên." });
-    if (isOwner(target.role) && !isOwner(actor.role)) return res.status(403).json({ error: "Không đủ quyền." });
+    if (!isOwner(actor.role) && !BRANCH_STAFF_ROLES.includes(target.role)) return res.status(403).json({ error: "Không đủ quyền." });
     const row = await prisma.staff.update({
       where: { id },
       data: { status: "Inactive" },
@@ -428,7 +464,7 @@ export function adminRouter(prisma: PrismaClient) {
     res.json(rows);
   });
 
-  r.patch("/customers/:id", ...admin, async (req, res) => {
+  r.patch("/customers/:id", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     const actor = (req as StaffRequest).staffRow!;
     const b = req.body as Partial<{
@@ -457,7 +493,7 @@ export function adminRouter(prisma: PrismaClient) {
     res.json(updated);
   });
 
-  r.post("/customers/:id/reset-password", ...admin, async (req, res) => {
+  r.post("/customers/:id/reset-password", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     const actor = (req as StaffRequest).staffRow!;
     const { newPassword } = req.body as { newPassword?: string };
@@ -567,7 +603,7 @@ export function adminRouter(prisma: PrismaClient) {
     res.json(await prisma.cafeTable.update({ where: { id }, data: b, include: { zone: true } }));
   });
 
-  r.get("/inventory", ...admin, async (req, res) => {
+  r.get("/inventory", ...stock, async (req, res) => {
     try {
       const [items, stock] = await Promise.all([
         prisma.inventoryItem.findMany({ orderBy: { id: "asc" } }),
@@ -584,7 +620,7 @@ export function adminRouter(prisma: PrismaClient) {
     }
   });
 
-  r.post("/inventory", ...admin, async (req, res) => {
+  r.post("/inventory", ...owner, async (req, res) => {
     const b = req.body as {
       name?: string;
       skuCode?: string | null;
@@ -617,7 +653,7 @@ export function adminRouter(prisma: PrismaClient) {
     res.status(201).json({ ...row, stockQty, minLevel });
   });
 
-  r.patch("/inventory/:id", ...admin, async (req, res) => {
+  r.patch("/inventory/:id", ...stock, async (req, res) => {
     const id = Number(req.params.id);
     const b = req.body as Partial<{
       stockQty: number;
@@ -629,6 +665,9 @@ export function adminRouter(prisma: PrismaClient) {
       imageUrl: string | null;
     }>;
     const { stockQty, minLevel, ...catalog } = b;
+    if (Object.keys(catalog).length && !isOwner((req as StaffRequest).staffRow!.role)) {
+      return res.status(403).json({ error: "Tên, mã, đơn vị nguyên liệu dùng chung cả chuỗi — chỉ Chủ chuỗi sửa." });
+    }
     if (stockQty !== undefined || minLevel !== undefined) {
       const storeId = reqStoreId(req);
       if (storeId == null) return res.status(400).json({ error: "Hãy chọn chi nhánh để sửa tồn kho." });
@@ -654,7 +693,7 @@ export function adminRouter(prisma: PrismaClient) {
     res.json({ ...item, ...stock });
   });
 
-  r.delete("/inventory/:id", ...admin, async (req, res) => {
+  r.delete("/inventory/:id", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     await prisma.inventoryRequest.deleteMany({ where: { itemId: id } });
     await prisma.storeInventory.deleteMany({ where: { itemId: id } });
@@ -662,7 +701,7 @@ export function adminRouter(prisma: PrismaClient) {
     res.status(204).send();
   });
 
-  r.post("/inventory/:id/receive", ...storeAdmin, async (req, res) => {
+  r.post("/inventory/:id/receive", ...stockStore, async (req, res) => {
     const id = Number(req.params.id);
     const { qty, expiryDate } = req.body as { qty?: number; expiryDate?: string };
     if (typeof qty !== "number" || qty <= 0) return res.status(400).json({ error: "Số lượng không hợp lệ" });
@@ -700,7 +739,7 @@ export function adminRouter(prisma: PrismaClient) {
     res.json(updated);
   });
 
-  r.get("/inventory/expiring", ...admin, async (req, res) => {
+  r.get("/inventory/expiring", ...stock, async (req, res) => {
     const now = new Date();
     const next7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     const receipts = await prisma.stockReceipt.findMany({
@@ -715,7 +754,7 @@ export function adminRouter(prisma: PrismaClient) {
     res.json(receipts);
   });
 
-  r.post("/inventory/receipts/:id/discard", ...admin, async (req, res) => {
+  r.post("/inventory/receipts/:id/discard", ...stock, async (req, res) => {
     const receiptId = Number(req.params.id);
     const staff = (req as StaffRequest).staffRow!;
     const receipt = await prisma.stockReceipt.findUnique({ where: { id: receiptId }, include: { item: true } });
@@ -744,7 +783,7 @@ export function adminRouter(prisma: PrismaClient) {
     res.json({ ok: true, discarded: receipt.remainingQty });
   });
 
-  r.get("/requests", ...admin, async (req, res) => {
+  r.get("/requests", ...stock, async (req, res) => {
     const rows = await prisma.inventoryRequest.findMany({
       where: storeWhere(req),
       orderBy: { id: "desc" },
@@ -762,6 +801,7 @@ export function adminRouter(prisma: PrismaClient) {
     }
     const reqRow = await prisma.inventoryRequest.findUnique({ where: { id } });
     if (!reqRow || !inStore(req, reqRow) || reqRow.status !== "Pending") return res.status(400).json({ error: "Phiếu không hợp lệ" });
+    // Duyệt chưa đụng tồn kho — Thủ kho thực hiện ở bước /fulfill
     const updated = await prisma.inventoryRequest.update({
       where: { id },
       data: {
@@ -771,21 +811,42 @@ export function adminRouter(prisma: PrismaClient) {
         note: b.note ?? reqRow.note,
       },
     });
-    if (b.status === "Approved") {
-      const item = await prisma.inventoryItem.findUnique({ where: { id: reqRow.itemId } });
-      if (item) {
-        const stock = await prisma.$transaction((tx) =>
-          adjustStoreStock(tx, {
-            storeId: reqRow.storeId,
-            itemId: item.id,
-            qtyChange: reqRow.requestQty,
-            type: "RECEIVE",
-            referenceId: `REQUEST-${reqRow.id}`,
-          }),
-        );
-        const newQty = stock.stockQty;
-        // Tạo phiếu nhập kho
-        await prisma.stockReceipt.create({
+    audit(staff.id, b.status === "Approved" ? "REQUEST_APPROVE" : "REQUEST_REJECT", `Phiếu #${reqRow.id}`);
+    res.json(updated);
+  });
+
+  /**
+   * Thủ kho thực hiện phiếu đã duyệt:
+   * - Restock (đề nghị nhập hàng): hàng về → cộng kho + phiếu nhập.
+   * - Kitchen (bếp xin nguyên liệu): xuất kho cho quầy pha chế → trừ kho.
+   */
+  r.post("/requests/:id/fulfill", ...stockStore, async (req, res) => {
+    const id = Number(req.params.id);
+    const staff = (req as StaffRequest).staffRow!;
+    const reqRow = await prisma.inventoryRequest.findUnique({ where: { id }, include: { item: true } });
+    if (!reqRow || !inStore(req, reqRow)) return res.status(404).json({ error: "Không tìm thấy phiếu" });
+    if (reqRow.status !== "Approved") return res.status(400).json({ error: "Phiếu chưa được quản lý duyệt" });
+    const isRestock = reqRow.type === "Restock";
+
+    if (!isRestock) {
+      const cur = await prisma.storeInventory.findUnique({
+        where: { storeId_itemId: { storeId: reqRow.storeId, itemId: reqRow.itemId } },
+      });
+      if ((cur?.stockQty ?? 0) < reqRow.requestQty) {
+        return res.status(400).json({ error: `Không đủ tồn kho (còn ${cur?.stockQty ?? 0} ${reqRow.item.unit ?? ""}).` });
+      }
+    }
+
+    const stockRow = await prisma.$transaction(async (tx) => {
+      const s = await adjustStoreStock(tx, {
+        storeId: reqRow.storeId,
+        itemId: reqRow.itemId,
+        qtyChange: isRestock ? reqRow.requestQty : -reqRow.requestQty,
+        type: isRestock ? "RECEIVE" : "ISSUE",
+        referenceId: `REQUEST-${reqRow.id}`,
+      });
+      if (isRestock) {
+        await tx.stockReceipt.create({
           data: {
             storeId: reqRow.storeId,
             itemId: reqRow.itemId,
@@ -797,20 +858,21 @@ export function adminRouter(prisma: PrismaClient) {
             remainingQty: reqRow.requestQty,
           },
         });
-        audit(staff.id, "INVENTORY_RECEIVE",
-          `Nhập kho: ${item.name}`,
-          `+${reqRow.requestQty} ${item.unit ?? ""} (từ phiếu #${reqRow.id})`);
-        // Low-stock check: nếu sau khi nhập vẫn thấp hơn minLevel → vẫn cảnh báo
-        if (newQty <= stock.minLevel) {
-          audit(staff.id, "LOW_STOCK_ALERT", item.name, `Tồn: ${newQty}, Tối thiểu: ${stock.minLevel}`);
-        }
       }
+      await tx.inventoryRequest.update({ where: { id }, data: { status: "Fulfilled" } });
+      return s;
+    });
+    audit(staff.id, isRestock ? "INVENTORY_RECEIVE" : "INVENTORY_ISSUE",
+      `${isRestock ? "Nhập kho" : "Xuất cho bếp"}: ${reqRow.item.name}`,
+      `${isRestock ? "+" : "-"}${reqRow.requestQty} ${reqRow.item.unit ?? ""} (phiếu #${reqRow.id})`);
+    if (stockRow.stockQty <= stockRow.minLevel) {
+      audit(staff.id, "LOW_STOCK_ALERT", reqRow.item.name, `Tồn: ${stockRow.stockQty}, Tối thiểu: ${stockRow.minLevel}`);
     }
-    res.json(updated);
+    res.json({ ok: true, stockQty: stockRow.stockQty });
   });
 
   // GET /admin/receipts?date=YYYY-MM-DD
-  r.get("/receipts", ...admin, async (req, res) => {
+  r.get("/receipts", ...stock, async (req, res) => {
     const dateStr = req.query.date as string | undefined;
     let where: Record<string, unknown> = { ...storeWhere(req) };
     if (dateStr) {
