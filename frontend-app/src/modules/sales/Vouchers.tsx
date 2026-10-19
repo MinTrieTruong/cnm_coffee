@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Lock, Ticket, Unlock } from "lucide-react";
-import { staffApi } from "../../lib/staffApi";
+import { getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
 import {
   Badge, Button, EmptyState, Field, FormGroup, FormGroups, FormView, RecordList, errMsg, fmtDate, formatVnd, type Tone,
 } from "../../components/erp";
@@ -21,7 +21,13 @@ export type VoucherRow = {
   goldHourStart: number | null;
   goldHourEnd: number | null;
   _count?: { userVouchers: number };
+  /** Rỗng = áp dụng toàn chuỗi */
+  stores?: { store: { id: number; name: string } }[];
 };
+type StoreOpt = { id: number; name: string };
+
+/** Chi nhánh áp dụng, rỗng = toàn chuỗi */
+const scopeLabel = (v: VoucherRow) => (v.stores?.length ? v.stores.map((s) => s.store.name).join(", ") : "Toàn chuỗi");
 
 const BASE = "/app/sales/vouchers";
 
@@ -52,6 +58,7 @@ export function VoucherList() {
         { key: "used", label: "Đã dùng", value: (v) => v.usedCount, numeric: true, render: (v) => `${v.usedCount}/${v.quantity === -1 ? "∞" : v.quantity}` },
         { key: "saved", label: "Đã lưu ví", value: (v) => v._count?.userVouchers ?? 0, numeric: true, optional: true },
         { key: "type", label: "Loại", value: (v) => (v.voucherType === "personal" ? "Cá nhân" : "Công khai") },
+        { key: "scope", label: "Áp dụng tại", value: scopeLabel, wrap: true },
         { key: "gold", label: "Giờ vàng", value: (v) => (v.goldHourStart !== null && v.goldHourEnd !== null ? `${v.goldHourStart}h–${v.goldHourEnd}h` : ""), optional: true },
         { key: "end", label: "Hết hạn", value: (v) => v.endDate, render: (v) => fmtDate(v.endDate) },
         { key: "status", label: "Trạng thái", value: (v) => statusOf(v).label, render: (v) => <Badge tone={statusOf(v).tone}>{statusOf(v).label}</Badge> },
@@ -65,6 +72,7 @@ export function VoucherList() {
       groupBys={[
         { id: "status", label: "Trạng thái", key: (v) => statusOf(v).label },
         { id: "type", label: "Loại", key: (v) => (v.voucherType === "personal" ? "Cá nhân" : "Công khai") },
+        { id: "scope", label: "Áp dụng tại", key: scopeLabel },
       ]}
       exportName="voucher"
       emptyState={<EmptyState icon={Ticket} title="Chưa có voucher nào" hint="Bấm Tạo mới để tạo voucher đầu tiên." />}
@@ -76,6 +84,7 @@ const EMPTY_FORM = {
   code: "", description: "", discountValue: "", minBillValue: "0",
   endDate: "", quantity: "100", voucherType: "public",
   goldHourStart: "", goldHourEnd: "", autoGift: false,
+  storeIds: [] as number[],
 };
 
 export function VoucherForm({ recordId }: { recordId?: string }) {
@@ -84,6 +93,9 @@ export function VoucherForm({ recordId }: { recordId?: string }) {
   const list = useResource<VoucherRow[]>(isNew ? null : "/api/vouchers/admin", []);
   const v = isNew ? null : list.data.find((x) => String(x.id) === recordId) ?? null;
   const [form, setForm] = useState(EMPTY_FORM);
+  // Chủ chuỗi chọn chi nhánh áp dụng; quản lý chi nhánh chỉ tạo voucher cho chi nhánh mình
+  const owner = isOwnerRole(getStaffInfo()?.role);
+  const stores = useResource<StoreOpt[]>(owner ? "/api/stores" : null, []);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const set = <K extends keyof typeof EMPTY_FORM>(k: K, val: (typeof EMPTY_FORM)[K]) => setForm((f) => ({ ...f, [k]: val }));
@@ -105,6 +117,7 @@ export function VoucherForm({ recordId }: { recordId?: string }) {
           goldHourStart: form.goldHourStart ? Number(form.goldHourStart) : null,
           goldHourEnd: form.goldHourEnd ? Number(form.goldHourEnd) : null,
           autoGift: form.autoGift,
+          storeIds: form.storeIds,
         }),
       });
       go.list();
@@ -161,6 +174,27 @@ export function VoucherForm({ recordId }: { recordId?: string }) {
                 <option value="public">Công khai — ai cũng dùng được</option>
                 <option value="personal">Cá nhân — phải lưu vào ví</option>
               </select>
+            </Field>
+            <Field label="Áp dụng tại">
+              {owner ? (
+                <span className="o-stack" style={{ gap: 4 }}>
+                  {stores.data.map((st) => (
+                    <label key={st.id} className="o-check">
+                      <input
+                        type="checkbox"
+                        checked={form.storeIds.includes(st.id)}
+                        onChange={(e) =>
+                          set("storeIds", e.target.checked ? [...form.storeIds, st.id] : form.storeIds.filter((x) => x !== st.id))
+                        }
+                      />
+                      {st.name}
+                    </label>
+                  ))}
+                  <span className="o-muted">Không chọn = toàn chuỗi</span>
+                </span>
+              ) : (
+                <span>{getStaffInfo()?.storeName ?? "Chi nhánh của bạn"}</span>
+              )}
             </Field>
             <Field label="Giờ vàng">
               <span className="o-row" style={{ flexWrap: "nowrap" }}>
@@ -219,6 +253,7 @@ export function VoucherForm({ recordId }: { recordId?: string }) {
         </FormGroup>
         <FormGroup title="Áp dụng">
           <Field label="Loại">{v.voucherType === "personal" ? "Cá nhân" : "Công khai"}</Field>
+          <Field label="Áp dụng tại">{scopeLabel(v)}</Field>
           <Field label="Bắt đầu">{fmtDate(v.startDate)}</Field>
           <Field label="Hết hạn">{fmtDate(v.endDate)}</Field>
           <Field label="Giờ vàng">{v.goldHourStart !== null && v.goldHourEnd !== null ? `${v.goldHourStart}h–${v.goldHourEnd}h` : "Cả ngày"}</Field>

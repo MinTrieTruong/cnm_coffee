@@ -38,6 +38,11 @@ export function isOwnerRole(role: string | undefined) {
   return role === "Owner";
 }
 
+/** Quản lý chi nhánh hoặc Chủ chuỗi (Owner có mọi quyền của Admin) */
+export function isAdminRole(role: string | undefined) {
+  return role === "Admin" || role === "Owner";
+}
+
 /** Owner: chi nhánh đang chọn, `null` = tất cả chi nhánh. */
 export function getOwnerStore(): number | null {
   const n = Number(localStorage.getItem(OWNER_STORE_KEY));

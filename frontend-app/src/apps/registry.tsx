@@ -55,6 +55,7 @@ const ReviewForm = L(() => import("../modules/sales/Reviews"), "ReviewForm");
 const Dashboard = L(() => import("../modules/overview/Dashboard"), "Dashboard");
 const Revenue = L(() => import("../modules/overview/Revenue"), "Revenue");
 const Profit = L(() => import("../modules/overview/Profit"), "Profit");
+const StoresCompare = L(() => import("../modules/overview/StoresCompare"), "StoresCompare");
 
 const EmployeeList = L(() => import("../modules/hr/Employees"), "EmployeeList");
 const EmployeeForm = L(() => import("../modules/hr/Employees"), "EmployeeForm");
@@ -63,6 +64,7 @@ const StockList = L(() => import("../modules/inventory/Stock"), "StockList");
 const StockForm = L(() => import("../modules/inventory/Stock"), "StockForm");
 const RequestList = L(() => import("../modules/inventory/Requests"), "RequestList");
 const RequestForm = L(() => import("../modules/inventory/Requests"), "RequestForm");
+const TransferList = L(() => import("../modules/inventory/Transfers"), "TransferList");
 
 const SupplierList = L(() => import("../modules/purchase/Suppliers"), "SupplierList");
 const SupplierForm = L(() => import("../modules/purchase/Suppliers"), "SupplierForm");
@@ -72,6 +74,8 @@ const PostForm = L(() => import("../modules/website/Posts"), "PostForm");
 
 const StoreSettings = L(() => import("../modules/settings/StoreSettings"), "StoreSettings");
 const AuditLog = L(() => import("../modules/settings/AuditLog"), "AuditLog");
+const StoreList = L(() => import("../modules/settings/Stores"), "StoreList");
+const StoreForm = L(() => import("../modules/settings/Stores"), "StoreForm");
 
 export type Layout = "erp" | "legacy" | "full";
 
@@ -100,6 +104,8 @@ export type AppDef = {
 };
 
 const ADMIN = ["Admin"];
+/** Chỉ Chủ chuỗi (Owner còn thấy mọi mục của Admin — xem canSee) */
+const OWNER = ["Owner"];
 const OPS = ["Admin", "Waiter", "Kitchen", "Cashier", "Shipper"];
 
 export const APPS: AppDef[] = [
@@ -111,6 +117,7 @@ export const APPS: AppDef[] = [
       { id: "dashboard", label: "Bảng điều khiển", roles: ADMIN, component: Dashboard, layout: "erp" },
       { id: "revenue", label: "Doanh thu", roles: ADMIN, component: Revenue, layout: "erp" },
       { id: "profit", label: "Lợi nhuận", roles: ADMIN, component: Profit, layout: "erp" },
+      { id: "compare", label: "So sánh chi nhánh", roles: OWNER, component: StoresCompare, layout: "erp" },
     ],
   },
   {
@@ -162,6 +169,7 @@ export const APPS: AppDef[] = [
       { id: "stock", label: "Tồn kho", roles: ADMIN, component: StockList, form: StockForm, layout: "erp" },
       { id: "check", label: "Kiểm kho", roles: ["Admin", "Kitchen"], component: InventoryCheck, layout: "full" },
       { id: "requests", label: "Phiếu xin NL", roles: ADMIN, component: RequestList, form: RequestForm, layout: "erp" },
+      { id: "transfers", label: "Chuyển kho", roles: ADMIN, component: TransferList, layout: "erp" },
     ],
   },
   {
@@ -195,7 +203,7 @@ export const APPS: AppDef[] = [
           {
             id: "schedule",
             label: "Bảng lịch tổng",
-            labelFor: (r) => (r === "Admin" || r === "Cashier" ? "Quản lý lịch" : "Bảng lịch tổng"),
+            labelFor: (r) => (r === "Admin" || r === "Owner" || r === "Cashier" ? "Quản lý lịch" : "Bảng lịch tổng"),
             roles: ["Admin", "Cashier", "Kitchen", "Waiter", "Shipper"],
             component: AdminSchedule,
             props: { embedded: true },
@@ -234,7 +242,8 @@ export const APPS: AppDef[] = [
     label: "Cấu hình",
     icon: Cog,
     menus: [
-      { id: "store", label: "Cài đặt cửa hàng", roles: ADMIN, component: StoreSettings, layout: "erp" },
+      { id: "stores", label: "Chi nhánh", roles: ADMIN, component: StoreList, form: StoreForm, layout: "erp" },
+      { id: "store", label: "Cài đặt chung", roles: ADMIN, component: StoreSettings, layout: "erp" },
       { id: "audit", label: "Nhật ký hệ thống", roles: ADMIN, component: AuditLog, layout: "erp" },
     ],
   },
@@ -242,7 +251,8 @@ export const APPS: AppDef[] = [
 
 /* ── Tiện ích phân quyền & điều hướng ── */
 export const isLeaf = (m: MenuNode): m is MenuLeaf => !("children" in m);
-export const canSee = (leaf: MenuLeaf, role: string) => leaf.roles === "all" || leaf.roles.includes(role);
+export const canSee = (leaf: MenuLeaf, role: string) =>
+  leaf.roles === "all" || leaf.roles.includes(role) || (role === "Owner" && leaf.roles.includes("Admin"));
 export const leavesOf = (app: AppDef): MenuLeaf[] => app.menus.flatMap((m) => (isLeaf(m) ? [m] : m.children));
 export const appPath = (app: AppDef, leaf: MenuLeaf) => (app.href && leaf.id === app.menus[0].id ? app.href : `/app/${app.id}/${leaf.id}`);
 
@@ -259,6 +269,7 @@ export function firstPathOf(app: AppDef, role: string) {
 export function defaultRouteForRole(role: string): string {
   switch (role) {
     case "Admin":
+    case "Owner":
       return "/app/overview/dashboard";
     case "Cashier":
       return "/pos";

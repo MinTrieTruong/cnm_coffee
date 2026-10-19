@@ -25,6 +25,7 @@ import {
   ReceiptText,
   ShoppingBag,
   ShoppingCart,
+  Store,
   Truck,
   User,
   UsersRound,
@@ -86,6 +87,8 @@ const I: Record<string, NavItem> = {
   // "Đơn hàng" chưa có màn riêng → màn đơn chờ thanh toán / đơn giao của POS
   orders: { id: "orders", label: "Đơn hàng", short: "Đơn hàng", icon: ReceiptText, to: "/pos", badge: "deliveryNew" },
   inventoryApp: { id: "inventory", label: "Kho", short: "Kho", icon: Warehouse, to: "/app/inventory/stock", match: startsWith("/app/inventory") },
+  storesCompare: { id: "stores-compare", label: "So sánh chi nhánh", short: "Chi nhánh", icon: Store, to: "/app/overview/compare" },
+  stores: { id: "stores", label: "Quản lý chi nhánh", short: "Chi nhánh", icon: Store, to: "/app/settings/stores" },
   hrApp: { id: "hr", label: "Nhân sự", short: "Nhân sự", icon: UsersRound, to: "/app/hr/employees", match: (p: string) => startsWith("/app/hr")(p) && p !== "/app/hr/attendance" },
 };
 
@@ -104,6 +107,7 @@ export const NAV_BY_ROLE: Record<string, RoleNav> = {
   Purchasing: { primary: [I.purchase, I.suppliers, I.stock, I.attendance] },
   Manager: { primary: [I.purchase, I.suppliers, I.stock, I.attendance] },
   Admin: { primary: [I.overview, I.orders, I.inventoryApp, I.hrApp], more: [I.attendance], moreAllApps: true },
+  Owner: { primary: [I.overview, I.orders, I.inventoryApp, I.hrApp], more: [I.storesCompare, I.stores, I.attendance], moreAllApps: true },
 };
 
 /** Tab khách hàng (tối đa 5, không có "Thêm") */

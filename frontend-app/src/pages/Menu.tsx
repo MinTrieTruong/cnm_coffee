@@ -13,6 +13,8 @@ import { ChatWidget } from "../components/ChatWidget";
 import { ReviewList } from "../components/ReviewList";
 import { motion } from "framer-motion";
 import { AdvancedFilter, type FilterState } from "../components/AdvancedFilter";
+import { StorePicker } from "../components/StorePicker";
+import { useCustomerStore } from "../lib/customerStore";
 
 function formatVnd(n: number) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
@@ -43,19 +45,22 @@ export function Menu() {
 
   const user = getUser();
   const guest = isGuestMode();
+  const { storeId } = useCustomerStore();
   const tableId = ctxTick >= 0 ? getTableId() : null;
   const takeawaySid = ctxTick >= 0 ? getTakeawaySessionId() : null;
 
   const qs = useMemo(() => {
     const params = new URLSearchParams();
     if (user?.customerId) params.append("customerId", String(user.customerId));
+    // Ẩn món chi nhánh không bán / báo hết
+    if (storeId) params.append("store", String(storeId));
     if (filters.search) params.append("search", filters.search);
     if (filters.categoryId !== "all") params.append("categoryId", String(filters.categoryId));
     if (filters.minPrice) params.append("minPrice", filters.minPrice);
     if (filters.maxPrice) params.append("maxPrice", filters.maxPrice);
     if (filters.tags.length > 0) params.append("tags", filters.tags.join(","));
     return `?${params.toString()}`;
-  }, [user, filters]);
+  }, [user, filters, storeId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,6 +125,7 @@ export function Menu() {
       style={{ maxWidth: 800 }}
     >
       <div style={{ marginBottom: "1.5rem" }}>
+        <StorePicker />
         <h1 className="page-title" style={{ marginBottom: "0.25rem", color: "var(--accent)" }}>Thực đơn</h1>
         <p className="subtle" style={{ margin: 0, color: "var(--text)" }}>
           {guest || !user ? "Hãy chọn món bạn yêu thích" : `Xin chào, ${user.fullName}`}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import QRCode from "qrcode";
-import { getStaffInfo, staffApi } from "../lib/staffApi";
+import { getStaffInfo, staffApi, isAdminRole } from "../lib/staffApi";
 
 /* ─── Types ─── */
 type TableRow = { id: number; name: string; location: string | null };
@@ -346,7 +346,7 @@ export function QrGenerator({ embedded = false }: { embedded?: boolean } = {}) {
   const info = getStaffInfo();
   const [activeTab, setActiveTab] = useState<QrTab>("table");
 
-  if (!info || info.role !== "Admin") {
+  if (!info || !isAdminRole(info.role)) {
     return <Navigate to="/staff/login" replace />;
   }
 

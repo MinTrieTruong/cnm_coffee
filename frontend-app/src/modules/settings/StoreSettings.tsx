@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AdminStoreSettings } from "../../components/AdminStoreSettings";
 import { Alert, ControlPanel } from "../../components/erp";
+import { getStaffInfo, isOwnerRole } from "../../lib/staffApi";
 import { useResource } from "../shared";
 
 type Settings = {
@@ -10,20 +11,17 @@ type Settings = {
   cashRoundTo: number;
   pointEarnEveryVnd?: number;
   pointEarnEach?: number;
-  storeLat?: number | null;
-  storeLng?: number | null;
-  storeAddress?: string | null;
-  allowedRadius?: number;
   faceMatchThreshold?: number;
 };
 
-/** Cấu hình › Cài đặt cửa hàng (giữ nguyên form AdminStoreSettings) */
+/** Cấu hình › Cài đặt chung (cả chuỗi — chỉ Chủ chuỗi sửa) */
 export function StoreSettings() {
   const { data, error, reload } = useResource<Settings | null>("/api/admin/settings", null);
   const [msg, setMsg] = useState<string | null>(null);
+  const owner = isOwnerRole(getStaffInfo()?.role);
   return (
     <div>
-      <ControlPanel crumbs={[{ label: "Cài đặt cửa hàng" }]} />
+      <ControlPanel crumbs={[{ label: "Cài đặt chung" }]} />
       <div className="o-content o-stack" style={{ maxWidth: 1140, margin: "0 auto" }}>
         {(error || msg) && <Alert>{error ?? msg}</Alert>}
         {data && (
@@ -32,14 +30,11 @@ export function StoreSettings() {
               ...data,
               pointEarnEveryVnd: data.pointEarnEveryVnd ?? 1000,
               pointEarnEach: data.pointEarnEach ?? 100,
-              storeLat: data.storeLat ?? null,
-              storeLng: data.storeLng ?? null,
-              storeAddress: data.storeAddress ?? null,
-              allowedRadius: data.allowedRadius ?? 50,
               faceMatchThreshold: data.faceMatchThreshold ?? 0.5,
             }}
             onSaved={reload}
             onErr={setMsg}
+            readOnly={!owner}
           />
         )}
       </div>

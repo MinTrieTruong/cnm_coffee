@@ -74,7 +74,14 @@
   padding: 1px 6px;
   border-radius: var(--o-radius);
 }
-.o-nav-branch { display: none; } /* chừa chỗ chọn chi nhánh — giai đoạn sau */
+.o-nav-branch { display: flex; align-items: center; min-width: 0; }
+.o-nav-branch-label { cursor: default; }
+.o-nav-branch-name {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .o-nav-burger { display: none; }
 
 /* Dropdown */
@@ -651,6 +658,7 @@ button.o-status-step { cursor: pointer; }
   .o-nav-burger,
   .o-nav-spacer { display: none !important; }
   .o-mobile-head { display: flex; align-items: center; flex: 1; min-width: 0; }
+  .o-nav-branch-name { max-width: 120px; font-size: var(--o-fs-xs); }
   .o-mobile-title {
     font-size: 16px;
     font-weight: 600;

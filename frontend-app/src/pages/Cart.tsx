@@ -7,6 +7,8 @@ import { motion } from "framer-motion";
 import { ArrowLeft, Trash2, Plus, Minus, Receipt } from "lucide-react";
 import { LocationPicker } from "../components/LocationPicker";
 import { formatKm, haversineKm, shippingFeeForDistance, type LatLng } from "../lib/delivery";
+import { useCustomerStore, withStore } from "../lib/customerStore";
+import { StorePicker } from "../components/StorePicker";
 
 function formatVnd(n: number) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
@@ -17,6 +19,7 @@ export function Cart() {
   const [items, setItems] = useState(() => getCart());
   const nav = useNavigate();
   const user = getUser();
+  const { storeId } = useCustomerStore();
   const [payOpen, setPayOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -53,10 +56,11 @@ export function Cart() {
   }, [loc.key, loc.pathname]);
 
   useEffect(() => {
-    api<{ storeLat: number | null; storeLng: number | null }>("/api/store-config")
+    // Phí ship tính từ chi nhánh khách chọn
+    api<{ storeLat: number | null; storeLng: number | null }>(withStore("/api/store-config", storeId))
       .then((c) => c.storeLat != null && c.storeLng != null && setStoreLoc({ lat: c.storeLat, lng: c.storeLng }))
       .catch(() => undefined);
-  }, []);
+  }, [storeId]);
 
   // Phí ship theo khoảng cách từ quán (cùng công thức với backend)
   const distanceKm = storeLoc && customerLocation ? haversineKm(storeLoc, customerLocation) : null;
@@ -130,6 +134,7 @@ export function Cart() {
         method: "POST",
         body: JSON.stringify({
           tableId: finalOrderType === "Dine-in" ? tableId : null,
+          storeId,
           customerId: user?.customerId ?? null,
           orderType: finalOrderType,
           sessionId,
@@ -196,6 +201,7 @@ export function Cart() {
           onClick={() => setOrderTypeSelection("delivery")}
         >Giao hàng</button>
       </div>
+      {orderTypeSelection !== "dine-in" && <StorePicker />}
 
       <p style={{ color: "var(--muted)", marginBottom: "2rem", fontSize: "0.95rem" }}>
         {orderTypeSelection === "takeaway" ? "Loại đơn: Mang về" : orderTypeSelection === "delivery" ? "Loại đơn: Giao tận nơi" : `Bàn hiện tại: ${currentTable ?? "Chưa xác định"}`}

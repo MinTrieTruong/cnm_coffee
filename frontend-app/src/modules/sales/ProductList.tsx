@@ -1,6 +1,6 @@
 import { Coffee } from "lucide-react";
 import { mediaUrl } from "../../lib/api";
-import { staffApi } from "../../lib/staffApi";
+import { activeStoreId, staffApi } from "../../lib/staffApi";
 import { Badge, EmptyState, RecordList, errMsg, formatVnd, type Column } from "../../components/erp";
 import { useRecordNav, useResource } from "../shared";
 
@@ -13,8 +13,12 @@ export type ProductRow = {
   priceSizeL?: number | null;
   costPrice: number;
   categoryId: number;
+  /** Đang bán (toàn chuỗi) */
   isActive: boolean;
+  /** Có chi nhánh đang chọn: hết món tại chi nhánh đó */
   outOfStock: boolean;
+  /** Có chi nhánh đang chọn: chi nhánh có bán món này không */
+  storeAvailable?: boolean;
   imageUrl: string | null;
   tags?: unknown;
   category?: { name: string };
@@ -26,6 +30,19 @@ export const PRODUCTS_BASE = "/app/sales/products";
 export function ProductList() {
   const { data: rows, loading, error, setError, reload } = useResource<ProductRow[]>("/api/admin/products", []);
   const go = useRecordNav(PRODUCTS_BASE);
+  const storeId = activeStoreId();
+
+  /** Bật/tắt bán hoặc báo hết tại chi nhánh đang chọn */
+  async function setAtStore(list: ProductRow[], patch: { isAvailable?: boolean; outOfStock?: boolean }) {
+    try {
+      for (const p of list) {
+        await staffApi(`/api/admin/products/${p.id}/availability`, { method: "PATCH", body: JSON.stringify(patch) });
+      }
+      await reload();
+    } catch (e) {
+      setError(errMsg(e));
+    }
+  }
 
   async function setActive(list: ProductRow[], isActive: boolean) {
     try {
@@ -65,7 +82,7 @@ export function ProductList() {
     },
     {
       key: "active",
-      label: "Đang bán",
+      label: "Đang bán (chuỗi)",
       value: (p) => (p.isActive ? 1 : 0),
       render: (p) => (
         <input
@@ -77,7 +94,48 @@ export function ProductList() {
         />
       ),
     },
-    { key: "stock", label: "Tình trạng", value: (p) => (p.outOfStock ? "Hết hàng" : "Còn hàng"), render: (p) => (p.outOfStock ? <Badge tone="warning">Hết hàng</Badge> : <Badge tone="success">Còn hàng</Badge>) },
+    ...(storeId == null
+      ? []
+      : [
+          {
+            key: "store",
+            label: "Bán tại chi nhánh",
+            value: (p: ProductRow) => (p.storeAvailable === false ? 0 : 1),
+            render: (p: ProductRow) => (
+              <input
+                type="checkbox"
+                checked={p.storeAvailable !== false}
+                aria-label={`Bán ${p.name} tại chi nhánh`}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => void setAtStore([p], { isAvailable: e.target.checked })}
+              />
+            ),
+          },
+        ]),
+    {
+      key: "stock",
+      label: "Tình trạng",
+      value: (p) => (p.outOfStock ? "Hết hàng" : "Còn hàng"),
+      render: (p) => {
+        const badge = p.outOfStock ? <Badge tone="warning">Hết hàng</Badge> : <Badge tone="success">Còn hàng</Badge>;
+        if (storeId == null) return badge;
+        // Bấm để báo hết / có hàng lại tại chi nhánh
+        return (
+          <button
+            type="button"
+            className="o-btn-link"
+            style={{ border: 0, background: "none", padding: 0, cursor: "pointer" }}
+            title={p.outOfStock ? "Báo có hàng lại" : "Báo hết món"}
+            onClick={(e) => {
+              e.stopPropagation();
+              void setAtStore([p], { outOfStock: !p.outOfStock });
+            }}
+          >
+            {badge}
+          </button>
+        );
+      },
+    },
   ];
 
   return (
@@ -119,8 +177,15 @@ export function ProductList() {
         },
       }}
       bulkActions={[
-        { label: "Mở bán", onClick: (list) => setActive(list, true) },
-        { label: "Ngưng bán", onClick: (list) => setActive(list, false) },
+        { label: "Mở bán (chuỗi)", onClick: (list) => setActive(list, true) },
+        { label: "Ngưng bán (chuỗi)", onClick: (list) => setActive(list, false) },
+        ...(storeId == null
+          ? []
+          : [
+              { label: "Báo hết tại chi nhánh", onClick: (list: ProductRow[]) => setAtStore(list, { outOfStock: true }) },
+              { label: "Có hàng lại tại chi nhánh", onClick: (list: ProductRow[]) => setAtStore(list, { outOfStock: false }) },
+              { label: "Không bán tại chi nhánh", onClick: (list: ProductRow[]) => setAtStore(list, { isAvailable: false }) },
+            ]),
       ]}
       exportName="mon-va-gia"
       emptyState={<EmptyState icon={Coffee} title="Chưa có món nào" hint="Bấm Tạo mới để thêm món đầu tiên." />}

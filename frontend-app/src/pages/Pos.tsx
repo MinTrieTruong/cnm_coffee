@@ -2,7 +2,7 @@ import { X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Socket } from "socket.io-client";
-import { getStaffInfo, staffApi, staffSocket as openStaffSocket } from "../lib/staffApi";
+import { getStaffInfo, staffApi, staffSocket as openStaffSocket, isAdminRole } from "../lib/staffApi";
 import { PosDeliveryPanel } from "../components/PosDeliveryPanel";
 import { useHideBottomNav } from "../components/BottomNav";
 
@@ -582,7 +582,7 @@ export function Pos() {
     win.document.close();
   }
 
-  if (!info || (info.role !== "Cashier" && info.role !== "Admin")) {
+  if (!info || (info.role !== "Cashier" && !isAdminRole(info.role))) {
     return (
       <div className="staff-page-inner">
         <p className="subtle">Cần đăng nhập thu ngân hoặc quản lý.</p>

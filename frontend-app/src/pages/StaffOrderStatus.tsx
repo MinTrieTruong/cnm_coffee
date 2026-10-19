@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Socket } from "socket.io-client";
 import { mediaUrl } from "../lib/api";
-import { getStaffInfo, staffApi, staffSocket as openStaffSocket } from "../lib/staffApi";
+import { getStaffInfo, staffApi, staffSocket as openStaffSocket, isAdminRole } from "../lib/staffApi";
 
 /* ─── Âm thanh ─── */
 function playReadySound() {
@@ -386,7 +386,7 @@ export function StaffOrderStatus() {
   }
 
   /* Auth guard */
-  if (!info || !["Waiter", "Admin"].includes(info.role)) {
+  if (!info || !(info.role === "Waiter" || isAdminRole(info.role))) {
     return (
       <div className="staff-page-inner">
         <h1 className="page-title">Trang thai mon</h1>

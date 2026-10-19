@@ -6,7 +6,8 @@ import { motion } from "framer-motion";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { Autoplay } from "swiper/modules";
 import "swiper/css";
-import { Coffee, Leaf, MapPin, CalendarDays, ArrowRight } from "lucide-react";
+import { Coffee, Leaf, MapPin, CalendarDays, ArrowRight, Clock, Phone } from "lucide-react";
+import type { PublicStore } from "../lib/customerStore";
 
 const STORE = {
   name: "TD Coffee",
@@ -21,6 +22,7 @@ const STORE = {
 export function StorePage() {
   const [gallery, setGallery] = useState<string[]>([]);
   const [posts, setPosts] = useState<any[]>([]);
+  const [stores, setStores] = useState<PublicStore[]>([]);
 
   useEffect(() => {
     api<string[]>("/api/posts/gallery")
@@ -28,6 +30,9 @@ export function StorePage() {
       .catch(() => {});
     api<any[]>("/api/posts")
       .then((data) => setPosts(data))
+      .catch(() => {});
+    api<PublicStore[]>("/api/stores")
+      .then(setStores)
       .catch(() => {});
   }, []);
 
@@ -146,6 +151,42 @@ export function StorePage() {
           </div>
         </div>
       </section>
+
+      {/* CHI NHÁNH */}
+      {stores.length > 0 && (
+        <section style={{ padding: "6rem 1.5rem", maxWidth: 1100, margin: "0 auto" }}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "2.4rem", color: "var(--accent)", margin: "0 0 2rem", textAlign: "center" }}>
+            {stores.length > 1 ? `${stores.length} chi nhánh` : "Địa chỉ quán"}
+          </h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", gap: "1.25rem" }}>
+            {stores.map((s) => (
+              <div key={s.id} className="card" style={{ padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                <strong style={{ fontSize: "1.1rem" }}>{s.name}</strong>
+                {s.address && (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ display: "flex", gap: 6, color: "var(--muted)", textDecoration: "none" }}
+                  >
+                    <MapPin size={16} style={{ flexShrink: 0, marginTop: 2 }} aria-hidden /> {s.address}
+                  </a>
+                )}
+                {s.openTime && s.closeTime && (
+                  <span style={{ display: "flex", gap: 6, color: "var(--muted)" }}>
+                    <Clock size={16} aria-hidden /> {s.openTime} – {s.closeTime}
+                  </span>
+                )}
+                {s.phone && (
+                  <a href={`tel:${s.phone}`} style={{ display: "flex", gap: 6, color: "var(--muted)", textDecoration: "none" }}>
+                    <Phone size={16} aria-hidden /> {s.phone}
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* GALLERY */}
       {gallery.length > 0 && (

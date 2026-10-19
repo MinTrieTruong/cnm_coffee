@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Socket } from "socket.io-client";
 
-import { staffApi, staffSocket as openStaffSocket } from "./staffApi";
+import { staffApi, staffSocket as openStaffSocket, isAdminRole } from "./staffApi";
 import type { BadgeKey } from "./navConfig";
 
 type Counts = Partial<Record<BadgeKey, number>>;
@@ -19,7 +19,7 @@ export function useStaffBadges(role: string | undefined, staffId: number | undef
   useEffect(() => {
     if (!role || !staffId) return;
     const wantKds = role === "Kitchen";
-    const wantDelivery = role === "Cashier" || role === "Admin";
+    const wantDelivery = role === "Cashier" || isAdminRole(role);
     const wantShipper = role === "Shipper";
     if (!wantKds && !wantDelivery && !wantShipper) return;
 

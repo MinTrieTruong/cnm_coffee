@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, type FormEvent } from "react";
 import { io, type Socket } from "socket.io-client";
 import { getTableId } from "../lib/session";
+import { getStoreId } from "../lib/customerStore";
 import { apiBase, apiOrigin } from "../lib/api";
 import { getToken } from "../lib/session";
 
@@ -142,6 +143,8 @@ export function ChatWidget() {
       const body: Record<string, unknown> = {
         message: userText,
         tableId,
+        // Không ngồi bàn: chuyển tới nhân viên chi nhánh khách đang chọn
+        storeId: getStoreId(),
         guestName,
         sessionId,
       };

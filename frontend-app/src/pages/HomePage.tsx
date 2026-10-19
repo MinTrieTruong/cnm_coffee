@@ -2,6 +2,8 @@ import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { api, mediaUrl, calculateFinalPrice, type HomePageResponse, type Category, type Product, type Combo } from "../lib/api";
 import { addToCart, addComboToCart } from "../lib/cart";
+import { useCustomerStore, withStore } from "../lib/customerStore";
+import { StorePicker } from "../components/StorePicker";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { motion } from "framer-motion";
@@ -26,6 +28,7 @@ function formatVnd(n: number) {
 
 // using calculateFinalPrice from api.ts instead
 
+// Mặc định khi chưa tải được chi nhánh
 const STORE_LAT = 10.8406;
 const STORE_LNG = 106.6588;
 
@@ -264,6 +267,15 @@ function ComboCard({ combo }: { combo: Combo }) {
 
 /* ── Main HomePage ───────────────────────────────────────────── */
 export function HomePage() {
+  const { storeId, store } = useCustomerStore();
+  const info = {
+    name: store?.name ?? "TD Coffee",
+    address: store?.address ?? STORE_INFO.address,
+    phone: store?.phone ?? STORE_INFO.phone,
+    hours: store?.openTime && store.closeTime ? `${store.openTime} – ${store.closeTime} hằng ngày` : STORE_INFO.hours,
+    lat: store?.lat ?? STORE_LAT,
+    lng: store?.lng ?? STORE_LNG,
+  };
   const [data, setData] = useState<HomePageResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -271,7 +283,7 @@ export function HomePage() {
     let cancelled = false;
     (async () => {
       try {
-        const d = await api<HomePageResponse>("/api/homepage");
+        const d = await api<HomePageResponse>(withStore("/api/homepage", storeId));
         if (!cancelled) setData(d);
       } catch (e) {
         if (!cancelled) setErr(e instanceof Error ? e.message : "Lỗi tải trang chủ");
@@ -280,7 +292,7 @@ export function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [storeId]);
 
   if (err) {
     return (
@@ -432,11 +444,12 @@ export function HomePage() {
             <h2 className="hp-contact-title">
               <Flame size={20} style={{ color: "var(--accent)" }} /> Ghé thăm chúng tôi
             </h2>
+            <StorePicker compact />
             <div className="hp-contact-row">
               <MapPin size={18} className="hp-contact-icon" />
               <div>
                 <strong>Địa chỉ</strong>
-                <p>{STORE_INFO.address}</p>
+                <p>{info.address}</p>
               </div>
             </div>
             <div className="hp-contact-row">
@@ -444,8 +457,8 @@ export function HomePage() {
               <div>
                 <strong>Hotline</strong>
                 <p>
-                  <a href={`tel:${STORE_INFO.phone}`} className="hp-contact-phone">
-                    {STORE_INFO.phone}
+                  <a href={`tel:${info.phone}`} className="hp-contact-phone">
+                    {info.phone}
                   </a>
                 </p>
               </div>
@@ -454,7 +467,7 @@ export function HomePage() {
               <Clock size={18} className="hp-contact-icon" />
               <div>
                 <strong>Giờ mở cửa</strong>
-                <p>{STORE_INFO.hours}</p>
+                <p>{info.hours}</p>
               </div>
             </div>
             <Link to="/menu" className="hp-contact-cta">
@@ -465,7 +478,8 @@ export function HomePage() {
           {/* Map Column */}
           <div className="hp-contact-map">
             <MapContainer
-              center={[STORE_LAT, STORE_LNG]}
+              key={`${info.lat},${info.lng}`}
+              center={[info.lat, info.lng]}
               zoom={16}
               scrollWheelZoom={false}
               style={{ height: "100%", width: "100%", borderRadius: 16, zIndex: 0 }}
@@ -474,11 +488,11 @@ export function HomePage() {
                 attribution='&copy; Google Maps'
                 url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
               />
-              <Marker position={[STORE_LAT, STORE_LNG]}>
+              <Marker position={[info.lat, info.lng]}>
                 <Popup>
-                  <strong>TD Coffee</strong>
+                  <strong>{info.name}</strong>
                   <br />
-                  {STORE_INFO.address}
+                  {info.address}
                 </Popup>
               </Marker>
             </MapContainer>

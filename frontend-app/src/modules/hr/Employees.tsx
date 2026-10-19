@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Lock, ScanFace, Users } from "lucide-react";
-import { staffApi } from "../../lib/staffApi";
+import { activeStoreId, getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
 import {
   Badge, Button, Chatter, EmptyState, Field, FormGroup, FormGroups, FormView, RecordList, StatusBar, Tabs,
   errMsg, fmtDate, formatVnd,
@@ -20,15 +20,23 @@ type StaffRow = {
   baseSalary: number;
   allowance?: number;
   hasFaceData?: boolean;
+  storeId?: number | null;
+  store?: { name: string } | null;
 };
+type StoreOpt = { id: number; name: string };
 
 const BASE = "/app/hr/employees";
 const ROLES = ["Admin", "Cashier", "Kitchen", "Waiter", "Shipper"];
-const ROLE_LABEL: Record<string, string> = { Admin: "Quản lý", Cashier: "Thu ngân", Kitchen: "Pha chế", Waiter: "Phục vụ", Shipper: "Giao hàng" };
+const ROLE_LABEL: Record<string, string> = { Owner: "Chủ chuỗi", Admin: "Quản lý", Cashier: "Thu ngân", Kitchen: "Pha chế", Waiter: "Phục vụ", Shipper: "Giao hàng" };
+/** Chủ chuỗi được tạo thêm tài khoản Chủ chuỗi */
+const rolesFor = (owner: boolean) => (owner ? ["Owner", ...ROLES] : ROLES);
 
 export function EmployeeList() {
   const { data: rows, loading, error } = useResource<StaffRow[]>("/api/admin/staff", []);
   const go = useRecordNav(BASE);
+  // Owner xem tất cả chi nhánh → thêm cột/nhóm theo chi nhánh
+  const allStores = isOwnerRole(getStaffInfo()?.role) && activeStoreId() == null;
+  const storeName = (s: StaffRow) => s.store?.name ?? (s.role === "Owner" ? "Toàn chuỗi" : "");
   return (
     <RecordList
       crumbs={[{ label: "Nhân viên" }]}
@@ -44,6 +52,7 @@ export function EmployeeList() {
         { key: "name", label: "Họ tên", value: (s) => s.fullName },
         { key: "user", label: "Tên đăng nhập", value: (s) => s.username ?? "" },
         { key: "role", label: "Vai trò", value: (s) => ROLE_LABEL[s.role] ?? s.role },
+        ...(allStores ? [{ key: "store", label: "Chi nhánh", value: storeName }] : []),
         { key: "phone", label: "SĐT", value: (s) => s.phone ?? "" },
         { key: "hire", label: "Ngày vào làm", value: (s) => s.hireDate, render: (s) => fmtDate(s.hireDate), optional: true },
         { key: "dob", label: "Ngày sinh", value: (s) => s.dob ?? "", render: (s) => fmtDate(s.dob), optional: true, defaultHidden: true },
@@ -57,7 +66,10 @@ export function EmployeeList() {
         { id: "active", label: "Đang làm", test: (s) => s.status === "Active" },
         { id: "locked", label: "Đã khóa", test: (s) => s.status !== "Active" },
       ]}
-      groupBys={[{ id: "role", label: "Vai trò", key: (s) => ROLE_LABEL[s.role] ?? s.role }]}
+      groupBys={[
+        { id: "role", label: "Vai trò", key: (s) => ROLE_LABEL[s.role] ?? s.role },
+        ...(allStores ? [{ id: "store", label: "Chi nhánh", key: storeName }] : []),
+      ]}
       kanban={{
         columns: ROLES.map((r) => ({ id: r, label: ROLE_LABEL[r] })),
         columnOf: (s) => s.role,
@@ -77,7 +89,7 @@ export function EmployeeList() {
 
 const EMPTY = {
   username: "", password: "", fullName: "", role: "Cashier", status: "Active", phone: "", address: "",
-  dob: "", hireDate: new Date().toISOString().slice(0, 10), baseSalary: "0", allowance: "0",
+  dob: "", hireDate: new Date().toISOString().slice(0, 10), baseSalary: "0", allowance: "0", storeId: "",
 };
 
 export function EmployeeForm({ recordId }: { recordId?: string }) {
@@ -85,7 +97,10 @@ export function EmployeeForm({ recordId }: { recordId?: string }) {
   const go = useRecordNav(BASE);
   const list = useResource<StaffRow[]>(isNew ? null : "/api/admin/staff", []);
   const s = isNew ? null : list.data.find((x) => String(x.id) === recordId) ?? null;
-  const [form, setForm] = useState(EMPTY);
+  const owner = isOwnerRole(getStaffInfo()?.role);
+  // Chủ chuỗi chọn chi nhánh cho nhân viên; quản lý chi nhánh luôn tạo cho chi nhánh mình
+  const stores = useResource<StoreOpt[]>(owner ? "/api/stores" : null, []);
+  const [form, setForm] = useState(() => ({ ...EMPTY, storeId: String(activeStoreId() ?? "") }));
   const [editing, setEditing] = useState(isNew);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -98,6 +113,7 @@ export function EmployeeForm({ recordId }: { recordId?: string }) {
       username: x.username ?? "", password: "", fullName: x.fullName, role: x.role, status: x.status,
       phone: x.phone ?? "", address: x.address ?? "", dob: x.dob ? x.dob.slice(0, 10) : "",
       hireDate: x.hireDate.slice(0, 10), baseSalary: String(x.baseSalary ?? 0), allowance: x.allowance != null ? String(x.allowance) : "",
+      storeId: x.storeId != null ? String(x.storeId) : "",
     });
   useEffect(() => {
     if (s) reset(s);
@@ -124,7 +140,12 @@ export function EmployeeForm({ recordId }: { recordId?: string }) {
         baseSalary: Number(form.baseSalary),
         // API danh sách không trả allowance → chỉ gửi khi người dùng có nhập
         allowance: form.allowance === "" ? undefined : Number(form.allowance),
+        ...(owner && form.role !== "Owner" && form.storeId ? { storeId: Number(form.storeId) } : {}),
       };
+      if (owner && form.role !== "Owner" && !form.storeId) {
+        setSaving(false);
+        return setErr("Chọn chi nhánh cho nhân viên.");
+      }
       if (isNew) {
         const created = await staffApi<{ id: number }>("/api/admin/staff", { method: "POST", body: JSON.stringify(payload) });
         if (created?.id) return go.open(created.id);
@@ -220,9 +241,18 @@ export function EmployeeForm({ recordId }: { recordId?: string }) {
           )}
           <Field label="Vai trò">
             <select className="o-input" value={form.role} disabled={ro} onChange={(e) => set("role", e.target.value)}>
-              {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+              {rolesFor(owner).map((r) => <option key={r} value={r}>{ROLE_LABEL[r] ?? r}</option>)}
             </select>
           </Field>
+          {owner && form.role !== "Owner" && (
+            <Field label="Chi nhánh" required>
+              <select className="o-input" value={form.storeId} disabled={ro} onChange={(e) => set("storeId", e.target.value)}>
+                <option value="">Chọn chi nhánh…</option>
+                {stores.data.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
+              </select>
+            </Field>
+          )}
+          {!owner && s?.store && <Field label="Chi nhánh"><span>{s.store.name}</span></Field>}
         </FormGroup>
         <FormGroup title="Liên hệ">
           <Field label="SĐT"><input className="o-input" value={form.phone} disabled={ro} onChange={(e) => set("phone", e.target.value)} /></Field>

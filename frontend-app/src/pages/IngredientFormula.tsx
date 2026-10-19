@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { getStaffInfo, staffApi } from "../lib/staffApi";
+import { getStaffInfo, staffApi, isAdminRole } from "../lib/staffApi";
 
 type Product = { id: number; name: string };
 type InvItem = { id: number; name: string; unit: string | null; stockQty: number; unitCostPrice?: number };
@@ -73,7 +73,7 @@ export function IngredientFormula({ embedded = false }: { embedded?: boolean } =
   }, []);
 
   useEffect(() => {
-    if (!info || info.role !== "Admin") return;
+    if (!info || !isAdminRole(info.role)) return;
     void loadFormulas();
     staffApi<Product[]>("/api/products").then(setProducts).catch(() => {});
     staffApi<InvItem[]>("/api/shifts/inventory").then(setItems).catch(() => {});
@@ -123,7 +123,7 @@ export function IngredientFormula({ embedded = false }: { embedded?: boolean } =
     finally { setReportBusy(false); }
   }
 
-  if (!info || info.role !== "Admin") {
+  if (!info || !isAdminRole(info.role)) {
     return (
       <div className="staff-page-inner">
         <h1 className="page-title">Định mức nguyên liệu</h1>

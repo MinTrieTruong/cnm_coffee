@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Socket } from "socket.io-client";
 import { mediaUrl } from "../lib/api";
-import { getStaffInfo, staffApi, staffSocket as openStaffSocket } from "../lib/staffApi";
+import { getStaffInfo, staffApi, staffSocket as openStaffSocket, isAdminRole } from "../lib/staffApi";
 
 /** Phát âm thanh ting ting bằng Web Audio API (không cần file âm thanh). */
 function playNewOrderSound() {
@@ -114,7 +114,7 @@ export function Kds() {
     .filter((r) => r.kdsStatus === "Cooking")
     .sort((a, b) => Number(b.priority) - Number(a.priority));
 
-  if (!info || (info.role !== "Kitchen" && info.role !== "Admin")) {
+  if (!info || (info.role !== "Kitchen" && !isAdminRole(info.role))) {
     return (
       <div className="staff-page-inner">
         <h1 className="page-title">Pha chế</h1>

@@ -6,7 +6,7 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { Camera, CheckCircle2, ChevronDown, ChevronUp, Crosshair, MapPin, Navigation, Package, Phone, Power, RefreshCw, Store, X, XCircle, Bike } from "lucide-react";
 import { mediaUrl } from "../lib/api";
-import { getStaffInfo, staffApi, staffSocket as openStaffSocket } from "../lib/staffApi";
+import { getStaffInfo, staffApi, staffSocket as openStaffSocket, isAdminRole } from "../lib/staffApi";
 import {
   compressImage, fetchRoadRoute, formatKm, formatVnd, googleMapsDir, haversineKm,
   meIcon, stopIcon, storeIcon, type LatLng,
@@ -87,7 +87,7 @@ function Recenter({ to, nonce }: { to: LatLng | null; nonce: number }) {
 
 export function ShipperDashboard() {
   const info = getStaffInfo();
-  const allowed = !!info && ["Shipper", "Admin", "Manager"].includes(info.role);
+  const allowed = !!info && (["Shipper", "Manager"].includes(info.role) || isAdminRole(info.role));
 
   const [data, setData] = useState<MeData | null>(null);
   const [err, setErr] = useState<string | null>(null);

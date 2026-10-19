@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Socket } from "socket.io-client";
 import { apiOrigin } from "../lib/api";
-import { getStaffInfo, staffApi, staffSocket as openStaffSocket } from "../lib/staffApi";
+import { activeStoreId, getStaffInfo, staffApi, staffSocket as openStaffSocket, isAdminRole } from "../lib/staffApi";
 
 /** Phát âm thanh ding khi món sẵn sàng phục vụ. */
 function playReadySound() {
@@ -178,7 +178,8 @@ export function StaffTables() {
     void (async () => {
       try {
         const [data, zonesData] = await Promise.all([
-          staffApi<{ categories: MenuCategory[]; products: ProductRow[] }>("/api/menu"),
+          // Thực đơn của chi nhánh đang làm (ẩn món chi nhánh tắt / báo hết)
+          staffApi<{ categories: MenuCategory[]; products: ProductRow[] }>(`/api/menu${activeStoreId() ? `?store=${activeStoreId()}` : ""}`),
           staffApi<Zone[]>("/api/pos/zones")
         ]);
         setProducts(data.products.filter((p) => p.isActive && !p.outOfStock));
@@ -361,7 +362,7 @@ export function StaffTables() {
     }
   }
 
-  if (!info || !["Waiter", "Admin", "Cashier"].includes(info.role)) {
+  if (!info || !(["Waiter", "Cashier"].includes(info.role) || isAdminRole(info.role))) {
     return (
       <div className="staff-page-inner">
         <p className="subtle">Trang dành cho phục vụ hoặc quản lý.</p>

@@ -8,7 +8,7 @@ import { Link } from "react-router-dom";
 import type { Socket } from "socket.io-client";
 import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, eachDayOfInterval, isSameDay, parseISO } from "date-fns";
 import { vi } from "date-fns/locale";
-import { staffApi, getStaffInfo, staffSocket as openStaffSocket } from "../lib/staffApi";
+import { staffApi, getStaffInfo, staffSocket as openStaffSocket, isAdminRole } from "../lib/staffApi";
 
 
 const SHIFTS = [
@@ -147,7 +147,7 @@ function EditModal({ ws, staffList, onSave, onClose }: {
 
 export function AdminSchedule({ embedded = false }: { embedded?: boolean } = {}) {
   const info = getStaffInfo();
-  const isMgmt = info?.role === "Admin";
+  const isMgmt = isAdminRole(info?.role);
 
   const [currentWeek, setCurrentWeek] = useState(new Date());
   const [schedules, setSchedules] = useState<WS[]>([]);

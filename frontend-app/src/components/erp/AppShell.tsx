@@ -17,6 +17,7 @@ import {
   type MenuLeaf,
 } from "../../apps/registry";
 import { Dropdown } from "./ControlPanel";
+import { StoreSwitcher } from "./StoreSwitcher";
 import { Alert, Button, EmptyState, Field, Modal } from "./primitives";
 
 function useOutsideClose(open: boolean, close: () => void) {
@@ -34,7 +35,7 @@ function useOutsideClose(open: boolean, close: () => void) {
 
 /**
  * Khung chung khu vực nhân sự (kiểu Odoo):
- * [Ứng dụng] Tên app | menu con … | (chi nhánh — ẩn) | người dùng
+ * [Ứng dụng] Tên app | menu con … | chi nhánh | người dùng
  */
 export function AppShell() {
   const token = getStaffToken();
@@ -140,8 +141,9 @@ export function AppShell() {
         </nav>
 
         <span className="o-nav-spacer" />
-        {/* Chừa chỗ chọn chi nhánh — giai đoạn sau */}
-        <div className="o-nav-branch" aria-hidden />
+        <div className="o-nav-branch">
+          <StoreSwitcher />
+        </div>
         <div className="o-desk">
         <Dropdown
           align="right"

@@ -8,6 +8,7 @@ import { ArrowLeft, CheckCircle, Receipt, Ticket, Star, CreditCard, Banknote } f
 
 type BillPayload = {
   storeName: string;
+  storeId?: number;
   orderId: number;
   status: string;
   orderType: string;
@@ -225,7 +226,7 @@ export function OrderCheckout() {
     if (!voucherCode.trim() || !bill) return;
     setVoucherLoading(true); setVoucherMsg(null);
     try {
-      const res = await api<{ ok: boolean; voucher: any }>("/api/vouchers/validate-public", { method: "POST", body: JSON.stringify({ code: voucherCode.trim(), subTotal: bill.subTotal, customerId: user?.customerId ?? null }) });
+      const res = await api<{ ok: boolean; voucher: any }>("/api/vouchers/validate-public", { method: "POST", body: JSON.stringify({ code: voucherCode.trim(), subTotal: bill.subTotal, customerId: user?.customerId ?? null, storeId: bill.storeId ?? null }) });
       setVoucherApplied(res.voucher);
       setVoucherMsg({ text: `✅ Áp dụng thành công! Giảm ${formatVnd(res.voucher.discountValue)}`, ok: true });
       setSepayResult(null);
