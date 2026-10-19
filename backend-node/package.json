@@ -9,7 +9,9 @@
     "start": "node dist/index.js",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "db:owner": "tsx prisma/store-migration.ts",
+    "db:seed-store2": "tsx prisma/seed-store2.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

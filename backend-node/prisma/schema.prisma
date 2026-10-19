@@ -66,6 +66,8 @@ model InventoryItem {
   quoteItems    SupplierQuoteItem[]
   batches       InventoryBatch[]
   grnItems      GoodsReceiptItem[]
+  storeStocks   StoreInventory[]
+  transferItems StockTransferItem[]
 
   @@map("Inventory")
 }
@@ -89,6 +91,7 @@ model Product {
   orderLines      OrderDetail[]
   formulas        ProductFormula[]
   comboItems      ComboItem[]
+  storeProducts   StoreProduct[]
 
   @@map("Products")
 }
@@ -124,6 +127,11 @@ model Zone {
   isActive Boolean     @default(true) @map("Is_Active")
   tables   CafeTable[]
 
+  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
+  storeId Int   @default(1) @map("Store_ID")
+  store   Store @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
   @@map("Zones")
 }
 
@@ -142,6 +150,11 @@ model CafeTable {
   mergedTables CafeTable[] @relation("MergedTables")
   orders       Order[]
 
+  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
+  storeId Int   @default(1) @map("Store_ID")
+  store   Store @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
   @@map("Tables")
 }
 
@@ -220,6 +233,9 @@ model Staff {
 
   ordersShipped Order[] @relation("OrderShipper")
 
+  transfersCreated  StockTransfer[] @relation("TransferCreatedBy")
+  transfersReceived StockTransfer[] @relation("TransferReceivedBy")
+
   /// Shipper: đang bật nhận đơn hay không
   shipperOnline  Boolean   @default(false) @map("Shipper_Online")
   /// Shipper: vị trí GPS gần nhất
@@ -227,6 +243,11 @@ model Staff {
   lastLng        Float?    @map("Last_Lng")
   lastLocationAt DateTime? @map("Last_Location_At")
 
+  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
+  storeId Int?   @default(1) @map("Store_ID")
+  store   Store? @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
   @@map("Staff")
 }
 
@@ -244,6 +265,11 @@ model Shift {
   payments      Payment[]
   inventoryLogs ShiftInventoryLog[]
 
+  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
+  storeId Int   @default(1) @map("Store_ID")
+  store   Store @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
   @@map("Shifts")
 }
 
@@ -268,12 +294,12 @@ model Order {
   createdAt       DateTime  @default(now()) @map("Created_At")
 
   // Delivery fields
-  deliveryAddress String?   @map("Delivery_Address") @db.VarChar(500)
-  customerLat     Float?    @map("Customer_Lat")
-  customerLng     Float?    @map("Customer_Lng")
-  shipperId       Int?      @map("Shipper_ID")
-  shippingFee     Int       @default(0) @map("Shipping_Fee")
-  deliveredAt     DateTime? @map("Delivered_At")
+  deliveryAddress  String?   @map("Delivery_Address") @db.VarChar(500)
+  customerLat      Float?    @map("Customer_Lat")
+  customerLng      Float?    @map("Customer_Lng")
+  shipperId        Int?      @map("Shipper_ID")
+  shippingFee      Int       @default(0) @map("Shipping_Fee")
+  deliveredAt      DateTime? @map("Delivered_At")
   /// Trạng thái giao hàng (tách khỏi trạng thái thanh toán `status`):
   /// Awaiting_Confirm → Preparing → Ready → Assigned → Delivering → Delivered | Failed | Rejected
   deliveryStatus   String?   @map("Delivery_Status") @db.VarChar(32)
@@ -297,6 +323,11 @@ model Order {
   payments Payment[]
   reviews  Review[]
 
+  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
+  storeId Int   @default(1) @map("Store_ID")
+  store   Store @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
   @@map("Orders")
 }
 
@@ -368,6 +399,11 @@ model InventoryRequest {
   approvedBy   Staff?        @relation("ApprovedByStaff", fields: [approvedById], references: [id])
   receipt      StockReceipt?
 
+  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
+  storeId Int   @default(1) @map("Store_ID")
+  store   Store @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
   @@map("Requests")
 }
 
@@ -391,6 +427,11 @@ model StockReceipt {
   receivedBy   Staff             @relation(fields: [receivedById], references: [id])
   supplierRel  Supplier?         @relation(fields: [supplierId], references: [id])
 
+  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
+  storeId Int   @default(1) @map("Store_ID")
+  store   Store @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
   @@map("Stock_Receipts")
 }
 
@@ -425,6 +466,11 @@ model AuditLog {
   createdAt DateTime @default(now()) @map("Created_At")
   staff     Staff?   @relation(fields: [staffId], references: [id])
 
+  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
+  storeId Int?   @map("Store_ID")
+  store   Store? @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
   @@map("Audit_Logs")
 }
 
@@ -441,26 +487,32 @@ model ShiftInventoryLog {
   shift     Shift?        @relation(fields: [shiftId], references: [id])
   item      InventoryItem @relation(fields: [itemId], references: [id])
 
+  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
+  storeId Int   @default(1) @map("Store_ID")
+  store   Store @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
   @@map("Shift_Inventory_Logs")
 }
 
 /// Voucher giam gia
 model Voucher {
-  id            Int           @id @default(autoincrement()) @map("Voucher_ID")
-  code          String        @unique @map("Code") @db.VarChar(50)
-  description   String?       @map("Description") @db.VarChar(500)
-  discountValue Int           @map("Discount_Value")
-  minBillValue  Int           @default(0) @map("Min_Bill_Value")
-  startDate     DateTime      @default(now()) @map("Start_Date")
-  endDate       DateTime      @map("End_Date")
-  quantity      Int           @map("Quantity")
-  usedCount     Int           @default(0) @map("Used_Count")
-  isActive      Boolean       @default(true) @map("Is_Active")
-  voucherType   String        @default("public") @map("Voucher_Type") @db.VarChar(20)
-  goldHourStart Int?          @map("Gold_Hour_Start")
-  goldHourEnd   Int?          @map("Gold_Hour_End")
+  id            Int            @id @default(autoincrement()) @map("Voucher_ID")
+  code          String         @unique @map("Code") @db.VarChar(50)
+  description   String?        @map("Description") @db.VarChar(500)
+  discountValue Int            @map("Discount_Value")
+  minBillValue  Int            @default(0) @map("Min_Bill_Value")
+  startDate     DateTime       @default(now()) @map("Start_Date")
+  endDate       DateTime       @map("End_Date")
+  quantity      Int            @map("Quantity")
+  usedCount     Int            @default(0) @map("Used_Count")
+  isActive      Boolean        @default(true) @map("Is_Active")
+  voucherType   String         @default("public") @map("Voucher_Type") @db.VarChar(20)
+  goldHourStart Int?           @map("Gold_Hour_Start")
+  goldHourEnd   Int?           @map("Gold_Hour_End")
   userVouchers  UserVoucher[]
-  createdAt     DateTime      @default(now()) @map("Created_At")
+  stores        VoucherStore[]
+  createdAt     DateTime       @default(now()) @map("Created_At")
 
   @@map("Vouchers")
 }
@@ -616,10 +668,14 @@ model WorkSchedule {
 
   staff             Staff?             @relation(fields: [staffId], references: [id])
   shiftSwapRequests ShiftSwapRequest[]
+  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
+  storeId           Int                @default(1) @map("Store_ID")
+  store             Store              @relation(fields: [storeId], references: [id])
 
   @@unique([staffId, workDate, shiftCode])
   @@index([staffId])
   @@index([workDate])
+  @@index([storeId])
   @@map("Work_Schedules")
 }
 
@@ -636,8 +692,12 @@ model ChatSession {
   createdAt  DateTime      @default(now()) @map("Created_At")
   updatedAt  DateTime      @updatedAt @map("Updated_At")
   messages   ChatMessage[]
+  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
+  storeId    Int           @default(1) @map("Store_ID")
+  store      Store         @relation(fields: [storeId], references: [id])
 
   @@index([status])
+  @@index([storeId])
   @@map("Chat_Sessions")
 }
 
@@ -737,6 +797,11 @@ model InventoryTransaction {
 
   item InventoryItem @relation(fields: [itemId], references: [id])
 
+  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
+  storeId Int   @default(1) @map("Store_ID")
+  store   Store @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
   @@map("Inventory_Transactions")
 }
 
@@ -753,6 +818,11 @@ model PurchaseRequisition {
   items PurchaseRequisitionItem[]
   rfqs  RequestForQuotation[]
 
+  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
+  storeId Int   @default(1) @map("Store_ID")
+  store   Store @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
   @@map("Purchase_Requisitions")
 }
 
@@ -815,6 +885,11 @@ model GoodsReceipt {
   receivedBy Staff              @relation(fields: [receivedById], references: [id])
   items      GoodsReceiptItem[]
 
+  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
+  storeId Int   @default(1) @map("Store_ID")
+  store   Store @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
   @@map("Goods_Receipts")
 }
 
@@ -844,6 +919,11 @@ model InventoryBatch {
   item    InventoryItem    @relation(fields: [itemId], references: [id])
   grnItem GoodsReceiptItem @relation(fields: [grnItemId], references: [id])
 
+  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
+  storeId Int   @default(1) @map("Store_ID")
+  store   Store @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
   @@map("Inventory_Batches")
 }
 
@@ -876,5 +956,134 @@ model PurchaseOrder {
   supplier Supplier       @relation(fields: [supplierId], references: [id])
   receipts GoodsReceipt[]
 
+  /// Chi nhánh. Default 1 chỉ dùng trong giai đoạn chuyển đổi sang chuỗi cửa hàng.
+  storeId Int   @default(1) @map("Store_ID")
+  store   Store @relation(fields: [storeId], references: [id])
+
+  @@index([storeId])
   @@map("Purchase_Orders")
+}
+
+/// ─── CHUỖI CỬA HÀNG ──────────────────────────────────────────────
+
+/// Chi nhánh trong chuỗi
+model Store {
+  id            Int      @id @default(autoincrement()) @map("Store_ID")
+  /// Mã ngắn, VD "Q1"
+  code          String   @unique @map("Store_Code") @db.VarChar(20)
+  name          String   @map("Store_Name") @db.VarChar(255)
+  address       String?  @map("Address") @db.VarChar(255)
+  phone         String?  @map("Phone") @db.VarChar(20)
+  /// Toạ độ quán (GPS chấm công, tính phí ship)
+  lat           Float    @default(10.7769) @map("Lat")
+  lng           Float    @default(106.7009) @map("Lng")
+  /// Bán kính cho phép chấm công (mét)
+  allowedRadius Int      @default(50) @map("Allowed_Radius")
+  /// Giờ mở/đóng cửa, dạng "HH:mm"
+  openTime      String?  @map("Open_Time") @db.VarChar(5)
+  closeTime     String?  @map("Close_Time") @db.VarChar(5)
+  isActive      Boolean  @default(true) @map("Is_Active")
+  createdAt     DateTime @default(now()) @map("Created_At")
+
+  staff              Staff[]
+  zones              Zone[]
+  tables             CafeTable[]
+  orders             Order[]
+  shifts             Shift[]
+  workSchedules      WorkSchedule[]
+  inventoryRequests  InventoryRequest[]
+  stockReceipts      StockReceipt[]
+  shiftInventoryLogs ShiftInventoryLog[]
+  auditLogs          AuditLog[]
+  chatSessions       ChatSession[]
+  inventoryTxs       InventoryTransaction[]
+  purchaseReqs       PurchaseRequisition[]
+  goodsReceipts      GoodsReceipt[]
+  inventoryBatches   InventoryBatch[]
+  purchaseOrders     PurchaseOrder[]
+  products           StoreProduct[]
+  inventory          StoreInventory[]
+  vouchers           VoucherStore[]
+  transfersOut       StockTransfer[]        @relation("TransferFrom")
+  transfersIn        StockTransfer[]        @relation("TransferTo")
+
+  @@map("Stores")
+}
+
+/// Món bán tại chi nhánh. Không có dòng = đang bán bình thường.
+model StoreProduct {
+  storeId     Int     @map("Store_ID")
+  productId   Int     @map("Product_ID")
+  /// false = chi nhánh không bán món này
+  isAvailable Boolean @default(true) @map("Is_Available")
+  outOfStock  Boolean @default(false) @map("Out_Of_Stock")
+  store       Store   @relation(fields: [storeId], references: [id])
+  product     Product @relation(fields: [productId], references: [id])
+
+  @@id([storeId, productId])
+  @@map("Store_Products")
+}
+
+/// Tồn kho nguyên liệu theo chi nhánh
+model StoreInventory {
+  storeId  Int           @map("Store_ID")
+  itemId   Int           @map("Item_ID")
+  stockQty Int           @default(0) @map("Stock_Qty")
+  minLevel Int           @default(0) @map("Min_Level")
+  store    Store         @relation(fields: [storeId], references: [id])
+  item     InventoryItem @relation(fields: [itemId], references: [id])
+
+  @@id([storeId, itemId])
+  @@map("Store_Inventory")
+}
+
+/// Phiếu chuyển kho giữa hai chi nhánh
+model StockTransfer {
+  id           Int       @id @default(autoincrement()) @map("Transfer_ID")
+  code         String    @unique @map("Transfer_Code") @db.VarChar(50)
+  fromStoreId  Int       @map("From_Store_ID")
+  toStoreId    Int       @map("To_Store_ID")
+  /// PENDING → SHIPPED → RECEIVED | CANCELLED
+  status       String    @default("PENDING") @map("Status") @db.VarChar(20)
+  note         String?   @map("Note") @db.VarChar(500)
+  createdById  Int       @map("Created_By")
+  receivedById Int?      @map("Received_By")
+  createdAt    DateTime  @default(now()) @map("Created_At")
+  shippedAt    DateTime? @map("Shipped_At")
+  receivedAt   DateTime? @map("Received_At")
+
+  fromStore  Store               @relation("TransferFrom", fields: [fromStoreId], references: [id])
+  toStore    Store               @relation("TransferTo", fields: [toStoreId], references: [id])
+  createdBy  Staff               @relation("TransferCreatedBy", fields: [createdById], references: [id])
+  receivedBy Staff?              @relation("TransferReceivedBy", fields: [receivedById], references: [id])
+  items      StockTransferItem[]
+
+  @@index([fromStoreId])
+  @@index([toStoreId])
+  @@map("Stock_Transfers")
+}
+
+model StockTransferItem {
+  id          Int           @id @default(autoincrement()) @map("STI_ID")
+  transferId  Int           @map("Transfer_ID")
+  itemId      Int           @map("Item_ID")
+  qty         Int           @map("Qty")
+  /// Số thực nhận (có thể khác qty khi hao hụt)
+  receivedQty Int?          @map("Received_Qty")
+  transfer    StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  item        InventoryItem @relation(fields: [itemId], references: [id])
+
+  @@unique([transferId, itemId])
+  @@map("Stock_Transfer_Items")
+}
+
+/// Voucher chỉ áp dụng tại một số chi nhánh. Voucher không có dòng nào = toàn chuỗi.
+model VoucherStore {
+  voucherId Int     @map("Voucher_ID")
+  storeId   Int     @map("Store_ID")
+  voucher   Voucher @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  store     Store   @relation(fields: [storeId], references: [id])
+
+  @@id([voucherId, storeId])
+  @@map("Voucher_Stores")
 }

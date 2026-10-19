@@ -34,12 +34,22 @@ async function main() {
   await prisma.customer.deleteMany();
   await prisma.workSchedule.deleteMany();
   await prisma.auditLog.deleteMany();
+  await prisma.stockTransfer.deleteMany();
+  await prisma.storeProduct.deleteMany();
+  await prisma.storeInventory.deleteMany();
   await prisma.staff.deleteMany();
   await prisma.productFormula.deleteMany();
   await prisma.product.deleteMany();
   await prisma.inventoryItem.deleteMany();
   await prisma.category.deleteMany();
   await prisma.cafeTable.deleteMany();
+
+  // Chi nhánh mặc định — mọi dữ liệu mẫu bên dưới thuộc chi nhánh này
+  const store = await prisma.store.upsert({
+    where: { id: 1 },
+    update: {},
+    create: { id: 1, code: "CN1", name: "TD Coffee - Chi nhánh 1" },
+  });
 
   // ── Danh mục phân cấp (Mega Menu) ──────────────────────────────
   // Cấp 1: Danh mục gốc
@@ -68,6 +78,10 @@ async function main() {
       { id: 11, name: "Thạch Trái Cây (Hộp 1Kg)", stockQty: 10, minLevel: 2, unit: "Hộp" },
       { id: 12, name: "Ly Nhựa Kèm Nắp (Cái)", stockQty: 1000, minLevel: 200, unit: "Cái" },
     ],
+  });
+  const items = await prisma.inventoryItem.findMany();
+  await prisma.storeInventory.createMany({
+    data: items.map((it) => ({ storeId: store.id, itemId: it.id, stockQty: it.stockQty, minLevel: it.minLevel })),
   });
 
   const products = [
@@ -128,6 +142,7 @@ async function main() {
       { id: 2, username: "cashier", passwordHash: staffPass, fullName: "Thu ngân Demo", role: "Cashier", hireDate: new Date() },
       { id: 3, username: "kitchen", passwordHash: staffPass, fullName: "Pha chế Demo", role: "Kitchen", hireDate: new Date() },
       { id: 4, username: "waiter", passwordHash: staffPass, fullName: "Phục vụ Demo", role: "Waiter", hireDate: new Date() },
+      { id: 5, username: "owner", passwordHash: staffPass, fullName: "Chủ chuỗi", role: "Owner", storeId: null, hireDate: new Date() },
     ],
   });
 

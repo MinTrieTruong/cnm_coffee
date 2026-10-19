@@ -6,5 +6,7 @@ dist/
 frontend-app/dist/
 backend-node/uploads/
 *.sql
+# Migration SQL viết tay thì cần commit
+!backend-node/prisma/sql/*.sql
 *.tsbuildinfo
 .agents/
