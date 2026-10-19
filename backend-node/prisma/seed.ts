@@ -63,25 +63,26 @@ async function main() {
   await prisma.category.create({ data: { id: 4, name: "Trà Sữa & Trân Châu", sortOrder: 4, parentId: 100 } });
   await prisma.category.create({ data: { id: 5, name: "Matcha & Sữa Tươi", sortOrder: 5, parentId: 100 } });
 
+  const inventorySeed = [
+    { id: 1, name: "Cà Phê Phin Robusta (Bịch 1Kg)", stockQty: 15, minLevel: 3, unit: "Bịch" },
+    { id: 2, name: "Cà Phê Máy Arabica (Bịch 1Kg)", stockQty: 10, minLevel: 2, unit: "Bịch" },
+    { id: 3, name: "Sữa Đặc Ngôi Sao (Lon)", stockQty: 48, minLevel: 12, unit: "Lon" },
+    { id: 4, name: "Sữa Tươi Thanh Trùng 1L (Hộp)", stockQty: 24, minLevel: 6, unit: "Hộp" },
+    { id: 5, name: "Trà Đen Lộc Phát (Bịch 1Kg)", stockQty: 10, minLevel: 2, unit: "Bịch" },
+    { id: 6, name: "Trà Oolong Nướng (Bịch 1Kg)", stockQty: 10, minLevel: 2, unit: "Bịch" },
+    { id: 7, name: "Bột Matcha Nhật Bản (Bịch 500g)", stockQty: 8, minLevel: 2, unit: "Bịch" },
+    { id: 8, name: "Bột Sữa Béo Indo (Bịch 1Kg)", stockQty: 15, minLevel: 3, unit: "Bịch" },
+    { id: 9, name: "Syrup Đường Đen Đài Loan (Chai 2.5Kg)", stockQty: 6, minLevel: 2, unit: "Chai" },
+    { id: 10, name: "Trân Châu Đen (Bịch 1Kg)", stockQty: 20, minLevel: 5, unit: "Bịch" },
+    { id: 11, name: "Thạch Trái Cây (Hộp 1Kg)", stockQty: 10, minLevel: 2, unit: "Hộp" },
+    { id: 12, name: "Ly Nhựa Kèm Nắp (Cái)", stockQty: 1000, minLevel: 200, unit: "Cái" },
+  ];
+  // Danh mục nguyên liệu dùng chung; số tồn thuộc chi nhánh
   await prisma.inventoryItem.createMany({
-    data: [
-      { id: 1, name: "Cà Phê Phin Robusta (Bịch 1Kg)", stockQty: 15, minLevel: 3, unit: "Bịch" },
-      { id: 2, name: "Cà Phê Máy Arabica (Bịch 1Kg)", stockQty: 10, minLevel: 2, unit: "Bịch" },
-      { id: 3, name: "Sữa Đặc Ngôi Sao (Lon)", stockQty: 48, minLevel: 12, unit: "Lon" },
-      { id: 4, name: "Sữa Tươi Thanh Trùng 1L (Hộp)", stockQty: 24, minLevel: 6, unit: "Hộp" },
-      { id: 5, name: "Trà Đen Lộc Phát (Bịch 1Kg)", stockQty: 10, minLevel: 2, unit: "Bịch" },
-      { id: 6, name: "Trà Oolong Nướng (Bịch 1Kg)", stockQty: 10, minLevel: 2, unit: "Bịch" },
-      { id: 7, name: "Bột Matcha Nhật Bản (Bịch 500g)", stockQty: 8, minLevel: 2, unit: "Bịch" },
-      { id: 8, name: "Bột Sữa Béo Indo (Bịch 1Kg)", stockQty: 15, minLevel: 3, unit: "Bịch" },
-      { id: 9, name: "Syrup Đường Đen Đài Loan (Chai 2.5Kg)", stockQty: 6, minLevel: 2, unit: "Chai" },
-      { id: 10, name: "Trân Châu Đen (Bịch 1Kg)", stockQty: 20, minLevel: 5, unit: "Bịch" },
-      { id: 11, name: "Thạch Trái Cây (Hộp 1Kg)", stockQty: 10, minLevel: 2, unit: "Hộp" },
-      { id: 12, name: "Ly Nhựa Kèm Nắp (Cái)", stockQty: 1000, minLevel: 200, unit: "Cái" },
-    ],
+    data: inventorySeed.map(({ stockQty: _q, minLevel: _m, ...it }) => it),
   });
-  const items = await prisma.inventoryItem.findMany();
   await prisma.storeInventory.createMany({
-    data: items.map((it) => ({ storeId: store.id, itemId: it.id, stockQty: it.stockQty, minLevel: it.minLevel })),
+    data: inventorySeed.map((it) => ({ storeId: store.id, itemId: it.id, stockQty: it.stockQty, minLevel: it.minLevel })),
   });
 
   const products = [

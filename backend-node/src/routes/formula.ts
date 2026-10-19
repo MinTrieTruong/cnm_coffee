@@ -1,6 +1,8 @@
 import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
-import { attachStaff, requireRoles } from "../middleware/staff.js";
+import { attachStaff, requireRoles, requireStore } from "../middleware/staff.js";
+import { mustStoreId } from "../lib/storeScope.js";
+import { storeStockOf } from "../lib/inventory.js";
 
 export function formulaRouter(prisma: PrismaClient) {
   const r = Router();
@@ -65,7 +67,9 @@ export function formulaRouter(prisma: PrismaClient) {
    *   - thuc_te   = open_qty − close_qty  (nếu có đủ 2 log)
    *   - chenh_lech = thuc_te − ly_thuyet
    */
-  r.get("/admin/formula-report", ...adminOnly, async (req, res) => {
+  // Theo chi nhánh: so lượng bán với log kiểm kho của cùng chi nhánh
+  r.get("/admin/formula-report", ...adminOnly, requireStore, async (req, res) => {
+    const storeId = mustStoreId(req);
     const dateStr = req.query.date as string | undefined;
     const date = dateStr ? new Date(dateStr) : new Date();
     // Đầu và cuối ngày theo giờ Việt Nam (+7)
@@ -78,7 +82,7 @@ export function formulaRouter(prisma: PrismaClient) {
     const formulas = await prisma.productFormula.findMany({
       include: {
         product: { select: { id: true, name: true } },
-        item: { select: { id: true, name: true, unit: true, stockQty: true } },
+        item: { select: { id: true, name: true, unit: true, storeStocks: storeStockOf(storeId) } },
       },
     });
 
@@ -88,6 +92,7 @@ export function formulaRouter(prisma: PrismaClient) {
     const orderDetails = await prisma.orderDetail.findMany({
       where: {
         order: {
+          storeId,
           createdAt: { gte: dayStart, lte: dayEnd },
           status: { in: ["Confirmed", "Paid", "Waiting_Pay"] },
         },
@@ -103,7 +108,7 @@ export function formulaRouter(prisma: PrismaClient) {
 
     // 3. Lấy log kiểm kho trong ngày (mở + kết ca)
     const shiftLogs = await prisma.shiftInventoryLog.findMany({
-      where: { checkedAt: { gte: dayStart, lte: dayEnd } },
+      where: { storeId, checkedAt: { gte: dayStart, lte: dayEnd } },
       orderBy: { checkedAt: "desc" },
       select: { itemId: true, checkType: true, qty: true, checkedAt: true },
     });
@@ -133,7 +138,7 @@ export function formulaRouter(prisma: PrismaClient) {
           itemId: f.itemId,
           itemName: f.item.name,
           unit: f.item.unit,
-          stockQty: f.item.stockQty,
+          stockQty: f.item.storeStocks[0]?.stockQty ?? 0,
           lines: [],
         };
       }

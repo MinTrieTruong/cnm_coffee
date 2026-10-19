@@ -2,14 +2,28 @@ import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { attachStaff, requireRoles, type StaffRequest } from "../middleware/staff.js";
+import { attachStaff, isOwner, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
 import { saveDataUrlImage } from "../lib/uploadImage.js";
 import { audit } from "../lib/audit.js";
+import { inStore, mustStoreId, reqStoreId, storeWhere } from "../lib/storeScope.js";
+import { adjustStoreStock } from "../lib/inventory.js";
 
 export function adminRouter(prisma: PrismaClient) {
   const r = Router();
   const auth = attachStaff(prisma);
   const admin = [auth, requireRoles("Admin")];
+  /** Thao tác trên 1 chi nhánh cụ thể (Owner phải chọn chi nhánh) */
+  const storeAdmin = [...admin, requireStore];
+
+  /** Tồn kho của chi nhánh đang chọn; Owner xem tất cả → cộng dồn mọi chi nhánh */
+  const stockOf = async (storeId: number | null) => {
+    const rows = await prisma.storeInventory.groupBy({
+      by: ["itemId"],
+      where: storeId == null ? {} : { storeId },
+      _sum: { stockQty: true, minLevel: true },
+    });
+    return new Map(rows.map((r) => [r.itemId, { stockQty: r._sum.stockQty ?? 0, minLevel: r._sum.minLevel ?? 0 }]));
+  };
   const isMissingColumn = (e: unknown, colName: string) =>
     e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2022" && String(e.meta?.column).includes(colName);
   const rolePrefix = (role: string) => {
@@ -36,7 +50,7 @@ export function adminRouter(prisma: PrismaClient) {
     return candidate;
   };
 
-  r.get("/stats", ...admin, async (_req, res) => {
+  r.get("/stats", ...admin, async (req, res) => {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     const weekAgo = new Date();
@@ -57,25 +71,25 @@ export function adminRouter(prisma: PrismaClient) {
       staff,
       pendingReq,
     ] = await Promise.all([
-      prisma.order.count({ where: { status: "Paid", createdAt: { gte: start } } }),
+      prisma.order.count({ where: { ...storeWhere(req), status: "Paid", createdAt: { gte: start } } }),
       prisma.order.aggregate({
         where: { status: "Paid", createdAt: { gte: start } },
         _sum: { totalAmount: true },
       }),
-      prisma.order.count({ where: { status: "Paid", createdAt: { gte: weekAgo } } }),
+      prisma.order.count({ where: { ...storeWhere(req), status: "Paid", createdAt: { gte: weekAgo } } }),
       prisma.order.aggregate({
         where: { status: "Paid", createdAt: { gte: weekAgo } },
         _sum: { totalAmount: true },
       }),
-      prisma.order.count({ where: { status: "Paid", createdAt: { gte: monthStart } } }),
+      prisma.order.count({ where: { ...storeWhere(req), status: "Paid", createdAt: { gte: monthStart } } }),
       prisma.order.aggregate({
         where: { status: "Paid", createdAt: { gte: monthStart } },
         _sum: { totalAmount: true },
       }),
       prisma.product.count(),
-      prisma.cafeTable.count(),
-      prisma.staff.count({ where: { status: "Active" } }),
-      prisma.inventoryRequest.count({ where: { status: "Pending" } }),
+      prisma.cafeTable.count({ where: storeWhere(req) }),
+      prisma.staff.count({ where: { ...storeWhere(req), status: "Active" } }),
+      prisma.inventoryRequest.count({ where: { ...storeWhere(req), status: "Pending" } }),
     ]);
     res.json({
       todayOrders,
@@ -91,12 +105,36 @@ export function adminRouter(prisma: PrismaClient) {
     });
   });
 
-  r.get("/products", ...admin, async (_req, res) => {
+  r.get("/products", ...admin, async (req, res) => {
+    const sid = reqStoreId(req);
     const rows = await prisma.product.findMany({
-      include: { category: true },
+      include: { category: true, storeProducts: sid == null ? false : { where: { storeId: sid } } },
       orderBy: [{ categoryId: "asc" }, { id: "asc" }],
     });
-    res.json(rows);
+    // Có chi nhánh: outOfStock/storeAvailable là trạng thái tại chi nhánh đó
+    res.json(
+      rows.map(({ storeProducts, ...p }) => {
+        const sp = storeProducts?.[0];
+        return sid == null ? p : { ...p, outOfStock: p.outOfStock || !!sp?.outOfStock, storeAvailable: sp?.isAvailable ?? true };
+      }),
+    );
+  });
+
+  /** Bật/tắt món hoặc báo hết món tại chi nhánh đang chọn */
+  r.patch("/products/:id/availability", ...storeAdmin, async (req, res) => {
+    const productId = Number(req.params.id);
+    const storeId = mustStoreId(req);
+    const b = req.body as { isAvailable?: boolean; outOfStock?: boolean };
+    const data = {
+      ...(typeof b.isAvailable === "boolean" ? { isAvailable: b.isAvailable } : {}),
+      ...(typeof b.outOfStock === "boolean" ? { outOfStock: b.outOfStock } : {}),
+    };
+    const row = await prisma.storeProduct.upsert({
+      where: { storeId_productId: { storeId, productId } },
+      update: data,
+      create: { storeId, productId, ...data },
+    });
+    res.json(row);
   });
 
   r.post("/products", ...admin, async (req, res) => {
@@ -128,7 +166,6 @@ export function adminRouter(prisma: PrismaClient) {
         priceSizeS: b.priceSizeS ?? null,
         priceSizeL: b.priceSizeL ?? null,
         isActive: b.isActive ?? true,
-        outOfStock: false,
         imageUrl: b.imageUrl ?? null,
         tags: b.tags ?? null,
         discountPercent: b.discountPercent ?? null,
@@ -153,8 +190,21 @@ export function adminRouter(prisma: PrismaClient) {
       tags: any;
       discountPercent: number | null;
     }>;
-    const p = await prisma.product.update({ where: { id }, data: b });
-    res.json(p);
+    // outOfStock là trạng thái theo chi nhánh — không ghi vào món chung
+    const { outOfStock, ...rest } = b;
+    if (typeof outOfStock === "boolean") {
+      const storeId = reqStoreId(req);
+      if (storeId == null) return res.status(400).json({ error: "Hãy chọn chi nhánh để báo hết món." });
+      await prisma.storeProduct.upsert({
+        where: { storeId_productId: { storeId, productId: id } },
+        update: { outOfStock },
+        create: { storeId, productId: id, outOfStock },
+      });
+    }
+    const p = Object.keys(rest).length
+      ? await prisma.product.update({ where: { id }, data: rest })
+      : await prisma.product.findUniqueOrThrow({ where: { id } });
+    res.json(typeof outOfStock === "boolean" ? { ...p, outOfStock } : p);
   });
 
   r.get("/categories", ...admin, async (_req, res) => {
@@ -192,8 +242,8 @@ export function adminRouter(prisma: PrismaClient) {
   r.patch("/staff/:id/reset-face", ...admin, async (req, res) => {
     const id = Number(req.params.id);
     const staff = await prisma.staff.findUnique({ where: { id } });
-    if (!staff) return res.status(404).json({ error: "Không tìm thấy nhân viên." });
-    
+    if (!staff || !inStore(req, staff)) return res.status(404).json({ error: "Không tìm thấy nhân viên." });
+
     await prisma.staff.update({
       where: { id },
       data: { faceDescriptor: null },
@@ -214,11 +264,14 @@ export function adminRouter(prisma: PrismaClient) {
     }
   });
 
-  r.get("/staff", ...admin, async (_req, res) => {
+  r.get("/staff", ...admin, async (req, res) => {
     const rows = await prisma.staff.findMany({
+      where: storeWhere(req),
       orderBy: { id: "asc" },
       select: {
         id: true,
+        storeId: true,
+        store: { select: { name: true } },
         username: true,
         fullName: true,
         phone: true,
@@ -248,9 +301,19 @@ export function adminRouter(prisma: PrismaClient) {
       imageUrl?: string;
       baseSalary?: number;
       allowance?: number;
+      storeId?: number | null;
     };
     if (!b.password || b.password.length < 4 || !b.fullName?.trim() || !b.role) {
       return res.status(400).json({ error: "Thiếu mật khẩu, họ tên hoặc role." });
+    }
+    const actorRow = (req as StaffRequest).staffRow!;
+    if (isOwner(b.role) && !isOwner(actorRow.role)) {
+      return res.status(403).json({ error: "Chỉ Chủ chuỗi được tạo tài khoản Chủ chuỗi." });
+    }
+    // Admin tạo nhân viên cho chi nhánh mình; Owner chọn chi nhánh (body hoặc chi nhánh đang xem)
+    const storeId = isOwner(b.role) ? null : isOwner(actorRow.role) ? (b.storeId ?? reqStoreId(req)) : actorRow.storeId;
+    if (!isOwner(b.role) && storeId == null) {
+      return res.status(400).json({ error: "Hãy chọn chi nhánh cho nhân viên." });
     }
     const normalizedName = b.fullName.trim();
     const desiredUsername = b.username?.trim();
@@ -264,6 +327,7 @@ export function adminRouter(prisma: PrismaClient) {
     const s = await prisma.staff.create({
       data: {
         id: maxId + 1,
+        storeId,
         username,
         passwordHash: hash,
         fullName: normalizedName,
@@ -303,7 +367,13 @@ export function adminRouter(prisma: PrismaClient) {
       imageUrl?: string;
       baseSalary?: number;
       allowance?: number;
+      storeId?: number;
     };
+    const target = await prisma.staff.findUnique({ where: { id } });
+    if (!target || !inStore(req, target)) return res.status(404).json({ error: "Không tìm thấy nhân viên." });
+    if (!isOwner(actor.role) && (isOwner(target.role) || isOwner(b.role ?? "") || b.storeId !== undefined)) {
+      return res.status(403).json({ error: "Chỉ Chủ chuỗi được đổi chi nhánh hoặc sửa tài khoản Chủ chuỗi." });
+    }
     const data: Record<string, unknown> = { ...b };
     if (b.password) {
       data.passwordHash = await bcrypt.hash(b.password, 10);
@@ -328,6 +398,9 @@ export function adminRouter(prisma: PrismaClient) {
     const id = Number(req.params.id);
     const actor = (req as StaffRequest).staffRow!;
     if (actor.id === id) return res.status(400).json({ error: "Không thể tự xóa chính mình." });
+    const target = await prisma.staff.findUnique({ where: { id } });
+    if (!target || !inStore(req, target)) return res.status(404).json({ error: "Không tìm thấy nhân viên." });
+    if (isOwner(target.role) && !isOwner(actor.role)) return res.status(403).json({ error: "Không đủ quyền." });
     const row = await prisma.staff.update({
       where: { id },
       data: { status: "Inactive" },
@@ -401,15 +474,16 @@ export function adminRouter(prisma: PrismaClient) {
   });
 
   // --- QUẢN LÝ KHU VỰC (ZONE) ---
-  r.get("/zones", ...admin, async (_req, res) => {
-    res.json(await prisma.zone.findMany({ orderBy: { id: "asc" } }));
+  r.get("/zones", ...admin, async (req, res) => {
+    res.json(await prisma.zone.findMany({ where: storeWhere(req), orderBy: { id: "asc" } }));
   });
 
-  r.post("/zones", ...admin, async (req, res) => {
+  r.post("/zones", ...storeAdmin, async (req, res) => {
     const b = req.body as { name?: string; isActive?: boolean };
     if (!b.name?.trim()) return res.status(400).json({ error: "Thiếu tên khu vực" });
     const z = await prisma.zone.create({
       data: {
+        storeId: mustStoreId(req),
         name: b.name.trim(),
         isActive: b.isActive ?? true,
       },
@@ -420,11 +494,15 @@ export function adminRouter(prisma: PrismaClient) {
   r.patch("/zones/:id", ...admin, async (req, res) => {
     const id = Number(req.params.id);
     const b = req.body as { name?: string; isActive?: boolean };
-    res.json(await prisma.zone.update({ where: { id }, data: b }));
+    const zone = await prisma.zone.findUnique({ where: { id } });
+    if (!zone || !inStore(req, zone)) return res.status(404).json({ error: "Không tìm thấy khu vực" });
+    res.json(await prisma.zone.update({ where: { id }, data: { name: b.name, isActive: b.isActive } }));
   });
 
   r.delete("/zones/:id", ...admin, async (req, res) => {
     const id = Number(req.params.id);
+    const zone = await prisma.zone.findUnique({ where: { id } });
+    if (!zone || !inStore(req, zone)) return res.status(404).json({ error: "Không tìm thấy khu vực" });
     const cnt = await prisma.cafeTable.count({ where: { zoneId: id } });
     if (cnt > 0) {
       return res.status(400).json({ error: `Khu vực đang có ${cnt} bàn. Vui lòng chuyển bàn sang khu vực khác trước.` });
@@ -437,29 +515,34 @@ export function adminRouter(prisma: PrismaClient) {
   r.get("/tables", ...admin, async (req, res) => {
     const zoneId = req.query.zoneId ? Number(req.query.zoneId) : undefined;
     res.json(await prisma.cafeTable.findMany({
-      where: zoneId ? { zoneId } : undefined,
+      where: { ...storeWhere(req), ...(zoneId ? { zoneId } : {}) },
       orderBy: { id: "asc" },
       include: { zone: true }
     }));
   });
 
-  r.post("/tables", ...admin, async (req, res) => {
+  r.post("/tables", ...storeAdmin, async (req, res) => {
     const b = req.body as { name?: string; location?: string; capacity?: number; qrCode?: string; zoneId?: number };
     if (!b.name?.trim()) return res.status(400).json({ error: "Thiếu tên bàn" });
     const maxId = (await prisma.cafeTable.aggregate({ _max: { id: true } }))._max.id ?? 0;
     const id = maxId + 1;
     const qr = b.qrCode ?? `${process.env.PUBLIC_APP_URL ?? "http://localhost:5173"}/?idtable=${id}`;
-    
-    // Nếu không truyền zoneId, lấy zone đầu tiên (mặc định)
+
+    // Nếu không truyền zoneId, lấy zone đầu tiên (mặc định) của chi nhánh
+    const storeId = mustStoreId(req);
     let zId = b.zoneId;
-    if (!zId) {
-      const firstZone = await prisma.zone.findFirst({ orderBy: { id: "asc" } });
+    if (zId) {
+      const z = await prisma.zone.findUnique({ where: { id: zId } });
+      if (!z || z.storeId !== storeId) return res.status(400).json({ error: "Khu vực không thuộc chi nhánh này" });
+    } else {
+      const firstZone = await prisma.zone.findFirst({ where: { storeId }, orderBy: { id: "asc" } });
       zId = firstZone?.id;
     }
 
     const t = await prisma.cafeTable.create({
       data: {
         id,
+        storeId,
         name: b.name.trim(),
         location: b.location ?? null,
         capacity: b.capacity ?? 4,
@@ -475,12 +558,22 @@ export function adminRouter(prisma: PrismaClient) {
   r.patch("/tables/:id", ...admin, async (req, res) => {
     const id = Number(req.params.id);
     const b = req.body as { name?: string; location?: string; capacity?: number; status?: string; qrCode?: string; zoneId?: number };
+    const table = await prisma.cafeTable.findUnique({ where: { id } });
+    if (!table || !inStore(req, table)) return res.status(404).json({ error: "Không tìm thấy bàn" });
+    if (b.zoneId) {
+      const z = await prisma.zone.findUnique({ where: { id: b.zoneId } });
+      if (!z || z.storeId !== table.storeId) return res.status(400).json({ error: "Khu vực không thuộc chi nhánh này" });
+    }
     res.json(await prisma.cafeTable.update({ where: { id }, data: b, include: { zone: true } }));
   });
 
-  r.get("/inventory", ...admin, async (_req, res) => {
+  r.get("/inventory", ...admin, async (req, res) => {
     try {
-      res.json(await prisma.inventoryItem.findMany({ orderBy: { id: "asc" } }));
+      const [items, stock] = await Promise.all([
+        prisma.inventoryItem.findMany({ orderBy: { id: "asc" } }),
+        stockOf(reqStoreId(req)),
+      ]);
+      res.json(items.map((it) => ({ ...it, ...(stock.get(it.id) ?? { stockQty: 0, minLevel: 0 }) })));
     } catch (e) {
       if (isMissingColumn(e, "Inventory.Image_URL")) {
         return res.status(500).json({
@@ -502,6 +595,12 @@ export function adminRouter(prisma: PrismaClient) {
       imageUrl?: string | null;
     };
     if (!b.name?.trim()) return res.status(400).json({ error: "Thiếu tên nguyên liệu." });
+    const storeId = reqStoreId(req);
+    const stockQty = typeof b.stockQty === "number" ? b.stockQty : 0;
+    const minLevel = typeof b.minLevel === "number" ? b.minLevel : 0;
+    if (storeId == null && (stockQty || minLevel)) {
+      return res.status(400).json({ error: "Hãy chọn chi nhánh để nhập tồn kho ban đầu." });
+    }
     const maxId = (await prisma.inventoryItem.aggregate({ _max: { id: true } }))._max.id ?? 0;
     const row = await prisma.inventoryItem.create({
       data: {
@@ -509,13 +608,13 @@ export function adminRouter(prisma: PrismaClient) {
         name: b.name.trim(),
         skuCode: b.skuCode?.trim() || null,
         unit: b.unit?.trim() || null,
-        stockQty: typeof b.stockQty === "number" ? b.stockQty : 0,
-        minLevel: typeof b.minLevel === "number" ? b.minLevel : 0,
         supplier: b.supplier?.trim() || null,
         imageUrl: b.imageUrl ?? null,
+        // Danh mục nguyên liệu dùng chung; tồn kho ban đầu thuộc chi nhánh đang chọn
+        ...(storeId != null ? { storeStocks: { create: { storeId, stockQty, minLevel } } } : {}),
       },
     });
-    res.status(201).json(row);
+    res.status(201).json({ ...row, stockQty, minLevel });
   });
 
   r.patch("/inventory/:id", ...admin, async (req, res) => {
@@ -529,24 +628,48 @@ export function adminRouter(prisma: PrismaClient) {
       supplier: string | null;
       imageUrl: string | null;
     }>;
-    res.json(await prisma.inventoryItem.update({ where: { id }, data: b }));
+    const { stockQty, minLevel, ...catalog } = b;
+    if (stockQty !== undefined || minLevel !== undefined) {
+      const storeId = reqStoreId(req);
+      if (storeId == null) return res.status(400).json({ error: "Hãy chọn chi nhánh để sửa tồn kho." });
+      const cur = await prisma.storeInventory.findUnique({ where: { storeId_itemId: { storeId, itemId: id } } });
+      await prisma.$transaction(async (tx) => {
+        if (typeof minLevel === "number") {
+          await tx.storeInventory.upsert({
+            where: { storeId_itemId: { storeId, itemId: id } },
+            update: { minLevel },
+            create: { storeId, itemId: id, minLevel },
+          });
+        }
+        const delta = typeof stockQty === "number" ? stockQty - (cur?.stockQty ?? 0) : 0;
+        if (delta !== 0) {
+          await adjustStoreStock(tx, { storeId, itemId: id, qtyChange: delta, type: "ADJUST", referenceId: "ADMIN" });
+        }
+      });
+    }
+    const item = Object.keys(catalog).length
+      ? await prisma.inventoryItem.update({ where: { id }, data: catalog })
+      : await prisma.inventoryItem.findUniqueOrThrow({ where: { id } });
+    const stock = (await stockOf(reqStoreId(req))).get(id) ?? { stockQty: 0, minLevel: 0 };
+    res.json({ ...item, ...stock });
   });
 
   r.delete("/inventory/:id", ...admin, async (req, res) => {
     const id = Number(req.params.id);
     await prisma.inventoryRequest.deleteMany({ where: { itemId: id } });
+    await prisma.storeInventory.deleteMany({ where: { itemId: id } });
     await prisma.inventoryItem.delete({ where: { id } });
     res.status(204).send();
   });
 
-  r.post("/inventory/:id/receive", ...admin, async (req, res) => {
+  r.post("/inventory/:id/receive", ...storeAdmin, async (req, res) => {
     const id = Number(req.params.id);
     const { qty, expiryDate } = req.body as { qty?: number; expiryDate?: string };
     if (typeof qty !== "number" || qty <= 0) return res.status(400).json({ error: "Số lượng không hợp lệ" });
     const item = await prisma.inventoryItem.findUnique({ where: { id } });
     if (!item) return res.status(404).json({ error: "Không tìm thấy" });
     const staff = (req as StaffRequest).staffRow!;
-    
+
     let parsedExpiry: Date | undefined;
     if (expiryDate) {
       parsedExpiry = new Date(expiryDate);
@@ -555,13 +678,15 @@ export function adminRouter(prisma: PrismaClient) {
       }
     }
 
-    const updated = await prisma.inventoryItem.update({
-      where: { id },
-      data: { stockQty: item.stockQty + qty },
-    });
-    
+    const storeId = mustStoreId(req);
+    const stock = await prisma.$transaction((tx) =>
+      adjustStoreStock(tx, { storeId, itemId: id, qtyChange: qty, type: "RECEIVE", referenceId: "MANUAL" }),
+    );
+    const updated = { ...item, stockQty: stock.stockQty, minLevel: stock.minLevel };
+
     await prisma.stockReceipt.create({
       data: {
+        storeId,
         itemId: id,
         qty: qty,
         remainingQty: qty,
@@ -570,7 +695,7 @@ export function adminRouter(prisma: PrismaClient) {
         receivedById: staff.id,
       },
     });
-    
+
     audit(staff.id, "INVENTORY_RECEIVE", `Nhập kho thủ công: ${item.name}`, `+${qty} ${item.unit ?? ""}`);
     res.json(updated);
   });
@@ -580,6 +705,7 @@ export function adminRouter(prisma: PrismaClient) {
     const next7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     const receipts = await prisma.stockReceipt.findMany({
       where: {
+        ...storeWhere(req),
         remainingQty: { gt: 0 },
         expiryDate: { lte: next7Days }
       },
@@ -593,28 +719,34 @@ export function adminRouter(prisma: PrismaClient) {
     const receiptId = Number(req.params.id);
     const staff = (req as StaffRequest).staffRow!;
     const receipt = await prisma.stockReceipt.findUnique({ where: { id: receiptId }, include: { item: true } });
-    if (!receipt || receipt.remainingQty <= 0) {
+    if (!receipt || !inStore(req, receipt) || receipt.remainingQty <= 0) {
       return res.status(400).json({ error: "Lô hàng không hợp lệ hoặc đã hết" });
     }
-    
-    // Giảm stockQty của item
-    await prisma.inventoryItem.update({
-      where: { id: receipt.itemId },
-      data: { stockQty: { decrement: receipt.remainingQty } }
-    });
-    
+
+    // Giảm tồn kho của chi nhánh nhận lô hàng
+    await prisma.$transaction((tx) =>
+      adjustStoreStock(tx, {
+        storeId: receipt.storeId,
+        itemId: receipt.itemId,
+        qtyChange: -receipt.remainingQty,
+        type: "DISCARD",
+        referenceId: `RECEIPT-${receipt.id}`,
+      }),
+    );
+
     // Set remainingQty = 0
     await prisma.stockReceipt.update({
       where: { id: receiptId },
       data: { remainingQty: 0 }
     });
-    
+
     audit(staff.id, "INVENTORY_DISCARD", `Hủy lô hàng quá date: ${receipt.item.name}`, `-${receipt.remainingQty} ${receipt.item.unit ?? ""}`);
     res.json({ ok: true, discarded: receipt.remainingQty });
   });
 
-  r.get("/requests", ...admin, async (_req, res) => {
+  r.get("/requests", ...admin, async (req, res) => {
     const rows = await prisma.inventoryRequest.findMany({
+      where: storeWhere(req),
       orderBy: { id: "desc" },
       include: { item: true, staff: { select: { fullName: true, id: true } }, approvedBy: { select: { fullName: true } } },
     });
@@ -629,7 +761,7 @@ export function adminRouter(prisma: PrismaClient) {
       return res.status(400).json({ error: "status phải Approved hoặc Rejected" });
     }
     const reqRow = await prisma.inventoryRequest.findUnique({ where: { id } });
-    if (!reqRow || reqRow.status !== "Pending") return res.status(400).json({ error: "Phiếu không hợp lệ" });
+    if (!reqRow || !inStore(req, reqRow) || reqRow.status !== "Pending") return res.status(400).json({ error: "Phiếu không hợp lệ" });
     const updated = await prisma.inventoryRequest.update({
       where: { id },
       data: {
@@ -642,14 +774,20 @@ export function adminRouter(prisma: PrismaClient) {
     if (b.status === "Approved") {
       const item = await prisma.inventoryItem.findUnique({ where: { id: reqRow.itemId } });
       if (item) {
-        const newQty = item.stockQty + reqRow.requestQty;
-        await prisma.inventoryItem.update({
-          where: { id: item.id },
-          data: { stockQty: newQty },
-        });
+        const stock = await prisma.$transaction((tx) =>
+          adjustStoreStock(tx, {
+            storeId: reqRow.storeId,
+            itemId: item.id,
+            qtyChange: reqRow.requestQty,
+            type: "RECEIVE",
+            referenceId: `REQUEST-${reqRow.id}`,
+          }),
+        );
+        const newQty = stock.stockQty;
         // Tạo phiếu nhập kho
         await prisma.stockReceipt.create({
           data: {
+            storeId: reqRow.storeId,
             itemId: reqRow.itemId,
             qty: reqRow.requestQty,
             source: "Request",
@@ -663,8 +801,8 @@ export function adminRouter(prisma: PrismaClient) {
           `Nhập kho: ${item.name}`,
           `+${reqRow.requestQty} ${item.unit ?? ""} (từ phiếu #${reqRow.id})`);
         // Low-stock check: nếu sau khi nhập vẫn thấp hơn minLevel → vẫn cảnh báo
-        if (newQty <= item.minLevel) {
-          audit(null, "LOW_STOCK_ALERT", item.name, `Tồn: ${newQty}, Tối thiểu: ${item.minLevel}`);
+        if (newQty <= stock.minLevel) {
+          audit(staff.id, "LOW_STOCK_ALERT", item.name, `Tồn: ${newQty}, Tối thiểu: ${stock.minLevel}`);
         }
       }
     }
@@ -674,12 +812,12 @@ export function adminRouter(prisma: PrismaClient) {
   // GET /admin/receipts?date=YYYY-MM-DD
   r.get("/receipts", ...admin, async (req, res) => {
     const dateStr = req.query.date as string | undefined;
-    let where: Record<string, unknown> = {};
+    let where: Record<string, unknown> = { ...storeWhere(req) };
     if (dateStr) {
       const d = new Date(dateStr);
       const start = new Date(d); start.setHours(0, 0, 0, 0);
       const end   = new Date(d); end.setHours(23, 59, 59, 999);
-      where = { receivedAt: { gte: start, lte: end } };
+      where = { ...where, receivedAt: { gte: start, lte: end } };
     }
     const rows = await prisma.stockReceipt.findMany({
       where,
@@ -694,8 +832,9 @@ export function adminRouter(prisma: PrismaClient) {
     res.json(rows);
   });
 
-  r.get("/reviews", ...admin, async (_req, res) => {
+  r.get("/reviews", ...admin, async (req, res) => {
     const rows = await prisma.review.findMany({
+      where: { order: storeWhere(req) },
       orderBy: { id: "desc" },
       take: 200,
       include: {
@@ -711,6 +850,8 @@ export function adminRouter(prisma: PrismaClient) {
     const id = Number(req.params.id);
     const staff = (req as StaffRequest).staffRow!;
     const b = req.body as { adminReply?: string | null; hidden?: boolean };
+    const review = await prisma.review.findUnique({ where: { id }, include: { order: true } });
+    if (!review || !inStore(req, review.order)) return res.status(404).json({ error: "Không tìm thấy đánh giá" });
     const data: Record<string, unknown> = {};
     if (b.hidden !== undefined) data.hidden = b.hidden;
     if (b.adminReply !== undefined) {
@@ -795,7 +936,7 @@ export function adminRouter(prisma: PrismaClient) {
     const to = req.query.to ? new Date(String(req.query.to)) : new Date();
     to.setHours(23, 59, 59, 999);
     const orders = await prisma.order.findMany({
-      where: { status: "Paid", createdAt: { gte: from, lte: to } },
+      where: { ...storeWhere(req), status: "Paid", createdAt: { gte: from, lte: to } },
       select: { totalAmount: true, createdAt: true, id: true },
     });
     const byDay = new Map<string, number>();
@@ -816,7 +957,7 @@ export function adminRouter(prisma: PrismaClient) {
     const to = req.query.to ? new Date(String(req.query.to)) : new Date();
     to.setHours(23, 59, 59, 999);
     const details = await prisma.orderDetail.findMany({
-      where: { order: { status: "Paid", createdAt: { gte: from, lte: to } } },
+      where: { order: { ...storeWhere(req), status: "Paid", createdAt: { gte: from, lte: to } } },
       select: { productId: true, quantity: true, unitPrice: true },
     });
     const map = new Map<number, { qty: number; revenue: number }>();
@@ -844,7 +985,7 @@ export function adminRouter(prisma: PrismaClient) {
     const to = req.query.to ? new Date(String(req.query.to)) : new Date();
     to.setHours(23, 59, 59, 999);
     const orders = await prisma.order.findMany({
-      where: { status: "Paid", createdAt: { gte: from, lte: to } },
+      where: { ...storeWhere(req), status: "Paid", createdAt: { gte: from, lte: to } },
       orderBy: { id: "asc" },
       select: { id: true, createdAt: true, totalAmount: true, subTotal: true, vatAmount: true, discountAmt: true, orderType: true },
     });

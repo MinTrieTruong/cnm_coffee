@@ -51,8 +51,6 @@ model InventoryItem {
   category      String?                   @map("Category") @db.VarChar(100)
   skuCode       String?                   @unique @map("SKU_Code") @db.VarChar(50)
   unit          String?                   @map("Unit") @db.VarChar(20)
-  stockQty      Int                       @map("Stock_Qty")
-  minLevel      Int                       @map("Min_Level")
   supplier      String?                   @map("Supplier") @db.VarChar(100)
   /// Giá nhập mới nhất / đơn vị kho (để tính lợi nhuận)
   unitCostPrice Int                       @default(0) @map("Unit_Cost_Price")

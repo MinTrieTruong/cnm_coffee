@@ -35,6 +35,7 @@ import { addressesRouter } from "./routes/addresses.js";
 import { customerRouter } from "./routes/customer.js";
 import { deliveryRouter } from "./routes/delivery.js";
 import { storesRouter } from "./routes/stores.js";
+import { stockTransferRouter } from "./routes/stockTransfer.js";
 import { startDispatchWorker } from "./lib/delivery.js";
 import { registerSocketHandlers } from "./socket/handlers.js";
 import { startGraceWorker } from "./graceWorker.js";
@@ -95,6 +96,7 @@ app.use("/api", attendanceRouter(prisma));
 app.use("/api", comboRouter(prisma));
 app.use("/api", payrollRoutes);
 app.use("/api", procurementRouter(prisma));
+app.use("/api/admin", stockTransferRouter(prisma));
 app.use("/api/customer-addresses", addressesRouter(prisma));
 app.use("/api/customer", customerRouter(prisma));
 

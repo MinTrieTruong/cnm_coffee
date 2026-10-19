@@ -61,12 +61,15 @@ async function main() {
     });
   }
 
-  const items = await prisma.inventoryItem.findMany({ select: { id: true, minLevel: true } });
+  // Mức tồn tối thiểu lấy theo Chi nhánh #1
+  const items = await prisma.inventoryItem.findMany({
+    select: { id: true, storeStocks: { where: { storeId: 1 }, select: { minLevel: true } } },
+  });
   for (const it of items) {
     await prisma.storeInventory.upsert({
       where: { storeId_itemId: { storeId: store.id, itemId: it.id } },
       update: {},
-      create: { storeId: store.id, itemId: it.id, stockQty: 50, minLevel: it.minLevel },
+      create: { storeId: store.id, itemId: it.id, stockQty: 50, minLevel: it.storeStocks[0]?.minLevel ?? 0 },
     });
   }
 
