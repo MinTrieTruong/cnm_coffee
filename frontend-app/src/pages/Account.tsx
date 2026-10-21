@@ -5,6 +5,7 @@ import { clearSession, getUser, isGuestMode, mergeSessionUser, type SessionUser 
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, User, Star, Award, Ticket, MessageSquare, ImagePlus, X, Lock, Package, XCircle } from "lucide-react";
 import { deliveryLabel } from "../lib/delivery";
+import { PasswordInput } from "../components/PasswordInput";
 
 const RANK_LABEL_VI: Record<string, string> = {
   Dong: "Đồng", Bac: "Bạc", Vang: "Vàng", KimCuong: "Kim cương",
@@ -446,11 +447,11 @@ export function Account() {
               <div style={{ display: "flex", flexDirection: "column", gap: "1rem", maxWidth: 400 }}>
                 <div className="field">
                   <label className="label">Mật khẩu hiện tại</label>
-                  <input type="password" className="input" value={pwdCurrent} onChange={e => setPwdCurrent(e.target.value)} required />
+                  <PasswordInput className="input" value={pwdCurrent} onChange={e => setPwdCurrent(e.target.value)} required />
                 </div>
                 <div className="field">
                   <label className="label">Mật khẩu mới</label>
-                  <input type="password" className="input" value={pwdNew} onChange={e => setPwdNew(e.target.value)} required minLength={6} />
+                  <PasswordInput className="input" value={pwdNew} onChange={e => setPwdNew(e.target.value)} required minLength={6} />
                 </div>
                 {pwdMsg && <p style={{ color: pwdMsg.ok ? "var(--success)" : "var(--danger)" }}>{pwdMsg.text}</p>}
                 <button type="submit" className="btn btn-primary" style={{ padding: "0.75rem 2rem", borderRadius: 999, alignSelf: "flex-start" }}>Đổi mật khẩu</button>

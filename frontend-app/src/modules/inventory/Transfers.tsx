@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ArrowRightLeft, Plus, Trash2 } from "lucide-react";
 import { activeStoreId, staffApi } from "../../lib/staffApi";
-import { Alert, Badge, Button, ControlPanel, EmptyState, Field, ListView, Modal, errMsg, fmtDateTime, type Tone } from "../../components/erp";
+import { Alert, Badge, Button, ControlPanel, EmptyState, Field, ListView, Modal, errMsg, fmtDateTime, fmtQty, type Tone } from "../../components/erp";
 import { useResource } from "../shared";
 
 type Transfer = {
@@ -181,7 +181,7 @@ function CreateTransfer({ fromStoreId, onClose, onDone }: { fromStoreId: number;
             <Field label={i === 0 ? "Nguyên liệu" : ""}>
               <select className="o-input" value={l.itemId} onChange={(e) => setLine(i, { itemId: e.target.value ? Number(e.target.value) : "" })}>
                 <option value="">Chọn…</option>
-                {inv.data.map((x) => <option key={x.id} value={x.id}>{x.name} (tồn {x.stockQty} {x.unit ?? ""})</option>)}
+                {inv.data.map((x) => <option key={x.id} value={x.id}>{x.name} (tồn {fmtQty(x.stockQty)} {x.unit ?? ""})</option>)}
               </select>
             </Field>
             <Field label={i === 0 ? `Số lượng${item?.unit ? ` (${item.unit})` : ""}` : ""}>

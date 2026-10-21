@@ -13,6 +13,11 @@ type Payslip = {
   allowance: number;
   globalBonus: number;
   individualBonus: number;
+  overtimeMinutes: number;
+  overtimePay: number;
+  /** Shipper: phí ship các đơn giao thành công trong tháng */
+  shippingIncome: number;
+  deliveredOrders: number;
   netSalary: number;
   status: string;
   staff: { fullName: string };
@@ -142,16 +147,18 @@ export function AdminPayroll() {
               <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Lương CB</th>
               <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Công chuẩn</th>
               <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Ngày làm TT</th>
+              <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Làm thêm</th>
               <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Phụ cấp</th>
               <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Thưởng chung</th>
               <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Thưởng riêng</th>
+              <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Phí ship</th>
               <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Thực lãnh</th>
               <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Trạng thái</th>
             </tr>
           </thead>
           <tbody>
-            {loading ? <tr><td colSpan={10} style={{ textAlign: "center", padding: "1rem" }}>Đang tính toán...</td></tr> : 
-             payslips.length === 0 ? <tr><td colSpan={10} style={{ textAlign: "center", padding: "1rem" }}>Không có dữ liệu</td></tr> : 
+            {loading ? <tr><td colSpan={12} style={{ textAlign: "center", padding: "1rem" }}>Đang tính toán...</td></tr> : 
+             payslips.length === 0 ? <tr><td colSpan={12} style={{ textAlign: "center", padding: "1rem" }}>Không có dữ liệu</td></tr> : 
              payslips.map(p => (
               <tr key={p.id}>
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "center" }}>{p.staffId}</td>
@@ -159,6 +166,9 @@ export function AdminPayroll() {
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "right" }}>{formatVnd(p.baseSalary)}</td>
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "center" }}>{p.standardDays}</td>
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "center", fontWeight: "bold" }}>{p.actualWorkedDays}</td>
+                <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "right" }} title={`${p.overtimeMinutes} phút đã duyệt và khớp giờ check-out`}>
+                  {p.overtimeMinutes > 0 ? <>{formatVnd(p.overtimePay)}<div style={{ fontSize: "0.75rem", color: "#6b7280" }}>{(p.overtimeMinutes / 60).toFixed(1)} giờ</div></> : "—"}
+                </td>
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "right" }}>{formatVnd(p.allowance)}</td>
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "right" }}>{formatVnd(p.globalBonus)}</td>
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "right", cursor: p.status === "PENDING" ? "pointer" : "default", background: p.status === "PENDING" ? "#fff9c4" : "inherit" }}
@@ -174,6 +184,9 @@ export function AdminPayroll() {
                       onBlur={() => saveBonus(p.id)}
                       onKeyDown={e => e.key === "Enter" && saveBonus(p.id)} />
                   ) : formatVnd(p.individualBonus)}
+                </td>
+                <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "right" }}>
+                  {p.deliveredOrders > 0 ? <>{formatVnd(p.shippingIncome)}<div style={{ fontSize: "0.75rem", color: "#6b7280" }}>{p.deliveredOrders} đơn giao</div></> : "—"}
                 </td>
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "right", fontWeight: "bold", color: "#b91c1c" }}>{formatVnd(p.netSalary)}</td>
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "center" }}>

@@ -5,6 +5,7 @@ import { Socket } from "socket.io-client";
 import { getStaffInfo, staffApi, staffSocket as openStaffSocket, isAdminRole } from "../lib/staffApi";
 import { PosDeliveryPanel } from "../components/PosDeliveryPanel";
 import { useHideBottomNav } from "../components/BottomNav";
+import { EntryDialog, SafeCloseDialog, SafeOpenDialog, ShiftCloseDialog, useSafe } from "../modules/finance/shared";
 
 /** Âm thanh nhỏ nhẹ khi nhận yêu cầu thanh toán từ phục vụ. */
 function playPaymentRequestSound() {
@@ -190,7 +191,12 @@ export function Pos() {
   const [err, setErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [startingCash, setStartingCash] = useState("500000");
-  const [actualCash, setActualCash] = useState("");
+  /** Tiền mặt dự kiến trong ngăn kéo của ca đang mở */
+  const [drawerCash, setDrawerCash] = useState<number | null>(null);
+  const { safe, reload: reloadSafe } = useSafe();
+  const [cashDialog, setCashDialog] = useState<null | "openSafe" | "closeSafe" | "closeShift" | "expense" | "topup" | "drop">(null);
+  /** Mở két xong thì mở ca luôn (luồng lấy tiền đầu ca) */
+  const [openShiftAfterSafe, setOpenShiftAfterSafe] = useState(false);
   const [payOrder, setPayOrder] = useState<PendingOrder | null>(null);
   const [billModal, setBillModal] = useState<PendingOrder | null>(null);
   // Màn bill / thu tiền có thanh thao tác riêng → ẩn thanh điều hướng đáy
@@ -283,7 +289,7 @@ export function Pos() {
   const loadPending = useCallback(async () => {
     try {
       const data = await staffApi<PendingOrder[]>("/api/pos/pending-orders");
-      // Đơn giao COD chưa thu tiền được quản lý ở bảng "Đơn giao hàng" (shipper thu hộ)
+      // Đơn giao hàng chỉ trả online, không thu ở quầy — quản lý ở bảng "Đơn giao hàng"
       setPending(data.filter((o) => !(o.orderType === "Delivery" && o.status !== "Paid")));
     } catch {
       setPending([]);
@@ -305,8 +311,9 @@ export function Pos() {
 
   const loadShift = useCallback(async () => {
     try {
-      const data = await staffApi<{ shift: ShiftRow }>("/api/shifts/open");
+      const data = await staffApi<{ shift: ShiftRow; drawer: { expectedCash: number } | null }>("/api/shifts/open");
       setShift(data.shift);
+      setDrawerCash(data.drawer?.expectedCash ?? null);
     } catch {
       setShift(null);
     }
@@ -376,29 +383,27 @@ export function Pos() {
       setToast(`${t}: ${(p.message ?? "").slice(0, 80)}`);
       setTimeout(() => setToast(null), 5200);
     });
-    socket.on("inventory:request", () => {
-      setToast("Có phiếu xin nguyên liệu từ pha chế.");
-      setTimeout(() => setToast(null), 3200);
-    });
-    socket.on("inventory:restock_request", (p: { itemName?: string }) => {
-      setToast(`Nhân viên tạo phiếu nhập hàng: ${p.itemName ?? "nguyên liệu"}. Vào Admin → Phiếu xin NL để duyệt.`);
-      setTimeout(() => setToast(null), 5000);
-    });
     return () => {
       socket.disconnect();
     };
   }, [refreshAll, loadPending, loadTables]);
 
-  async function openShift() {
+  /** Mở ca: tiền đầu ca lấy từ két → két phải đang mở (chưa mở thì mở két trước rồi mở ca) */
+  async function openShift(safeJustOpened = false) {
     const n = Number(startingCash.replace(/\D/g, "")) || 0;
+    if (n > 0 && !safeJustOpened && safe && !safe.session) {
+      setOpenShiftAfterSafe(true);
+      setCashDialog("openSafe");
+      return;
+    }
     try {
+      setErr(null);
       await staffApi("/api/shifts/open", {
         method: "POST",
         body: JSON.stringify({ startingCash: n }),
       });
-      await loadShift();
-      setToast("Đã mở ca.");
-      setTimeout(() => setToast(null), 2200);
+      await Promise.all([loadShift(), reloadSafe()]);
+      showToast(n > 0 ? `Đã mở ca, lấy ${formatVnd(n)} từ két. Nhớ đếm lại và đóng két.` : "Đã mở ca.");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Lỗi mở ca");
     }
@@ -409,25 +414,10 @@ export function Pos() {
     setTimeout(() => setToast(null), 2500);
   };
 
-
-  async function closeShift() {
-    const n = Number(actualCash.replace(/\D/g, ""));
-    if (Number.isNaN(n)) {
-      setErr("Nhập số tiền mặt thực tế khi đóng ca.");
-      return;
-    }
-    try {
-      await staffApi("/api/shifts/close", {
-        method: "POST",
-        body: JSON.stringify({ actualCash: n }),
-      });
-      setActualCash("");
-      await loadShift();
-      setToast("Đã đóng ca.");
-      setTimeout(() => setToast(null), 2200);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Lỗi đóng ca");
-    }
+  async function afterCashChange(msg?: string) {
+    setCashDialog(null);
+    await Promise.all([loadShift(), reloadSafe()]);
+    if (msg) showToast(msg);
   }
 
   const billPreview = useMemo(() => {
@@ -646,25 +636,21 @@ export function Pos() {
           <p className="subtle">Đang kiểm tra ca…</p>
         ) : shift ? (
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }}>
-            <div>
+            <div style={{ flex: "1 1 220px" }}>
               <span className="subtle">Ca #{shift.id}</span> — mở lúc {new Date(shift.startTime).toLocaleString("vi-VN")}
               <br />
-              <span className="subtle">Tiền mặt đầu ca:</span> {formatVnd(shift.startingCash)}
+              <span className="subtle">Tiền đầu ca:</span> {formatVnd(shift.startingCash)}
+              {drawerCash != null && (
+                <>
+                  {" · "}
+                  <span className="subtle">Tiền mặt trong ngăn kéo (dự kiến):</span> <strong>{formatVnd(drawerCash)}</strong>
+                </>
+              )}
             </div>
-            <div className="field" style={{ marginBottom: 0 }}>
-              <label className="label" htmlFor="ac">
-                Tiền mặt đếm thực tế khi đóng ca
-              </label>
-              <input
-                id="ac"
-                className="input"
-                placeholder="VD: 1250000"
-                value={actualCash}
-                onChange={(e) => setActualCash(e.target.value)}
-                style={{ maxWidth: 200 }}
-              />
-            </div>
-            <button type="button" className="btn btn-primary" onClick={() => void closeShift()}>
+            <button type="button" className="btn btn-ghost" onClick={() => setCashDialog("expense")}>Chi lặt vặt</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setCashDialog("topup")}>Lấy thêm tiền lẻ</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setCashDialog("drop")}>Nộp bớt vào két</button>
+            <button type="button" className="btn btn-primary" onClick={() => setCashDialog("closeShift")}>
               Đóng ca
             </button>
           </div>
@@ -672,7 +658,7 @@ export function Pos() {
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }}>
             <div className="field" style={{ marginBottom: 0 }}>
               <label className="label" htmlFor="sc">
-                Tiền mặt đầu ca
+                Tiền đầu ca (lấy từ két)
               </label>
               <input
                 id="sc"
@@ -683,11 +669,65 @@ export function Pos() {
               />
             </div>
             <button type="button" className="btn btn-primary" onClick={() => void openShift()}>
-              Mở ca
+              {Number(startingCash.replace(/\D/g, "")) > 0 && safe && !safe.session ? "Mở két & mở ca" : "Mở ca"}
             </button>
           </div>
         )}
+        {safe && (
+          <div style={{ marginTop: "0.65rem", display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", fontSize: "0.9rem" }}>
+            {safe.session ? (
+              <>
+                <span style={{ color: "var(--warning, #b45309)", fontWeight: 600 }}>
+                  Két đang mở — {safe.session.openedBy?.fullName} · {safe.session.reason}
+                </span>
+                <button type="button" className="btn btn-primary" style={{ padding: "0.3rem 0.8rem" }} onClick={() => setCashDialog("closeSafe")}>
+                  Đếm & đóng két
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="subtle">Két đang đóng.</span>
+                <button type="button" className="btn btn-ghost" style={{ padding: "0.3rem 0.8rem" }} onClick={() => setCashDialog("openSafe")}>
+                  Mở két
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </section>
+
+      {cashDialog === "openSafe" && (
+        <SafeOpenDialog
+          defaultReason={openShiftAfterSafe ? "Lấy tiền đầu ca" : ""}
+          onClose={() => { setCashDialog(null); setOpenShiftAfterSafe(false); }}
+          onDone={() => {
+            setCashDialog(null);
+            void reloadSafe().then(() => {
+              if (openShiftAfterSafe) {
+                setOpenShiftAfterSafe(false);
+                void openShift(true);
+              }
+            });
+          }}
+        />
+      )}
+      {cashDialog === "closeSafe" && safe && (
+        <SafeCloseDialog expected={safe.balance} onClose={() => setCashDialog(null)} onDone={() => void afterCashChange("Đã đóng két.")} />
+      )}
+      {cashDialog === "closeShift" && shift && (
+        <ShiftCloseDialog shiftId={shift.id} onClose={() => setCashDialog(null)} onDone={() => void afterCashChange("Đã đóng ca và nộp tiền vào két.")} />
+      )}
+      {(cashDialog === "expense" || cashDialog === "topup" || cashDialog === "drop") && (
+        <EntryDialog
+          preset={
+            cashDialog === "expense"
+              ? { type: "OUT", category: "SUPPLIES", fund: "DRAWER" }
+              : { type: "TRANSFER", category: cashDialog === "topup" ? "TOP_UP" : "DROP" }
+          }
+          onClose={() => setCashDialog(null)}
+          onDone={(e) => void afterCashChange(e.status === "PENDING" ? "Phiếu chi vượt hạn mức — đã gửi quản lý duyệt." : `Đã lưu phiếu ${e.code}.`)}
+        />
+      )}
 
       <PosDeliveryPanel onToast={showToast} />
 

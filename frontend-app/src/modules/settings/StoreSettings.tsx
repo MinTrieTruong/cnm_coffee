@@ -12,6 +12,7 @@ type Settings = {
   pointEarnEveryVnd?: number;
   pointEarnEach?: number;
   faceMatchThreshold?: number;
+  pettyCashLimit?: number;
 };
 
 /** Cấu hình › Cài đặt chung (cả chuỗi — chỉ Chủ chuỗi sửa) */
@@ -31,6 +32,7 @@ export function StoreSettings() {
               pointEarnEveryVnd: data.pointEarnEveryVnd ?? 1000,
               pointEarnEach: data.pointEarnEach ?? 100,
               faceMatchThreshold: data.faceMatchThreshold ?? 0.5,
+              pettyCashLimit: data.pettyCashLimit ?? 200000,
             }}
             onSaved={reload}
             onErr={setMsg}

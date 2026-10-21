@@ -10,6 +10,7 @@ type StoreSettingsPayload = {
   pointEarnEveryVnd: number;
   pointEarnEach: number;
   faceMatchThreshold: number;
+  pettyCashLimit: number;
 };
 
 export function AdminStoreSettings({
@@ -30,6 +31,7 @@ export function AdminStoreSettings({
   const [pval, setPval] = useState(String(settings.pointValueVnd ?? 1));
   const [round, setRound] = useState(String(settings.cashRoundTo ?? 1000));
   const [threshold, setThreshold] = useState(settings.faceMatchThreshold ?? 0.5);
+  const [pettyLimit, setPettyLimit] = useState(String(settings.pettyCashLimit ?? 200000));
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -39,6 +41,7 @@ export function AdminStoreSettings({
     setPval(String(settings.pointValueVnd ?? 1));
     setRound(String(settings.cashRoundTo ?? 1000));
     setThreshold(settings.faceMatchThreshold ?? 0.5);
+    setPettyLimit(String(settings.pettyCashLimit ?? 200000));
   }, [settings]);
 
   async function save(e: FormEvent) {
@@ -55,6 +58,7 @@ export function AdminStoreSettings({
           pointEarnEveryVnd: Number(earnEvery),
           pointEarnEach: Number(earnEach),
           faceMatchThreshold: threshold,
+          pettyCashLimit: Number(pettyLimit),
         }),
       });
       await onSaved();
@@ -106,6 +110,12 @@ export function AdminStoreSettings({
             <div className="field" style={{ marginTop: "1rem" }}>
               <label className="label">1 điểm quy đổi (VND giảm trừ)</label>
               <input className="input" type="number" value={pval} onChange={(e) => setPval(e.target.value)} />
+            </div>
+
+            <div className="field" style={{ marginTop: "1rem" }}>
+              <label className="label">Hạn mức chi không cần duyệt (VND / phiếu)</label>
+              <input className="input" type="number" value={pettyLimit} onChange={(e) => setPettyLimit(e.target.value)} />
+              <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>Thu ngân tự chi từ két / ngăn kéo đến mức này; vượt mức phải chờ quản lý duyệt.</p>
             </div>
           </div>
 

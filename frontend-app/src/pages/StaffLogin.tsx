@@ -5,6 +5,7 @@ import { mapFetchError } from "../lib/net";
 import { getStaffInfo, getStaffToken } from "../lib/staffApi";
 import { Lock } from "lucide-react";
 import { defaultRouteForRole } from "../apps/registry";
+import { PasswordInput } from "../components/PasswordInput";
 
 const STAFF_TOKEN = "cmn_staff_token";
 const STAFF_INFO = "cmn_staff_info";
@@ -90,9 +91,8 @@ export function StaffLogin() {
             </div>
             <div className="field" style={{ marginBottom: "2rem" }}>
               <label className="label" style={{ color: "var(--muted)" }} htmlFor="p">Mật khẩu</label>
-              <input
+              <PasswordInput
                 id="p"
-                type="password"
                 className="input"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

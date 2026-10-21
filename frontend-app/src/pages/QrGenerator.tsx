@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import QRCode from "qrcode";
-import { getStaffInfo, staffApi, isAdminRole } from "../lib/staffApi";
+import { activeStoreId, getStaffInfo, staffApi, isAdminRole } from "../lib/staffApi";
 
 /* ─── Types ─── */
-type TableRow = { id: number; name: string; location: string | null };
+type TableRow = { id: number; name: string; location: string | null; storeId: number };
+type StoreRow = { id: number; name: string };
 type QrTab = "table" | "takeaway";
 
 /* ─── Màu ─── */
@@ -107,8 +108,8 @@ function QrCard({
 }
 
 /* ─── Tab QR Bàn ─── */
-function TableQrTab() {
-  const [tables,   setTables]   = useState<TableRow[]>([]);
+function TableQrTab({ store }: { store: StoreRow | null }) {
+  const [allTables, setAllTables] = useState<TableRow[]>([]);
   const [baseUrl,  setBaseUrl]  = useState(() => window.location.origin);
   const [selected, setSelected] = useState<number[]>([]);
   const [loading,  setLoading]  = useState(false);
@@ -117,15 +118,20 @@ function TableQrTab() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await staffApi<TableRow[]>("/api/admin/tables");
-      setTables(data);
-      if (data.length > 0) setSelected([data[0].id]);
+      setAllTables(await staffApi<TableRow[]>("/api/admin/tables"));
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Lỗi tải danh sách bàn");
     } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Chủ chuỗi thấy bàn mọi chi nhánh (trùng tên "Bàn 1"…) → chỉ hiện bàn của chi nhánh đang chọn
+  const tables = store ? allTables.filter((t) => t.storeId === store.id) : [];
+  useEffect(() => {
+    const first = allTables.find((t) => t.storeId === store?.id);
+    setSelected(first ? [first.id] : []);
+  }, [allTables, store?.id]);
 
   const toggleTable = (id: number) =>
     setSelected((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
@@ -140,7 +146,7 @@ function TableQrTab() {
       {/* Base URL */}
       <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
         <label style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--muted)", letterSpacing: "0.04em" }}>
-          ĐỊA CHỈ WEB (phần trước <code style={{ color: ACCENT }}>?table=...</code>)
+          ĐỊA CHỈ WEB (phần trước <code style={{ color: ACCENT }}>/menu?table=...</code>)
         </label>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
           <input
@@ -156,8 +162,8 @@ function TableQrTab() {
           </button>
         </div>
         <p style={{ fontSize: "0.73rem", color: "var(--muted)", margin: 0 }}>
-          Ví dụ: <span style={{ color: ACCENT }}>{cleanBase}/?table=1</span>
-          {" "}— có thể nhập IP nội bộ (192.168.x.x) nếu demo trên mạng LAN.
+          Ví dụ: <span style={{ color: ACCENT }}>{cleanBase}/menu?table=1</span>
+          {" "}— khách quét là vào thẳng thực đơn và được gán đúng bàn. Có thể nhập IP nội bộ (192.168.x.x) nếu demo trên mạng LAN.
         </p>
       </div>
 
@@ -209,10 +215,10 @@ function TableQrTab() {
           {chosenTables.map((t) => (
             <QrCard
               key={t.id}
-              url={`${cleanBase}/?table=${t.id}`}
+              url={`${cleanBase}/menu?table=${t.id}`}
               label={t.name}
-              sublabel={t.location ?? undefined}
-              filename={`qr-${t.name.replace(/\s+/g, "-").toLowerCase()}.png`}
+              sublabel={[store?.name, t.location].filter(Boolean).join(" · ")}
+              filename={`qr-cn${t.storeId}-${t.name.replace(/\s+/g, "-").toLowerCase()}.png`}
             />
           ))}
         </div>
@@ -230,14 +236,14 @@ function TableQrTab() {
 }
 
 /* ─── Tab QR Mang về ─── */
-function TakeawayQrTab() {
+function TakeawayQrTab({ store }: { store: StoreRow | null }) {
   const [baseUrl, setBaseUrl] = useState(() => window.location.origin);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [copied, setCopied] = useState(false);
 
   const cleanBase = baseUrl.replace(/\/$/, "");
-  // QR luôn trỏ đến backend endpoint — mỗi lần quét sinh UUID mới
-  const qrUrl = `${cleanBase}/api/takeaway/new`;
+  // Link cố định của chi nhánh — mỗi lần quét, trình duyệt khách tự sinh phiên mang về mới
+  const qrUrl = store ? `${cleanBase}/menu?type=takeaway&store=${store.id}` : "";
 
   useEffect(() => {
     if (canvasRef.current && qrUrl) void drawQr(canvasRef.current, qrUrl);
@@ -262,16 +268,16 @@ function TakeawayQrTab() {
         <strong style={{ color: ACCENT, display: "block", marginBottom: "0.4rem", fontSize: "0.9rem" }}>
           Mã QR động — mỗi lần quét là 1 phiên mới
         </strong>
-        Mã QR trỏ đến <code style={{ color: ACCENT, background: "rgba(146,64,14,0.1)", padding: "0.1rem 0.35rem", borderRadius: 4 }}>/api/takeaway/new</code>.
-        Mỗi khi khách quét, hệ thống tự sinh UUID session riêng biệt rồi chuyển hướng về giỏ hàng
-        với <code style={{ color: ACCENT }}>?session=...&amp;orderType=Takeaway</code>.<br />
+        Mã QR trỏ đến <code style={{ color: ACCENT, background: "rgba(146,64,14,0.1)", padding: "0.1rem 0.35rem", borderRadius: 4 }}>/menu?type=takeaway</code> của chi nhánh này.
+        Mỗi khi khách quét, hệ thống tự sinh phiên mang về riêng rồi mở thẳng thực đơn —
+        đơn đặt ra là đơn <strong>Mang về</strong>, không gắn bàn, khách vãng lai cũng đặt được.<br />
         <strong style={{ color: "var(--text)" }}>In 1 tờ QR này, đặt trên quầy — khách quét là đặt hàng mang về ngay.</strong>
       </div>
 
       {/* Nhập địa chỉ backend */}
       <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
         <label style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--muted)", letterSpacing: "0.04em" }}>
-          ĐỊA CHỈ SERVER BACKEND (phần trước <code style={{ color: ACCENT }}>/api/takeaway/new</code>)
+          ĐỊA CHỈ WEB (phần trước <code style={{ color: ACCENT }}>/menu?type=takeaway</code>)
         </label>
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
           <input
@@ -279,7 +285,7 @@ function TakeawayQrTab() {
             type="text"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder="http://192.168.1.x:4000 hoặc https://domain.com"
+            placeholder="http://192.168.1.x:5173 hoặc https://domain.com"
             style={inputStyle}
           />
           <button type="button" onClick={() => setBaseUrl(window.location.origin)} style={btnSecondary}>
@@ -303,8 +309,8 @@ function TakeawayQrTab() {
           <div style={{ fontWeight: 800, fontSize: "1.05rem", color: "#fff" }}>
             QR Đặt Món Mang Về
           </div>
-          <div style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: -8 }}>
-            Mỗi lần quét = 1 phiên độc lập
+          <div style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: -8, textAlign: "center" }}>
+            {store?.name ?? "Chưa chọn chi nhánh"} · Mỗi lần quét = 1 phiên độc lập
           </div>
 
           <div style={{ background: "#fff8ee", borderRadius: 14, padding: "0.75rem", boxShadow: "var(--shadow-lg)" }}>
@@ -345,6 +351,19 @@ function TakeawayQrTab() {
 export function QrGenerator({ embedded = false }: { embedded?: boolean } = {}) {
   const info = getStaffInfo();
   const [activeTab, setActiveTab] = useState<QrTab>("table");
+  const [stores, setStores] = useState<StoreRow[]>([]);
+  const [storeId, setStoreId] = useState<number | null>(() => activeStoreId());
+
+  useEffect(() => {
+    staffApi<StoreRow[]>("/api/admin/stores")
+      .then((list) => {
+        setStores(list);
+        setStoreId((cur) => (cur != null && list.some((s) => s.id === cur) ? cur : list[0]?.id ?? null));
+      })
+      .catch(() => {});
+  }, []);
+
+  const store = stores.find((s) => s.id === storeId) ?? null;
 
   if (!info || !isAdminRole(info.role)) {
     return <Navigate to="/staff/login" replace />;
@@ -396,8 +415,18 @@ export function QrGenerator({ embedded = false }: { embedded?: boolean } = {}) {
 
       {/* Content */}
       <div style={{ padding: `1.5rem ${gutter} ${embedded ? "0" : "3rem"}`, maxWidth: 960, margin: embedded ? 0 : "0 auto" }}>
-        {activeTab === "table"    && <TableQrTab />}
-        {activeTab === "takeaway" && <TakeawayQrTab />}
+        {stores.length > 1 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginBottom: "1.25rem" }}>
+            <label htmlFor="qr-store" style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--muted)", letterSpacing: "0.04em" }}>
+              CHI NHÁNH
+            </label>
+            <select id="qr-store" value={storeId ?? ""} onChange={(e) => setStoreId(Number(e.target.value))} style={inputStyle}>
+              {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+        )}
+        {activeTab === "table"    && <TableQrTab store={store} />}
+        {activeTab === "takeaway" && <TakeawayQrTab store={store} />}
       </div>
     </div>
   );

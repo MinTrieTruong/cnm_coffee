@@ -27,6 +27,10 @@ export type ProductRow = {
 
 export const PRODUCTS_BASE = "/app/sales/products";
 
+/** Giá size S/L: giá đã đặt riêng, hoặc giá mặc định (chữ mờ) khi để trống */
+const sizeCell = (own: number | null | undefined, fallback: number) =>
+  own != null ? formatVnd(own) : <span className="o-muted" title="Chưa đặt giá riêng — dùng giá mặc định">{formatVnd(fallback)}</span>;
+
 export function ProductList() {
   const { data: rows, loading, error, setError, reload } = useResource<ProductRow[]>("/api/admin/products", []);
   const go = useRecordNav(PRODUCTS_BASE);
@@ -72,9 +76,10 @@ export function ProductList() {
     { key: "category", label: "Danh mục", value: (p) => p.category?.name ?? "" },
     { key: "sku", label: "SKU", value: (p) => p.sku ?? "", optional: true },
     { key: "cost", label: "Giá vốn", value: (p) => p.costPrice, numeric: true, optional: true, render: (p) => formatVnd(p.costPrice) },
-    { key: "price", label: "Giá bán (M)", value: (p) => p.sellPrice, numeric: true, render: (p) => formatVnd(p.sellPrice) },
-    { key: "priceS", label: "Giá S", value: (p) => p.priceSizeS ?? null, numeric: true, optional: true, defaultHidden: true, render: (p) => (p.priceSizeS != null ? formatVnd(p.priceSizeS) : "") },
-    { key: "priceL", label: "Giá L", value: (p) => p.priceSizeL ?? null, numeric: true, optional: true, defaultHidden: true, render: (p) => (p.priceSizeL != null ? formatVnd(p.priceSizeL) : "") },
+    // Giá theo size: S/L để trống → áp dụng mặc định (S = M − 3.000đ, L = M + 5.000đ), hiện mờ
+    { key: "sizeS", label: "Giá S", value: (p) => p.priceSizeS ?? Math.max(0, p.sellPrice - 3000), numeric: true, optional: true, render: (p) => sizeCell(p.priceSizeS, Math.max(0, p.sellPrice - 3000)) },
+    { key: "price", label: "Giá M", value: (p) => p.sellPrice, numeric: true, render: (p) => formatVnd(p.sellPrice) },
+    { key: "sizeL", label: "Giá L", value: (p) => p.priceSizeL ?? p.sellPrice + 5000, numeric: true, optional: true, render: (p) => sizeCell(p.priceSizeL, p.sellPrice + 5000) },
     {
       key: "discount",
       label: "Giảm giá",

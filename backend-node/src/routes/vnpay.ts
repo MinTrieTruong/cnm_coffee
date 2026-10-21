@@ -293,14 +293,16 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
           settings.pointValueVnd,
           settings.vatRatePercent,
         );
+        // Khách trả cả phí ship (giống lúc tạo link thanh toán)
+        const finalTotal = computed.totalAmount + Number(order.shippingFee || 0);
 
         const updateResult = await tx.order.updateMany({
           where: { id: orderId, status: { not: "Paid" } },
-          data: { 
+          data: {
             status: "Paid",
             discountAmt: Number(order.discountAmt) + voucherDiscount,
             vatAmount: computed.vatAmount,
-            totalAmount: computed.totalAmount,
+            totalAmount: finalTotal,
             cancelReason: null,
           },
         });
@@ -311,7 +313,7 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
           data: {
             orderId,
             method: "VNPay",
-            amount: Math.round(computed.totalAmount),
+            amount: Math.round(finalTotal),
             transCode: txnRef,
           },
         });

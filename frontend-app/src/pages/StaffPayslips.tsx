@@ -12,6 +12,11 @@ type Payslip = {
   allowance: number;
   globalBonus: number;
   individualBonus: number;
+  overtimeMinutes: number;
+  overtimePay: number;
+  /** Shipper: phí ship các đơn giao thành công trong tháng */
+  shippingIncome: number;
+  deliveredOrders: number;
   netSalary: number;
   status: string;
 };
@@ -110,6 +115,12 @@ export function StaffPayslips() {
                     <span style={{ color: "#444" }}>Lương thời gian:</span>
                     <span style={{ fontWeight: "bold" }}>{formatVnd(Math.round(selected.dailyRate * selected.actualWorkedDays))}</span>
                   </div>
+                  {selected.overtimeMinutes > 0 && (
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: "#444" }}>Làm thêm giờ ({(selected.overtimeMinutes / 60).toFixed(1)} giờ):</span>
+                      <span style={{ fontWeight: "bold" }}>+ {formatVnd(selected.overtimePay)}</span>
+                    </div>
+                  )}
 
                   <div style={{ height: 1, background: "#e5e7eb", margin: "0.5rem 0" }} />
 
@@ -125,6 +136,12 @@ export function StaffPayslips() {
                     <span>Thưởng / Phạt riêng:</span>
                     <span>{selected.individualBonus > 0 ? "+" : ""}{formatVnd(selected.individualBonus)}</span>
                   </div>
+                  {selected.deliveredOrders > 0 && (
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: "#444" }}>Phí ship ({selected.deliveredOrders} đơn giao thành công):</span>
+                      <span>+ {formatVnd(selected.shippingIncome)}</span>
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ background: "#f3f4f6", padding: "1.25rem", borderRadius: "0.75rem", display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid #e5e7eb" }}>

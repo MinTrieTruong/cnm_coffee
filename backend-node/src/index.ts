@@ -1,6 +1,9 @@
 import "dotenv/config";
 import path from "path";
-import express from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
+// Express 4 không tự bắt lỗi của route async → 1 request lỗi làm sập cả server. Gói này chuyển lỗi vào error handler bên dưới.
+import "express-async-errors";
+import { Prisma } from "@prisma/client";
 import cors from "cors";
 import { createServer } from "http";
 import { Server } from "socket.io";
@@ -11,6 +14,7 @@ import { catalogRouter } from "./routes/catalog.js";
 import { menuRouter } from "./routes/menu.js";
 import { ordersRouter } from "./routes/orders.js";
 import { shiftsRouter } from "./routes/shifts.js";
+import { cashRouter } from "./routes/cash.js";
 import { chatRouter } from "./routes/chat.js";
 import { reviewsRouter } from "./routes/reviews.js";
 import { posRouter } from "./routes/pos.js";
@@ -26,6 +30,11 @@ import { reportsRouter } from "./routes/reports.js";
 import { vouchersRouter } from "./routes/vouchers.js";
 import { postsRouter } from "./routes/posts.js";
 import { scheduleRouter } from "./routes/schedule.js";
+import { hrConfigRouter } from "./routes/hrConfig.js";
+import { kitchenRouter } from "./routes/kitchen.js";
+import { stockRequestsRouter } from "./routes/stockRequests.js";
+import { menuProposalsRouter } from "./routes/menuProposals.js";
+import { setRealtime } from "./lib/realtime.js";
 import { hrRequestsRouter } from "./routes/hrRequests.js";
 import { attendanceRouter } from "./routes/attendance.js";
 import { comboRouter } from "./routes/combo.js";
@@ -46,6 +55,7 @@ const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: true, methods: ["GET", "POST"] },
 });
+setRealtime(io);
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: "6mb" }));
@@ -69,6 +79,7 @@ app.get("/api/health", async (_req, res) => {
 app.use("/api/auth", authRouter(prisma));
 app.use("/api", staffAuthRouter(prisma));
 app.use("/api", shiftsRouter(prisma));
+app.use("/api", cashRouter(prisma));
 app.use("/api/admin", adminRouter(prisma));
 app.use("/api/admin", supplierRouter());
 app.use("/api/admin", auditRouter());
@@ -91,6 +102,10 @@ app.use("/api", sepayRouter(prisma, io));
 app.use("/api", vouchersRouter(prisma, io));
 app.use("/api", postsRouter(prisma));
 app.use("/api", scheduleRouter(prisma, io));
+app.use("/api", hrConfigRouter(prisma));
+app.use("/api", kitchenRouter(prisma, io));
+app.use("/api", stockRequestsRouter(prisma, io));
+app.use("/api", menuProposalsRouter(prisma, io));
 app.use("/api", hrRequestsRouter(prisma, io));
 app.use("/api", attendanceRouter(prisma));
 app.use("/api", comboRouter(prisma));
@@ -99,6 +114,24 @@ app.use("/api", procurementRouter(prisma));
 app.use("/api/admin", stockTransferRouter(prisma));
 app.use("/api/customer-addresses", addressesRouter(prisma));
 app.use("/api/customer", customerRouter(prisma));
+
+/** Bắt mọi lỗi chưa xử lý của route: ghi log, trả JSON — không để sập server */
+app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
+  if (res.headersSent) return next(err);
+  // Dữ liệu gửi lên sai kiểu / thiếu (id không phải số…) → lỗi của request, không phải của server
+  if (err instanceof Prisma.PrismaClientValidationError) {
+    console.warn(`[400] ${req.method} ${req.originalUrl}: dữ liệu không hợp lệ`);
+    return res.status(400).json({ error: "Dữ liệu gửi lên không hợp lệ." });
+  }
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    if (err.code === "P2025") return res.status(404).json({ error: "Không tìm thấy dữ liệu." });
+    if (err.code === "P2002") return res.status(409).json({ error: "Dữ liệu bị trùng." });
+    if (err.code === "P2003") return res.status(400).json({ error: "Dữ liệu liên quan không tồn tại." });
+  }
+  if (err instanceof SyntaxError && "body" in err) return res.status(400).json({ error: "JSON không hợp lệ." });
+  console.error(`[500] ${req.method} ${req.originalUrl}`, err);
+  res.status(500).json({ error: "Lỗi máy chủ. Vui lòng thử lại." });
+});
 
 registerSocketHandlers(io, prisma);
 startGraceWorker(prisma, io);
@@ -126,6 +159,9 @@ const shutdown = async (signal: string) => {
   await prisma.$disconnect();
   httpServer.close(() => process.exit(0));
 };
+
+// Lỗi async ngoài route (socket, worker định kỳ…) — ghi log thay vì để Node tắt cả server
+process.on("unhandledRejection", (reason) => console.error("[unhandledRejection]", reason));
 
 process.on("SIGINT", () => void shutdown("SIGINT"));
 process.on("SIGTERM", () => void shutdown("SIGTERM"));

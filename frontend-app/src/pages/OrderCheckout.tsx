@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { io, Socket } from "socket.io-client";
 import { api, apiOrigin } from "../lib/api";
 import { getTakeawaySessionId, getTableId, getUser, mergeSessionUser } from "../lib/session";
@@ -27,6 +27,8 @@ type BillPayload = {
   pointsRedeemAmt: number;
   vatRatePercent: number;
   vatAmount: number;
+  /** Phí giao hàng — khách trả cùng đơn, thuộc thu nhập shipper */
+  shippingFee: number;
   totalAmount: number;
   pointsEarnedPreview: number;
   payments: Array<{ method: string; amount: number; paymentTime: string }>;
@@ -39,7 +41,6 @@ function formatVnd(n: number) {
 
 export function OrderCheckout() {
   const { id } = useParams();
-  const nav = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const user = getUser();
   const [bill, setBill] = useState<BillPayload | null>(null);
@@ -176,21 +177,16 @@ export function OrderCheckout() {
     if (Number.isNaN(orderId)) return;
     setRequesting(true); setMsg(null);
     try {
-      const res = await api<{ isDelivery?: boolean }>(`/api/orders/${orderId}/request-payment`, { 
-        method: "POST", 
-        body: JSON.stringify({ 
-          sessionId: getTakeawaySessionId(), 
+      await api(`/api/orders/${orderId}/request-payment`, {
+        method: "POST",
+        body: JSON.stringify({
+          sessionId: getTakeawaySessionId(),
           tableId: getTableId(),
           discountVoucherAmt: voucherApplied?.discountValue ?? 0,
           voucherCode: voucherApplied?.code ?? null
-        }) 
+        })
       });
-      if (res.isDelivery) {
-        nav(`/order/${orderId}/tracking`, { replace: true });
-        return;
-      } else {
-        setMsg("Đã gửi yêu cầu tới thu ngân.");
-      }
+      setMsg("Đã gửi yêu cầu tới thu ngân.");
     } catch (e) { setMsg(e instanceof Error ? e.message : "Không gửi được yêu cầu"); }
     finally { setRequesting(false); }
   }
@@ -307,6 +303,11 @@ export function OrderCheckout() {
               <span>Đổi điểm ({bill.pointsUsed} pts)</span><span>−{formatVnd(bill.pointsRedeemAmt)}</span>
             </div>
           )}
+          {bill.orderType === "Delivery" && (
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+              <span className="subtle">Phí giao hàng</span><span>{bill.shippingFee > 0 ? formatVnd(bill.shippingFee) : "Miễn phí"}</span>
+            </div>
+          )}
           <div style={{ borderTop: "1px solid var(--border)", margin: "1rem 0" }} />
           <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, fontSize: "1.25rem" }}>
             <span>Đã thanh toán</span>
@@ -329,13 +330,18 @@ export function OrderCheckout() {
     );
   }
 
-  const isDineIn = !bill.orderType.toLowerCase().includes("take");
+  const isDelivery = bill.orderType === "Delivery";
+  const isDineIn = !isDelivery && !bill.orderType.toLowerCase().includes("take");
   const showRequestBtn = bill.status === "Confirmed";
+  // Đơn giao hàng bắt buộc trả online trước — không có COD / trả tại quầy
+  const payMethods = isDelivery ? (["vnpay", "sepay"] as const) : (["counter", "vnpay", "sepay"] as const);
+  const activeMethod = isDelivery && payMethod === "counter" ? "vnpay" : payMethod;
 
   // Recalculate VAT dynamically because voucher reduces taxable amount
   const taxable = Math.max(0, bill.subTotal - bill.discountAmt - bill.pointsRedeemAmt - (voucherApplied?.discountValue ?? 0));
   const expectedVat = Math.floor((taxable * bill.vatRatePercent) / 100);
-  const effectiveTotal = taxable + expectedVat;
+  // Phí ship cộng sau VAT, không bị giảm bởi voucher/điểm (khớp số tiền backend gửi sang VNPay/SePay)
+  const effectiveTotal = taxable + expectedVat + bill.shippingFee;
 
   function handleSelectMethod(m: "counter" | "vnpay" | "sepay") {
     setPayMethod(m);
@@ -377,8 +383,19 @@ export function OrderCheckout() {
             <span className="subtle">VAT ({bill.vatRatePercent}%)</span>
             <span>{formatVnd(expectedVat)}</span>
           </div>
+          {isDelivery && (
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.5rem" }}>
+              <span className="subtle">Phí giao hàng</span>
+              <span>{bill.shippingFee > 0 ? formatVnd(bill.shippingFee) : "Miễn phí"}</span>
+            </div>
+          )}
         </div>
       </div>
+      {isDelivery && showRequestBtn && (
+        <p style={{ background: "rgba(37,99,235,0.08)", border: "1px solid rgba(37,99,235,0.25)", borderRadius: 12, padding: "0.75rem 1rem", fontSize: "0.9rem", color: "var(--text)" }}>
+          Đơn giao hàng cần <strong>thanh toán online trước</strong>. Quán chỉ nhận và pha chế sau khi bạn thanh toán xong.
+        </p>
+      )}
 
       {showRequestBtn && (
         <>
@@ -454,21 +471,21 @@ export function OrderCheckout() {
             <h2 style={{ fontSize: "1.1rem", fontFamily: "var(--font-display)", color: "var(--text)", display: "flex", alignItems: "center", gap: "0.5rem", margin: "1rem 0" }}><CreditCard size={18} /> {isDineIn ? "Thanh toán khi dùng xong" : "Chọn phương thức"}</h2>
             
             <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", padding: "0 0.5rem", marginBottom: "2rem" }}>
-              {(["counter", "vnpay", "sepay"] as const).map((m) => (
+              {payMethods.map((m) => (
                 <button
                   key={m} type="button" onClick={() => handleSelectMethod(m)}
                   style={{
                     flex: 1, minWidth: 120, padding: "1.25rem", borderRadius: 16, display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem",
-                    background: payMethod === m ? "rgba(146,64,14,0.15)" : "#f5f5f4",
-                    border: `1px solid ${payMethod === m ? "var(--accent)" : "#e7e5e4"}`,
-                    color: payMethod === m ? "var(--accent)" : "#57534e",
+                    background: activeMethod === m ? "rgba(146,64,14,0.15)" : "#f5f5f4",
+                    border: `1px solid ${activeMethod === m ? "var(--accent)" : "#e7e5e4"}`,
+                    color: activeMethod === m ? "var(--accent)" : "#57534e",
                     transition: "all 0.2s ease", cursor: "pointer"
                   }}
                 >
                   {m === "counter" && <Banknote size={24} />}
                   {m === "vnpay" && <CreditCard size={24} />}
                   {m === "sepay" && <div style={{ fontWeight: 800, fontSize: "1.2rem", letterSpacing: "-1px" }}>SePay</div>}
-                  <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>{m === "counter" ? (bill.orderType === "Delivery" ? "Tiền mặt (COD)" : "Tại quầy") : m === "vnpay" ? "Ví VNPay" : "Chuyển khoản"}</span>
+                  <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>{m === "counter" ? "Tại quầy" : m === "vnpay" ? "Ví VNPay" : "Chuyển khoản"}</span>
                 </button>
               ))}
             </div>
@@ -490,12 +507,12 @@ export function OrderCheckout() {
 
             {/* ACTION BUTTON */}
             <div style={{ padding: "0 0.5rem" }}>
-              {payMethod === "counter" && (
+              {activeMethod === "counter" && (
                 <button type="button" className="btn btn-primary btn-block" disabled={requesting} onClick={() => void requestPayment()} style={{ padding: "1rem", borderRadius: 999, fontSize: "1.1rem", background: "var(--accent)", color: "#fff", boxShadow: "0 8px 20px rgba(146,64,14,0.3)" }}>
-                  {requesting ? "Đang gửi…" : (bill.orderType === "Delivery" ? "Xác nhận đặt hàng (COD)" : "Yêu cầu thanh toán tại quầy")}
+                  {requesting ? "Đang gửi…" : "Yêu cầu thanh toán tại quầy"}
                 </button>
               )}
-              {payMethod === "vnpay" && (
+              {activeMethod === "vnpay" && (
                 <button type="button" className="btn btn-block" disabled={sepayLoading} onClick={() => void createVnpay()} style={{ padding: "1rem", borderRadius: 999, fontSize: "1.1rem", background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)", color: "#fff", border: "none", boxShadow: "0 8px 20px rgba(37,99,235,0.3)" }}>
                   {sepayLoading ? "Đang xử lý…" : "Thanh toán qua VNPay"}
                 </button>

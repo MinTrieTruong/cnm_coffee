@@ -1,41 +1,15 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
-import { setSession, setGuestMode, setTableId, setTakeawaySessionId } from "../lib/session";
+import { setSession, setGuestMode } from "../lib/session";
+import { PasswordInput } from "../components/PasswordInput";
 
 export function Welcome() {
   const nav = useNavigate();
-  const [searchParams] = useSearchParams();
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    const t = searchParams.get("idtable") || searchParams.get("table");
-    const sid = searchParams.get("sid");
-    const qrType = searchParams.get("type");
-
-    if (qrType === "takeaway" && !sid) {
-      setTakeawaySessionId(crypto.randomUUID());
-      setTableId(null);
-      return;
-    }
-
-    if (sid?.trim()) {
-      setTakeawaySessionId(sid.trim());
-      setTableId(null);
-      return;
-    }
-
-    if (t) {
-      const n = Number(t);
-      if (!Number.isNaN(n)) {
-        setTableId(n);
-        setTakeawaySessionId(null);
-      }
-    }
-  }, [searchParams]);
 
   async function onLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -96,10 +70,9 @@ export function Welcome() {
               <label className="label" style={{ color: "var(--muted)" }} htmlFor="password">
                 Mật khẩu
               </label>
-              <input
+              <PasswordInput
                 id="password"
                 className="input"
-                type="password"
                 autoComplete="current-password"
                 placeholder="••••••••"
                 value={password}

@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Lock, ScanFace, Users } from "lucide-react";
 import { activeStoreId, getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
 import { BRANCH_STAFF_ROLES, ROLE_LABEL } from "../../lib/roles";
 import {
-  Badge, Button, Chatter, EmptyState, Field, FormGroup, FormGroups, FormView, RecordList, StatusBar, Tabs,
+  Alert, Badge, Button, Chatter, EmptyState, Field, FormGroup, FormGroups, FormView, RecordList, StatusBar, Tabs,
   errMsg, fmtDate, formatVnd,
 } from "../../components/erp";
 import { useRecordNav, useResource } from "../shared";
+import { PasswordInput } from "../../components/PasswordInput";
+import { useAttendanceWarnings } from "./AttendanceWarnings";
 
 type StaffRow = {
   id: number;
@@ -37,8 +40,19 @@ export function EmployeeList() {
   // Owner xem tất cả chi nhánh → thêm cột/nhóm theo chi nhánh
   const allStores = isOwnerRole(getStaffInfo()?.role) && activeStoreId() == null;
   const storeName = (s: StaffRow) => s.store?.name ?? (s.role === "Owner" ? "Toàn chuỗi" : "");
+  const now = new Date();
+  const { data: warn } = useAttendanceWarnings(now.getMonth() + 1, now.getFullYear());
+  const warned = warn?.rows.filter((r) => r.warned) ?? [];
   return (
     <RecordList
+      top={
+        warned.length > 0 && (
+          <Alert tone="warning">
+            {warned.length} nhân viên bị cảnh báo chấm công tháng này (đi muộn từ {warn!.threshold} lần):{" "}
+            {warned.map((r) => `${r.fullName} (${r.lateCount})`).join(", ")}. <Link to="/app/hr/warnings">Xem chi tiết</Link>
+          </Alert>
+        )
+      }
       crumbs={[{ label: "Nhân viên" }]}
       rows={rows}
       rowKey={(s) => s.id}
@@ -236,7 +250,7 @@ export function EmployeeForm({ recordId }: { recordId?: string }) {
           </Field>
           {editing && (
             <Field label={isNew ? "Mật khẩu" : "Mật khẩu mới"} required={isNew}>
-              <input className="o-input" type="password" value={form.password} onChange={(e) => set("password", e.target.value)} placeholder={isNew ? "" : "Để trống nếu không đổi"} />
+              <PasswordInput className="o-input" value={form.password} onChange={(e) => set("password", e.target.value)} placeholder={isNew ? "" : "Để trống nếu không đổi"} />
             </Field>
           )}
           <Field label="Vai trò">

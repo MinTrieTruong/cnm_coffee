@@ -6,6 +6,8 @@ import { attachSupplier, type SupplierRequest } from "../middleware/supplier.js"
 import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
 import { inStore, mustStoreId, storeWhere } from "../lib/storeScope.js";
 import { adjustStoreStock } from "../lib/inventory.js";
+import { productsUsingItems, recalcProductCost } from "../lib/productCost.js";
+import { createBill } from "../lib/cash.js";
 
 export function procurementRouter(prisma: PrismaClient) {
   const r = Router();
@@ -303,9 +305,10 @@ export function procurementRouter(prisma: PrismaClient) {
         const newQty = prItem.qty;
         const newUnitPrice = qItem.unitPrice; // Đơn giá từ báo giá nhà cung cấp
 
-        // Bình quân gia quyền: (tồn_cũ × giá_cũ + lượng_nhập × giá_nhập) / (tồn_cũ + lượng_nhập)
+        // Bình quân gia quyền: (tồn_cũ × giá_cũ + lượng_nhập × giá_nhập) / (tồn_cũ + lượng_nhập).
+        // Tồn cũ chưa có giá (0đ) thì không tính vào, lấy luôn giá nhập — tránh kéo giá vốn xuống vô lý.
         const totalQtyAfter = oldQty + newQty;
-        const weightedAvgCost = totalQtyAfter > 0
+        const weightedAvgCost = oldCost > 0 && totalQtyAfter > 0
           ? Math.round((oldQty * oldCost + newQty * newUnitPrice) / totalQtyAfter)
           : newUnitPrice;
 
@@ -313,6 +316,8 @@ export function procurementRouter(prisma: PrismaClient) {
           where: { id: prItem.itemId },
           data: { unitCostPrice: weightedAvgCost },
         });
+        // Giá nhập đổi → giá vốn các món dùng nguyên liệu này đổi theo
+        await recalcProductCost(tx, await productsUsingItems(tx, [prItem.itemId]));
 
         await adjustStoreStock(tx, {
           storeId: po.storeId,
@@ -342,9 +347,41 @@ export function procurementRouter(prisma: PrismaClient) {
           }
         });
       }
+
+      // Công nợ phải trả NCC = số lượng thực nhận × đơn giá báo giá, hạn trả theo kỳ hạn của NCC
+      const billAmount = po.quote.rfq.requisition.items.reduce((sum, prItem) => {
+        const qItem = po.quote.items.find((q) => q.itemId === prItem.itemId);
+        return qItem ? sum + prItem.qty * qItem.unitPrice : sum;
+      }, 0);
+      if (billAmount > 0) {
+        const supplier = await tx.supplier.findUniqueOrThrow({ where: { id: po.supplierId }, select: { paymentTermDays: true } });
+        const now = new Date();
+        await createBill(tx, {
+          storeId: po.storeId,
+          supplierId: po.supplierId,
+          source: "GRN",
+          grnId: grn.id,
+          amount: billAmount,
+          billDate: now,
+          dueDate: new Date(now.getTime() + supplier.paymentTermDays * 86400_000),
+          note: `Nhận hàng ${grnCode} theo ${po.code}`,
+          createdById: staff.id,
+        });
+      }
     });
 
     res.json({ ok: true });
+  });
+
+  // Nhà cung cấp xem công nợ của mình: đã thanh toán / còn nợ
+  r.get("/supplier/bills", authSupp, async (req, res) => {
+    const supp = (req as SupplierRequest).supplier!;
+    const bills = await prisma.supplierBill.findMany({
+      where: { supplierId: supp.id, status: { not: "CANCELLED" } },
+      include: { store: { select: { name: true } }, grn: { select: { code: true, po: { select: { code: true } } } } },
+      orderBy: { billDate: "desc" },
+    });
+    res.json(bills.map((b) => ({ ...b, remaining: b.amount - b.paidAmount })));
   });
 
   // 8. Document Drive API

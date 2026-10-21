@@ -14,13 +14,33 @@ import {
 } from "lucide-react";
 import { apiOrigin } from "../lib/api";
 
-export type PanelProduct = { id: number; name: string; sellPrice: number; imageUrl: string | null; categoryId: number };
+export type PanelProduct = {
+  id: number;
+  name: string;
+  sellPrice: number;
+  imageUrl: string | null;
+  categoryId: number;
+  priceSizeS?: number | null;
+  priceSizeL?: number | null;
+  discountPercent?: number | null;
+};
+
+type Size = "S" | "M" | "L";
+const SIZES: Size[] = ["S", "M", "L"];
+/** Giá 1 ly theo size, đã trừ % giảm giá — cùng quy tắc máy chủ (lib/menuPrice): S/L trống → M − 3.000đ / M + 5.000đ */
+function priceFor(p: PanelProduct, size: Size) {
+  const base = size === "S" ? p.priceSizeS ?? Math.max(0, p.sellPrice - 3000) : size === "L" ? p.priceSizeL ?? p.sellPrice + 5000 : p.sellPrice;
+  return p.discountPercent && p.discountPercent > 0 ? Math.round(base * (1 - p.discountPercent / 100)) : base;
+}
+/** Đồ ăn (bánh…) không chọn size — cùng cách nhận biết với trang đặt món của khách */
+const isFoodCategory = (name?: string) => !!name && /đồ ăn|bánh/i.test(name);
 export type PanelCategory = { id: number; name: string };
 export type PanelTable = { id: number; name: string; status: string; location: string | null };
 export type PanelDetail = {
   id: number;
   quantity: number;
   unitPrice: number;
+  size?: string | null;
   customNotes: string | null;
   kdsStatus: string;
   product: { id: number; name: string };
@@ -33,7 +53,7 @@ export type PanelOrder = {
   customer: { id: number; fullName: string; phone: string | null; points: number } | null;
   details: PanelDetail[];
 };
-export type OrderLine = { productId: number; quantity: number; customNotes?: string };
+export type OrderLine = { productId: number; quantity: number; size: Size; customNotes?: string };
 
 type Mode = "items" | "order" | "move" | "merge" | "split";
 
@@ -269,6 +289,7 @@ function ItemsView({
                   <div className="tp-item-main">
                     <div className="tp-item-name">
                       <span className="tp-qty">{d.quantity}×</span> {d.product.name}
+                      {d.size && d.size !== "M" && <span className="tp-muted"> (size {d.size})</span>}
                     </div>
                     {d.customNotes && <div className="tp-item-note">{d.customNotes}</div>}
                     <span className={`tp-badge tone-${k.tone}`}>{k.label}</span>
@@ -329,23 +350,35 @@ function OrderView({
   const cats = categories.filter((c) => products.some((p) => p.categoryId === c.id));
   const [cat, setCat] = useState<number | null>(cats[0]?.id ?? null);
   const [q, setQ] = useState("");
-  const [lines, setLines] = useState<Record<number, Line>>({});
+  /** Mỗi món × size là 1 dòng riêng: khoá "id|size" */
+  const [lines, setLines] = useState<Record<string, Line>>({});
+  /** Size đang chọn cho từng món (mặc định M) */
+  const [sizeOf, setSizeOf] = useState<Record<number, Size>>({});
   const [phone, setPhone] = useState(initialPhone);
+  const catName = (id: number) => categories.find((c) => c.id === id)?.name;
+  const hasSizes = (p: PanelProduct) => !isFoodCategory(catName(p.categoryId));
 
   const list = useMemo(() => {
     const term = q.trim().toLowerCase();
     return products.filter((p) => (term ? p.name.toLowerCase().includes(term) : cat == null || p.categoryId === cat));
   }, [products, cat, q]);
 
-  const picked = Object.entries(lines).filter(([, l]) => l.qty > 0);
-  const count = picked.reduce((s, [, l]) => s + l.qty, 0);
-  const total = picked.reduce((s, [id, l]) => s + (products.find((p) => p.id === Number(id))?.sellPrice ?? 0) * l.qty, 0);
+  const picked = Object.entries(lines)
+    .filter(([, l]) => l.qty > 0)
+    .map(([key, l]) => {
+      const [id, size] = key.split("|");
+      return { product: products.find((p) => p.id === Number(id)), size: size as Size, line: l };
+    })
+    .filter((x): x is { product: PanelProduct; size: Size; line: Line } => !!x.product);
+  const count = picked.reduce((s, x) => s + x.line.qty, 0);
+  const total = picked.reduce((s, x) => s + priceFor(x.product, x.size) * x.line.qty, 0);
 
-  const change = (id: number, d: number) =>
+  const keyOf = (p: PanelProduct) => `${p.id}|${hasSizes(p) ? sizeOf[p.id] ?? "M" : "M"}`;
+  const change = (key: string, d: number) =>
     setLines((prev) => {
-      const cur = prev[id] ?? { qty: 0, note: "", showNote: false };
+      const cur = prev[key] ?? { qty: 0, note: "", showNote: false };
       const qty = Math.max(0, cur.qty + d);
-      return { ...prev, [id]: { ...cur, qty } };
+      return { ...prev, [key]: { ...cur, qty } };
     });
 
   return (
@@ -366,21 +399,46 @@ function OrderView({
         )}
         <ul className="tp-menu">
           {list.map((p) => {
-            const l = lines[p.id];
+            const sized = hasSizes(p);
+            const size: Size = sized ? sizeOf[p.id] ?? "M" : "M";
+            const key = keyOf(p);
+            const l = lines[key];
             const qty = l?.qty ?? 0;
+            // Các size khác của món này đã chọn (để phục vụ thấy tổng)
+            const others = SIZES.filter((s) => s !== size && (lines[`${p.id}|${s}`]?.qty ?? 0) > 0).map((s) => `${s}×${lines[`${p.id}|${s}`].qty}`);
             const img = p.imageUrl ? (p.imageUrl.startsWith("http") ? p.imageUrl : `${apiOrigin()}${p.imageUrl}`) : null;
             return (
               <li key={p.id} className={qty > 0 ? "tp-menu-item picked" : "tp-menu-item"}>
                 {img ? <img src={img} alt="" className="tp-thumb" loading="lazy" /> : <span className="tp-thumb" />}
                 <div className="tp-menu-main">
                   <div className="tp-item-name">{p.name}</div>
-                  <div className="tp-muted">{vnd(p.sellPrice)}</div>
+                  <div className="tp-muted">
+                    {vnd(priceFor(p, size))}
+                    {others.length > 0 && <span> · đã chọn {others.join(", ")}</span>}
+                  </div>
+                  {sized && (
+                    <div className="tp-sizes" role="group" aria-label={`Size ${p.name}`} style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                      {SIZES.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          className={s === size ? "tp-chip active" : "tp-chip"}
+                          style={{ padding: "2px 10px", minWidth: 32 }}
+                          aria-pressed={s === size}
+                          title={vnd(priceFor(p, s))}
+                          onClick={() => setSizeOf((prev) => ({ ...prev, [p.id]: s }))}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {l?.showNote && (
                     <input
                       className="o-input tp-note-input"
                       placeholder="Ít đá, ít ngọt…"
                       value={l.note}
-                      onChange={(e) => setLines((prev) => ({ ...prev, [p.id]: { ...prev[p.id], note: e.target.value } }))}
+                      onChange={(e) => setLines((prev) => ({ ...prev, [key]: { ...prev[key], note: e.target.value } }))}
                       autoFocus
                     />
                   )}
@@ -388,16 +446,16 @@ function OrderView({
                 <div className="tp-stepper">
                   {qty > 0 && (
                     <>
-                      <button type="button" className="tp-step" aria-label={`Ghi chú ${p.name}`} onClick={() => setLines((prev) => ({ ...prev, [p.id]: { ...prev[p.id], showNote: !prev[p.id].showNote } }))}>
+                      <button type="button" className="tp-step" aria-label={`Ghi chú ${p.name}`} onClick={() => setLines((prev) => ({ ...prev, [key]: { ...prev[key], showNote: !prev[key].showNote } }))}>
                         <NotebookPen size={16} aria-hidden />
                       </button>
-                      <button type="button" className="tp-step" aria-label={`Bớt ${p.name}`} onClick={() => change(p.id, -1)}>
+                      <button type="button" className="tp-step" aria-label={`Bớt ${p.name}`} onClick={() => change(key, -1)}>
                         <Minus size={16} aria-hidden />
                       </button>
                       <span className="tp-step-qty" aria-live="polite">{qty}</span>
                     </>
                   )}
-                  <button type="button" className="tp-step tp-step-add" aria-label={`Thêm ${p.name}`} onClick={() => change(p.id, 1)}>
+                  <button type="button" className="tp-step tp-step-add" aria-label={`Thêm ${p.name}`} onClick={() => change(key, 1)}>
                     <Plus size={16} aria-hidden />
                   </button>
                 </div>
@@ -418,7 +476,13 @@ function OrderView({
           disabled={!count || busy}
           onClick={() =>
             void onSend(
-              picked.map(([id, l]) => ({ productId: Number(id), quantity: l.qty, customNotes: l.note.trim() || undefined })),
+              picked.map((x) => ({
+                productId: x.product.id,
+                quantity: x.line.qty,
+                size: x.size,
+                // Ghi size vào ghi chú cho pha chế (giống đơn khách tự đặt)
+                customNotes: [hasSizes(x.product) ? `Size ${x.size}` : "", x.line.note.trim()].filter(Boolean).join(", ") || undefined,
+              })),
               phone.trim(),
             )
           }

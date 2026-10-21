@@ -8,6 +8,11 @@ export function formatVnd(n: number) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
 }
 
+/** Số lượng kho (có thể lẻ do trừ theo định mức): tối đa 2 chữ số thập phân */
+export function fmtQty(n: number | null | undefined) {
+  return (n ?? 0).toLocaleString("vi-VN", { maximumFractionDigits: 2 });
+}
+
 export function fmtDate(s: string | null | undefined) {
   return s ? new Date(s).toLocaleDateString("vi-VN") : "";
 }

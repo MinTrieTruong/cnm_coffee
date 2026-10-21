@@ -5,12 +5,13 @@ import type { Server } from "socket.io";
 import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
 import { inStore, mustStoreId, storeWhere, toStore } from "../lib/storeScope.js";
 import { unsellableProductIds } from "../lib/storeProducts.js";
+import { normalizeSize, unitPriceOf } from "../lib/menuPrice.js";
 import { computeBill, getStoreSettings } from "../lib/pricing.js";
 
 /**
  * GET /api/takeaway/new
- * Mỗi lần quét QR → sinh UUID session mới → redirect về /cart?session={uuid}&orderType=Takeaway
- * Không cần auth — đây là endpoint công khai dành cho khách quét QR.
+ * Giữ cho mã QR mang về đã in theo kiểu cũ. QR mới trỏ thẳng /menu?type=takeaway&store=… trên frontend.
+ * Mỗi lần quét → sinh UUID session mới → redirect về thực đơn ở chế độ mang về.
  */
 export function takeawayRouter() {
   const r = Router();
@@ -19,8 +20,9 @@ export function takeawayRouter() {
     const frontendOrigin = (req.headers.origin as string | undefined)
       ?? process.env.FRONTEND_URL
       ?? "http://localhost:5173";
-    // Redirect về frontend cart với session và orderType mang về
-    res.redirect(`${frontendOrigin}/cart?session=${session}&orderType=Takeaway`);
+    const store = Number(req.query.store);
+    const storeQs = Number.isInteger(store) && store > 0 ? `&store=${store}` : "";
+    res.redirect(`${frontendOrigin}/menu?sid=${session}${storeQs}`);
   });
   return r;
 }
@@ -63,18 +65,21 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
 
   r.post("/staff/tables/:id/items", ...waiterOps, async (req, res) => {
     const tableId = Number(req.params.id);
-    const { productId, quantity, customNotes, customerPhone } = req.body as {
+    const { productId, quantity, customNotes, customerPhone, size: rawSize } = req.body as {
       productId?: number;
       quantity?: number;
       customNotes?: string;
       customerPhone?: string;
+      /** S | M | L — món không có size (bánh…) gửi M */
+      size?: string;
     };
-    if (!tableId || !productId || typeof quantity !== "number" || quantity <= 0) {
+    if (!tableId || !Number.isInteger(productId) || !Number.isInteger(quantity) || (quantity as number) <= 0 || (quantity as number) > 99) {
       return res.status(400).json({ error: "Thiếu bàn, món hoặc số lượng." });
     }
+    const size = normalizeSize(rawSize);
     const [table, product] = await Promise.all([
       prisma.cafeTable.findUnique({ where: { id: tableId } }),
-      prisma.product.findUnique({ where: { id: productId } }),
+      prisma.product.findUnique({ where: { id: productId as number } }),
     ]);
     if (!table || !inStore(req, table)) return res.status(404).json({ error: "Không tìm thấy bàn." });
     if (!product || (await unsellableProductIds(prisma, table.storeId, [product])).has(product.id)) {
@@ -111,9 +116,11 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
       await tx.orderDetail.create({
         data: {
           orderId: active.id,
-          productId,
-          quantity,
-          unitPrice: product.sellPrice,
+          productId: product.id,
+          quantity: quantity as number,
+          // Giá theo size + % giảm giá của món (cùng cách tính với khách tự đặt)
+          unitPrice: unitPriceOf(product, size),
+          size,
           customNotes: customNotes?.trim() ? customNotes.trim() : null,
           kdsStatus: "Waiting",
         },
@@ -306,110 +313,6 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
     await prisma.order.delete({ where: { id: fromOrderId } });
     res.json({ ok: true, mergedInto: toOrderId, subTotal });
   });
-
-  r.post("/kitchen/requests", auth, requireRoles("Kitchen", "Admin"), requireStore, async (req, res) => {
-    const staff = (req as StaffRequest).staffRow!;
-    const { itemId, requestQty, note } = req.body as {
-      itemId?: number;
-      requestQty?: number;
-      note?: string;
-    };
-    if (!itemId || typeof requestQty !== "number" || requestQty <= 0) {
-      return res.status(400).json({ error: "Thiếu nguyên liệu hoặc số lượng" });
-    }
-    const row = await prisma.inventoryRequest.create({
-      data: {
-        storeId: mustStoreId(req),
-        staffId: staff.id,
-        itemId,
-        requestQty,
-        type: "Kitchen",
-        note: note ?? null,
-      },
-      include: { item: true },
-    });
-    toStore(io, "pos", row.storeId).emit("inventory:request", { id: row.id });
-    res.status(201).json(row);
-  });
-
-  /**
-   * POST /staff/inventory/requests
-   * Tạo phiếu nhập hàng — nhận mảng items để tạo nhiều dòng cùng lúc.
-   * Body: { items: [{ itemId, requestQty, note? }], note?: string }
-   */
-  r.post(
-    "/staff/inventory/requests",
-    auth,
-    requireRoles("Cashier", "Waiter", "Admin", "Kitchen", "Warehouse"),
-    requireStore,
-    async (req, res) => {
-      const staff = (req as StaffRequest).staffRow!;
-      const storeId = mustStoreId(req);
-      const { items, note: globalNote } = req.body as {
-        items?: { itemId: number; requestQty: number; note?: string }[];
-        note?: string;
-      };
-
-      if (!Array.isArray(items) || items.length === 0) {
-        return res.status(400).json({ error: "Cần ít nhất 1 nguyên liệu trong phiếu." });
-      }
-
-      // Validate từng dòng
-      for (const it of items) {
-        if (!it.itemId || typeof it.requestQty !== "number" || it.requestQty <= 0) {
-          return res.status(400).json({ error: "Số lượng phải > 0 cho tất cả nguyên liệu." });
-        }
-      }
-
-      // Tạo tất cả records trong 1 transaction
-      const created = await prisma.$transaction(
-        items.map((it) =>
-          prisma.inventoryRequest.create({
-            data: {
-              storeId,
-              staffId: staff.id,
-              itemId: it.itemId,
-              requestQty: it.requestQty,
-              type: "Restock",
-              note: it.note?.trim() || globalNote?.trim() || null,
-            },
-            include: { item: { select: { name: true, unit: true } } },
-          }),
-        ),
-      );
-
-      // Notify admin
-      toStore(io, "pos", storeId).emit("inventory:restock_request", {
-        count: created.length,
-        itemNames: created.map((r) => r.item.name).join(", "),
-      });
-
-      res.status(201).json(created);
-    },
-  );
-
-  /**
-   * GET /staff/inventory/requests
-   * Nhân viên xem danh sách phiếu nhập hàng của chính mình.
-   */
-  r.get(
-    "/staff/inventory/requests",
-    auth,
-    requireRoles("Cashier", "Waiter", "Admin", "Kitchen", "Warehouse"),
-    async (req, res) => {
-      const staff = (req as StaffRequest).staffRow!;
-      const rows = await prisma.inventoryRequest.findMany({
-        where: { staffId: staff.id },
-        orderBy: { id: "desc" },
-        take: 50,
-        include: {
-          item: { select: { name: true, unit: true } },
-          approvedBy: { select: { fullName: true } },
-        },
-      });
-      res.json(rows);
-    },
-  );
 
   /**
    * GET /staff/order-items/live

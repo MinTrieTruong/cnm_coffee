@@ -123,6 +123,19 @@ export function optimizeRoute<T extends LatLng>(start: LatLng, stops: T[]): T[] 
   return route;
 }
 
+/**
+ * Thu nhập phí ship của shipper trong [from, to): tổng phí ship các đơn giao thành công.
+ * Khách đã trả phí ship cùng tiền hàng khi thanh toán online; quán giữ hộ và cộng vào lương shipper.
+ */
+export async function shipperShippingIncome(prisma: PrismaClient, shipperId: number, from: Date, to: Date) {
+  const agg = await prisma.order.aggregate({
+    where: { shipperId, orderType: "Delivery", deliveryStatus: DS.Delivered, deliveredAt: { gte: from, lt: to } },
+    _sum: { shippingFee: true },
+    _count: { _all: true },
+  });
+  return { amount: agg._sum.shippingFee ?? 0, orders: agg._count._all };
+}
+
 /** Toạ độ chi nhánh — điểm xuất phát của shipper và gốc tính phí ship */
 export async function getStoreLocation(prisma: PrismaClient, storeId: number) {
   const s = await prisma.store.findUniqueOrThrow({ where: { id: storeId } });

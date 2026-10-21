@@ -26,28 +26,42 @@ export function reportsRouter() {
 
     const payments = await prisma.payment.findMany({
       where: { paymentTime: { gte: from, lte: to }, order: { ...storeWhere(req), status: "Paid" } },
-      include: { order: { select: { status: true } } },
+      include: { order: { select: { id: true, status: true, shippingFee: true } } },
     });
 
     // Tách riêng: tiền thật vs. điểm đổi
     const cashPayments = payments.filter(p => p.method !== "Points");
     const pointsPayments = payments.filter(p => p.method === "Points");
 
-    const total = cashPayments.reduce((s, p) => s + p.amount, 0);
+    // Phí ship khách trả cùng đơn là tiền của shipper (cộng vào lương) — không tính doanh thu quán
+    const shipOf = new Map(payments.map(p => [p.order.id, p.order.shippingFee]));
+    const shippingFee = [...shipOf.values()].reduce((s, v) => s + v, 0);
+    const total = cashPayments.reduce((s, p) => s + p.amount, 0) - shippingFee;
     const pointsRedeemTotal = pointsPayments.reduce((s, p) => s + p.amount, 0);
 
     const byDay: Record<string, { cash: number; points: number }> = {};
+    const shipCounted = new Set<number>();
     for (const p of payments) {
       const d = p.paymentTime.toISOString().slice(0, 10);
       if (!byDay[d]) byDay[d] = { cash: 0, points: 0 };
-      if (p.method !== "Points") byDay[d].cash += p.amount;
-      else byDay[d].points += p.amount;
+      if (p.method !== "Points") {
+        byDay[d].cash += p.amount;
+        if (!shipCounted.has(p.order.id)) {
+          shipCounted.add(p.order.id);
+          byDay[d].cash -= p.order.shippingFee;
+        }
+      } else byDay[d].points += p.amount;
     }
+    // Theo phương thức thanh toán (tiền mặt / chuyển khoản / thẻ / online…)
+    const byMethod: Record<string, number> = {};
+    for (const p of cashPayments) byMethod[p.method] = (byMethod[p.method] ?? 0) + p.amount;
 
     res.json({
       total,               // tiền thực thu (không bao gồm điểm)
       pointsRedeemTotal,   // tổng điểm đổi (chi phí loyalty)
       grandTotal: total + pointsRedeemTotal, // doanh thu gộp
+      shippingFee,         // phí ship thu hộ shipper (không tính doanh thu)
+      byMethod,
       byDay,
       from: from.toISOString().slice(0, 10),
       to: to.toISOString().slice(0, 10),
@@ -198,10 +212,19 @@ export function reportsRouter() {
     to.setHours(23, 59, 59, 999);
 
     // 1. Doanh thu từ đơn đã thanh toán
-    const payments = await prisma.payment.findMany({
-      where: { paymentTime: { gte: from, lte: to }, order: { ...storeWhere(req), status: "Paid" } },
-    });
-    const totalRevenue = payments.reduce((s, p) => s + p.amount, 0);
+    // Tiền thật (bỏ điểm đổi) trừ phí ship thu hộ shipper
+    const payments = (await prisma.payment.findMany({
+      where: { paymentTime: { gte: from, lte: to }, method: { not: "Points" }, order: { ...storeWhere(req), status: "Paid" } },
+      include: { order: { select: { id: true, shippingFee: true } } },
+    }));
+    const shipSeen = new Set<number>();
+    const netOf = (p: (typeof payments)[number]) => {
+      if (shipSeen.has(p.order.id)) return p.amount;
+      shipSeen.add(p.order.id);
+      return p.amount - p.order.shippingFee;
+    };
+    const netAmounts = payments.map((p) => ({ p, net: netOf(p) }));
+    const totalRevenue = netAmounts.reduce((s, x) => s + x.net, 0);
 
     // 2. Giá vốn từ chi tiết đơn × costPrice sản phẩm
     const orderLines = await prisma.orderDetail.findMany({
@@ -238,10 +261,10 @@ export function reportsRouter() {
 
     // Theo ngày
     const byDay: Record<string, { revenue: number; cost: number; profit: number }> = {};
-    for (const p of payments) {
+    for (const { p, net } of netAmounts) {
       const d = p.paymentTime.toISOString().slice(0, 10);
       if (!byDay[d]) byDay[d] = { revenue: 0, cost: 0, profit: 0 };
-      byDay[d].revenue += p.amount;
+      byDay[d].revenue += net;
     }
     for (const l of orderLines) {
       const d = l.order.createdAt.toISOString().slice(0, 10);
@@ -278,13 +301,13 @@ export function reportsRouter() {
       prisma.store.findMany({ orderBy: { id: "asc" }, select: { id: true, code: true, name: true, isActive: true } }),
       prisma.payment.findMany({
         where: { paymentTime: { gte: from, lte: to }, method: { not: "Points" }, order: { status: "Paid" } },
-        select: { amount: true, order: { select: { storeId: true } } },
+        select: { amount: true, order: { select: { id: true, storeId: true, shippingFee: true } } },
       }),
       prisma.order.groupBy({
         by: ["storeId"],
         where: { status: "Paid", createdAt: { gte: from, lte: to } },
         _count: { _all: true },
-        _sum: { totalAmount: true },
+        _sum: { totalAmount: true, shippingFee: true },
       }),
       prisma.orderDetail.findMany({
         where: { order: { status: "Paid", createdAt: { gte: from, lte: to } } },
@@ -292,8 +315,17 @@ export function reportsRouter() {
       }),
     ]);
 
+    // Doanh thu quán không gồm phí ship (thu hộ, trả cho shipper qua lương) — trừ 1 lần mỗi đơn
     const revenue = new Map<number, number>();
-    for (const p of payments) revenue.set(p.order.storeId, (revenue.get(p.order.storeId) ?? 0) + p.amount);
+    const shipDeducted = new Set<number>();
+    for (const p of payments) {
+      let amt = p.amount;
+      if (p.order.shippingFee > 0 && !shipDeducted.has(p.order.id)) {
+        shipDeducted.add(p.order.id);
+        amt -= p.order.shippingFee;
+      }
+      revenue.set(p.order.storeId, (revenue.get(p.order.storeId) ?? 0) + amt);
+    }
     const cost = new Map<number, number>();
     for (const l of lines) cost.set(l.order.storeId, (cost.get(l.order.storeId) ?? 0) + l.quantity * l.product.costPrice);
 
@@ -305,7 +337,7 @@ export function reportsRouter() {
         ...s,
         revenue: rev,
         orders: orderCount,
-        avgOrderValue: orderCount ? Math.round((o?._sum.totalAmount ?? 0) / orderCount) : 0,
+        avgOrderValue: orderCount ? Math.round(((o?._sum.totalAmount ?? 0) - (o?._sum.shippingFee ?? 0)) / orderCount) : 0,
         grossProfit: rev - (cost.get(s.id) ?? 0),
       };
     });

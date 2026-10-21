@@ -3,9 +3,6 @@ import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
 import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
 import { inStore, mustStoreId, storeWhere, toStore } from "../lib/storeScope.js";
-import { computePointsEarned, getStoreSettings } from "../lib/pricing.js";
-import { rankTierFromLifetimeSpend } from "../lib/rank.js";
-import { deductInventoryForOrder } from "../lib/inventory.js";
 import { saveDataUrlImage } from "../lib/uploadImage.js";
 import {
   ACTIVE_SHIPPER_STATUSES,
@@ -17,6 +14,7 @@ import {
   haversineKm,
   pushHoldToKitchen,
   recomputeRoute,
+  shipperShippingIncome,
   travelMinutes,
 } from "../lib/delivery.js";
 
@@ -26,11 +24,6 @@ const orderInclude = {
   details: { include: { product: { select: { id: true, name: true, imageUrl: true } } } },
   payments: { select: { method: true, amount: true } },
 } as const;
-
-/** Số tiền shipper cần thu khi giao (0 nếu đã thanh toán online) */
-function codAmountOf(o: { status: string; totalAmount: number }) {
-  return o.status === "Paid" ? 0 : o.totalAmount;
-}
 
 export function deliveryRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
@@ -65,7 +58,7 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
       }),
     ]);
     res.json({
-      orders: orders.map((o) => ({ ...o, codAmount: codAmountOf(o) })),
+      orders,
       shippers: shippers.map(({ ordersShipped, ...s }) => ({ ...s, activeOrders: ordersShipped.length })),
     });
   });
@@ -76,6 +69,7 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
     const order = await prisma.order.findUnique({ where: { id } });
     if (!order || !inStore(req, order) || order.orderType !== "Delivery") return res.status(404).json({ error: "Không tìm thấy đơn giao hàng" });
     if (order.deliveryStatus !== DS.AwaitingConfirm) return res.status(400).json({ error: "Đơn không ở trạng thái chờ xác nhận" });
+    if (order.status !== "Paid") return res.status(400).json({ error: "Đơn giao hàng chưa thanh toán — không thể nhận đơn" });
     await prisma.order.update({
       where: { id },
       data: { deliveryStatus: DS.Preparing, confirmedAt: new Date(), staffId: (req as StaffRequest).staffRow!.id },
@@ -161,16 +155,20 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
     );
 
     const delivered = history.filter((o) => o.deliveryStatus === DS.Delivered);
+    const monthStart = new Date(startOfDay.getFullYear(), startOfDay.getMonth(), 1);
+    const nextMonth = new Date(startOfDay.getFullYear(), startOfDay.getMonth() + 1, 1);
+    const month = await shipperShippingIncome(prisma, me.id, monthStart, nextMonth);
     res.json({
       me: { id: me.id, fullName: me.fullName, phone: me.phone, online: me.shipperOnline, lastLat: me.lastLat, lastLng: me.lastLng },
       store,
-      orders: active.map((o, i) => ({ ...o, codAmount: codAmountOf(o), etaMinutes: etas[i] })),
+      orders: active.map((o, i) => ({ ...o, etaMinutes: etas[i] })),
       history,
       stats: {
         deliveredToday: delivered.length,
         failedToday: history.length - delivered.length,
         shippingFeeToday: delivered.reduce((s, o) => s + o.shippingFee, 0),
-        codToday: delivered.reduce((s, o) => s + o.payments.filter((p) => p.method === "COD").reduce((a, p) => a + p.amount, 0), 0),
+        // Phí ship tháng này — được cộng vào phiếu lương cuối tháng
+        shippingFeeMonth: month.amount,
       },
     });
   });
@@ -230,7 +228,7 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
     res.json({ ok: true, orderIds });
   });
 
-  /** Giao thành công — bắt buộc có ảnh xác nhận; thu COD nếu chưa thanh toán */
+  /** Giao thành công — bắt buộc có ảnh xác nhận. Đơn đã thanh toán online trước nên shipper không thu tiền. */
   r.post("/shipper/orders/:id/deliver", ...shipperOnly, async (req, res) => {
     const me = (req as StaffRequest).staffRow!;
     const id = Number(req.params.id);
@@ -239,6 +237,7 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
     if (!order || !inStore(req, order) || (order.shipperId !== me.id && me.role === "Shipper")) return res.status(404).json({ error: "Không tìm thấy đơn" });
     if (order.deliveryStatus !== DS.Delivering) return res.status(400).json({ error: "Đơn chưa ở trạng thái đang giao" });
     if (!photo) return res.status(400).json({ error: "Cần chụp ảnh xác nhận đã giao" });
+    if (order.status !== "Paid") return res.status(400).json({ error: "Đơn chưa thanh toán — liên hệ thu ngân trước khi giao" });
 
     let proofUrl: string;
     try {
@@ -247,46 +246,22 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
       return res.status(400).json({ error: e instanceof Error ? e.message : "Ảnh không hợp lệ" });
     }
 
-    const settings = await getStoreSettings(prisma);
-    const cod = codAmountOf(order);
-    await prisma.$transaction(async (tx) => {
-      await tx.order.update({
-        where: { id },
-        data: {
-          deliveryStatus: DS.Delivered,
-          deliveredAt: new Date(),
-          deliveryProofUrl: proofUrl,
-          deliveryNote: note?.trim() || null,
-          routeSeq: null,
-          ...(cod > 0 ? { status: "Paid" } : {}),
-        },
-      });
-      if (cod > 0) {
-        // COD: tạo payment chưa gắn ca — thu ngân "xác nhận" khi shipper nộp tiền
-        await tx.payment.create({ data: { orderId: id, method: "COD", amount: cod, transCode: `COD-${id}-S${me.id}` } });
-        await deductInventoryForOrder(tx, id);
-        if (order.customerId && order.customer) {
-          const earned = computePointsEarned(cod, settings.pointEarnEveryVnd, settings.pointEarnEach);
-          const prevPaid = await tx.order.aggregate({
-            where: { customerId: order.customerId, status: "Paid" },
-            _sum: { totalAmount: true },
-          });
-          await tx.customer.update({
-            where: { id: order.customerId },
-            data: {
-              points: { increment: earned - order.pointsUsed },
-              rankTier: rankTierFromLifetimeSpend(prevPaid._sum.totalAmount ?? 0),
-            },
-          });
-        }
-      }
+    // Phí ship của đơn được tính vào thu nhập shipper khi giao thành công (cộng vào lương cuối tháng)
+    await prisma.order.update({
+      where: { id },
+      data: {
+        deliveryStatus: DS.Delivered,
+        deliveredAt: new Date(),
+        deliveryProofUrl: proofUrl,
+        deliveryNote: note?.trim() || null,
+        routeSeq: null,
+      },
     });
 
     await recomputeRoute(prisma, me.id);
     emitDeliveryChanged(io, order.storeId, [id], [me.id]);
-    if (cod > 0) toStore(io, "pos", order.storeId).emit("payment:done", { orderId: id, isOnline: true, method: "COD", customerLabel: order.customer?.fullName });
     await dispatchReadyOrders(prisma, io);
-    res.json({ ok: true, proofUrl, codCollected: cod });
+    res.json({ ok: true, proofUrl, shippingFeeEarned: order.shippingFee });
   });
 
   /** Giao thất bại (không liên lạc được khách, khách từ chối nhận…) */
@@ -380,7 +355,6 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
       subTotal: order.subTotal,
       shippingFee: order.shippingFee,
       totalAmount: order.totalAmount,
-      codAmount: codAmountOf(order),
     });
   });
 

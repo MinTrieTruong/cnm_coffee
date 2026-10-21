@@ -19,7 +19,7 @@ type PostRow = {
 
 const BASE = "/app/website/posts";
 const FALLBACK_NOTE =
-  "Không tải được danh sách quản trị (/api/posts/admin trả lỗi do backend khai báo route /posts/:id trước). Đang hiển thị tạm các bài đã xuất bản; bài đang ẩn không xem được ở đây.";
+  "Không tải được danh sách quản trị (/api/posts/admin). Đang hiển thị tạm các bài đã xuất bản; bài đang ẩn không xem được ở đây.";
 
 /** Tải bài đăng: ưu tiên API quản trị, lỗi thì dùng danh sách công khai */
 function usePosts() {

@@ -37,7 +37,18 @@ type TableRow = {
   orders: { id: number; status: string; totalAmount: number; details?: any[] }[];
 };
 
-type ProductRow = { id: number; name: string; sellPrice: number; isActive: boolean; outOfStock: boolean; imageUrl: string | null; categoryId: number; };
+type ProductRow = {
+  id: number;
+  name: string;
+  sellPrice: number;
+  priceSizeS?: number | null;
+  priceSizeL?: number | null;
+  discountPercent?: number | null;
+  isActive: boolean;
+  outOfStock: boolean;
+  imageUrl: string | null;
+  categoryId: number;
+};
 type MenuCategory = { id: number; name: string };
 type Zone = { id: number; name: string; isActive: boolean };
 type DetailRow = {
@@ -156,16 +167,17 @@ export function StaffTables() {
     void load();
   }, [load]);
 
+  /** Thực đơn của chi nhánh đang làm (ẩn món chi nhánh tắt / báo hết) */
+  const loadMenu = useCallback(async () => {
+    const data = await staffApi<{ categories: MenuCategory[]; products: ProductRow[] }>(`/api/menu${activeStoreId() ? `?store=${activeStoreId()}` : ""}`);
+    setProducts(data.products.filter((p) => p.isActive && !p.outOfStock));
+    setCategories(data.categories);
+  }, []);
+
   useEffect(() => {
     void (async () => {
       try {
-        const [data, zonesData] = await Promise.all([
-          // Thực đơn của chi nhánh đang làm (ẩn món chi nhánh tắt / báo hết)
-          staffApi<{ categories: MenuCategory[]; products: ProductRow[] }>(`/api/menu${activeStoreId() ? `?store=${activeStoreId()}` : ""}`),
-          staffApi<Zone[]>("/api/pos/zones")
-        ]);
-        setProducts(data.products.filter((p) => p.isActive && !p.outOfStock));
-        setCategories(data.categories);
+        const [, zonesData] = await Promise.all([loadMenu(), staffApi<Zone[]>("/api/pos/zones")]);
         setZones(zonesData);
 
         const savedZone = localStorage.getItem("staff_selected_zone");
@@ -177,7 +189,7 @@ export function StaffTables() {
         setZones([]);
       }
     })();
-  }, []);
+  }, [loadMenu]);
 
   const openTable = useCallback(async (tableId: number, quiet = false) => {
     setSelectedTable(tableId);
@@ -221,10 +233,13 @@ export function StaffTables() {
     // Nhân viên báo trống → refresh sơ đồ bàn
     socket.on("table:cleared", () => { void load(); });
 
+    // Pha chế báo hết / ẩn món → tải lại thực đơn gọi món
+    socket.on("menu:availability", () => { void loadMenu().catch(() => {}); });
+
     return () => {
       socket.disconnect();
     };
-  }, [load]);
+  }, [load, loadMenu]);
 
   /** Chạy thao tác, báo kết quả, làm mới sơ đồ (và khung bàn nếu còn mở) */
   async function act(fn: () => Promise<unknown>, ok: string, fail: string, refreshTable = true): Promise<boolean> {

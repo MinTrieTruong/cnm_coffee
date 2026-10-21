@@ -38,6 +38,7 @@ import {
   Users,
   Wallet,
   Warehouse,
+  Lightbulb,
 } from "lucide-react";
 import { APPS, appPath, canSee, leavesOf, listed } from "../../apps/registry";
 import { activeStoreId, getStaffInfo, isAdminRole } from "../../lib/staffApi";
@@ -46,8 +47,9 @@ import { Alert, formatVnd, type IconType } from "../../components/erp";
 import { useResource } from "../shared";
 
 type Pending = {
-  requests: number;
-  approvedRequests: number;
+  lowStock: number;
+  urgentFromOthers: number;
+  menuProposals: number;
   leave: number;
   swap: number;
   adjust: number;
@@ -64,6 +66,7 @@ type Stats = {
 type Schedule = {
   id: number;
   shiftCode: string;
+  shiftName?: string;
   startMin: number;
   endMin: number;
   actualCheckIn: string | null;
@@ -93,7 +96,7 @@ const HOME_BY_ROLE: Record<string, Group[]> = {
   Owner: [
     {
       title: "Thực đơn & khuyến mãi",
-      items: [S("sales", "products", Tags), S("sales", "categories", ListTree), S("sales", "combos", Package), S("kitchen", "formulas", ClipboardList), S("sales", "vouchers", Ticket)],
+      items: [S("sales", "products", Tags), S("sales", "proposals", Lightbulb), S("sales", "categories", ListTree), S("sales", "combos", Package), S("kitchen", "formulas", ClipboardList), S("sales", "vouchers", Ticket)],
     },
     {
       title: "Khách hàng & website",
@@ -121,7 +124,7 @@ const HOME_BY_ROLE: Record<string, Group[]> = {
         S("hr", "approvals", FileCheck),
         S("hr", "schedule", CalendarDays, "Lịch tổng"),
         S("hr", "payroll", Calculator),
-        S("inventory", "requests", ClipboardCheck),
+        S("inventory", "stock", Warehouse),
         S("purchase", "orders", ShoppingCart),
         S("tables", "zones", LayoutGrid),
       ],
@@ -140,7 +143,7 @@ const HOME_BY_ROLE: Record<string, Group[]> = {
     },
     {
       title: "Kho & mua hàng",
-      items: [S("inventory", "requests", ClipboardCheck, "Duyệt phiếu NL"), S("purchase", "orders", ShoppingCart, "Duyệt mua hàng"), S("inventory", "stock", Warehouse)],
+      items: [S("purchase", "orders", ShoppingCart, "Duyệt mua hàng"), S("inventory", "stock", Warehouse), S("inventory", "urgent", ClipboardList)],
     },
     {
       title: "Bàn & thực đơn chi nhánh",
@@ -179,7 +182,7 @@ const HOME_BY_ROLE: Record<string, Group[]> = {
   Warehouse: [
     {
       title: "Kho",
-      items: [S("inventory", "stock", Warehouse), S("inventory", "check", ClipboardCheck), S("inventory", "requests", ClipboardList), S("inventory", "transfers", ArrowRightLeft)],
+      items: [S("inventory", "stock", Warehouse), S("inventory", "urgent", ClipboardList), S("inventory", "transfers", ArrowRightLeft), S("inventory", "waste", ClipboardCheck)],
     },
     {
       title: "Mua hàng",
@@ -200,7 +203,6 @@ const FRONTLINE: Group[] = [
       S("tables", "order-status", Coffee),
       S("delivery", "orders", Bike, "Đơn giao"),
       S("delivery", "shipper", Truck, "Đơn của tôi"),
-      S("inventory", "check", ClipboardCheck),
       S("tables", "chat", MessageSquare),
     ],
   },
@@ -233,13 +235,15 @@ function greeting() {
 function todoItems(role: string, p: Pending) {
   if (role === "Warehouse") {
     return [
-      { n: p.approvedRequests, text: "phiếu NL đã duyệt chờ giao / nhập", to: "/app/inventory/requests" },
+      { n: p.lowStock, text: "nguyên liệu sắp hết — cần đặt hàng", to: "/app/inventory/stock" },
+      { n: p.urgentFromOthers, text: "chi nhánh khác đang cần hàng gấp", to: "/app/inventory/urgent" },
       { n: p.incomingTransfers, text: "phiếu chuyển kho chờ nhận", to: "/app/inventory/transfers" },
       { n: p.openPurchaseOrders, text: "đơn mua hàng chờ nhận hàng", to: "/app/purchase/orders" },
     ];
   }
   return [
-    { n: p.requests, text: "phiếu xin NL chờ duyệt", to: "/app/inventory/requests" },
+    ...(role === "Owner" ? [{ n: p.menuProposals, text: "đề xuất món mới chờ duyệt", to: "/app/sales/proposals" }] : []),
+    { n: p.lowStock, text: "nguyên liệu sắp hết", to: "/app/inventory/stock" },
     { n: p.leave, text: "đơn xin nghỉ chờ duyệt", to: "/app/hr/approvals" },
     { n: p.swap, text: "đề nghị đổi ca chờ duyệt", to: "/app/hr/approvals" },
     { n: p.adjust, text: "giải trình chấm công chờ duyệt", to: "/app/hr/approvals" },
@@ -267,8 +271,10 @@ export function Home() {
     }))
     .filter((g) => g.items.length > 0);
 
-  // Việc chờ là của 1 chi nhánh — Chủ chuỗi xem "tất cả" thì không hiện
-  const todos = stats.data && !allStores ? todoItems(role, stats.data.pending).filter((t) => t.n > 0) : null;
+  // Việc chờ là của 1 chi nhánh — Chủ chuỗi xem "tất cả" thì chỉ hiện đề xuất món (việc của cả chuỗi)
+  const todos = stats.data
+    ? todoItems(role, stats.data.pending).filter((t) => t.n > 0 && (!allStores || t.to === "/app/sales/proposals"))
+    : null;
 
   const storeLabel = info?.storeName ?? (allStores ? "Tất cả chi nhánh" : stores.data.find((s) => s.id === activeStoreId())?.name ?? null);
   const dateLabel = new Date().toLocaleDateString("vi-VN", { weekday: "long", day: "2-digit", month: "2-digit" });
@@ -358,12 +364,12 @@ function ShiftCard({ schedules, loading }: { schedules: Schedule[]; loading: boo
     detail = "";
   } else if (cur?.actualCheckIn) {
     state = "working";
-    title = `Đang trong ca ${cur.shiftCode} · ${minToTime(cur.startMin)}–${minToTime(cur.endMin)}`;
+    title = `Đang trong ${cur.shiftName ?? `ca ${cur.shiftCode}`} · ${minToTime(cur.startMin)}–${minToTime(cur.endMin)}`;
     detail = `Vào ca lúc ${clock(cur.actualCheckIn)}. Nhớ chấm công khi ra về.`;
     cta = "Chấm công ra";
   } else if (cur) {
     state = "due";
-    title = `Ca ${cur.shiftCode} · ${minToTime(cur.startMin)}–${minToTime(cur.endMin)}`;
+    title = `${cur.shiftName ?? `Ca ${cur.shiftCode}`} · ${minToTime(cur.startMin)}–${minToTime(cur.endMin)}`;
     detail = "Bạn chưa chấm công vào ca.";
     cta = "Chấm công vào";
   } else if (done) {

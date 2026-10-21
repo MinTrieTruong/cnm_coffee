@@ -6,13 +6,8 @@ import { vi } from "date-fns/locale";
 import { staffApi, getStaffInfo, staffSocket as openStaffSocket } from "../lib/staffApi";
 
 
-const SHIFTS = [
-  { code: "A",   name: "Ca A",   label: "07:00 – 12:00", hours: 5,  color: "#3b82f6" },
-  { code: "B",   name: "Ca B",   label: "12:30 – 17:30", hours: 5,  color: "#8b5cf6" },
-  { code: "C",   name: "Ca C",   label: "18:00 – 00:00", hours: 6,  color: "#ec4899" },
-  { code: "SP1", name: "Ca SP1", label: "08:30 – 11:30", hours: 3,  color: "#ea580c", badge: "Tăng cường" },
-  { code: "SP2", name: "Ca SP2", label: "19:00 – 22:00", hours: 3,  color: "#0d9488", badge: "Tăng cường" },
-];
+/** Ca làm lấy từ cấu hình của Chủ chuỗi (API trả kèm lịch) */
+type ShiftDef = { code: string; name: string; label: string; hours: number; color: string; isActive: boolean };
 
 type WS = {
   id: number;
@@ -32,15 +27,18 @@ export function WorkSchedule() {
   const [weekMon, setWeekMon] = useState<Date>(mondayOf(new Date()));
   const weekDays = eachDayOfInterval({ start: weekMon, end: addDays(weekMon, 6) });
   const [saved, setSaved] = useState<WS[]>([]);
+  const [shifts, setShifts] = useState<ShiftDef[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await staffApi<{ schedules: WS[] }>(`/api/schedule/my?week=${toDateStr(weekMon)}`);
+      const res = await staffApi<{ schedules: WS[]; shiftDefs: ShiftDef[] }>(`/api/schedule/my?week=${toDateStr(weekMon)}`);
       // Lịch read-only chỉ hiện những ca APPROVED (do Manager xếp)
-      setSaved(res.schedules.filter(s => s.status === "APPROVED"));
+      const approved = res.schedules.filter(s => s.status === "APPROVED");
+      setSaved(approved);
+      setShifts(res.shiftDefs.filter((d) => d.isActive || approved.some((w) => w.shiftCode === d.code)));
       setErr(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Lỗi tải lịch");
@@ -63,7 +61,7 @@ export function WorkSchedule() {
 
   function hoursForDay(dateStr: string): number {
     let total = 0;
-    SHIFTS.forEach((s) => {
+    shifts.forEach((s) => {
       const ws = saved.find((w) => isSameDay(parseISO(w.workDate), new Date(dateStr)) && w.shiftCode === s.code);
       if (ws) total += s.hours;
     });
@@ -111,7 +109,7 @@ export function WorkSchedule() {
               </tr>
             </thead>
             <tbody>
-              {SHIFTS.map((shift, si) => (
+              {shifts.map((shift, si) => (
                 <tr key={shift.code} style={{ borderTop: "1px solid #e5e7eb" }}>
                   <td style={{ padding: "0.75rem 0.75rem", borderRight: "1px solid #e5e7eb", background: si % 2 === 0 ? "#f9fafb" : "#fff" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>

@@ -3,6 +3,7 @@ import { Trash2, Truck } from "lucide-react";
 import { staffApi } from "../../lib/staffApi";
 import { Button, Chatter, EmptyState, Field, FormGroup, FormGroups, FormView, RecordList, errMsg } from "../../components/erp";
 import { useRecordNav, useResource } from "../shared";
+import { PasswordInput } from "../../components/PasswordInput";
 
 type SupplierRow = {
   id: number;
@@ -14,6 +15,7 @@ type SupplierRow = {
   isActive: boolean;
   createdAt: string;
   username?: string | null;
+  paymentTermDays?: number;
 };
 
 const BASE = "/app/purchase/suppliers";
@@ -47,7 +49,7 @@ export function SupplierList() {
   );
 }
 
-const EMPTY = { name: "", phone: "", address: "", email: "", note: "", username: "", password: "" };
+const EMPTY = { name: "", phone: "", address: "", email: "", note: "", username: "", password: "", paymentTermDays: "30" };
 
 export function SupplierForm({ recordId }: { recordId?: string }) {
   const isNew = recordId === "new";
@@ -61,12 +63,13 @@ export function SupplierForm({ recordId }: { recordId?: string }) {
   const [reloadKey, setReloadKey] = useState(0);
 
   const reset = (x: SupplierRow) =>
-    setForm({ name: x.name, phone: x.phone ?? "", address: x.address ?? "", email: x.email ?? "", note: x.note ?? "", username: x.username ?? "", password: "" });
+    setForm({ name: x.name, phone: x.phone ?? "", address: x.address ?? "", email: x.email ?? "", note: x.note ?? "", username: x.username ?? "", password: "", paymentTermDays: String(x.paymentTermDays ?? 30) });
   useEffect(() => {
     if (s) reset(s);
   }, [s]);
   const set = (k: keyof typeof EMPTY, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const ro = !editing;
+  const payload = () => ({ ...form, paymentTermDays: Number(form.paymentTermDays) || 0 });
 
   async function save() {
     if (!form.name.trim()) return setErr("Thiếu tên nhà cung cấp");
@@ -74,10 +77,10 @@ export function SupplierForm({ recordId }: { recordId?: string }) {
     setErr(null);
     try {
       if (isNew) {
-        const created = await staffApi<{ id?: number }>("/api/admin/suppliers", { method: "POST", body: JSON.stringify(form) });
+        const created = await staffApi<{ id?: number }>("/api/admin/suppliers", { method: "POST", body: JSON.stringify(payload()) });
         return created?.id ? go.open(created.id) : go.list();
       }
-      await staffApi(`/api/admin/suppliers/${recordId}`, { method: "PATCH", body: JSON.stringify(form) });
+      await staffApi(`/api/admin/suppliers/${recordId}`, { method: "PATCH", body: JSON.stringify(payload()) });
       await list.reload();
       setEditing(false);
       setReloadKey((k) => k + 1);
@@ -139,11 +142,14 @@ export function SupplierForm({ recordId }: { recordId?: string }) {
           <Field label="Tên đăng nhập"><input className="o-input" value={form.username} disabled={ro} onChange={(e) => set("username", e.target.value)} /></Field>
           {editing && (
             <Field label="Mật khẩu">
-              <input className="o-input" type="password" value={form.password} onChange={(e) => set("password", e.target.value)} placeholder={isNew ? "" : "Để trống nếu không đổi"} />
+              <PasswordInput className="o-input" value={form.password} onChange={(e) => set("password", e.target.value)} placeholder={isNew ? "" : "Để trống nếu không đổi"} />
             </Field>
           )}
         </FormGroup>
       </FormGroups>
+      <Field label="Kỳ hạn thanh toán (ngày)">
+        <input className="o-input" inputMode="numeric" value={form.paymentTermDays} disabled={ro} onChange={(e) => set("paymentTermDays", e.target.value)} />
+      </Field>
       <Field label="Ghi chú" full>
         <input className="o-input" value={form.note} disabled={ro} onChange={(e) => set("note", e.target.value)} />
       </Field>

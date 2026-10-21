@@ -6,6 +6,7 @@ import {
   errMsg, fmtDate, fmtDateTime,
 } from "../../components/erp";
 import { useRecordNav, useResource } from "../shared";
+import { PasswordInput } from "../../components/PasswordInput";
 
 type CustomerRow = {
   id: number;
@@ -189,7 +190,7 @@ function ResetPasswordDialog({ customerId, onClose, onDone }: { customerId: numb
     >
       {err && <Alert>{err}</Alert>}
       <Field label="Mật khẩu mới">
-        <input className="o-input" type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="Tối thiểu 6 ký tự" autoFocus />
+        <PasswordInput className="o-input" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="Tối thiểu 6 ký tự" autoFocus />
       </Field>
     </Modal>
   );

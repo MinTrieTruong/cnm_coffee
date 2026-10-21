@@ -10,6 +10,7 @@ import {
   ShoppingCart,
   UsersRound,
   UtensilsCrossed,
+  Wallet,
   Warehouse,
 } from "lucide-react";
 import type { IconType } from "../components/erp";
@@ -24,15 +25,19 @@ const L = (f: () => Promise<Record<string, unknown>>, name: string): LazyExoticC
 const Pos = L(() => import("../pages/Pos"), "Pos");
 const StaffTables = L(() => import("../pages/StaffTables"), "StaffTables");
 const Kds = L(() => import("../pages/Kds"), "Kds");
-const InventoryCheck = L(() => import("../pages/InventoryCheck"), "InventoryCheck");
 const WorkSchedule = L(() => import("../pages/WorkSchedule"), "WorkSchedule");
+const Schedule = L(() => import("../modules/hr/Schedule"), "Schedule");
+const ShiftConfig = L(() => import("../modules/hr/ShiftConfig"), "ShiftConfig");
+const StockRequests = L(() => import("../modules/inventory/StockRequests"), "StockRequests");
+const ProposalList = L(() => import("../modules/sales/Proposals"), "ProposalList");
+const WasteList = L(() => import("../modules/inventory/Waste"), "WasteList");
+const AttendanceWarnings = L(() => import("../modules/hr/AttendanceWarnings"), "AttendanceWarnings");
 const StaffChat = L(() => import("../pages/StaffChat"), "StaffChat");
 const StaffOrderStatus = L(() => import("../pages/StaffOrderStatus"), "StaffOrderStatus");
 const Attendance = L(() => import("../pages/Attendance"), "Attendance");
 const StaffPayslips = L(() => import("../pages/StaffPayslips"), "StaffPayslips");
 const HrRequests = L(() => import("../pages/HrRequests"), "HrRequests");
 const ShipperDashboard = L(() => import("../pages/ShipperDashboard"), "ShipperDashboard");
-const AdminSchedule = L(() => import("../pages/AdminSchedule"), "AdminSchedule");
 const IngredientFormula = L(() => import("../pages/IngredientFormula"), "IngredientFormula");
 const QrGenerator = L(() => import("../pages/QrGenerator"), "QrGenerator");
 const ProcurementAdmin = L(() => import("../pages/ProcurementAdmin"), "ProcurementAdmin");
@@ -64,9 +69,15 @@ const EmployeeForm = L(() => import("../modules/hr/Employees"), "EmployeeForm");
 
 const StockList = L(() => import("../modules/inventory/Stock"), "StockList");
 const StockForm = L(() => import("../modules/inventory/Stock"), "StockForm");
-const RequestList = L(() => import("../modules/inventory/Requests"), "RequestList");
-const RequestForm = L(() => import("../modules/inventory/Requests"), "RequestForm");
 const TransferList = L(() => import("../modules/inventory/Transfers"), "TransferList");
+
+// Tài chính: két, thu chi, báo cáo ca / cuối ngày, công nợ, lãi lỗ
+const Funds = L(() => import("../modules/finance/Funds"), "Funds");
+const CashEntries = L(() => import("../modules/finance/Entries"), "Entries");
+const ShiftReports = L(() => import("../modules/finance/Shifts"), "Shifts");
+const DailyReport = L(() => import("../modules/finance/Daily"), "DailyReport");
+const Payables = L(() => import("../modules/finance/Payables"), "Payables");
+const ProfitLoss = L(() => import("../modules/finance/Pnl"), "ProfitLoss");
 
 const SupplierList = L(() => import("../modules/purchase/Suppliers"), "SupplierList");
 const SupplierForm = L(() => import("../modules/purchase/Suppliers"), "SupplierForm");
@@ -116,6 +127,8 @@ const CHAIN_AND_BRANCH = ["Owner", "Admin"];
 const STOCK = ["Admin", "Warehouse"];
 /** Nhân viên có lịch/đơn từ cá nhân */
 const STAFF = ["Admin", "Warehouse", "Waiter", "Kitchen", "Cashier", "Shipper"];
+/** Thu ngân + quản lý + chủ chuỗi (chủ chuỗi xem tổng hợp mọi chi nhánh) */
+const CASH = ["Owner", "Admin", "Cashier"];
 /** Quản lý vào được màn thao tác ca để hỗ trợ, nhưng không hiện trong menu (nhóm "Theo dõi ca" ở Trang chủ) */
 const SUPPORT = ["Admin"];
 
@@ -142,6 +155,7 @@ export const APPS: AppDef[] = [
       { id: "categories", label: "Danh mục", roles: OWNER, component: CategoryList, layout: "erp" },
       { id: "combos", label: "Combo", roles: OWNER, component: AdminCombos, layout: "legacy" },
       { id: "vouchers", label: "Voucher", roles: CHAIN_AND_BRANCH, component: VoucherList, form: VoucherForm, layout: "erp" },
+      { id: "proposals", label: "Đề xuất món", roles: CHAIN_AND_BRANCH, component: ProposalList, layout: "erp" },
       { id: "customers", label: "Khách hàng", roles: OWNER, component: CustomerList, form: CustomerForm, layout: "erp" },
       { id: "reviews", label: "Đánh giá", roles: CHAIN_AND_BRANCH, component: ReviewList, form: ReviewForm, layout: "erp" },
     ],
@@ -171,7 +185,7 @@ export const APPS: AppDef[] = [
     icon: ChefHat,
     menus: [
       { id: "kds", label: "KDS", roles: ["Admin", "Kitchen"], supportFor: SUPPORT, component: Kds, layout: "full" },
-      { id: "formulas", label: "Định mức NL", roles: OWNER, component: IngredientFormula, props: { embedded: true }, layout: "legacy" },
+      { id: "formulas", label: "Công thức & giá vốn", roles: CHAIN_AND_BRANCH, component: IngredientFormula, layout: "erp" },
     ],
   },
   {
@@ -180,9 +194,9 @@ export const APPS: AppDef[] = [
     icon: Warehouse,
     menus: [
       { id: "stock", label: "Tồn kho", roles: STOCK, component: StockList, form: StockForm, layout: "erp" },
-      { id: "check", label: "Kiểm kho", roles: ["Warehouse", "Kitchen"], component: InventoryCheck, layout: "full" },
-      { id: "requests", label: "Phiếu xin NL", roles: STOCK, component: RequestList, form: RequestForm, layout: "erp" },
+      { id: "urgent", label: "Cần hàng gấp", roles: STOCK, component: StockRequests, layout: "erp" },
       { id: "transfers", label: "Chuyển kho", roles: ["Warehouse"], component: TransferList, layout: "erp" },
+      { id: "waste", label: "Sổ hao hụt", roles: STOCK, component: WasteList, layout: "erp" },
     ],
   },
   {
@@ -192,6 +206,19 @@ export const APPS: AppDef[] = [
     menus: [
       { id: "orders", label: "Mua hàng", roles: STOCK, component: ProcurementAdmin, props: { embedded: true }, layout: "legacy" },
       { id: "suppliers", label: "Nhà cung cấp", roles: ["Owner", "Warehouse"], component: SupplierList, form: SupplierForm, layout: "erp" },
+    ],
+  },
+  {
+    id: "finance",
+    label: "Tài chính",
+    icon: Wallet,
+    menus: [
+      { id: "funds", label: "Két & quỹ", roles: CASH, component: Funds, layout: "erp" },
+      { id: "entries", label: "Phiếu thu chi", roles: CASH, component: CashEntries, layout: "erp" },
+      { id: "shifts", label: "Báo cáo ca", roles: CASH, component: ShiftReports, layout: "erp" },
+      { id: "daily", label: "Báo cáo cuối ngày", roles: ADMIN, component: DailyReport, layout: "erp" },
+      { id: "payables", label: "Công nợ NCC", roles: CHAIN_AND_BRANCH, component: Payables, layout: "erp" },
+      { id: "pnl", label: "Lãi lỗ", roles: CHAIN_AND_BRANCH, component: ProfitLoss, layout: "erp" },
     ],
   },
   {
@@ -216,14 +243,15 @@ export const APPS: AppDef[] = [
           {
             id: "schedule",
             label: "Bảng lịch tổng",
-            labelFor: (r) => (r === "Admin" || r === "Owner" ? "Quản lý lịch" : "Bảng lịch tổng"),
+            labelFor: (r) => (r === "Admin" || r === "Owner" ? "Xếp lịch tháng" : "Bảng lịch tổng"),
             roles: STAFF,
-            component: AdminSchedule,
-            props: { embedded: true },
-            layout: "legacy",
+            component: Schedule,
+            layout: "erp",
           },
           { id: "my-schedule", label: "Lịch cá nhân", roles: STAFF, component: WorkSchedule, layout: "legacy" },
           { id: "attendance", label: "Chấm công", roles: "all", component: Attendance, layout: "full" },
+          { id: "warnings", label: "Cảnh báo chấm công", roles: CHAIN_AND_BRANCH, component: AttendanceWarnings, layout: "erp" },
+          { id: "shift-config", label: "Cấu hình ca & chấm công", roles: CHAIN_AND_BRANCH, component: ShiftConfig, layout: "erp" },
         ],
       },
       {
@@ -238,8 +266,8 @@ export const APPS: AppDef[] = [
         id: "forms",
         label: "Đơn từ",
         children: [
-          { id: "approvals", label: "Duyệt đơn từ", roles: ADMIN, component: AdminHrRequests, layout: "legacy" },
-          { id: "requests", label: "Đơn từ của tôi", roles: STAFF, component: HrRequests, layout: "legacy" },
+          { id: "approvals", label: "Duyệt đơn từ", roles: ADMIN, component: AdminHrRequests, layout: "erp" },
+          { id: "requests", label: "Đơn từ của tôi", roles: STAFF, component: HrRequests, layout: "erp" },
         ],
       },
     ],
@@ -319,7 +347,7 @@ export const LEGACY_ADMIN_TABS: Record<string, string> = {
   payroll: "/app/hr/payroll",
   hrRequests: "/app/hr/approvals",
   inventory: "/app/inventory/stock",
-  requests: "/app/inventory/requests",
+  requests: "/app/inventory/stock",
   procurement: "/app/purchase/orders",
   suppliers: "/app/purchase/suppliers",
   posts: "/app/website/posts",
@@ -334,7 +362,7 @@ export const LEGACY_PATHS: Record<string, string> = {
   "/admin/qr": "/app/tables/qr",
   "/kds": "/app/kitchen/kds",
   "/staff/tables": "/app/tables/floor",
-  "/staff/inventory": "/app/inventory/check",
+  "/staff/inventory": "/app/inventory/stock",
   "/staff/schedule": "/app/hr/my-schedule",
   "/staff/chat": "/app/tables/chat",
   "/staff/order-status": "/app/tables/order-status",

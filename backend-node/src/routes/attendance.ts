@@ -2,18 +2,21 @@
  * routes/attendance.ts — Chấm công GPS + FaceID & Tăng ca
  *
  * POST /attendance/clock            — Check-in / Check-out (GPS + Face)
- * POST /attendance/request-overtime  — NV xin tăng ca
- * PUT  /attendance/approve-overtime  — Quản lý duyệt tăng ca
+ * POST /attendance/request-overtime  — NV làm phiếu làm thêm sau khi check-out (quản lý duyệt ở Đơn từ)
  * POST /attendance/register-face     — Đăng ký khuôn mặt cho NV
  * GET  /attendance/face-descriptor   — Lấy face descriptor của NV
  * GET  /attendance/store-location    — Lấy tọa độ quán
  * GET  /attendance/today             — Lấy trạng thái chấm công hôm nay
+ * GET  /attendance/warnings          — Cảnh báo chấm công theo tháng (quản lý)
  */
 import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
 import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
-import { inStore, mustStoreId } from "../lib/storeScope.js";
+import { inStore, mustStoreId, storeWhere } from "../lib/storeScope.js";
 import { getStoreSettings } from "../lib/pricing.js";
+import { getHrConfig, getShiftTemplates } from "../lib/hrConfig.js";
+import { evaluateShift, shiftWindow } from "../lib/attendanceRules.js";
+import { syncOvertime } from "../lib/overtime.js";
 
 /* ── Haversine formula ──────────────────────────────────────────── */
 function haversineDistance(
@@ -88,7 +91,8 @@ export function attendanceRouter(prisma: PrismaClient) {
       },
       orderBy: { startMin: "asc" },
     });
-    res.json({ schedules });
+    const names = new Map((await getShiftTemplates(prisma)).map((t) => [t.code, t.name]));
+    res.json({ schedules: schedules.map((s) => ({ ...s, shiftName: names.get(s.shiftCode) ?? s.shiftCode })) });
   });
 
   /* ══════════════════════════════════════════════════════════════════
@@ -113,7 +117,8 @@ export function attendanceRouter(prisma: PrismaClient) {
       },
       orderBy: { workDate: "asc" },
     });
-    res.json({ schedules });
+    const cfg = await getHrConfig(prisma);
+    res.json({ schedules: schedules.map((s) => ({ ...s, verdict: evaluateShift(s, cfg) })) });
   });
 
   /* ══════════════════════════════════════════════════════════════════
@@ -187,13 +192,14 @@ export function attendanceRouter(prisma: PrismaClient) {
         });
       }
 
-      // Chỉ cho phép check-in sớm tối đa 30 phút
-      const earliestAllowed = schedule.startMin - 30;
+      // Chỉ cho phép check-in sớm tối đa N phút (Chủ chuỗi cấu hình)
+      const { earlyCheckInMin } = await getHrConfig(prisma);
+      const earliestAllowed = schedule.startMin - earlyCheckInMin;
       if (nowMin < earliestAllowed) {
         const startH = Math.floor(schedule.startMin / 60);
         const startM = schedule.startMin % 60;
         return res.status(400).json({
-          error: `Chưa đến giờ check-in. Ca bắt đầu lúc ${String(startH).padStart(2, "0")}:${String(startM).padStart(2, "0")}. Chỉ được check-in sớm tối đa 30 phút.`,
+          error: `Chưa đến giờ check-in. Ca bắt đầu lúc ${String(startH).padStart(2, "0")}:${String(startM).padStart(2, "0")}. Chỉ được check-in sớm tối đa ${earlyCheckInMin} phút.`,
         });
       }
 
@@ -202,9 +208,11 @@ export function attendanceRouter(prisma: PrismaClient) {
         data: { actualCheckIn: now },
       });
 
+      const verdict = evaluateShift(updated, await getHrConfig(prisma));
       return res.json({
         ok: true,
-        message: "Check-in thành công!",
+        message: verdict.late ? `Check-in thành công — bạn vào trễ ${verdict.lateMin} phút.` : "Check-in thành công!",
+        lateMinutes: verdict.late ? verdict.lateMin : 0,
         schedule: updated,
         distance: Math.round(distance),
       });
@@ -223,15 +231,18 @@ export function attendanceRouter(prisma: PrismaClient) {
           },
         });
       } else {
+        // Tính cả ca hôm qua (ca qua đêm check-out sau 00:00)
+        const yesterday = todayStart();
+        yesterday.setDate(yesterday.getDate() - 1);
         schedule = await prisma.workSchedule.findFirst({
           where: {
             staffId: me.id,
-            workDate: { gte: todayStart(), lte: todayEnd() },
+            workDate: { gte: yesterday, lte: todayEnd() },
             status: "APPROVED",
             actualCheckIn: { not: null },
             actualCheckOut: null,
           },
-          orderBy: { startMin: "asc" },
+          orderBy: [{ workDate: "desc" }, { startMin: "asc" }],
         });
       }
 
@@ -246,104 +257,114 @@ export function attendanceRouter(prisma: PrismaClient) {
         data: { actualCheckOut: now },
       });
 
-      // Tính thời gian dư so với endMin
-      const extraMinutes = nowMin - schedule.endMin;
-      const promptOvertime = extraMinutes > 30;
+      // Có phiếu làm thêm đã duyệt → khớp giờ check-out, xác nhận số phút được tính lương luôn
+      const ot = await syncOvertime(prisma, schedule.id);
+      const extraMinutes = Math.max(0, Math.floor((now.getTime() - shiftWindow(schedule).end) / 60_000));
+      const message = ot.approved > 0
+        ? `Check-out thành công — ghi nhận ${ot.paid} phút làm thêm (phiếu duyệt ${ot.approved} phút).`
+        : "Check-out thành công!";
 
       return res.json({
         ok: true,
-        message: "Check-out thành công!",
-        schedule: updated,
+        message,
+        schedule: { ...updated, isOvertime: ot.approved > 0, overtimeMinutes: ot.approved > 0 ? ot.paid : null },
         distance: Math.round(distance),
-        extraMinutes: Math.max(0, extraMinutes),
-        promptOvertime,
+        extraMinutes,
+        overtimeMinutes: ot.paid,
+        // Ở lại quá 30 phút mà chưa có phiếu → gợi ý làm phiếu bổ sung
+        promptOvertime: ot.approved === 0 && extraMinutes > 30,
       });
     }
   });
 
   /* ══════════════════════════════════════════════════════════════════
-     POST /attendance/request-overtime — NV xin tăng ca
-     Body: { scheduleId, staffNote }
+     POST /attendance/request-overtime — Phiếu làm thêm bổ sung sau check-out
+     Body: { scheduleId, staffNote } — tạo phiếu OVERTIME bằng số phút ở lại sau giờ hết ca
   ══════════════════════════════════════════════════════════════════ */
   r.post("/attendance/request-overtime", ...anyStaff, async (req, res) => {
     const me = (req as StaffRequest).staffRow!;
-    const { scheduleId, staffNote } = req.body as {
-      scheduleId: number;
-      staffNote: string;
-    };
+    const { scheduleId, staffNote } = req.body as { scheduleId: number; staffNote: string };
+    if (!scheduleId || !staffNote?.trim()) return res.status(400).json({ error: "Thiếu ca hoặc lý do." });
 
-    if (!scheduleId || !staffNote) {
-      return res.status(400).json({ error: "Thiếu scheduleId hoặc staffNote." });
-    }
+    const schedule = await prisma.workSchedule.findFirst({ where: { id: scheduleId, staffId: me.id, actualCheckOut: { not: null } } });
+    if (!schedule) return res.status(404).json({ error: "Không tìm thấy ca đã check-out." });
+    const dup = await prisma.workRequest.count({ where: { scheduleId, type: "OVERTIME", status: { in: ["PENDING", "APPROVED"] } } });
+    if (dup) return res.status(400).json({ error: "Ca này đã có phiếu làm thêm giờ." });
 
-    const schedule = await prisma.workSchedule.findFirst({
-      where: {
-        id: scheduleId,
-        staffId: me.id,
-        actualCheckOut: { not: null },
-      },
+    const { maxOvertimeMinutes } = await getHrConfig(prisma);
+    const extra = Math.floor((schedule.actualCheckOut!.getTime() - shiftWindow(schedule).end) / 60_000);
+    if (extra <= 0) return res.status(400).json({ error: "Bạn check-out trước giờ hết ca, không có giờ làm thêm." });
+
+    await prisma.workRequest.create({
+      data: { userId: me.id, scheduleId, type: "OVERTIME", minutes: Math.min(extra, maxOvertimeMinutes), reason: staffNote.trim() },
     });
-
-    if (!schedule) {
-      return res.status(404).json({ error: "Không tìm thấy ca đã check-out." });
-    }
-
-    const updated = await prisma.workSchedule.update({
-      where: { id: scheduleId },
-      data: {
-        isOvertime: true,
-        overtimeNote: staffNote,
-      },
-    });
-
-    res.json({
-      ok: true,
-      message: "Đã gửi yêu cầu tăng ca thành công!",
-      schedule: updated,
-    });
+    await prisma.workSchedule.update({ where: { id: scheduleId }, data: { overtimeNote: staffNote.trim() } });
+    res.json({ ok: true, message: "Đã gửi phiếu làm thêm giờ, chờ quản lý duyệt." });
   });
 
   /* ══════════════════════════════════════════════════════════════════
-     PUT /attendance/approve-overtime — Quản lý duyệt tăng ca
-     Body: { scheduleId, managerNote, approvedMinutes, managerId }
+     GET /attendance/warnings?month=YYYY-MM — Cảnh báo chấm công
+     Đếm số lần đi muộn / về sớm / vắng của từng nhân viên trong tháng;
+     đi muộn từ `lateWarnThreshold` lần trở lên → bị cảnh báo.
   ══════════════════════════════════════════════════════════════════ */
-  r.put("/attendance/approve-overtime", ...mgmtOnly, async (req, res) => {
-    const me = (req as StaffRequest).staffRow!;
-    const { scheduleId, managerNote, approvedMinutes } = req.body as {
-      scheduleId: number;
-      managerNote?: string;
-      approvedMinutes: number;
-    };
+  r.get("/attendance/warnings", ...mgmtOnly, async (req, res) => {
+    const m = /^(\d{4})-(\d{2})$/.exec(String(req.query.month ?? ""));
+    const now = new Date();
+    const y = m ? Number(m[1]) : now.getFullYear();
+    const mo = m ? Number(m[2]) : now.getMonth() + 1;
+    const from = new Date(Date.UTC(y, mo - 1, 1));
+    const to = new Date(Date.UTC(y, mo, 0));
 
-    if (!scheduleId || approvedMinutes == null) {
-      return res.status(400).json({ error: "Thiếu scheduleId hoặc approvedMinutes." });
+    const [cfg, templates, staff, schedules] = await Promise.all([
+      getHrConfig(prisma),
+      getShiftTemplates(prisma),
+      prisma.staff.findMany({
+        where: { ...storeWhere(req), status: "Active", role: { notIn: ["Owner"] } },
+        select: { id: true, fullName: true, role: true, storeId: true, store: { select: { name: true } } },
+        orderBy: { fullName: "asc" },
+      }),
+      prisma.workSchedule.findMany({
+        where: { ...storeWhere(req), workDate: { gte: from, lte: to }, status: "APPROVED", staffId: { not: null } },
+        orderBy: [{ workDate: "asc" }, { startMin: "asc" }],
+      }),
+    ]);
+
+    const names = new Map(templates.map((t) => [t.code, t.name]));
+    type Incident = { scheduleId: number; date: string; shiftCode: string; shiftName: string; kind: "late" | "early" | "absent"; minutes: number };
+    const byStaff = new Map<number, Incident[]>();
+    const shifts = new Map<number, number>();
+    for (const w of schedules) {
+      shifts.set(w.staffId!, (shifts.get(w.staffId!) ?? 0) + 1);
+      const v = evaluateShift(w, cfg, now);
+      const list = byStaff.get(w.staffId!) ?? byStaff.set(w.staffId!, []).get(w.staffId!)!;
+      const base = { scheduleId: w.id, date: w.workDate.toISOString().slice(0, 10), shiftCode: w.shiftCode, shiftName: names.get(w.shiftCode) ?? w.shiftCode };
+      if (v.absent) list.push({ ...base, kind: "absent", minutes: 0 });
+      if (v.late) list.push({ ...base, kind: "late", minutes: v.lateMin });
+      if (v.early) list.push({ ...base, kind: "early", minutes: v.earlyMin });
     }
 
-    const schedule = await prisma.workSchedule.findUnique({
-      where: { id: scheduleId },
+    const rows = staff.map((s) => {
+      const incidents = byStaff.get(s.id) ?? [];
+      const lateCount = incidents.filter((i) => i.kind === "late").length;
+      return {
+        staffId: s.id,
+        fullName: s.fullName,
+        role: s.role,
+        storeName: s.store?.name ?? null,
+        shiftCount: shifts.get(s.id) ?? 0,
+        lateCount,
+        lateMinutes: incidents.filter((i) => i.kind === "late").reduce((a, i) => a + i.minutes, 0),
+        earlyCount: incidents.filter((i) => i.kind === "early").length,
+        absentCount: incidents.filter((i) => i.kind === "absent").length,
+        warned: lateCount >= cfg.lateWarnThreshold,
+        incidents,
+      };
     });
-
-    if (!schedule || !inStore(req, schedule)) {
-      return res.status(404).json({ error: "Không tìm thấy ca." });
-    }
-
-    if (!schedule.isOvertime) {
-      return res.status(400).json({ error: "Ca này chưa có yêu cầu tăng ca." });
-    }
-
-    const updated = await prisma.workSchedule.update({
-      where: { id: scheduleId },
-      data: {
-        overtimeMinutes: approvedMinutes,
-        managerNote: managerNote ?? null,
-        reviewedBy: me.id,
-      },
-    });
-
     res.json({
-      ok: true,
-      message: "Đã duyệt tăng ca.",
-      schedule: updated,
+      month: `${y}-${String(mo).padStart(2, "0")}`,
+      threshold: cfg.lateWarnThreshold,
+      lateGraceMin: cfg.lateGraceMin,
+      rows,
     });
   });
 

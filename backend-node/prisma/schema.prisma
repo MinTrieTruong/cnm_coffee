@@ -21,6 +21,8 @@ model StoreSettings {
   pointEarnEach      Int   @default(100) @map("Point_Earn_Each")
   /// Độ nhạy nhận diện khuôn mặt (FaceID) - càng thấp càng khắt khe
   faceMatchThreshold Float @default(0.5) @map("Face_Match_Threshold")
+  /// Thu ngân tự chi từ két / ngăn kéo tối đa bao nhiêu mỗi phiếu; vượt mức cần quản lý duyệt
+  pettyCashLimit     Int   @default(200000) @map("Petty_Cash_Limit")
 
   @@map("Store_Settings")
 }
@@ -34,6 +36,7 @@ model Category {
   children  Category[] @relation("CategoryTree")
   products  Product[]
 
+  proposals MenuProposal[]
   @@map("Categories")
 }
 
@@ -46,6 +49,10 @@ model InventoryItem {
   supplier      String?                   @map("Supplier") @db.VarChar(100)
   /// Giá nhập mới nhất / đơn vị kho (để tính lợi nhuận)
   unitCostPrice Int                       @default(0) @map("Unit_Cost_Price")
+  /// Đơn vị dùng trong công thức (g, ml, cái…)
+  recipeUnit    String?                   @map("Recipe_Unit") @db.VarChar(20)
+  /// 1 đơn vị kho = bao nhiêu đơn vị công thức (VD 1 bịch = 1000 g)
+  recipePerUnit Float                     @default(1) @map("Recipe_Per_Unit")
   imageUrl      String?                   @map("Image_URL") @db.VarChar(1024)
   requests      InventoryRequest[]
   shiftLogs     ShiftInventoryLog[]
@@ -59,6 +66,8 @@ model InventoryItem {
   storeStocks   StoreInventory[]
   transferItems StockTransferItem[]
 
+  wasteLogs     WasteLog[]
+  stockRequests StockRequest[]
   @@map("Inventory")
 }
 
@@ -83,6 +92,8 @@ model Product {
   comboItems      ComboItem[]
   storeProducts   StoreProduct[]
 
+  wasteLogs       WasteLog[]
+  proposals       MenuProposal[]
   @@map("Products")
 }
 
@@ -202,7 +213,7 @@ model Staff {
   /// Face descriptor JSON (128-d Float32Array) cho nhận diện khuôn mặt
   faceDescriptor   String?            @map("Face_Descriptor") @db.Text
   orders           Order[]
-  shifts           Shift[]
+  shifts           Shift[]            @relation("ShiftStaff")
   workSchedules    WorkSchedule[]
   requestsMade     InventoryRequest[] @relation("RequestByStaff")
   requestsApproved InventoryRequest[] @relation("ApprovedByStaff")
@@ -218,6 +229,8 @@ model Staff {
   shiftSwapApprovals    ShiftSwapRequest[]     @relation("ShiftSwapApprovals")
   attendanceAdjustments AttendanceAdjustment[] @relation("AttendanceAdjustments")
   attendanceApprovals   AttendanceAdjustment[] @relation("AttendanceApprovals")
+  workRequests          WorkRequest[]          @relation("WorkRequests")
+  workRequestApprovals  WorkRequest[]          @relation("WorkRequestApprovals")
   purchaseRequisitions  PurchaseRequisition[]  @relation("PRByStaff")
   goodsReceipts         GoodsReceipt[]
 
@@ -237,6 +250,19 @@ model Staff {
   storeId Int?   @map("Store_ID")
   store   Store? @relation(fields: [storeId], references: [id])
 
+  wasteLogs             WasteLog[]
+  stockRequests         StockRequest[]         @relation("StockRequestBy")
+  stockRequestsAccepted StockRequest[]         @relation("StockRequestAcceptedBy")
+  menuProposals         MenuProposal[]         @relation("MenuProposalBy")
+  menuProposalsReviewed MenuProposal[]         @relation("MenuProposalReviewer")
+  /// Thu chi & két
+  cashEntriesCreated    CashEntry[]            @relation("CashEntryCreatedBy")
+  cashEntriesApproved   CashEntry[]            @relation("CashEntryApprovedBy")
+  safeSessionsOpened    SafeSession[]          @relation("SafeOpenedBy")
+  safeSessionsClosed    SafeSession[]          @relation("SafeClosedBy")
+  shiftsReviewed        Shift[]                @relation("ShiftReviewer")
+  supplierBillsCreated  SupplierBill[]         @relation("SupplierBillCreatedBy")
+
   @@index([storeId])
   @@map("Staff")
 }
@@ -251,9 +277,19 @@ model Shift {
   actualCash    Int?                @map("Actual_Cash")
   differenceAmt Int?                @map("Difference")
   note          String?             @map("Note") @db.VarChar(255)
-  staff         Staff               @relation(fields: [staffId], references: [id])
+  /// Tiền mặt bán hàng trong ca (chốt lúc đóng ca)
+  cashSales     Int?                @map("Cash_Sales")
+  /// Số tờ theo mệnh giá khi đếm đóng ca, JSON {"500000": 2, ...}
+  denominations String?             @map("Denominations") @db.Text
+  /// Quản lý xác nhận báo cáo ca (đặc biệt khi có chênh lệch)
+  reviewedById  Int?                @map("Reviewed_By")
+  reviewedAt    DateTime?           @map("Reviewed_At")
+  reviewNote    String?             @map("Review_Note") @db.VarChar(255)
+  staff         Staff               @relation("ShiftStaff", fields: [staffId], references: [id])
+  reviewedBy    Staff?              @relation("ShiftReviewer", fields: [reviewedById], references: [id])
   payments      Payment[]
   inventoryLogs ShiftInventoryLog[]
+  cashEntries   CashEntry[]
 
   /// Chi nhánh
   storeId Int   @map("Store_ID")
@@ -436,10 +472,13 @@ model Supplier {
   email          String?         @map("Email") @db.VarChar(100)
   note           String?         @map("Note") @db.VarChar(500)
   isActive       Boolean         @default(true) @map("Is_Active")
+  /// Số ngày được nợ kể từ ngày nhận hàng (hạn thanh toán công nợ)
+  paymentTermDays Int            @default(30) @map("Payment_Term_Days")
   createdAt      DateTime        @default(now()) @map("Created_At")
   receipts       StockReceipt[]
   quotes         SupplierQuote[]
   purchaseOrders PurchaseOrder[]
+  bills          SupplierBill[]
 
   @@map("Suppliers")
 }
@@ -567,7 +606,10 @@ enum AdjustmentType {
 model LeaveRequest {
   id        Int           @id @default(autoincrement()) @map("LR_ID")
   userId    Int           @map("User_ID")
+  /// Ngày bắt đầu nghỉ
   date      DateTime      @map("Date") @db.Date
+  /// Ngày kết thúc (null = nghỉ 1 ngày)
+  toDate    DateTime?     @map("To_Date") @db.Date
   leaveType LeaveType     @map("Leave_Type")
   reason    String        @map("Reason") @db.VarChar(500)
   status    RequestStatus @default(PENDING) @map("Status")
@@ -653,11 +695,18 @@ model WorkSchedule {
   overtimeMinutes Int?               @map("Overtime_Minutes")
   /// Ghi chú xin tăng ca của nhân viên
   overtimeNote    String?            @map("Overtime_Note") @db.VarChar(500)
+  /// Vị trí của ca (Cashier/Waiter/Kitchen…) — giữ lại khi ca thành ca trống
+  role            String?            @map("Role") @db.VarChar(20)
+  /// Đi muộn đã được duyệt đơn — không tính cảnh báo
+  lateExcused     Boolean            @default(false) @map("Late_Excused")
+  /// Về sớm đã được duyệt đơn — không tính cảnh báo
+  earlyExcused    Boolean            @default(false) @map("Early_Excused")
   createdAt       DateTime           @default(now()) @map("Created_At")
   updatedAt       DateTime           @updatedAt @map("Updated_At")
 
   staff             Staff?             @relation(fields: [staffId], references: [id])
   shiftSwapRequests ShiftSwapRequest[]
+  workRequests      WorkRequest[]
   /// Chi nhánh
   storeId           Int                @map("Store_ID")
   store             Store              @relation(fields: [storeId], references: [id])
@@ -764,6 +813,12 @@ model Payslip {
   allowance        Int      @map("Allowance")
   globalBonus      Int      @default(0) @map("Global_Bonus")
   individualBonus  Int      @default(0) @map("Individual_Bonus")
+  /// Số phút làm thêm được tính lương (đã duyệt phiếu + khớp giờ check-out)
+  overtimeMinutes  Int      @default(0) @map("Overtime_Minutes")
+  overtimePay      Int      @default(0) @map("Overtime_Pay")
+  /// Shipper: tổng phí ship các đơn giao thành công trong tháng (khách đã trả cùng đơn, quán giữ hộ)
+  shippingIncome   Int      @default(0) @map("Shipping_Income")
+  deliveredOrders  Int      @default(0) @map("Delivered_Orders")
   netSalary        Int      @map("Net_Salary")
   status           String   @default("PENDING") @map("Status") @db.VarChar(20)
   createdAt        DateTime @default(now()) @map("Created_At")
@@ -779,8 +834,9 @@ model Payslip {
 model InventoryTransaction {
   id              Int      @id @default(autoincrement()) @map("Tx_ID")
   itemId          Int      @map("Item_ID")
-  qtyChange       Int      @map("Qty_Change")
-  newStockQty     Int      @map("New_Stock_Qty")
+  /// Theo đơn vị kho, có thể lẻ (VD bán 1 ly trừ 0.02 bịch cà phê)
+  qtyChange       Float    @map("Qty_Change")
+  newStockQty     Float    @map("New_Stock_Qty")
   transactionType String   @map("Tx_Type") @db.VarChar(50)
   referenceId     String?  @map("Ref_ID") @db.VarChar(100)
   createdAt       DateTime @default(now()) @map("Created_At")
@@ -874,6 +930,7 @@ model GoodsReceipt {
   po         PurchaseOrder      @relation(fields: [poId], references: [id])
   receivedBy Staff              @relation(fields: [receivedById], references: [id])
   items      GoodsReceiptItem[]
+  bill       SupplierBill?
 
   /// Chi nhánh
   storeId Int   @map("Store_ID")
@@ -996,8 +1053,15 @@ model Store {
   vouchers           VoucherStore[]
   transfersOut       StockTransfer[]        @relation("TransferFrom")
   transfersIn        StockTransfer[]        @relation("TransferTo")
+  cashEntries        CashEntry[]
+  safeSessions       SafeSession[]
+  supplierBills      SupplierBill[]
 
   @@map("Stores")
+  wasteLogs WasteLog[]
+  stockRequests         StockRequest[]  @relation("StockRequestStore")
+  stockRequestsAccepted StockRequest[]  @relation("StockRequestFromStore")
+  menuProposals         MenuProposal[]
 }
 
 /// Món bán tại chi nhánh. Không có dòng = đang bán bình thường.
@@ -1018,7 +1082,8 @@ model StoreProduct {
 model StoreInventory {
   storeId  Int           @map("Store_ID")
   itemId   Int           @map("Item_ID")
-  stockQty Int           @default(0) @map("Stock_Qty")
+  /// Theo đơn vị kho, có thể lẻ vì bán hàng trừ theo định mức (g, ml → bịch, hộp)
+  stockQty Float         @default(0) @map("Stock_Qty")
   minLevel Int           @default(0) @map("Min_Level")
   store    Store         @relation(fields: [storeId], references: [id])
   item     InventoryItem @relation(fields: [itemId], references: [id])
@@ -1048,6 +1113,8 @@ model StockTransfer {
   receivedBy Staff?              @relation("TransferReceivedBy", fields: [receivedById], references: [id])
   items      StockTransferItem[]
 
+  /// Tạo ra từ yêu cầu hàng gấp của chi nhánh nhận
+  stockRequest StockRequest?
   @@index([fromStoreId])
   @@index([toStoreId])
   @@map("Stock_Transfers")
@@ -1076,4 +1143,282 @@ model VoucherStore {
 
   @@id([voucherId, storeId])
   @@map("Voucher_Stores")
+}
+
+/// ─── Cấu hình ca & chấm công (Chủ chuỗi đặt, áp dụng toàn chuỗi) ───
+/// Mẫu ca làm việc, VD Ca sáng 07:00–15:00
+model ShiftTemplate {
+  id        Int            @id @default(autoincrement()) @map("ST_ID")
+  /// Mã ca lưu vào Work_Schedules.Shift_Code
+  code      String         @unique @map("Code") @db.VarChar(10)
+  name      String         @map("Name") @db.VarChar(50)
+  /// Phút từ 00:00 (VD 7*60 = 420)
+  startMin  Int            @map("Start_Min")
+  endMin    Int            @map("End_Min")
+  color     String         @default("#6f4e37") @map("Color") @db.VarChar(9)
+  sortOrder Int            @default(0) @map("Sort_Order")
+  isActive  Boolean        @default(true) @map("Is_Active")
+  staffing  StaffingRule[]
+
+  @@map("Shift_Templates")
+}
+
+/// Định biên: mỗi ca cần bao nhiêu người cho từng vị trí
+model StaffingRule {
+  id              Int           @id @default(autoincrement()) @map("SR_ID")
+  shiftTemplateId Int           @map("Shift_Template_ID")
+  role            String        @map("Role") @db.VarChar(20)
+  /// Thứ 2 – Thứ 6
+  weekdayCount    Int           @default(0) @map("Weekday_Count")
+  /// Thứ 7 – Chủ nhật
+  weekendCount    Int           @default(0) @map("Weekend_Count")
+  template        ShiftTemplate @relation(fields: [shiftTemplateId], references: [id], onDelete: Cascade)
+
+  @@unique([shiftTemplateId, role])
+  @@map("Staffing_Rules")
+}
+
+/// Quy tắc xếp lịch & chấm công (1 dòng)
+model HrConfig {
+  id                 Int @id @default(1) @map("Config_ID")
+  /// Vào trễ quá N phút mới tính là đi muộn
+  lateGraceMin       Int @default(5) @map("Late_Grace_Min")
+  /// Ra sớm quá N phút mới tính là về sớm
+  earlyLeaveGraceMin Int @default(5) @map("Early_Leave_Grace_Min")
+  /// Số lần đi muộn trong tháng thì bị cảnh báo
+  lateWarnThreshold  Int @default(3) @map("Late_Warn_Threshold")
+  /// Được check-in sớm tối đa N phút
+  earlyCheckInMin    Int @default(30) @map("Early_Check_In_Min")
+  /// Nghỉ tối thiểu giữa 2 ca liên tiếp (giờ) — dùng khi tự xếp lịch
+  minRestHours       Int @default(8) @map("Min_Rest_Hours")
+  /// Số ca tối đa / tuần / người — dùng khi tự xếp lịch
+  maxShiftsPerWeek   Int @default(6) @map("Max_Shifts_Per_Week")
+  /// Phụ cấp làm thêm giờ: 1 giờ làm thêm = lương giờ × (100% + N%)
+  overtimeRatePercent Int @default(15) @map("Overtime_Rate_Percent")
+  /// Mỗi phiếu làm thêm tối đa N phút
+  maxOvertimeMinutes  Int @default(240) @map("Max_Overtime_Minutes")
+
+  @@map("Hr_Configs")
+}
+
+/// Đơn gắn với 1 ca: làm thêm giờ / xin về sớm / đi muộn / khác
+enum WorkRequestType {
+  OVERTIME
+  EARLY_LEAVE
+  LATE_ARRIVAL
+  OTHER
+}
+
+model WorkRequest {
+  id          Int             @id @default(autoincrement()) @map("WR_ID")
+  userId      Int             @map("User_ID")
+  scheduleId  Int?            @map("Schedule_ID")
+  type        WorkRequestType @map("Type")
+  /// Số phút làm thêm / về sớm / đi muộn (làm thêm: quản lý có thể duyệt ít hơn số xin)
+  minutes     Int?            @map("Minutes")
+  reason      String          @map("Reason") @db.VarChar(500)
+  status      RequestStatus   @default(PENDING) @map("Status")
+  managerId   Int?            @map("Manager_ID")
+  managerNote String?         @map("Manager_Note") @db.VarChar(500)
+  createdAt   DateTime        @default(now()) @map("Created_At")
+  updatedAt   DateTime        @updatedAt @map("Updated_At")
+
+  user     Staff         @relation("WorkRequests", fields: [userId], references: [id])
+  manager  Staff?        @relation("WorkRequestApprovals", fields: [managerId], references: [id])
+  schedule WorkSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@map("Work_Requests")
+}
+
+/// Sổ hao hụt ở quầy pha chế: đổ bể, hư hỏng, làm lại món… (đã trừ kho)
+model WasteLog {
+  id        Int            @id @default(autoincrement()) @map("Waste_ID")
+  storeId   Int            @map("Store_ID")
+  staffId   Int            @map("Staff_ID")
+  /// Hỏng cả món → trừ nguyên liệu theo định mức
+  productId Int?           @map("Product_ID")
+  size      String?        @map("Size") @db.VarChar(5)
+  /// Hao hụt 1 nguyên liệu
+  itemId    Int?           @map("Item_ID")
+  /// Số ly (món) hoặc số đơn vị kho, có thể lẻ (nguyên liệu)
+  qty       Float          @map("Qty")
+  /// SPILL | BROKEN | EXPIRED | REMAKE | OTHER
+  reason    String         @map("Reason") @db.VarChar(20)
+  note      String?        @map("Note") @db.VarChar(255)
+  /// Giá trị ước tính (VND) theo giá vốn
+  costValue Int            @default(0) @map("Cost_Value")
+  createdAt DateTime       @default(now()) @map("Created_At")
+  store     Store          @relation(fields: [storeId], references: [id])
+  staff     Staff          @relation(fields: [staffId], references: [id])
+  product   Product?       @relation(fields: [productId], references: [id])
+  item      InventoryItem? @relation(fields: [itemId], references: [id])
+
+  @@index([storeId, createdAt])
+  @@map("Waste_Logs")
+}
+
+/// Kho chi nhánh cần hàng gấp (chưa kịp đặt NCC) → chi nhánh khác còn hàng bấm "Chuyển giúp"
+model StockRequest {
+  id              Int            @id @default(autoincrement()) @map("SRQ_ID")
+  /// Chi nhánh cần hàng
+  storeId         Int            @map("Store_ID")
+  itemId          Int            @map("Item_ID")
+  /// Số lượng cần (đơn vị kho)
+  qty             Float          @map("Qty")
+  note            String?        @map("Note") @db.VarChar(255)
+  /// OPEN → ACCEPTED (đã có chi nhánh chuyển) | CANCELLED
+  status          String         @default("OPEN") @map("Status") @db.VarChar(20)
+  createdById     Int            @map("Created_By")
+  acceptedStoreId Int?           @map("Accepted_Store_ID")
+  acceptedById    Int?           @map("Accepted_By")
+  transferId      Int?           @unique @map("Transfer_ID")
+  createdAt       DateTime       @default(now()) @map("Created_At")
+  acceptedAt      DateTime?      @map("Accepted_At")
+  store           Store          @relation("StockRequestStore", fields: [storeId], references: [id])
+  acceptedStore   Store?         @relation("StockRequestFromStore", fields: [acceptedStoreId], references: [id])
+  item            InventoryItem  @relation(fields: [itemId], references: [id])
+  createdBy       Staff          @relation("StockRequestBy", fields: [createdById], references: [id])
+  acceptedBy      Staff?         @relation("StockRequestAcceptedBy", fields: [acceptedById], references: [id])
+  transfer        StockTransfer? @relation(fields: [transferId], references: [id])
+
+  @@index([status])
+  @@map("Stock_Requests")
+}
+
+/// Pha chế đề xuất món mới → Chủ chuỗi duyệt → tạo món từ đề xuất
+model MenuProposal {
+  id             Int       @id @default(autoincrement()) @map("MP_ID")
+  storeId        Int       @map("Store_ID")
+  staffId        Int       @map("Staff_ID")
+  name           String    @map("Name") @db.VarChar(255)
+  /// Mô tả hương vị / ý tưởng
+  description    String?   @map("Description") @db.Text
+  /// Nguyên liệu & cách làm
+  recipe         String?   @map("Recipe") @db.Text
+  suggestedPrice Int?      @map("Suggested_Price")
+  categoryId     Int?      @map("Category_ID")
+  imageUrl       String?   @map("Image_URL") @db.VarChar(1024)
+  /// PENDING → APPROVED → CREATED (đã tạo món) | REJECTED
+  status         String    @default("PENDING") @map("Status") @db.VarChar(20)
+  ownerNote      String?   @map("Owner_Note") @db.VarChar(500)
+  reviewedById   Int?      @map("Reviewed_By")
+  reviewedAt     DateTime? @map("Reviewed_At")
+  productId      Int?      @map("Product_ID")
+  createdAt      DateTime  @default(now()) @map("Created_At")
+  updatedAt      DateTime  @updatedAt @map("Updated_At")
+  store          Store     @relation(fields: [storeId], references: [id])
+  staff          Staff     @relation("MenuProposalBy", fields: [staffId], references: [id])
+  reviewer       Staff?    @relation("MenuProposalReviewer", fields: [reviewedById], references: [id])
+  category       Category? @relation(fields: [categoryId], references: [id])
+  product        Product?  @relation(fields: [productId], references: [id])
+
+  @@index([status])
+  @@map("Menu_Proposals")
+}
+
+/// ─── THU CHI, KÉT & CÔNG NỢ ────────────────────────────────────────
+
+/**
+ * Sổ quỹ: mọi biến động tiền của chi nhánh giữa 3 quỹ
+ *   SAFE   — két sắt của chi nhánh
+ *   DRAWER — ngăn kéo thu ngân của 1 ca (shiftId)
+ *   BANK   — tài khoản ngân hàng của chi nhánh
+ * kind: IN (thu từ ngoài vào quỹ) · OUT (chi từ quỹ ra ngoài) · TRANSFER (chuyển giữa 2 quỹ) · ADJUST (điều chỉnh khi kiểm đếm lệch)
+ * Tiền bán hàng không ghi ở đây mà lấy từ Payments.
+ */
+model CashEntry {
+  id             Int       @id @default(autoincrement()) @map("Entry_ID")
+  /// PT-… phiếu thu, PC-… phiếu chi, CQ-… chuyển quỹ, DC-… điều chỉnh
+  code           String    @unique @map("Code") @db.VarChar(30)
+  storeId        Int       @map("Store_ID")
+  kind           String    @map("Kind") @db.VarChar(10)
+  fromFund       String?   @map("From_Fund") @db.VarChar(10)
+  toFund         String?   @map("To_Fund") @db.VarChar(10)
+  /// Ngăn kéo của ca nào (khi một đầu là DRAWER)
+  shiftId        Int?      @map("Shift_ID")
+  /// Lần mở két nào (khi một đầu là SAFE)
+  safeSessionId  Int?      @map("Safe_Session_ID")
+  category       String    @map("Category") @db.VarChar(30)
+  amount         Int       @map("Amount")
+  description    String?   @map("Description") @db.VarChar(500)
+  /// Ảnh hoá đơn / chứng từ
+  attachmentUrl  String?   @map("Attachment_Url") @db.VarChar(500)
+  /// PENDING (chờ duyệt, chưa tính vào quỹ) · APPROVED · REJECTED · CANCELLED
+  status         String    @default("APPROVED") @map("Status") @db.VarChar(15)
+  rejectReason   String?   @map("Reject_Reason") @db.VarChar(255)
+  /// Phiếu chi trả nhà cung cấp
+  supplierBillId Int?      @map("Supplier_Bill_ID")
+  createdById    Int       @map("Created_By")
+  approvedById   Int?      @map("Approved_By")
+  approvedAt     DateTime? @map("Approved_At")
+  createdAt      DateTime  @default(now()) @map("Created_At")
+
+  store        Store         @relation(fields: [storeId], references: [id])
+  shift        Shift?        @relation(fields: [shiftId], references: [id])
+  safeSession  SafeSession?  @relation(fields: [safeSessionId], references: [id])
+  supplierBill SupplierBill? @relation(fields: [supplierBillId], references: [id])
+  createdBy    Staff         @relation("CashEntryCreatedBy", fields: [createdById], references: [id])
+  approvedBy   Staff?        @relation("CashEntryApprovedBy", fields: [approvedById], references: [id])
+
+  @@index([storeId, createdAt])
+  @@index([shiftId])
+  @@map("Cash_Entries")
+}
+
+/// Một lần mở két: mở (ghi lý do) → lấy / bỏ tiền → đóng (đếm lại tiền trong két, lệch thì ghi lý do)
+model SafeSession {
+  id              Int       @id @default(autoincrement()) @map("Session_ID")
+  storeId         Int       @map("Store_ID")
+  reason          String    @map("Reason") @db.VarChar(255)
+  openedById      Int       @map("Opened_By")
+  openedAt        DateTime  @default(now()) @map("Opened_At")
+  /// Số dư két theo sổ lúc mở
+  openingBalance  Int       @map("Opening_Balance")
+  closedById      Int?      @map("Closed_By")
+  closedAt        DateTime? @map("Closed_At")
+  /// Số dư theo sổ lúc đóng (đã gồm mọi lần lấy/bỏ tiền trong phiên)
+  expectedBalance Int?      @map("Expected_Balance")
+  countedBalance  Int?      @map("Counted_Balance")
+  difference      Int?      @map("Difference")
+  denominations   String?   @map("Denominations") @db.Text
+  note            String?   @map("Note") @db.VarChar(255)
+
+  store    Store       @relation(fields: [storeId], references: [id])
+  openedBy Staff       @relation("SafeOpenedBy", fields: [openedById], references: [id])
+  closedBy Staff?      @relation("SafeClosedBy", fields: [closedById], references: [id])
+  entries  CashEntry[]
+
+  @@index([storeId, openedAt])
+  @@map("Safe_Sessions")
+}
+
+/// Công nợ phải trả nhà cung cấp — phát sinh khi nhận hàng (phiếu nhập) hoặc nhập tay hoá đơn mua ngoài
+model SupplierBill {
+  id          Int      @id @default(autoincrement()) @map("Bill_ID")
+  code        String   @unique @map("Code") @db.VarChar(30)
+  storeId     Int      @map("Store_ID")
+  supplierId  Int      @map("Supplier_ID")
+  /// GRN = từ phiếu nhập hàng · MANUAL = hoá đơn nhập tay
+  source      String   @default("MANUAL") @map("Source") @db.VarChar(10)
+  grnId       Int?     @unique @map("GRN_ID")
+  amount      Int      @map("Amount")
+  paidAmount  Int      @default(0) @map("Paid_Amount")
+  billDate    DateTime @default(now()) @map("Bill_Date")
+  dueDate     DateTime @map("Due_Date")
+  /// UNPAID · PARTIAL · PAID · CANCELLED
+  status      String   @default("UNPAID") @map("Status") @db.VarChar(15)
+  note        String?  @map("Note") @db.VarChar(500)
+  createdById Int?     @map("Created_By")
+  createdAt   DateTime @default(now()) @map("Created_At")
+
+  store     Store         @relation(fields: [storeId], references: [id])
+  supplier  Supplier      @relation(fields: [supplierId], references: [id])
+  grn       GoodsReceipt? @relation(fields: [grnId], references: [id])
+  createdBy Staff?        @relation("SupplierBillCreatedBy", fields: [createdById], references: [id])
+  payments  CashEntry[]
+
+  @@index([storeId, status])
+  @@index([supplierId])
+  @@map("Supplier_Bills")
 }

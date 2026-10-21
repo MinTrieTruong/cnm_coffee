@@ -22,7 +22,6 @@ type ShipOrder = {
   customerLng: number | null;
   shippingFee: number;
   totalAmount: number;
-  codAmount: number;
   routeSeq: number | null;
   etaMinutes?: number;
   deliveredAt: string | null;
@@ -36,7 +35,7 @@ type MeData = {
   store: LatLng & { address: string | null };
   orders: ShipOrder[];
   history: ShipOrder[];
-  stats: { deliveredToday: number; failedToday: number; shippingFeeToday: number; codToday: number };
+  stats: { deliveredToday: number; failedToday: number; shippingFeeToday: number; shippingFeeMonth: number };
 };
 
 const FAIL_REASONS = [
@@ -240,7 +239,6 @@ export function ShipperDashboard() {
     ...orders.filter((o) => o.customerLat != null).map((o) => ({ lat: o.customerLat!, lng: o.customerLng! })),
   ];
   const nextStop = delivering[0];
-  const totalCod = orders.reduce((s, o) => s + o.codAmount, 0);
 
   return (
     <div className="sp-app">
@@ -301,8 +299,8 @@ export function ShipperDashboard() {
       <div className="sp-sheet">
         <div className="sp-stats">
           <div><b>{data?.stats.deliveredToday ?? 0}</b><span>Đơn đã giao</span></div>
-          <div><b>{formatVnd(data?.stats.shippingFeeToday ?? 0)}</b><span>Phí ship</span></div>
-          <div><b>{formatVnd(data?.stats.codToday ?? 0)}</b><span>COD đã thu</span></div>
+          <div><b>{formatVnd(data?.stats.shippingFeeToday ?? 0)}</b><span>Phí ship hôm nay</span></div>
+          <div><b>{formatVnd(data?.stats.shippingFeeMonth ?? 0)}</b><span>Phí ship tháng (cộng lương)</span></div>
         </div>
 
         <div className="sp-tabs" role="tablist">
@@ -336,10 +334,6 @@ export function ShipperDashboard() {
               </div>
             ) : (
               <div className="sp-list">
-                {totalCod > 0 && (
-                  <div className="sp-cod-banner">Tổng tiền thu hộ (COD) chuyến này: <b>{formatVnd(totalCod)}</b></div>
-                )}
-
                 {toPickup.length > 0 && store && (
                   <div className="sp-card sp-card-pickup">
                     <div className="sp-card-head">
@@ -356,7 +350,7 @@ export function ShipperDashboard() {
                         <li key={o.id}>
                           <span>#{o.id}</span>
                           <span>{o.details.reduce((s, d) => s + d.quantity, 0)} món</span>
-                          <span>{o.codAmount > 0 ? `Thu ${formatVnd(o.codAmount)}` : "Đã trả online"}</span>
+                          <span>Phí ship {o.shippingFee > 0 ? formatVnd(o.shippingFee) : "0 đ"}</span>
                         </li>
                       ))}
                     </ul>
@@ -389,7 +383,7 @@ export function ShipperDashboard() {
                           <div className="sp-sub sp-addr"><MapPin size={13} /> {o.deliveryAddress}</div>
                         </div>
                         <div className="sp-right">
-                          {o.codAmount > 0 ? <span className="sp-pill sp-pill-cod">Thu {formatVnd(o.codAmount)}</span> : <span className="sp-pill sp-pill-paid">Đã trả</span>}
+                          <span className="sp-pill sp-pill-paid">Đã trả</span>
                           {here && dest && <span className="sp-sub">{formatKm(haversineKm(here, dest))}</span>}
                           {!isNext && (open ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}
                         </div>
@@ -485,9 +479,9 @@ export function ShipperDashboard() {
         <ProofSheet
           order={proofFor}
           onClose={() => setProofFor(null)}
-          onDone={async (cod) => {
+          onDone={async (fee) => {
             setProofFor(null);
-            flash(cod > 0 ? `Giao thành công · đã thu ${formatVnd(cod)}` : "Giao thành công!");
+            flash(fee > 0 ? `Giao thành công · +${formatVnd(fee)} phí ship` : "Giao thành công!");
             await load();
           }}
         />
@@ -510,7 +504,7 @@ export function ShipperDashboard() {
 }
 
 /* ═══════════ Bottom sheet: chụp ảnh xác nhận đã giao ═══════════ */
-function ProofSheet({ order, onClose, onDone }: { order: ShipOrder; onClose: () => void; onDone: (cod: number) => void }) {
+function ProofSheet({ order, onClose, onDone }: { order: ShipOrder; onClose: () => void; onDone: (shippingFee: number) => void }) {
   const [photo, setPhoto] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -531,11 +525,11 @@ function ProofSheet({ order, onClose, onDone }: { order: ShipOrder; onClose: () 
     if (!photo) return setErr("Vui lòng chụp ảnh xác nhận");
     setBusy(true);
     try {
-      const r = await staffApi<{ codCollected: number }>(`/api/shipper/orders/${order.id}/deliver`, {
+      const r = await staffApi<{ shippingFeeEarned: number }>(`/api/shipper/orders/${order.id}/deliver`, {
         method: "POST",
         body: JSON.stringify({ photo, note }),
       });
-      onDone(r.codCollected);
+      onDone(r.shippingFeeEarned);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Lỗi");
       setBusy(false);
@@ -549,11 +543,7 @@ function ProofSheet({ order, onClose, onDone }: { order: ShipOrder; onClose: () 
           <strong>Xác nhận giao đơn #{order.id}</strong>
           <button type="button" className="sp-x" onClick={onClose} disabled={busy} aria-label="Đóng"><X size={20} /></button>
         </div>
-        {order.codAmount > 0 ? (
-          <div className="sp-cod-big">Thu của khách <b>{formatVnd(order.codAmount)}</b></div>
-        ) : (
-          <div className="sp-paid-big">Khách đã thanh toán online — không thu tiền</div>
-        )}
+        <div className="sp-paid-big">Khách đã thanh toán online — không thu tiền</div>
         <input ref={inputRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => void onFile(e.target.files?.[0])} />
         {photo ? (
           <div className="sp-photo">

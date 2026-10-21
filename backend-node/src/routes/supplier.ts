@@ -6,6 +6,9 @@ import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
+/** Kỳ hạn thanh toán công nợ (ngày) — bỏ qua nếu không gửi / không hợp lệ */
+const termDays = (v: unknown) => (Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 365 ? { paymentTermDays: v as number } : {});
+
 export function supplierRouter() {
   const r = Router();
   const auth = attachStaff(prisma);
@@ -22,8 +25,8 @@ export function supplierRouter() {
   // POST /api/admin/suppliers
   r.post("/suppliers", ...owner, async (req, res) => {
     const staff = (req as StaffRequest).staffRow!;
-    const { name, phone, address, email, note, username, password } = req.body as {
-      name?: string; phone?: string; address?: string; email?: string; note?: string; username?: string; password?: string;
+    const { name, phone, address, email, note, username, password, paymentTermDays } = req.body as {
+      name?: string; phone?: string; address?: string; email?: string; note?: string; username?: string; password?: string; paymentTermDays?: number;
     };
     if (!name?.trim()) return res.status(400).json({ error: "Thiếu tên nhà cung cấp" });
     
@@ -41,7 +44,8 @@ export function supplierRouter() {
           email: email?.trim() ?? null, 
           note: note?.trim() ?? null,
           username: username?.trim() || null,
-          passwordHash
+          passwordHash,
+          ...termDays(paymentTermDays),
         },
       });
       audit(staff.id, "SUPPLIER_CREATE", `NCC #${row.id}`, row.name);
@@ -56,8 +60,8 @@ export function supplierRouter() {
   r.patch("/suppliers/:id", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     const staff = (req as StaffRequest).staffRow!;
-    const { name, phone, address, email, note, isActive, username, password } = req.body as {
-      name?: string; phone?: string; address?: string; email?: string; note?: string; isActive?: boolean; username?: string; password?: string;
+    const { name, phone, address, email, note, isActive, username, password, paymentTermDays } = req.body as {
+      name?: string; phone?: string; address?: string; email?: string; note?: string; isActive?: boolean; username?: string; password?: string; paymentTermDays?: number;
     };
     
     let passwordHash = undefined;
@@ -76,7 +80,8 @@ export function supplierRouter() {
           note: note?.trim() ?? undefined,
           isActive: typeof isActive === "boolean" ? isActive : undefined,
           username: username?.trim() || undefined,
-          passwordHash
+          passwordHash,
+          ...termDays(paymentTermDays),
         },
       });
       audit(staff.id, "SUPPLIER_UPDATE", `NCC #${id}`, row.name);

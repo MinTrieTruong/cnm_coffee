@@ -1,124 +1,108 @@
-import { useEffect, useState } from "react";
-import { format } from "date-fns";
+import { useCallback, useEffect, useState } from "react";
 import { staffApi } from "../lib/staffApi";
+import { ROLE_LABEL } from "../lib/roles";
+import { Alert, Badge, Button, ControlPanel, EmptyState, Tabs, errMsg } from "../components/erp";
+import { HR_TABS, STATUS_UI, SwapState, itemTitle, useShiftNames, type HrItem, type HrTab } from "./HrRequests";
 
-type RequestType = "LEAVE" | "SWAP" | "ATTENDANCE";
-
+/** Nhân sự › Duyệt đơn từ (quản lý chi nhánh) */
 export function AdminHrRequests() {
-  const [activeTab, setActiveTab] = useState<RequestType>("LEAVE");
-  const [requests, setRequests] = useState<any[]>([]);
+  const [tab, setTab] = useState<HrTab>("LEAVE");
+  const [items, setItems] = useState<HrItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [showDone, setShowDone] = useState(false);
+  const names = useShiftNames();
+  const endpoint = HR_TABS.find((t) => t.id === tab)!.endpoint;
 
-  const loadRequests = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const endpoint = activeTab === "LEAVE" ? "/api/hr/leave" : activeTab === "SWAP" ? "/api/hr/swap" : "/api/hr/attendance";
-      const data = await staffApi<any[]>(endpoint);
-      setRequests(data);
+      setItems(await staffApi<HrItem[]>(endpoint));
+      setErr(null);
     } catch (e) {
-      console.error(e);
+      setErr(errMsg(e));
     } finally {
       setLoading(false);
     }
-  };
+  }, [endpoint]);
+  useEffect(() => { void load(); setMsg(null); }, [load]);
 
-  useEffect(() => {
-    loadRequests();
-  }, [activeTab]);
-
-  const handleReview = async (id: number, status: "APPROVED" | "REJECTED") => {
-    if (!confirm(`Xác nhận ${status === "APPROVED" ? "DUYỆT" : "TỪ CHỐI"} đề xuất này?`)) return;
+  async function review(it: HrItem, status: "APPROVED" | "REJECTED") {
+    let approvedMinutes: number | undefined;
+    if (status === "APPROVED" && it.type === "OVERTIME") {
+      // Làm thêm: quản lý có thể duyệt ít phút hơn số xin
+      const ans = prompt(`Duyệt cho ${it.user?.fullName} làm thêm bao nhiêu phút? (xin ${it.minutes} phút)`, String(it.minutes));
+      if (ans === null) return;
+      approvedMinutes = Number(ans);
+    } else if (!confirm(`${status === "APPROVED" ? "Duyệt" : "Từ chối"} đơn của ${it.user?.fullName ?? it.requester?.fullName}?`)) return;
     try {
-      const endpoint = activeTab === "LEAVE" ? `/api/hr/leave/${id}/review` 
-        : activeTab === "SWAP" ? `/api/hr/swap/${id}/review` 
-        : `/api/hr/attendance/${id}/review`;
-      await staffApi(endpoint, {
-        method: "PUT",
-        body: JSON.stringify({ status })
-      });
-      loadRequests();
+      const r = await staffApi<{ openedShifts?: number }>(`${endpoint}/${it.id}/review`, { method: "PUT", body: JSON.stringify({ status, approvedMinutes }) });
+      setMsg(
+        status === "APPROVED" && tab === "LEAVE" && r.openedShifts
+          ? `Đã duyệt. ${r.openedShifts} ca trong thời gian nghỉ đã thành ca trống, vào "Lịch làm việc" để xếp người thay.`
+          : status === "APPROVED" ? "Đã duyệt đơn." : "Đã từ chối đơn.",
+      );
+      await load();
     } catch (e) {
-      alert("Lỗi xử lý đề xuất.");
+      setErr(errMsg(e));
     }
-  };
+  }
 
-  const pendingRequests = requests.filter(r => r.status === "PENDING");
-  const processedRequests = requests.filter(r => r.status !== "PENDING");
+  const who = (it: HrItem) => it.user ?? it.requester;
+  const pending = items.filter((i) => i.status === "PENDING");
+  const done = items.filter((i) => i.status !== "PENDING");
+
+  const row = (it: HrItem) => {
+    // Đổi ca: chỉ duyệt được khi người nhận đã đồng ý
+    const waitingTarget = tab === "SWAP" && it.targetUserStatus !== "ACCEPTED";
+    return (
+      <div key={it.id} className="o-req">
+        <div className="o-req-main">
+          <strong>{who(it)?.fullName}</strong>
+          {who(it)?.role && <span className="o-muted"> · {ROLE_LABEL[who(it).role] ?? who(it).role}</span>}
+          <div>{itemTitle(tab, it, names)}</div>
+          <div className="o-muted">Lý do: {it.reason} · gửi {new Date(it.createdAt).toLocaleString("vi-VN")}</div>
+          {it.manager && <div className="o-muted">Xử lý bởi {it.manager.fullName}</div>}
+        </div>
+        <span className="o-inline">
+          {it.status === "PENDING" ? (
+            <>
+              {tab === "SWAP" && <SwapState it={it} />}
+              <Button size="sm" variant="danger" onClick={() => void review(it, "REJECTED")}>Từ chối</Button>
+              <Button size="sm" variant="primary" disabled={waitingTarget} title={waitingTarget ? "Người nhận ca chưa đồng ý" : undefined} onClick={() => void review(it, "APPROVED")}>
+                Duyệt
+              </Button>
+            </>
+          ) : tab === "SWAP" ? (
+            <SwapState it={it} />
+          ) : (
+            <Badge tone={STATUS_UI[it.status]?.tone}>{STATUS_UI[it.status]?.label ?? it.status}</Badge>
+          )}
+        </span>
+      </div>
+    );
+  };
 
   return (
     <div>
-      <div style={{ display: "flex", gap: "1rem", marginBottom: "1rem", borderBottom: "1px solid #e5e7eb", paddingBottom: "0.5rem" }}>
-        <button 
-          style={{ fontWeight: 600, color: activeTab === "LEAVE" ? "var(--accent)" : "#6b7280", background: "none", border: "none", cursor: "pointer", fontSize: "1rem" }}
-          onClick={() => setActiveTab("LEAVE")}>Xin nghỉ</button>
-        <button 
-          style={{ fontWeight: 600, color: activeTab === "SWAP" ? "var(--accent)" : "#6b7280", background: "none", border: "none", cursor: "pointer", fontSize: "1rem" }}
-          onClick={() => setActiveTab("SWAP")}>Đổi ca</button>
-        <button 
-          style={{ fontWeight: 600, color: activeTab === "ATTENDANCE" ? "var(--accent)" : "#6b7280", background: "none", border: "none", cursor: "pointer", fontSize: "1rem" }}
-          onClick={() => setActiveTab("ATTENDANCE")}>Giải trình chấm công</button>
+      <ControlPanel crumbs={[{ label: "Duyệt đơn từ" }]} />
+      <div className="o-content o-stack" style={{ maxWidth: 1000, margin: "0 auto" }}>
+        <Tabs tabs={HR_TABS} active={tab} onChange={setTab} />
+        {err && <Alert>{err}</Alert>}
+        {msg && <Alert tone="info">{msg}</Alert>}
+        {loading && <p className="o-muted">Đang tải…</p>}
+
+        {!loading && pending.length === 0 && <EmptyState title="Không có đơn chờ duyệt" />}
+        {pending.length > 0 && <section className="o-card">{pending.map(row)}</section>}
+
+        {done.length > 0 && (
+          <>
+            <Button variant="link" onClick={() => setShowDone((s) => !s)}>{showDone ? "Ẩn" : "Xem"} đơn đã xử lý ({done.length})</Button>
+            {showDone && <section className="o-card">{done.map(row)}</section>}
+          </>
+        )}
       </div>
-
-      {loading ? (
-        <p>Đang tải...</p>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-          <section>
-            <h3 style={{ marginBottom: "1rem", color: "var(--accent)" }}>Chờ duyệt ({pendingRequests.length})</h3>
-            {pendingRequests.length === 0 ? <p style={{ color: "#6b7280" }}>Không có đề xuất chờ duyệt.</p> : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                {pendingRequests.map(r => (
-                  <div key={r.id} style={{ padding: "1rem", borderRadius: 8, border: "1px solid #fde68a", background: "#fffbeb" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", alignItems: "flex-start" }}>
-                      <div>
-                        <strong>{r.user?.fullName || r.requester?.fullName}</strong> - 
-                        <span style={{ marginLeft: "0.5rem", color: "#4b5563" }}>
-                          {activeTab === "LEAVE" && `${r.leaveType === "FULL_DAY" ? "Nghỉ Cả ngày" : "Nghỉ Nửa ngày"} (${format(new Date(r.date), "dd/MM/yyyy")})`}
-                          {activeTab === "SWAP" && `Đổi ca lịch #${r.scheduleId} cho ${r.targetUser?.fullName}`}
-                          {activeTab === "ATTENDANCE" && `${r.adjustmentType} (${format(new Date(r.date), "dd/MM/yyyy")})`}
-                        </span>
-                      </div>
-                      <div style={{ display: "flex", gap: "0.5rem" }}>
-                        <button className="btn btn-primary" style={{ padding: "0.25rem 0.75rem", fontSize: "0.8rem", background: "#15803d", borderColor: "#15803d" }} onClick={() => handleReview(r.id, "APPROVED")}>Duyệt</button>
-                        <button className="btn btn-primary" style={{ padding: "0.25rem 0.75rem", fontSize: "0.8rem", background: "#b91c1c", borderColor: "#b91c1c" }} onClick={() => handleReview(r.id, "REJECTED")}>Từ chối</button>
-                      </div>
-                    </div>
-                    <p style={{ margin: 0, color: "#374151", fontSize: "0.9rem" }}>Lý do: <strong>{r.reason}</strong></p>
-                    {activeTab === "ATTENDANCE" && <p style={{ margin: "0.25rem 0 0", color: "#374151", fontSize: "0.9rem" }}>Giờ đề xuất: <strong>{format(new Date(r.proposedTime), "dd/MM/yyyy HH:mm")}</strong></p>}
-                    {activeTab === "SWAP" && <p style={{ margin: "0.25rem 0 0", color: "#374151", fontSize: "0.9rem" }}>Phản hồi người nhận: <strong>{r.targetUserStatus}</strong></p>}
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section>
-            <h3 style={{ marginBottom: "1rem", color: "#6b7280" }}>Đã xử lý</h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-              {processedRequests.map(r => (
-                <div key={r.id} style={{ padding: "1rem", borderRadius: 8, border: "1px solid #e5e7eb", background: "#f9fafb" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-                    <div>
-                      <strong>{r.user?.fullName || r.requester?.fullName}</strong> - 
-                      <span style={{ marginLeft: "0.5rem", color: "#4b5563" }}>
-                        {activeTab === "LEAVE" && `${r.leaveType === "FULL_DAY" ? "Nghỉ Cả ngày" : "Nghỉ Nửa ngày"} (${format(new Date(r.date), "dd/MM/yyyy")})`}
-                        {activeTab === "SWAP" && `Đổi ca lịch #${r.scheduleId} cho ${r.targetUser?.fullName}`}
-                        {activeTab === "ATTENDANCE" && `${r.adjustmentType} (${format(new Date(r.date), "dd/MM/yyyy")})`}
-                      </span>
-                    </div>
-                    <span style={{
-                      padding: "0.25rem 0.5rem", borderRadius: 4, fontSize: "0.8rem", fontWeight: 700,
-                      background: r.status === "APPROVED" ? "#dcfce3" : "#fee2e2",
-                      color: r.status === "APPROVED" ? "#166534" : "#991b1b"
-                    }}>{r.status}</span>
-                  </div>
-                  <p style={{ margin: 0, color: "#6b7280", fontSize: "0.9rem" }}>Lý do: {r.reason}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
-      )}
     </div>
   );
 }

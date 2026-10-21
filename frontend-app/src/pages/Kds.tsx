@@ -3,6 +3,9 @@ import { Link } from "react-router-dom";
 import { Socket } from "socket.io-client";
 import { mediaUrl } from "../lib/api";
 import { getStaffInfo, staffApi, staffSocket as openStaffSocket, isAdminRole } from "../lib/staffApi";
+import { Ban, Lightbulb, PackageMinus } from "lucide-react";
+import { Button } from "../components/erp";
+import { LowStockBanner, MenuPanel, ProposalPanel, WastePanel, useKitchenProducts, type LowStock } from "../components/KdsTools";
 
 /** Phát âm thanh ting ting bằng Web Audio API (không cần file âm thanh). */
 function playNewOrderSound() {
@@ -50,6 +53,11 @@ export function Kds() {
   const [newOrderFlash, setNewOrderFlash] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const audioUnlocked = useRef(false);
+  const [panel, setPanel] = useState<"menu" | "waste" | "proposal" | null>(null);
+  const { products, setProducts, reload: reloadProducts } = useKitchenProducts();
+  const [lowStock, setLowStock] = useState<LowStock[]>([]);
+  const offCount = products.filter((p) => p.outOfStock || !p.isAvailable).length;
+  const markOut = (ids: number[]) => setProducts((ps) => ps.map((p) => (ids.includes(p.id) ? { ...p, outOfStock: true } : p)));
 
   const load = useCallback(async () => {
     try {
@@ -74,10 +82,16 @@ export function Kds() {
       setTimeout(() => setNewOrderFlash(false), 3000);
       void load();
     });
+    // Máy KDS khác / quản lý vừa báo hết hoặc ẩn món
+    socket.on("menu:availability", () => void reloadProducts());
+    // Bán hàng tự trừ kho theo định mức → nguyên liệu sắp hết
+    socket.on("inventory:low", (p: { items: LowStock[] }) => {
+      setLowStock((cur) => [...cur.filter((c) => !p.items.some((i) => i.id === c.id)), ...p.items]);
+    });
     return () => {
       socket.disconnect();
     };
-  }, [load]);
+  }, [load, reloadProducts]);
 
   // Unlock AudioContext sau tương tác đầu tiên
   useEffect(() => {
@@ -132,10 +146,30 @@ export function Kds() {
         <h1 className="page-title" style={{ margin: 0 }}>
           Pha chế
         </h1>
-        <Link to="/staff/inventory" className="btn btn-ghost staff-btn-light">
-          Kiểm kho
-        </Link>
       </div>
+      <div className="kds-tools">
+        <Button icon={Ban} onClick={() => setPanel("menu")}>
+          Món &amp; hết món{offCount > 0 && <span className="kds-count">{offCount}</span>}
+        </Button>
+        <Button icon={PackageMinus} onClick={() => setPanel("waste")}>Báo hao hụt</Button>
+        <Button icon={Lightbulb} onClick={() => setPanel("proposal")}>Đề xuất món mới</Button>
+        {offCount > 0 && (
+          <span className="o-muted kds-off-list">
+            Đang hết: {products.filter((p) => p.outOfStock || !p.isAvailable).map((p) => p.name).join(", ")}
+          </span>
+        )}
+      </div>
+      <LowStockBanner
+        items={lowStock}
+        products={products}
+        onSoldOut={markOut}
+        onDismiss={(id) => setLowStock((cur) => cur.filter((c) => c.id !== id))}
+      />
+      {panel === "menu" && (
+        <MenuPanel products={products} onChange={(p) => setProducts((ps) => ps.map((x) => (x.id === p.id ? p : x)))} onClose={() => setPanel(null)} />
+      )}
+      {panel === "waste" && <WastePanel products={products} onSoldOut={markOut} onClose={() => setPanel(null)} />}
+      {panel === "proposal" && <ProposalPanel onClose={() => setPanel(null)} />}
       <p className="subtle">Chạm thẻ: Chờ làm → Đang làm → Hoàn thành</p>
       {err && <p style={{ color: "var(--danger)" }}>{err}</p>}
 

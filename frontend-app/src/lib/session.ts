@@ -3,6 +3,9 @@ const USER_KEY = "cmn_user";
 const GUEST_KEY = "cmn_guest";
 const TABLE_KEY = "cmn_table_id";
 const TAKEAWAY_SESSION_KEY = "cmn_takeaway_session_id";
+/** Thời điểm quét QR / gán bàn — bàn và phiên mang về tự hết hạn để lần ghé sau không dính bàn cũ */
+const ORDER_CTX_AT_KEY = "cmn_order_ctx_at";
+const ORDER_CTX_TTL_MS = 4 * 60 * 60 * 1000;
 
 /** Theo API /api/auth sau đăng nhập khách */
 export type SessionUser = {
@@ -62,25 +65,55 @@ export function isGuestMode(): boolean {
   return localStorage.getItem(GUEST_KEY) === "1";
 }
 
+function touchOrderCtx() {
+  localStorage.setItem(ORDER_CTX_AT_KEY, String(Date.now()));
+}
+
+function orderCtxExpired(): boolean {
+  const at = Number(localStorage.getItem(ORDER_CTX_AT_KEY));
+  return !at || Date.now() - at > ORDER_CTX_TTL_MS;
+}
+
 export function setTableId(id: number | null) {
   if (id == null) localStorage.removeItem(TABLE_KEY);
-  else localStorage.setItem(TABLE_KEY, String(id));
+  else {
+    localStorage.setItem(TABLE_KEY, String(id));
+    touchOrderCtx();
+  }
 }
 
 export function getTableId(): number | null {
   const v = localStorage.getItem(TABLE_KEY);
   if (!v) return null;
+  if (orderCtxExpired()) {
+    localStorage.removeItem(TABLE_KEY);
+    return null;
+  }
   const n = Number(v);
-  return Number.isNaN(n) ? null : n;
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 export function setTakeawaySessionId(id: string | null) {
   const v = id?.trim();
   if (!v) localStorage.removeItem(TAKEAWAY_SESSION_KEY);
-  else localStorage.setItem(TAKEAWAY_SESSION_KEY, v);
+  else {
+    localStorage.setItem(TAKEAWAY_SESSION_KEY, v);
+    touchOrderCtx();
+  }
 }
 
 export function getTakeawaySessionId(): string | null {
   const v = localStorage.getItem(TAKEAWAY_SESSION_KEY);
-  return v && v.trim() ? v : null;
+  if (!v || !v.trim()) return null;
+  if (orderCtxExpired()) {
+    localStorage.removeItem(TAKEAWAY_SESSION_KEY);
+    return null;
+  }
+  return v;
+}
+
+/** crypto.randomUUID chỉ có trên HTTPS/localhost — demo qua IP LAN (http) cần dự phòng */
+export function newSessionId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `ta-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }

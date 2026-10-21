@@ -15,7 +15,6 @@ type BoardOrder = {
   createdAt: string;
   shippingFee: number;
   totalAmount: number;
-  codAmount: number;
   routeSeq: number | null;
   shipperId: number | null;
   customer: { fullName: string; phone: string | null } | null;
@@ -125,7 +124,7 @@ export function PosDeliveryPanel({ onToast }: { onToast: (m: string) => void }) 
                 <div className="pd-line pd-sub"><MapPin size={12} /> {o.deliveryAddress}</div>
                 <div className="pd-items">{o.details.map((d) => `${d.quantity}× ${d.product.name}`).join(", ")}</div>
                 <div className="pd-line">
-                  <span>{o.codAmount > 0 ? <>COD <b>{formatVnd(o.codAmount)}</b></> : <span className="pd-paid">Đã trả online</span>}</span>
+                  <span>{o.status === "Paid" ? <span className="pd-paid">Đã trả online</span> : <b>Chưa thanh toán</b>}{o.shippingFee > 0 && <> · ship {formatVnd(o.shippingFee)}</>}</span>
                   <span className="pd-sub">{new Date(o.createdAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</span>
                 </div>
                 {o.deliveryStatus === "Preparing" && (

@@ -2,16 +2,18 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { LogOut, Package, FileText, Send, CheckCircle } from "lucide-react";
 import { apiBase } from "../lib/api";
+import { PasswordInput } from "../components/PasswordInput";
 
 export function SupplierPortal() {
   const [token, setToken] = useState(localStorage.getItem("supplierToken"));
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [tab, setTab] = useState<"rfq" | "orders">("rfq");
+  const [tab, setTab] = useState<"rfq" | "orders" | "bills">("rfq");
   
   const [rfqs, setRfqs] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
+  const [bills, setBills] = useState<any[]>([]);
   
   const [quotingRfqId, setQuotingRfqId] = useState<number | null>(null);
   const [quotePrices, setQuotePrices] = useState<Record<number, string>>({});
@@ -31,6 +33,12 @@ export function SupplierPortal() {
         });
         if (!res.ok) throw new Error("Unauthorized");
         setRfqs(await res.json());
+      } else if (tab === "bills") {
+        const res = await fetch(`${apiBase()}/api/supplier/bills`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error("Unauthorized");
+        setBills(await res.json());
       } else {
         const res = await fetch(`${apiBase()}/api/supplier/orders`, {
           headers: { Authorization: `Bearer ${token}` }
@@ -95,7 +103,7 @@ export function SupplierPortal() {
           <p style={{ textAlign: "center", color: "var(--muted)", margin: "0 0 1rem 0", fontSize: "0.9rem" }}>Dành cho Nhà cung cấp báo giá</p>
           {error && <div style={{ color: "#b91c1c", fontSize: "0.9rem", textAlign: "center" }}>{error}</div>}
           <input className="input-field" placeholder="Tên đăng nhập" value={username} onChange={e => setUsername(e.target.value)} required />
-          <input className="input-field" type="password" placeholder="Mật khẩu" value={password} onChange={e => setPassword(e.target.value)} required />
+          <PasswordInput className="input-field" placeholder="Mật khẩu" value={password} onChange={e => setPassword(e.target.value)} required />
           <button className="primary-btn" type="submit">Đăng nhập</button>
         </form>
       </div>
@@ -118,6 +126,9 @@ export function SupplierPortal() {
           </button>
           <button className={tab === "orders" ? "primary-btn" : "secondary-btn"} onClick={() => setTab("orders")}>
             <CheckCircle size={18} /> Đơn đặt hàng (PO)
+          </button>
+          <button className={tab === "bills" ? "primary-btn" : "secondary-btn"} onClick={() => setTab("bills")}>
+            <FileText size={18} /> Công nợ & thanh toán
           </button>
         </div>
 
@@ -215,6 +226,41 @@ export function SupplierPortal() {
                 </table>
               </motion.div>
             ))}
+          </div>
+        )}
+        {tab === "bills" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <p style={{ margin: 0, color: "var(--muted)" }}>
+              Tổng quán còn nợ: <strong style={{ color: "var(--text)" }}>{bills.reduce((s, b) => s + (b.status === "PAID" ? 0 : b.remaining), 0).toLocaleString()} đ</strong>
+            </p>
+            {bills.length === 0 ? <p style={{ color: "var(--muted)" }}>Chưa có công nợ.</p> : (
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem" }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid var(--border)", textAlign: "left", color: "var(--muted)" }}>
+                    <th style={{ padding: "0.5rem" }}>Mã</th>
+                    <th style={{ padding: "0.5rem" }}>Chi nhánh</th>
+                    <th style={{ padding: "0.5rem" }}>Chứng từ</th>
+                    <th style={{ padding: "0.5rem" }}>Hạn trả</th>
+                    <th style={{ padding: "0.5rem", textAlign: "right" }}>Số tiền</th>
+                    <th style={{ padding: "0.5rem", textAlign: "right" }}>Đã thanh toán</th>
+                    <th style={{ padding: "0.5rem", textAlign: "right" }}>Còn lại</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bills.map((b) => (
+                    <tr key={b.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                      <td style={{ padding: "0.5rem" }}>{b.code}</td>
+                      <td style={{ padding: "0.5rem" }}>{b.store.name}</td>
+                      <td style={{ padding: "0.5rem" }}>{b.grn ? `${b.grn.po.code} / ${b.grn.code}` : (b.note ?? "Hoá đơn")}</td>
+                      <td style={{ padding: "0.5rem" }}>{new Date(b.dueDate).toLocaleDateString("vi-VN")}</td>
+                      <td style={{ padding: "0.5rem", textAlign: "right" }}>{b.amount.toLocaleString()} đ</td>
+                      <td style={{ padding: "0.5rem", textAlign: "right" }}>{b.paidAmount.toLocaleString()} đ</td>
+                      <td style={{ padding: "0.5rem", textAlign: "right", fontWeight: 600, color: b.status === "PAID" ? "#047857" : "var(--text)" }}>{b.status === "PAID" ? "Đã tất toán" : `${b.remaining.toLocaleString()} đ`}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
       </div>

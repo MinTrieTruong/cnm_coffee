@@ -7,7 +7,7 @@
  *
  * Luồng:
  * 1. Check-in: Xác minh khuôn mặt + GPS trong phạm vi 50m
- * 2. Check-out: Nếu dư >30 phút → hiện Modal xin tăng ca
+ * 2. Check-out: Có phiếu làm thêm đã duyệt → tự xác nhận giờ làm thêm; ở lại >30 phút mà chưa có phiếu → gợi ý làm phiếu bổ sung
  */
 import { MapPin, Video, Map as MapIcon, CheckCircle2, X } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -41,6 +41,7 @@ const staffIcon = new L.Icon({
 interface Schedule {
   id: number;
   shiftCode: string;
+  shiftName?: string;
   startMin: number;
   endMin: number;
   actualCheckIn: string | null;
@@ -449,7 +450,7 @@ export function Attendance() {
       });
       onSuccess(data.message);
 
-      // Nếu ra ca muộn > 30p → bật modal xin tăng ca
+      // Ở lại > 30p mà chưa có phiếu làm thêm → gợi ý làm phiếu bổ sung
       if (data.promptOvertime && data.schedule) {
         setOvertimeData({
           scheduleId: data.schedule.id,
@@ -478,7 +479,7 @@ export function Attendance() {
           staffNote: staffNote.trim(),
         }),
       });
-      setMessage({ text: "Đã gửi yêu cầu tăng ca!", type: "ok" });
+      setMessage({ text: "Đã gửi phiếu làm thêm giờ, chờ quản lý duyệt.", type: "ok" });
       setShowOvertimeModal(false);
       setStaffNote("");
       setOvertimeData(null);
@@ -715,7 +716,7 @@ export function Attendance() {
                 onClick={() => setActiveSchedule(s)}
               >
                 <div className="schedule-card-header">
-                  <span className="schedule-shift-code">{s.shiftCode}</span>
+                  <span className="schedule-shift-code">{s.shiftName ?? s.shiftCode}</span>
                   <span className="schedule-time">{minToTime(s.startMin)} – {minToTime(s.endMin)}</span>
                 </div>
                 <div className="schedule-card-status">
@@ -728,7 +729,7 @@ export function Attendance() {
                   )}
                   {s.isOvertime && (
                     <span className="badge-overtime">
-                      Tăng ca {s.overtimeMinutes ? `(${s.overtimeMinutes}p duyệt)` : "(chờ duyệt)"}
+                      {s.overtimeMinutes != null ? `Làm thêm ${s.overtimeMinutes} phút` : "Có phiếu làm thêm"}
                     </span>
                   )}
                 </div>
@@ -757,20 +758,20 @@ export function Attendance() {
       <AttendanceCalendar />
 
       {/* ══════════════════════════════════════════════════════════════
-         MODAL: Xin tăng ca
+         MODAL: Phiếu làm thêm bổ sung
          ══════════════════════════════════════════════════════════════ */}
       {showOvertimeModal && overtimeData && (
         <div className="attendance-modal-overlay" onClick={() => setShowOvertimeModal(false)}>
           <div className="attendance-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2 className="modal-title">Yêu cầu tăng ca</h2>
+              <h2 className="modal-title">Làm phiếu làm thêm giờ</h2>
               <button className="modal-close" onClick={() => setShowOvertimeModal(false)} aria-label="Đóng"><X size={16} /></button>
             </div>
 
             <div className="modal-body">
               <div className="modal-info-grid">
                 <div className="modal-info-item">
-                  <span className="modal-info-label">Thời gian dư</span>
+                  <span className="modal-info-label">Ở lại sau giờ hết ca</span>
                   <span className="modal-info-value modal-info-highlight">
                     {overtimeData.extraMinutes} phút
                   </span>
@@ -778,7 +779,7 @@ export function Attendance() {
                 <div className="modal-info-item">
                   <span className="modal-info-label">Ca làm</span>
                   <span className="modal-info-value">
-                    {activeSchedule ? `${activeSchedule.shiftCode} (${minToTime(activeSchedule.startMin)} – ${minToTime(activeSchedule.endMin)})` : "—"}
+                    {activeSchedule ? `${activeSchedule.shiftName ?? activeSchedule.shiftCode} (${minToTime(activeSchedule.startMin)} – ${minToTime(activeSchedule.endMin)})` : "—"}
                   </span>
                 </div>
                 <div className="modal-info-item">
@@ -791,7 +792,7 @@ export function Attendance() {
 
               <div className="modal-field">
                 <label htmlFor="overtime-note" className="modal-label">
-                  Lý do xin tăng ca <span className="required">*</span>
+                  Lý do làm thêm <span className="required">*</span>
                 </label>
                 <textarea
                   id="overtime-note"
@@ -818,7 +819,7 @@ export function Attendance() {
                 onClick={handleOvertimeSubmit}
                 disabled={loading || !staffNote.trim()}
               >
-                {loading ? "Đang gửi..." : "Gửi yêu cầu tăng ca"}
+                {loading ? "Đang gửi..." : "Gửi phiếu làm thêm"}
               </button>
             </div>
           </div>

@@ -8,6 +8,10 @@ import "./styles/base.css";
 import "./styles/bottomnav.css";
 import "./delivery.css";
 import L from "leaflet";
+import { consumeQrLink } from "./lib/qrEntry";
+
+// Khách quét QR bàn / mang về → gán ngữ cảnh đặt món rồi vào thẳng thực đơn
+consumeQrLink();
 
 // Global fix for Leaflet marker icon paths in Vite
 delete (L.Icon.Default.prototype as any)._getIconUrl;

@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { setSession, type SessionUser } from "../lib/session";
 import { ArrowLeft } from "lucide-react";
+import { PasswordInput } from "../components/PasswordInput";
 
 export function Register() {
   const nav = useNavigate();
@@ -78,10 +79,9 @@ export function Register() {
             </div>
             <div className="field" style={{ marginBottom: "1.5rem" }}>
               <label className="label" style={{ color: "var(--muted)" }} htmlFor="pw">Mật khẩu (≥ 6 ký tự)</label>
-              <input
+              <PasswordInput
                 id="pw"
                 className="input"
-                type="password"
                 required
                 minLength={6}
                 value={password}

@@ -5,6 +5,22 @@ import { mustStoreId, reqStoreId } from "../lib/storeScope.js";
 import { adjustStoreStock } from "../lib/inventory.js";
 import { audit } from "../lib/audit.js";
 
+/** Mã phiếu chuyển kho: TRF-YYYYMM-0001 */
+export async function nextTransferCode(prisma: Pick<PrismaClient, "stockTransfer">) {
+  const now = new Date();
+  const count = await prisma.stockTransfer.count();
+  return `TRF-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}-${String(count + 1).padStart(4, "0")}`;
+}
+
+/** Thông tin kèm theo khi trả phiếu chuyển kho */
+export const transferInclude = {
+  fromStore: { select: { id: true, name: true } },
+  toStore: { select: { id: true, name: true } },
+  createdBy: { select: { fullName: true } },
+  receivedBy: { select: { fullName: true } },
+  items: { include: { item: { select: { id: true, name: true, unit: true } } } },
+} as const;
+
 /**
  * Phiếu chuyển kho giữa hai chi nhánh:
  *   PENDING  — chi nhánh gửi tạo phiếu
@@ -18,13 +34,7 @@ export function stockTransferRouter(prisma: PrismaClient) {
   const admin = [attachStaff(prisma), requireRoles("Admin", "Warehouse")];
   const storeAdmin = [...admin, requireStore];
 
-  const include = {
-    fromStore: { select: { id: true, name: true } },
-    toStore: { select: { id: true, name: true } },
-    createdBy: { select: { fullName: true } },
-    receivedBy: { select: { fullName: true } },
-    items: { include: { item: { select: { id: true, name: true, unit: true } } } },
-  } as const;
+  const include = transferInclude;
 
   r.get("/stock-transfers", ...admin, async (req, res) => {
     const sid = reqStoreId(req);
@@ -54,9 +64,7 @@ export function stockTransferRouter(prisma: PrismaClient) {
       return res.status(400).json({ error: "Cần ít nhất 1 nguyên liệu, số lượng > 0." });
     }
 
-    const now = new Date();
-    const count = await prisma.stockTransfer.count();
-    const code = `TRF-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}-${String(count + 1).padStart(4, "0")}`;
+    const code = await nextTransferCode(prisma);
     const row = await prisma.stockTransfer.create({
       data: {
         code,

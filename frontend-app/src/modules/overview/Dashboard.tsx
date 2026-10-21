@@ -12,7 +12,7 @@ type Stats = {
   products: number;
   tables: number;
   staff: number;
-  pendingRequests: number;
+  lowStock: number;
 };
 
 export function Dashboard() {
@@ -41,10 +41,10 @@ export function Dashboard() {
               <Kpi label="Bàn" value={s.tables} onClick={() => nav("/app/tables/zones")} />
               <Kpi label="Nhân viên hoạt động" value={s.staff} onClick={() => nav("/app/hr/employees")} />
               <Kpi
-                label="Phiếu NL chờ duyệt"
-                value={s.pendingRequests}
-                tone={s.pendingRequests ? "warning" : undefined}
-                onClick={() => nav("/app/inventory/requests")}
+                label="Nguyên liệu sắp hết"
+                value={s.lowStock}
+                tone={s.lowStock ? "warning" : undefined}
+                onClick={() => nav("/app/inventory/stock")}
               />
             </div>
           </>

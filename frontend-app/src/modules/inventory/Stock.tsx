@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, PackagePlus, Trash2, Warehouse } from "lucide-react";
 import { mediaUrl } from "../../lib/api";
-import { staffApi } from "../../lib/staffApi";
+import { getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
 import {
-  Alert, Badge, Button, EmptyState, Field, FormGroup, FormGroups, FormView, Kpi, Modal, RecordList, errMsg, fmtDate,
+  Alert, Badge, Button, EmptyState, Field, FormGroup, FormGroups, FormView, Kpi, Modal, RecordList, errMsg, fmtDate, fmtQty, formatVnd,
 } from "../../components/erp";
 import { ImageField, digits, useRecordNav, useResource } from "../shared";
 
@@ -16,6 +16,11 @@ export type InvRow = {
   minLevel: number;
   supplier: string | null;
   imageUrl: string | null;
+  /** Giá nhập bình quân / 1 đơn vị kho */
+  unitCostPrice: number;
+  /** Đơn vị dùng trong công thức + 1 đơn vị kho = ? đơn vị công thức */
+  recipeUnit: string | null;
+  recipePerUnit: number;
 };
 type ExpiringLot = { id: number; expiryDate: string; remainingQty: number; item: { name: string; unit: string | null } };
 
@@ -84,8 +89,9 @@ export function StockList() {
         { key: "name", label: "Nguyên liệu", value: (i) => i.name },
         { key: "sku", label: "SKU", value: (i) => i.skuCode ?? "", optional: true },
         { key: "unit", label: "Đơn vị", value: (i) => i.unit ?? "" },
-        { key: "stock", label: "Tồn kho", value: (i) => i.stockQty, numeric: true, render: (i) => <span style={isLow(i) ? { color: "var(--o-danger)", fontWeight: 600 } : undefined}>{i.stockQty.toLocaleString("vi-VN")}</span> },
+        { key: "stock", label: "Tồn kho", value: (i) => i.stockQty, numeric: true, render: (i) => <span style={isLow(i) ? { color: "var(--o-danger)", fontWeight: 600 } : undefined}>{fmtQty(i.stockQty)}</span> },
         { key: "min", label: "Tối thiểu", value: (i) => i.minLevel, numeric: true },
+        { key: "cost", label: "Giá nhập", value: (i) => i.unitCostPrice, numeric: true, optional: true, render: (i) => (i.unitCostPrice ? formatVnd(i.unitCostPrice) : <span style={{ color: "var(--o-danger)" }}>Chưa có</span>) },
         { key: "supplier", label: "Nhà cung cấp", value: (i) => i.supplier ?? "", optional: true },
         { key: "state", label: "Tình trạng", value: (i) => (isLow(i) ? "Sắp hết" : "Đủ"), render: (i) => (isLow(i) ? <Badge tone="danger">Sắp hết</Badge> : <Badge tone="success">Đủ</Badge>) },
       ]}
@@ -104,7 +110,7 @@ export function StockList() {
   );
 }
 
-const EMPTY = { name: "", skuCode: "", unit: "", stockQty: "", minLevel: "", supplier: "", imageUrl: "" };
+const EMPTY = { name: "", skuCode: "", unit: "", stockQty: "", minLevel: "", supplier: "", imageUrl: "", unitCostPrice: "", recipeUnit: "", recipePerUnit: "1" };
 
 export function StockForm({ recordId }: { recordId?: string }) {
   const isNew = recordId === "new";
@@ -118,26 +124,41 @@ export function StockForm({ recordId }: { recordId?: string }) {
   const [recvOpen, setRecvOpen] = useState(false);
 
   const reset = (x: InvRow) =>
-    setForm({ name: x.name, skuCode: x.skuCode ?? "", unit: x.unit ?? "", stockQty: String(x.stockQty), minLevel: String(x.minLevel), supplier: x.supplier ?? "", imageUrl: x.imageUrl ?? "" });
+    setForm({
+      name: x.name, skuCode: x.skuCode ?? "", unit: x.unit ?? "", stockQty: String(x.stockQty), minLevel: String(x.minLevel),
+      supplier: x.supplier ?? "", imageUrl: x.imageUrl ?? "",
+      unitCostPrice: x.unitCostPrice ? String(x.unitCostPrice) : "", recipeUnit: x.recipeUnit ?? "", recipePerUnit: String(x.recipePerUnit ?? 1),
+    });
   useEffect(() => {
     if (item) reset(item);
   }, [item]);
   const set = (k: keyof typeof EMPTY, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const ro = !editing;
+  const owner = isOwnerRole(getStaffInfo()?.role);
+  const roCatalog = ro || !owner;
+  const perUnit = Number(form.recipePerUnit.replace(",", ".")) || 1;
 
   async function save() {
     if (!form.name.trim()) return setErr("Nhập tên nguyên liệu.");
     setSaving(true);
     setErr(null);
-    const body = JSON.stringify({
+    const stock = {
+      // Tồn kho được lẻ (bán hàng trừ theo định mức); chấp nhận cả dấu phẩy
+      stockQty: Number(form.stockQty.replace(",", ".")) || 0,
+      minLevel: digits(form.minLevel) || 0,
+    };
+    // Thông tin nguyên liệu dùng chung cả chuỗi — chỉ Chủ chuỗi gửi; Thủ kho / Quản lý chỉ sửa tồn kho
+    const catalog = {
       name: form.name.trim(),
       skuCode: form.skuCode.trim() || null,
       unit: form.unit.trim() || null,
-      stockQty: digits(form.stockQty) || 0,
-      minLevel: digits(form.minLevel) || 0,
       supplier: form.supplier.trim() || null,
       imageUrl: form.imageUrl.trim() || null,
-    });
+      unitCostPrice: digits(form.unitCostPrice) || 0,
+      recipeUnit: form.recipeUnit.trim() || null,
+      recipePerUnit: Number(form.recipePerUnit.replace(",", ".")) || 1,
+    };
+    const body = JSON.stringify(owner ? { ...catalog, ...stock } : stock);
     try {
       if (isNew) {
         const created = await staffApi<{ id?: number }>("/api/admin/inventory", { method: "POST", body });
@@ -207,6 +228,20 @@ export function StockForm({ recordId }: { recordId?: string }) {
           <Field label="SKU"><input className="o-input" value={form.skuCode} disabled={ro} onChange={(e) => set("skuCode", e.target.value)} /></Field>
           <Field label="Đơn vị"><input className="o-input" value={form.unit} disabled={ro} onChange={(e) => set("unit", e.target.value)} placeholder={ro ? "" : "kg, hộp…"} /></Field>
           <Field label="Nhà cung cấp"><input className="o-input" value={form.supplier} disabled={ro} onChange={(e) => set("supplier", e.target.value)} /></Field>
+        </FormGroup>
+        <FormGroup title="Giá & quy đổi (dùng tính giá vốn món)">
+          <Field label="Giá nhập / 1 đơn vị kho">
+            {roCatalog ? (form.unitCostPrice ? formatVnd(digits(form.unitCostPrice)) : <span style={{ color: "var(--o-danger)" }}>Chưa có giá</span>) : (
+              <input className="o-input" inputMode="numeric" value={form.unitCostPrice} onChange={(e) => set("unitCostPrice", e.target.value)} placeholder="VD 230000" />
+            )}
+          </Field>
+          <Field label="Đơn vị trong công thức"><input className="o-input" value={form.recipeUnit} disabled={roCatalog} onChange={(e) => set("recipeUnit", e.target.value)} placeholder="g, ml, cái…" /></Field>
+          <Field label={`1 ${form.unit || "đơn vị kho"} = ? ${form.recipeUnit || "đơn vị CT"}`}>
+            <input className="o-input o-input-num" value={form.recipePerUnit} disabled={roCatalog} onChange={(e) => set("recipePerUnit", e.target.value)} />
+          </Field>
+          {digits(form.unitCostPrice) > 0 && form.recipeUnit && (
+            <Field label="Giá / 1 đơn vị CT">{formatVnd(Math.round((digits(form.unitCostPrice) / perUnit) * 100) / 100)} / {form.recipeUnit}</Field>
+          )}
         </FormGroup>
         <FormGroup title="Tồn kho">
           <Field label={isNew ? "Tồn ban đầu" : "Tồn kho"}><input className="o-input" value={form.stockQty} disabled={ro} onChange={(e) => set("stockQty", e.target.value)} /></Field>

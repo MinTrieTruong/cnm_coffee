@@ -104,6 +104,9 @@ export function posRouter(prisma: PrismaClient, io: Server) {
     if (order.payments.length > 0) {
       return res.status(400).json({ error: "Đơn đã có giao dịch thanh toán." });
     }
+    if (order.orderType === "Delivery") {
+      return res.status(400).json({ error: "Đơn giao hàng chỉ thanh toán online (khách trả trước khi quán nhận đơn)." });
+    }
 
     const settings = await getStoreSettings(prisma);
 

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ShoppingCart, FilePlus, Package, FolderOpen, FileText, Download, X, Search, ArrowLeft } from "lucide-react";
 import { getStaffInfo, isAdminRole, staffApi } from "../lib/staffApi";
+import { fmtQty } from "../components/erp";
 
 export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = {}) {
   // Thủ kho lập đề xuất & nhận hàng; Quản lý chi nhánh duyệt đề xuất & chọn báo giá
@@ -197,7 +198,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                 style={{ flex: 1, minWidth: 200 }}
               >
                 <option value="">-- Chọn Nguyên Liệu --</option>
-                {inventory.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit}) - Tồn: {i.stockQty}</option>)}
+                {inventory.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit}) - Tồn: {fmtQty(i.stockQty)}</option>)}
               </select>
               <input 
                 type="number" className="input-field" placeholder="Số lượng" value={item.qty || ""}

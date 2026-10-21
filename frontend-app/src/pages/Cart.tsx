@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { api } from "../lib/api";
 import { backupCart, cartTotal, clearCart, getCart, updateQty, type CartItem } from "../lib/cart";
-import { getTableId, getTakeawaySessionId, getUser, setTableId, setTakeawaySessionId } from "../lib/session";
+import { getTableId, getTakeawaySessionId, getUser, newSessionId, setTakeawaySessionId } from "../lib/session";
 import { motion } from "framer-motion";
 import { ArrowLeft, Trash2, Plus, Minus, Receipt } from "lucide-react";
 import { LocationPicker } from "../components/LocationPicker";
@@ -19,11 +19,10 @@ export function Cart() {
   const [items, setItems] = useState(() => getCart());
   const nav = useNavigate();
   const user = getUser();
-  const { storeId } = useCustomerStore();
+  const { storeId, tableName } = useCustomerStore();
   const [payOpen, setPayOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [manualTable, setManualTable] = useState("");
   
   // Delivery State
   const [orderTypeSelection, setOrderTypeSelection] = useState<"dine-in" | "takeaway" | "delivery">(
@@ -87,12 +86,10 @@ export function Cart() {
       let sessionId = null;
       
       if (orderTypeSelection === "takeaway") {
-        if (!user) {
-          setMsg("Vui lòng đăng nhập để đặt mang về.");
-          setSubmitting(false); return;
-        }
+        // Khách vãng lai đặt mang về: phiên mang về là "chìa khoá" để xem bill và yêu cầu thanh toán
         finalOrderType = "Takeaway";
-        sessionId = takeawaySessionId || `ta-${Date.now()}`;
+        sessionId = takeawaySessionId ?? newSessionId();
+        setTakeawaySessionId(sessionId);
       } else if (orderTypeSelection === "delivery") {
         if (!user) {
           setMsg("Vui lòng đăng nhập để đặt giao hàng.");
@@ -125,7 +122,7 @@ export function Cart() {
         }
       } else {
         if (!tableId) {
-          setMsg("Không xác định được bàn. Vui lòng thử lại.");
+          setMsg("Không xác định được bàn. Hãy quét mã QR trên bàn hoặc chọn Mang về.");
           setSubmitting(false); return;
         }
       }
@@ -194,7 +191,7 @@ export function Cart() {
         >Ăn tại quán</button>
         <button 
           className={`btn ${orderTypeSelection === "takeaway" ? "btn-primary" : "btn-ghost"}`} 
-          onClick={() => { setOrderTypeSelection("takeaway"); setTakeawaySessionId(`ta-${Date.now()}`); }}
+          onClick={() => { setOrderTypeSelection("takeaway"); setTakeawaySessionId(getTakeawaySessionId() ?? newSessionId()); }}
         >Mang về</button>
         <button 
           className={`btn ${orderTypeSelection === "delivery" ? "btn-primary" : "btn-ghost"}`} 
@@ -204,7 +201,7 @@ export function Cart() {
       {orderTypeSelection !== "dine-in" && <StorePicker />}
 
       <p style={{ color: "var(--muted)", marginBottom: "2rem", fontSize: "0.95rem" }}>
-        {orderTypeSelection === "takeaway" ? "Loại đơn: Mang về" : orderTypeSelection === "delivery" ? "Loại đơn: Giao tận nơi" : `Bàn hiện tại: ${currentTable ?? "Chưa xác định"}`}
+        {orderTypeSelection === "takeaway" ? "Loại đơn: Mang về" : orderTypeSelection === "delivery" ? "Loại đơn: Giao tận nơi" : `Bàn hiện tại: ${currentTable ? tableName ?? `#${currentTable}` : "Chưa xác định"}`}
       </p>
 
       {orderTypeSelection === "delivery" && (
@@ -281,43 +278,16 @@ export function Cart() {
 
       {orderTypeSelection === "takeaway" && !user && (
         <div style={{ background: "var(--surface2)", padding: "1.25rem", borderRadius: 16, marginBottom: "2rem", border: "1px solid var(--border)", textAlign: "center" }}>
-          <p style={{ color: "var(--muted)", marginBottom: "1rem" }}>Bạn cần đăng nhập để lưu trữ thông tin đơn Mang về dễ dàng hơn.</p>
+          <p style={{ color: "var(--muted)", marginBottom: "1rem" }}>Bạn có thể đặt mang về không cần tài khoản. Đăng nhập để tích điểm và xem lại đơn.</p>
           <Link to="/login" className="btn btn-primary" style={{ padding: "0.5rem 1.5rem", borderRadius: 8 }}>Đăng nhập ngay</Link>
         </div>
       )}
 
       {orderTypeSelection === "dine-in" && !currentTable && (
-        <div style={{ background: "var(--surface2)", padding: "1.25rem", borderRadius: 16, marginBottom: "2rem", border: "1px solid var(--border)" }}>
-          <div className="field" style={{ marginBottom: "1rem" }}>
-            <label className="label" htmlFor="manual-table" style={{ fontSize: "0.85rem", color: "var(--text)", marginBottom: "0.5rem", display: "block" }}>
-              Bạn chưa có QR? Nhập số bàn của bạn:
-            </label>
-            <input
-              id="manual-table"
-              className="input"
-              placeholder="Ví dụ: 12"
-              value={manualTable}
-              onChange={(e) => setManualTable(e.target.value)}
-              style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10 }}
-            />
-          </div>
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ borderRadius: 999, padding: "0.6rem 1.5rem", fontSize: "0.95rem" }}
-            onClick={() => {
-              const n = Number(manualTable);
-              if (!n || Number.isNaN(n) || n <= 0) {
-                setMsg("Vui lòng nhập số bàn hợp lệ.");
-                return;
-              }
-              setTakeawaySessionId(null);
-              setTableId(n);
-              setMsg(`Đã gán bàn ${n}.`);
-            }}
-          >
-            Xác nhận bàn
-          </button>
+        <div style={{ background: "var(--surface2)", padding: "1.25rem", borderRadius: 16, marginBottom: "2rem", border: "1px solid var(--border)", textAlign: "center" }}>
+          <p style={{ color: "var(--text)", margin: 0, fontSize: "0.95rem", lineHeight: 1.5 }}>
+            Hãy quét <strong>mã QR trên bàn</strong> để gọi món tại quán, hoặc chọn <strong>Mang về</strong>.
+          </p>
         </div>
       )}
 
@@ -442,7 +412,9 @@ export function Cart() {
           >
             <h2 style={{ fontFamily: "var(--font-display)", margin: "0 0 1rem", fontSize: "1.75rem", color: "var(--accent)" }}>Xác nhận đặt đơn</h2>
 
-            {orderTypeSelection === "takeaway" || orderTypeSelection === "delivery" ? (
+            {orderTypeSelection === "delivery" ? (
+              <p style={{ color: "var(--text)", fontSize: "0.95rem", lineHeight: 1.5, marginBottom: "2rem" }}>Đơn giao hàng cần thanh toán online (gồm cả phí ship) ở bước tiếp theo. Quán chỉ nhận đơn sau khi bạn thanh toán.</p>
+            ) : orderTypeSelection === "takeaway" ? (
               <p style={{ color: "var(--text)", fontSize: "0.95rem", lineHeight: 1.5, marginBottom: "2rem" }}>Đơn sẽ được gửi đi, bạn có thể thanh toán trực tuyến hoặc chờ xác nhận.</p>
             ) : (
               <p style={{ color: "var(--text)", fontSize: "0.95rem", lineHeight: 1.5, marginBottom: "2rem" }}>Tại bàn: thanh toán ngay → trang hóa đơn chờ thu ngân; thanh toán sau → ân hạn chỉnh sửa rồi mới xuống bếp.</p>

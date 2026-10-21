@@ -21,6 +21,7 @@ import { Dropdown } from "./ControlPanel";
 import { StoreSwitcher } from "./StoreSwitcher";
 import { roleLabel } from "../../lib/roles";
 import { Alert, Button, EmptyState, Field, Modal } from "./primitives";
+import { PasswordInput } from "../PasswordInput";
 
 function useOutsideClose(open: boolean, close: () => void) {
   const ref = useRef<HTMLDivElement>(null);
@@ -245,9 +246,9 @@ function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
       }
     >
       {msg && <Alert tone={msg.ok ? "info" : "danger"}>{msg.text}</Alert>}
-      <Field label="Mật khẩu hiện tại"><input className="o-input" type="password" value={cur} onChange={(e) => setCur(e.target.value)} autoComplete="current-password" /></Field>
-      <Field label="Mật khẩu mới"><input className="o-input" type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" /></Field>
-      <Field label="Nhập lại"><input className="o-input" type="password" value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" /></Field>
+      <Field label="Mật khẩu hiện tại"><PasswordInput className="o-input" value={cur} onChange={(e) => setCur(e.target.value)} autoComplete="current-password" /></Field>
+      <Field label="Mật khẩu mới"><PasswordInput className="o-input" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" /></Field>
+      <Field label="Nhập lại"><PasswordInput className="o-input" value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" /></Field>
     </Modal>
   );
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import { clearCart, getCart } from "./cart";
-import { getTableId } from "./session";
+import { getTableId, setTableId } from "./session";
 
 /** Chi nhánh khách đang đặt (mang về / giao hàng). Ngồi tại bàn thì chi nhánh theo bàn. */
 const STORE_KEY = "cmn_store_id";
@@ -25,7 +25,7 @@ export function getStoreId(): number | null {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
-function saveStoreId(id: number | null) {
+export function saveStoreId(id: number | null) {
   if (id == null) localStorage.removeItem(STORE_KEY);
   else localStorage.setItem(STORE_KEY, String(id));
   window.dispatchEvent(new Event(CHANGE_EVENT));
@@ -56,6 +56,8 @@ export function useCustomerStore() {
   const [stores, setStores] = useState<PublicStore[]>([]);
   const [storeId, setStoreIdState] = useState<number | null>(getStoreId);
   const [tableStore, setTableStore] = useState<PublicStore | null>(null);
+  const [tableName, setTableName] = useState<string | null>(null);
+  const [, rerender] = useState(0);
 
   useEffect(() => {
     const sync = () => setStoreIdState(getStoreId());
@@ -86,16 +88,25 @@ export function useCustomerStore() {
   useEffect(() => {
     if (!tableId) {
       setTableStore(null);
+      setTableName(null);
       return;
     }
     let cancelled = false;
-    api<{ store: PublicStore }>(`/api/tables/${tableId}/store`)
+    api<{ tableName: string; store: PublicStore }>(`/api/tables/${tableId}/store`)
       .then((r) => {
         if (cancelled) return;
         setTableStore(r.store);
+        setTableName(r.tableName);
         if (getStoreId() !== r.store.id) saveStoreId(r.store.id);
       })
-      .catch(() => {});
+      .catch((e) => {
+        // Mã QR trỏ tới bàn đã xoá → bỏ gán bàn để khách chọn lại
+        if (cancelled || !(e instanceof Error) || !/bàn/i.test(e.message)) return;
+        setTableId(null);
+        setTableStore(null);
+        setTableName(null);
+        rerender((n) => n + 1);
+      });
     return () => {
       cancelled = true;
     };
@@ -117,6 +128,9 @@ export function useCustomerStore() {
     stores,
     /** Đang ngồi tại bàn → không đổi chi nhánh được */
     locked: !!tableStore,
+    tableId,
+    /** Tên bàn hiển thị cho khách (vd "Bàn 3"), khác với id trong CSDL */
+    tableName,
     setStore,
   };
 }

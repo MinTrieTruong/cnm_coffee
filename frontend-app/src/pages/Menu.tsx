@@ -6,8 +6,6 @@ import {
   getTakeawaySessionId,
   getUser,
   isGuestMode,
-  setTableId,
-  setTakeawaySessionId,
 } from "../lib/session";
 import { ChatWidget } from "../components/ChatWidget";
 import { ReviewList } from "../components/ReviewList";
@@ -30,8 +28,6 @@ function normalize(s: string) {
 export function Menu() {
   const [data, setData] = useState<MenuResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [demoTable, setDemoTable] = useState("");
-  const [ctxTick, setCtxTick] = useState(0);
 
   const [filters, setFilters] = useState<FilterState>({
     search: "",
@@ -45,9 +41,9 @@ export function Menu() {
 
   const user = getUser();
   const guest = isGuestMode();
-  const { storeId } = useCustomerStore();
-  const tableId = ctxTick >= 0 ? getTableId() : null;
-  const takeawaySid = ctxTick >= 0 ? getTakeawaySessionId() : null;
+  const { storeId, tableName } = useCustomerStore();
+  const tableId = getTableId();
+  const takeawaySid = getTakeawaySessionId();
 
   const qs = useMemo(() => {
     const params = new URLSearchParams();
@@ -130,48 +126,17 @@ export function Menu() {
         <p className="subtle" style={{ margin: 0, color: "var(--text)" }}>
           {guest || !user ? "Hãy chọn món bạn yêu thích" : `Xin chào, ${user.fullName}`}
         </p>
-        {user && !guest && (
-          <p style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "rgba(146,64,14,0.8)" }}>
-            {takeawaySid
-              ? "Mang về (tích điểm khi thanh toán)"
-              : tableId
-                ? `Tại bàn #${tableId}`
-                : "Chưa gán bàn / mang về"}
-          </p>
+        {(takeawaySid || tableId) && (
+          <div style={{
+            marginTop: "0.75rem", display: "inline-flex", alignItems: "center", gap: "0.4rem",
+            background: "rgba(146,64,14,0.1)", border: "1px solid rgba(146,64,14,0.3)",
+            borderRadius: 999, padding: "0.35rem 0.9rem",
+            fontSize: "0.88rem", fontWeight: 700, color: "var(--accent)",
+          }}>
+            {takeawaySid ? "Đơn mang về" : `Bạn đang ngồi tại ${tableName ?? `bàn #${tableId}`}`}
+          </div>
         )}
       </div>
-
-      {user && !guest && (
-        <div style={{ 
-          background: "var(--surface2)", 
-          borderRadius: 16, 
-          padding: "1rem", 
-          marginBottom: "1.5rem",
-          boxShadow: "inset 0 1px 1px rgba(255,255,255,0.05)"
-        }}>
-          <div className="field" style={{ marginBottom: "0.75rem" }}>
-            <label className="label" htmlFor="menu-demo-table" style={{ fontSize: "0.75rem", color: "var(--muted)" }}>Demo không QR — gán bàn</label>
-            <input
-              id="menu-demo-table"
-              className="input"
-              placeholder="Ví dụ: 3"
-              value={demoTable}
-              onChange={(e) => setDemoTable(e.target.value)}
-              style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10 }}
-            />
-          </div>
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-            <button type="button" className="btn btn-primary" style={{ padding: "0.5rem 1rem", fontSize: "0.9rem" }} onClick={() => {
-              const n = Number(demoTable);
-              if (!n || Number.isNaN(n) || n <= 0) return;
-              setTakeawaySessionId(null); setTableId(n); setCtxTick((c) => c + 1);
-            }}>Gán bàn</button>
-            <button type="button" className="btn btn-ghost" style={{ padding: "0.5rem 1rem", fontSize: "0.9rem", borderColor: "var(--border)" }} onClick={() => {
-              setTakeawaySessionId(crypto.randomUUID()); setTableId(null); setCtxTick((c) => c + 1);
-            }}>Mang về</button>
-          </div>
-        </div>
-      )}
 
       {/* ADVANCED FILTER */}
       <AdvancedFilter 

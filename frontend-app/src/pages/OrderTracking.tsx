@@ -27,7 +27,6 @@ type Tracking = {
   subTotal: number;
   shippingFee: number;
   totalAmount: number;
-  codAmount: number;
 };
 
 const STEPS = [
@@ -268,8 +267,8 @@ export function OrderTracking() {
             ))}
             <div className="tk-sub"><span>Phí giao hàng</span><span>{t.shippingFee ? formatVnd(t.shippingFee) : "Miễn phí"}</span></div>
             <div className="tk-total">
-              <span>{t.codAmount > 0 ? "Thanh toán khi nhận hàng" : "Đã thanh toán"}</span>
-              <span>{formatVnd(t.codAmount > 0 ? t.codAmount : t.totalAmount)}</span>
+              <span>{t.status === "Paid" ? "Đã thanh toán" : "Chưa thanh toán"}</span>
+              <span>{formatVnd(t.totalAmount)}</span>
             </div>
           </div>
         )}
