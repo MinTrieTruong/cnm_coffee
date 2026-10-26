@@ -29,6 +29,8 @@ const TYPE_META: Record<string, { icon: LucideIcon; tone: string }> = {
   MENU_BACK: { icon: CircleCheck, tone: "green" },
   DELIVERY_NEW: { icon: Bike, tone: "blue" },
   DELIVERY_REFUND: { icon: Bike, tone: "orange" },
+  SUPPLIER_RETURN: { icon: Package, tone: "orange" },
+  PO_BACKORDER: { icon: Package, tone: "red" },
   HR_REQUEST: { icon: FileText, tone: "orange" },
   HR_REVIEWED: { icon: FileCheck, tone: "green" },
   LOW_STOCK: { icon: AlertTriangle, tone: "orange" },

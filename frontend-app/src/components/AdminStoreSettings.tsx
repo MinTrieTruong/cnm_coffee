@@ -12,6 +12,7 @@ type StoreSettingsPayload = {
   faceMatchThreshold: number;
   pettyCashLimit: number;
   cancelWindowMinutes: number;
+  supplierReturnDays: number;
 };
 
 export function AdminStoreSettings({
@@ -34,6 +35,7 @@ export function AdminStoreSettings({
   const [threshold, setThreshold] = useState(settings.faceMatchThreshold ?? 0.5);
   const [pettyLimit, setPettyLimit] = useState(String(settings.pettyCashLimit ?? 200000));
   const [cancelWin, setCancelWin] = useState(String(settings.cancelWindowMinutes ?? 5));
+  const [returnDays, setReturnDays] = useState(String(settings.supplierReturnDays ?? 7));
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -45,6 +47,7 @@ export function AdminStoreSettings({
     setThreshold(settings.faceMatchThreshold ?? 0.5);
     setPettyLimit(String(settings.pettyCashLimit ?? 200000));
     setCancelWin(String(settings.cancelWindowMinutes ?? 5));
+    setReturnDays(String(settings.supplierReturnDays ?? 7));
   }, [settings]);
 
   async function save(e: FormEvent) {
@@ -63,6 +66,7 @@ export function AdminStoreSettings({
           faceMatchThreshold: threshold,
           pettyCashLimit: Number(pettyLimit),
           cancelWindowMinutes: Number(cancelWin),
+          supplierReturnDays: Number(returnDays),
         }),
       });
       await onSaved();
@@ -126,6 +130,12 @@ export function AdminStoreSettings({
               <label className="label">Thời gian khách tự hủy đơn giao hàng (phút)</label>
               <input className="input" type="number" min={0} max={120} value={cancelWin} onChange={(e) => setCancelWin(e.target.value)} />
               <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>Tính từ lúc khách thanh toán, khi quán chưa nhận đơn. Hủy trong thời gian này được hoàn 100% số tiền thành điểm.</p>
+            </div>
+
+            <div className="field" style={{ marginTop: "1rem" }}>
+              <label className="label">Hạn trả hàng nhà cung cấp (ngày)</label>
+              <input className="input" type="number" min={1} max={90} value={returnDays} onChange={(e) => setReturnDays(e.target.value)} />
+              <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>Tính từ ngày nhận lô hàng. Quá hạn thì quản lý chi nhánh vẫn duyệt được nhưng phải ghi lý do.</p>
             </div>
           </div>
 

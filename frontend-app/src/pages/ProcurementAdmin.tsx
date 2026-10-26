@@ -4,6 +4,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ShoppingCart, FilePlus, Package, FolderOpen, FileText, Download, X, Search, ArrowLeft } from "lucide-react";
 import { getStaffInfo, isAdminRole, staffApi } from "../lib/staffApi";
 import { fmtQty } from "../components/erp";
+import { mediaUrl } from "../lib/api";
+import { REJECT_REASON } from "../lib/supplierReturns";
+import { PhotoPicker } from "../components/PhotoPicker";
+import { SupplierReturnsPanel } from "../components/SupplierReturnsPanel";
 
 /** Trạng thái đơn mua (PO) */
 const PO_STATUS: Record<string, { label: string; bg: string; color: string }> = {
@@ -13,13 +17,22 @@ const PO_STATUS: Record<string, { label: string; bg: string; color: string }> = 
   CLOSED: { label: "Đã đóng (giao thiếu)", bg: "rgba(107,114,128,0.2)", color: "#4b5563" },
 };
 
+type RecvLine = {
+  qty: string; rejected: string; expiry: string; note: string;
+  reason: string; photo: string | null;
+  action: "BACKORDER" | "CANCEL"; backorder: string;
+};
+
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const dateVi = (d: string | null | undefined) => (d ? new Date(d).toLocaleDateString("vi-VN") : "");
+
 export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = {}) {
   // Thủ kho lập đề xuất & nhận hàng; Quản lý chi nhánh duyệt đề xuất & chọn báo giá
   const role = getStaffInfo()?.role;
   const keeper = role === "Warehouse";
   const approver = isAdminRole(role);
   const navigate = useNavigate();
-  const [tab, setTab] = useState<"pr" | "rfq" | "po" | "drive">("pr");
+  const [tab, setTab] = useState<"pr" | "rfq" | "po" | "rtv" | "drive">("pr");
 
   const [prs, setPrs] = useState<any[]>([]);
   const [rfqs, setRfqs] = useState<any[]>([]);
@@ -33,9 +46,14 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
   const [selectedRfq, setSelectedRfq] = useState<any>(null);
 
   const [receivingPo, setReceivingPo] = useState<any>(null);
-  /** Nhận hàng theo PO: số thực nhận / hỏng-trả lại / hạn dùng / ghi chú từng mặt hàng (itemId → giá trị) */
-  const [recv, setRecv] = useState<Record<number, { qty: string; rejected: string; expiry: string; note: string }>>({});
+  /**
+   * Nhận hàng theo PO, từng mặt hàng (itemId → giá trị): số thực nhận / trả lại (lý do + ảnh) / hạn dùng / ghi chú,
+   * phần còn thiếu: chờ giao bù (ngày hẹn) hoặc hủy
+   */
+  const [recv, setRecv] = useState<Record<number, RecvLine>>({});
   const [recvNote, setRecvNote] = useState("");
+  const [recvReorder, setRecvReorder] = useState(false);
+  const [recvBusy, setRecvBusy] = useState(false);
 
   const [previewDoc, setPreviewDoc] = useState<any>(null);
   const printRef = useRef<HTMLDivElement>(null);
@@ -114,16 +132,25 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
   }
 
   function openReceive(po: any) {
-    setRecv(Object.fromEntries(po.lines.filter((l: any) => l.remaining > 0).map((l: any) => [l.itemId, { qty: String(l.remaining), rejected: "", expiry: "", note: "" }])));
+    const backorder = ymd(new Date(Date.now() + 3 * 86400_000));
+    setRecv(Object.fromEntries(po.lines.filter((l: any) => l.remaining > 0).map((l: any) => [
+      l.itemId,
+      { qty: String(l.remaining), rejected: "", expiry: "", note: "", reason: "", photo: null, action: "BACKORDER", backorder },
+    ])));
     setRecvNote("");
+    setRecvReorder(false);
     setReceivingPo(po);
   }
 
-  async function closeOrder(po: any) {
-    const note = window.prompt(`Đóng ${po.code}, không nhận thêm hàng? Ghi lý do (VD: NCC hết hàng, không giao bù):`);
+  /** Hủy phần còn thiếu: cả đơn (line = null) hoặc 1 mặt hàng */
+  async function cancelRemaining(po: any, line: any | null) {
+    const what = line ? `${line.remaining} ${line.unit ?? ""} ${line.name} còn thiếu` : `toàn bộ phần còn thiếu của ${po.code}`;
+    const note = window.prompt(`Hủy ${what}, không chờ nhà cung cấp giao bù nữa? Ghi lý do (VD: NCC hết hàng):`);
     if (!note?.trim()) return;
+    const reorder = window.confirm("Tạo đề xuất mua mới cho phần bị hủy để lấy báo giá nhà cung cấp khác?");
     try {
-      await staffApi(`/api/purchasing/orders/${po.id}/close`, { method: "POST", body: JSON.stringify({ note }) });
+      const r = await staffApi<{ reorderCode: string | null }>(`/api/purchasing/orders/${po.id}/close`, { method: "POST", body: JSON.stringify({ note, itemId: line?.itemId, reorder }) });
+      if (r.reorderCode) alert(`Đã tạo đề xuất mua ${r.reorderCode} (chờ duyệt).`);
       loadData();
     } catch (e: any) { alert(e.message); }
   }
@@ -135,29 +162,48 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
       .filter((l: any) => recv[l.itemId])
       .map((l: any) => {
         const r = recv[l.itemId];
-        return { itemId: l.itemId, name: l.name, remaining: l.remaining, receivedQty: toInt(r.qty), rejectedQty: toInt(r.rejected), expiryDate: r.expiry || null, note: r.note };
+        return {
+          itemId: l.itemId, name: l.name, remaining: l.remaining, receivedQty: toInt(r.qty), rejectedQty: toInt(r.rejected), expiryDate: r.expiry || null, note: r.note,
+          rejectReason: r.reason || undefined, rejectPhoto: r.photo || undefined, shortAction: r.action, backorderDate: r.backorder || null,
+        };
       });
-    const bad = lines.find((l: any) => !Number.isInteger(l.receivedQty) || l.receivedQty < 0 || !Number.isInteger(l.rejectedQty) || l.rejectedQty < 0 || l.receivedQty > l.remaining);
-    if (bad) return alert(`Số lượng của ${bad.name} không hợp lệ (nhận tối đa ${bad.remaining}).`);
-    if (!lines.some((l: any) => l.receivedQty > 0 || l.rejectedQty > 0)) return alert("Nhập số thực nhận cho ít nhất 1 mặt hàng.");
-    const noExpiry = lines.filter((l: any) => l.receivedQty > 0 && !l.expiryDate).map((l: any) => l.name);
+    const bad = lines.find((l: any) => !Number.isInteger(l.receivedQty) || l.receivedQty < 0 || !Number.isInteger(l.rejectedQty) || l.rejectedQty < 0 || l.receivedQty + l.rejectedQty > l.remaining);
+    if (bad) return alert(`Số lượng của ${bad.name} không hợp lệ: thực nhận + trả lại tối đa ${bad.remaining}.`);
+    const noProof = lines.find((l: any) => l.rejectedQty > 0 && (!l.rejectReason || !l.rejectPhoto));
+    if (noProof) return alert(`${noProof.name}: chọn lý do và chụp ảnh hàng bị trả lại.`);
     const short = lines.filter((l: any) => l.receivedQty < l.remaining);
+    if (!lines.some((l: any) => l.receivedQty > 0 || l.rejectedQty > 0) && !short.some((l: any) => l.shortAction === "CANCEL")) return alert("Nhập số thực nhận cho ít nhất 1 mặt hàng.");
+    const noExpiry = lines.filter((l: any) => l.receivedQty > 0 && !l.expiryDate).map((l: any) => l.name);
+    const waiting = short.filter((l: any) => l.shortAction === "BACKORDER");
+    const cut = short.filter((l: any) => l.shortAction === "CANCEL");
     const msg = [
       "Xác nhận nhập kho (tạo phiếu nhập GRN)? Tồn kho và công nợ NCC tính theo số thực nhận.",
-      short.length ? `\nGiao thiếu: ${short.map((l: any) => `${l.name} (${l.receivedQty}/${l.remaining})`).join(", ")} — đơn chuyển sang "Đã nhận một phần", nhận tiếp đợt sau.` : "",
+      waiting.length ? `\nChờ giao bù: ${waiting.map((l: any) => `${l.name} thiếu ${l.remaining - l.receivedQty}${l.backorderDate ? ` (hẹn ${dateVi(l.backorderDate)})` : ""}`).join(", ")}.` : "",
+      cut.length ? `\nHủy phần thiếu: ${cut.map((l: any) => `${l.name} ${l.remaining - l.receivedQty}`).join(", ")}${recvReorder ? " — tạo đề xuất mua mới" : ""}.` : "",
       noExpiry.length ? `\nChưa nhập hạn sử dụng: ${noExpiry.join(", ")} — sẽ không có cảnh báo hết hạn cho lô này.` : "",
     ].join("");
     if (!window.confirm(msg)) return;
+    setRecvBusy(true);
     try {
-      await staffApi(`/api/purchasing/orders/${receivingPo.id}/receive`, {
+      const r = await staffApi<{ reorderCode: string | null }>(`/api/purchasing/orders/${receivingPo.id}/receive`, {
         method: "POST",
-        body: JSON.stringify({ note: recvNote, lines: lines.map(({ itemId, receivedQty, rejectedQty, expiryDate, note }: any) => ({ itemId, receivedQty, rejectedQty, expiryDate, note })) })
+        body: JSON.stringify({
+          note: recvNote,
+          reorder: recvReorder,
+          lines: lines.map((l: any) => ({
+            itemId: l.itemId, receivedQty: l.receivedQty, rejectedQty: l.rejectedQty, expiryDate: l.expiryDate, note: l.note,
+            rejectReason: l.rejectReason, rejectPhoto: l.rejectPhoto, shortAction: l.shortAction, backorderDate: l.backorderDate,
+          })),
+        })
       });
+      if (r.reorderCode) alert(`Đã tạo đề xuất mua ${r.reorderCode} cho phần bị hủy (chờ duyệt).`);
       setReceivingPo(null);
       setRecv({});
       loadData();
     } catch (e: any) {
       alert(e.message);
+    } finally {
+      setRecvBusy(false);
     }
   }
 
@@ -214,6 +260,9 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
         </button>
         <button className={tab === "po" ? "primary-btn" : "secondary-btn"} onClick={() => setTab("po")}>
           Đơn Đặt Hàng (PO)
+        </button>
+        <button className={tab === "rtv" ? "primary-btn" : "secondary-btn"} onClick={() => setTab("rtv")}>
+          Trả hàng NCC
         </button>
         <button className={tab === "drive" ? "primary-btn" : "secondary-btn"} onClick={() => setTab("drive")} style={{ background: tab === "drive" ? "#3b82f6" : undefined, borderColor: tab === "drive" ? "#3b82f6" : undefined }}>
           <FolderOpen size={18} /> Kho Chứng Từ
@@ -401,18 +450,36 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                       <th style={{ padding: "0.5rem" }}>Mặt hàng</th>
                       <th style={{ padding: "0.5rem" }}>Đặt</th>
                       <th style={{ padding: "0.5rem" }}>Đã nhận</th>
+                      <th style={{ padding: "0.5rem" }}>Trả lại</th>
+                      <th style={{ padding: "0.5rem" }}>Đã hủy</th>
                       <th style={{ padding: "0.5rem" }}>Còn phải giao</th>
+                      {approver && (po.status === "PENDING" || po.status === "PARTIAL") && <th />}
                     </tr>
                   </thead>
                   <tbody>
-                    {po.lines.map((l: any) => (
-                      <tr key={l.itemId} style={{ borderBottom: "1px solid var(--border)" }}>
-                        <td style={{ padding: "0.5rem" }}>{l.name}</td>
-                        <td style={{ padding: "0.5rem" }}>{l.ordered} {l.unit}</td>
-                        <td style={{ padding: "0.5rem" }}>{l.received} {l.unit}</td>
-                        <td style={{ padding: "0.5rem", color: l.remaining > 0 && po.status !== "CLOSED" ? "#b45309" : undefined }}>{po.status === "CLOSED" && l.remaining > 0 ? `Thiếu ${l.remaining} (đã đóng)` : l.remaining || "—"}</td>
-                      </tr>
-                    ))}
+                    {po.lines.map((l: any) => {
+                      const late = l.remaining > 0 && l.backorderDate && new Date(l.backorderDate) < new Date(ymd(new Date()));
+                      return (
+                        <tr key={l.itemId} style={{ borderBottom: "1px solid var(--border)" }}>
+                          <td style={{ padding: "0.5rem" }}>{l.name}</td>
+                          <td style={{ padding: "0.5rem" }}>{l.ordered} {l.unit}</td>
+                          <td style={{ padding: "0.5rem" }}>{l.received} {l.unit}</td>
+                          <td style={{ padding: "0.5rem", color: l.rejected ? "var(--danger)" : "var(--muted)" }}>{l.rejected || "—"}</td>
+                          <td style={{ padding: "0.5rem", color: "var(--muted)" }}>{l.cancelled || "—"}{l.replaced ? ` · đổi ${l.replaced}` : ""}</td>
+                          <td style={{ padding: "0.5rem", color: late ? "var(--danger)" : l.remaining > 0 ? "#b45309" : undefined }}>
+                            {l.remaining || "—"}
+                            {l.remaining > 0 && l.backorderDate && <div style={{ fontSize: "0.8rem" }}>{late ? "Quá hẹn " : "Hẹn giao bù "}{dateVi(l.backorderDate)}</div>}
+                          </td>
+                          {approver && (po.status === "PENDING" || po.status === "PARTIAL") && (
+                            <td style={{ padding: "0.5rem", textAlign: "right" }}>
+                              {l.remaining > 0 && po.lines.filter((x: any) => x.remaining > 0).length > 1 && (
+                                <button className="secondary-btn" style={{ padding: "0.2rem 0.6rem", fontSize: "0.8rem" }} onClick={() => cancelRemaining(po, l)}>Hủy phần thiếu</button>
+                              )}
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -421,11 +488,23 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                   {po.receipts.map((g: any) => `${g.code} · ${new Date(g.createdAt).toLocaleDateString("vi-VN")} · ${g.receivedBy?.fullName ?? ""}${g.items.some((x: any) => x.rejectedQty > 0) ? ` · trả lại ${g.items.reduce((s: number, x: any) => s + x.rejectedQty, 0)}` : ""}${g.note ? ` · ${g.note}` : ""}`).join(" | ")}
                 </div>
               )}
+              {po.receipts.some((g: any) => g.items.some((x: any) => x.rejectPhoto)) && (
+                <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.85rem" }}>
+                  {po.receipts.flatMap((g: any) => g.items.filter((x: any) => x.rejectPhoto).map((x: any) => {
+                    const line = po.lines.find((l: any) => l.itemId === x.itemId);
+                    return (
+                      <a key={x.id} href={mediaUrl(x.rejectPhoto)} target="_blank" rel="noreferrer" style={{ color: "var(--danger)" }}>
+                        Ảnh trả lại {x.rejectedQty} {line?.name ?? ""} ({REJECT_REASON[x.rejectReason] ?? x.rejectReason})
+                      </a>
+                    );
+                  }))}
+                </div>
+              )}
               {po.status === "CLOSED" && po.closeNote && <div style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "var(--muted)" }}>Đã đóng: {po.closeNote}</div>}
               {(po.status === "PENDING" || po.status === "PARTIAL") && (keeper || approver) && (
                 <div style={{ marginTop: "1rem", display: "flex", gap: "0.5rem", justifyContent: "flex-end", flexWrap: "wrap" }}>
-                  {approver && po.status === "PARTIAL" && (
-                    <button className="secondary-btn" onClick={() => closeOrder(po)}>Đóng đơn (không nhận thêm)</button>
+                  {approver && (
+                    <button className="secondary-btn" onClick={() => cancelRemaining(po, null)}>Hủy phần còn thiếu & đóng đơn</button>
                   )}
                   {keeper && (
                     <button className="primary-btn" onClick={() => openReceive(po)}>
@@ -439,18 +518,23 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
         </div>
       )}
 
+      {tab === "rtv" && <SupplierReturnsPanel canCreate={keeper || approver} canApprove={approver} />}
+
       {/* RECEIVE PO MODAL */}
       <AnimatePresence>
         {receivingPo && (
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} style={{ background: "var(--bg)", width: "100%", maxWidth: 600, padding: "2rem", borderRadius: 12, border: "1px solid var(--border)", maxHeight: "90vh", overflowY: "auto" }}>
               <h2 style={{ margin: "0 0 1rem 0", color: "var(--accent)" }}>Nhập Kho - {receivingPo.code}</h2>
-              <p style={{ color: "var(--muted)", marginBottom: "1.5rem" }}>Đếm hàng thực nhận. Hàng hỏng / sai quy cách ghi vào "Trả lại" (không nhập kho, không tính tiền). Giao thiếu thì đơn chờ nhận tiếp đợt sau.</p>
+              <p style={{ color: "var(--muted)", marginBottom: "1.5rem" }}>Đếm hàng thực nhận. Hàng hỏng / sai quy cách ghi vào "Trả lại" kèm lý do và ảnh (không nhập kho, không tính tiền). Phần còn thiếu: chờ nhà cung cấp giao bù hoặc hủy.</p>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
                 {receivingPo.lines.filter((l: any) => recv[l.itemId]).map((l: any) => {
                   const r = recv[l.itemId];
-                  const set = (k: "qty" | "rejected" | "expiry" | "note", v: string) => setRecv((prev) => ({ ...prev, [l.itemId]: { ...prev[l.itemId], [k]: v } }));
+                  const set = <K extends keyof RecvLine>(k: K, v: RecvLine[K]) => setRecv((prev) => ({ ...prev, [l.itemId]: { ...prev[l.itemId], [k]: v } }));
+                  const got = Number(r.qty || 0);
+                  const rejected = Number(r.rejected || 0);
+                  const short = Math.max(0, l.remaining - got);
                   return (
                     <div key={l.itemId} style={{ background: "var(--surface2)", padding: "1rem", borderRadius: 8, display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                       <div>
@@ -463,15 +547,37 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                         <label style={{ fontSize: "0.85rem" }}>Hạn sử dụng<br /><input type="date" className="input-field" style={{ padding: "0.4rem" }} value={r.expiry} onChange={(e) => set("expiry", e.target.value)} /></label>
                         <label style={{ fontSize: "0.85rem", flex: 1, minWidth: 140 }}>Ghi chú<br /><input className="input-field" style={{ padding: "0.4rem", width: "100%" }} value={r.note} onChange={(e) => set("note", e.target.value)} placeholder="VD: 2 hộp móp" /></label>
                       </div>
+                      {rejected > 0 && (
+                        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "flex-end", padding: "0.6rem", borderRadius: 6, background: "var(--danger-soft)" }}>
+                          <label style={{ fontSize: "0.85rem" }}>Lý do trả lại<br />
+                            <select className="input-field" style={{ padding: "0.4rem" }} value={r.reason} onChange={(e) => set("reason", e.target.value)}>
+                              <option value="">-- Chọn --</option>
+                              {Object.entries(REJECT_REASON).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                            </select>
+                          </label>
+                          <PhotoPicker value={r.photo} onChange={(v) => set("photo", v)} />
+                        </div>
+                      )}
+                      {short > 0 && (
+                        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "flex-end", fontSize: "0.85rem" }}>
+                          <span style={{ color: "#b45309", fontWeight: 600 }}>Còn thiếu {short}{rejected ? ` (gồm ${rejected} trả lại)` : ""}:</span>
+                          <label><input type="radio" checked={r.action === "BACKORDER"} onChange={() => set("action", "BACKORDER")} /> Chờ giao bù</label>
+                          {r.action === "BACKORDER" && <input type="date" className="input-field" style={{ padding: "0.3rem" }} min={ymd(new Date())} value={r.backorder} onChange={(e) => set("backorder", e.target.value)} />}
+                          <label><input type="radio" checked={r.action === "CANCEL"} onChange={() => set("action", "CANCEL")} /> Hủy phần thiếu</label>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
-                <label style={{ fontSize: "0.85rem" }}>Ghi chú đợt nhận<br /><input className="input-field" style={{ padding: "0.4rem", width: "100%" }} value={recvNote} onChange={(e) => setRecvNote(e.target.value)} placeholder="VD: NCC hẹn giao bù thứ 6" /></label>
+                {Object.values(recv).some((r) => r.action === "CANCEL") && (
+                  <label style={{ fontSize: "0.85rem" }}><input type="checkbox" checked={recvReorder} onChange={(e) => setRecvReorder(e.target.checked)} /> Tạo đề xuất mua mới cho phần bị hủy (lấy báo giá NCC khác)</label>
+                )}
+                <label style={{ fontSize: "0.85rem" }}>Ghi chú đợt nhận<br /><input className="input-field" style={{ padding: "0.4rem", width: "100%" }} value={recvNote} onChange={(e) => setRecvNote(e.target.value)} placeholder="VD: tài xế NCC ký biên bản trả hàng" /></label>
               </div>
 
               <div style={{ display: "flex", gap: "1rem", marginTop: "2rem", justifyContent: "flex-end" }}>
                 <button className="secondary-btn" onClick={() => setReceivingPo(null)}>Hủy</button>
-                <button className="primary-btn" onClick={receiveOrder}>Xác nhận Nhập Kho (Tạo GRN)</button>
+                <button className="primary-btn" onClick={receiveOrder} disabled={recvBusy}>{recvBusy ? "Đang lưu…" : "Xác nhận Nhập Kho (Tạo GRN)"}</button>
               </div>
             </motion.div>
           </div>
@@ -500,6 +606,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
               <option value="RFQ">Yêu Cầu Báo Giá (RFQ)</option>
               <option value="PO">Đơn Đặt Hàng (PO)</option>
               <option value="GRN">Phiếu Nhập Kho (GRN)</option>
+              <option value="RTV">Phiếu Trả Hàng NCC</option>
             </select>
           </div>
 
@@ -547,7 +654,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                 </div>
 
                 <h1 style={{ textAlign: "center", fontSize: "28px", marginTop: "30px", marginBottom: "10px" }}>
-                  {previewDoc.type === "PR" ? "PHIẾU YÊU CẦU MUA HÀNG" : previewDoc.type === "RFQ" ? "PHIẾU YÊU CẦU BÁO GIÁ" : previewDoc.type === "PO" ? "ĐƠN ĐẶT HÀNG" : "PHIẾU NHẬP KHO"}
+                  {previewDoc.type === "PR" ? "PHIẾU YÊU CẦU MUA HÀNG" : previewDoc.type === "RFQ" ? "PHIẾU YÊU CẦU BÁO GIÁ" : previewDoc.type === "PO" ? "ĐƠN ĐẶT HÀNG" : previewDoc.type === "RTV" ? "PHIẾU TRẢ HÀNG NHÀ CUNG CẤP" : "PHIẾU NHẬP KHO"}
                 </h1>
                 <div style={{ textAlign: "center", fontStyle: "italic", marginBottom: "40px" }}>Số: {previewDoc.code}</div>
 

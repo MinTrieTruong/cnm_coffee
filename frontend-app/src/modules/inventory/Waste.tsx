@@ -6,7 +6,7 @@ import { WASTE_REASON as KDS_REASON } from "../../components/KdsTools";
 import { useResource } from "../shared";
 
 /** Lý do pha chế chọn + lý do hệ thống tự ghi (kiểm kê thiếu) */
-const WASTE_REASON: Record<string, string> = { ...KDS_REASON, STOCKTAKE: "Kiểm kê thiếu" };
+const WASTE_REASON: Record<string, string> = { ...KDS_REASON, STOCKTAKE: "Kiểm kê thiếu", SUPPLIER: "Lỗi nhà cung cấp" };
 
 type WasteRow = {
   id: number;

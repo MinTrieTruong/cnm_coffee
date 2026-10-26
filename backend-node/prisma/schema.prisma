@@ -25,6 +25,8 @@ model StoreSettings {
   pettyCashLimit      Int   @default(200000) @map("Petty_Cash_Limit")
   /// Đơn giao hàng đã trả online: khách tự hủy (hoàn 100% ra điểm) trong N phút sau khi thanh toán, khi quán chưa nhận đơn
   cancelWindowMinutes Int   @default(5) @map("Cancel_Window_Minutes")
+  /// Hàng nhập theo đơn mua: trả lại nhà cung cấp trong N ngày kể từ ngày nhận (quá hạn quản lý duyệt kèm lý do)
+  supplierReturnDays  Int   @default(7) @map("Supplier_Return_Days")
 
   @@map("Store_Settings")
 }
@@ -69,9 +71,11 @@ model InventoryItem {
   storeStocks   StoreInventory[]
   transferItems StockTransferItem[]
 
-  wasteLogs     WasteLog[]
-  stockRequests StockRequest[]
-  countLines    InventoryCountLine[]
+  wasteLogs           WasteLog[]
+  stockRequests       StockRequest[]
+  countLines          InventoryCountLine[]
+  poCancels           PurchaseOrderCancel[]
+  supplierReturnItems SupplierReturnItem[]
 
   @@map("Inventory")
 }
@@ -278,6 +282,8 @@ model Staff {
   safeSessionsClosed      SafeSession[]    @relation("SafeClosedBy")
   shiftsReviewed          Shift[]          @relation("ShiftReviewer")
   supplierBillsCreated    SupplierBill[]   @relation("SupplierBillCreatedBy")
+  supplierReturnsCreated  SupplierReturn[] @relation("SupplierReturnCreatedBy")
+  supplierReturnsApproved SupplierReturn[] @relation("SupplierReturnApprovedBy")
 
   @@index([storeId])
   @@map("Staff")
@@ -502,6 +508,8 @@ model StockReceipt {
   /// Còn lại của lô: giảm theo hết-hạn-trước-xuất-trước mỗi khi tồn giảm, luôn ≤ tồn thực
   remainingQty Float             @default(0) @map("Remaining_Qty")
   receivedAt   DateTime          @default(now()) @map("Received_At")
+  /// Phiếu nhập (GRN) tạo ra lô này — lô nhập theo đơn mua
+  grnId        Int?              @map("GRN_ID")
   receivedById Int               @map("Received_By")
   item         InventoryItem     @relation(fields: [itemId], references: [id])
   request      InventoryRequest? @relation(fields: [requestId], references: [id])
@@ -509,8 +517,9 @@ model StockReceipt {
   supplierRel  Supplier?         @relation(fields: [supplierId], references: [id])
 
   /// Chi nhánh
-  storeId Int   @map("Store_ID")
-  store   Store @relation(fields: [storeId], references: [id])
+  storeId     Int                  @map("Store_ID")
+  store       Store                @relation(fields: [storeId], references: [id])
+  returnItems SupplierReturnItem[]
 
   @@index([storeId])
   @@map("Stock_Receipts")
@@ -518,22 +527,24 @@ model StockReceipt {
 
 /// Nhà cung cấp nguyên liệu
 model Supplier {
-  id              Int             @id @default(autoincrement()) @map("Supplier_ID")
-  username        String?         @unique @map("Username") @db.VarChar(50)
-  passwordHash    String?         @map("Password_Hash") @db.VarChar(255)
-  name            String          @map("Name") @db.VarChar(255)
-  phone           String?         @map("Phone") @db.VarChar(20)
-  address         String?         @map("Address") @db.VarChar(255)
-  email           String?         @map("Email") @db.VarChar(100)
-  note            String?         @map("Note") @db.VarChar(500)
-  isActive        Boolean         @default(true) @map("Is_Active")
+  id              Int              @id @default(autoincrement()) @map("Supplier_ID")
+  username        String?          @unique @map("Username") @db.VarChar(50)
+  passwordHash    String?          @map("Password_Hash") @db.VarChar(255)
+  name            String           @map("Name") @db.VarChar(255)
+  phone           String?          @map("Phone") @db.VarChar(20)
+  address         String?          @map("Address") @db.VarChar(255)
+  email           String?          @map("Email") @db.VarChar(100)
+  note            String?          @map("Note") @db.VarChar(500)
+  isActive        Boolean          @default(true) @map("Is_Active")
   /// Số ngày được nợ kể từ ngày nhận hàng (hạn thanh toán công nợ)
-  paymentTermDays Int             @default(30) @map("Payment_Term_Days")
-  createdAt       DateTime        @default(now()) @map("Created_At")
+  paymentTermDays Int              @default(30) @map("Payment_Term_Days")
+  createdAt       DateTime         @default(now()) @map("Created_At")
   receipts        StockReceipt[]
   quotes          SupplierQuote[]
   purchaseOrders  PurchaseOrder[]
   bills           SupplierBill[]
+  returns         SupplierReturn[]
+  credits         SupplierCredit[]
 
   @@map("Suppliers")
 }
@@ -1004,15 +1015,23 @@ model GoodsReceipt {
 }
 
 model GoodsReceiptItem {
-  id          Int       @id @default(autoincrement()) @map("GRI_ID")
-  grnId       Int       @map("GRN_ID")
-  itemId      Int       @map("Item_ID")
+  id            Int       @id @default(autoincrement()) @map("GRI_ID")
+  grnId         Int       @map("GRN_ID")
+  itemId        Int       @map("Item_ID")
   /// Số thực nhận nhập kho (tính công nợ theo số này)
-  receivedQty Int       @map("Received_Qty")
+  receivedQty   Int       @map("Received_Qty")
   /// Hàng giao tới nhưng hỏng / sai quy cách — trả lại NCC, không nhập kho, không tính tiền
-  rejectedQty Int       @default(0) @map("Rejected_Qty")
-  note        String?   @map("Note") @db.VarChar(255)
-  expiryDate  DateTime? @map("Expiry_Date") @db.Date
+  rejectedQty   Int       @default(0) @map("Rejected_Qty")
+  /// Lý do trả lại lúc nhận: DAMAGED · WRONG_SPEC · NEAR_EXPIRY · WRONG_ITEM · QUALITY
+  rejectReason  String?   @map("Reject_Reason") @db.VarChar(20)
+  /// Ảnh bằng chứng hàng lỗi
+  rejectPhoto   String?   @map("Reject_Photo") @db.VarChar(1024)
+  /// Phần còn thiếu sau đợt nhận này (giao thiếu + trả lại): BACKORDER = chờ giao bù · CANCEL = hủy phần đó
+  shortAction   String?   @map("Short_Action") @db.VarChar(10)
+  /// Ngày nhà cung cấp hẹn giao bù
+  backorderDate DateTime? @map("Backorder_Date") @db.Date
+  note          String?   @map("Note") @db.VarChar(255)
+  expiryDate    DateTime? @map("Expiry_Date") @db.Date
 
   grn   GoodsReceipt    @relation(fields: [grnId], references: [id], onDelete: Cascade)
   item  InventoryItem   @relation(fields: [itemId], references: [id])
@@ -1058,21 +1077,25 @@ model SupplierQuoteItem {
 }
 
 model PurchaseOrder {
-  id          Int      @id @default(autoincrement()) @map("PO_ID")
-  code        String   @unique @map("PO_Code") @db.VarChar(50)
-  quoteId     Int      @unique @map("Quote_ID")
-  supplierId  Int      @map("Supplier_ID")
+  id           Int       @id @default(autoincrement()) @map("PO_ID")
+  code         String    @unique @map("PO_Code") @db.VarChar(50)
+  quoteId      Int       @unique @map("Quote_ID")
+  supplierId   Int       @map("Supplier_ID")
   /// PENDING (chờ giao) → PARTIAL (đã nhận một phần, nhận nhiều đợt) → DELIVERED (đủ) · PENDING/PARTIAL → CLOSED (quản lý đóng đơn, không nhận thêm)
-  status      String   @default("PENDING") @map("Status") @db.VarChar(20)
-  totalAmount Int      @map("Total_Amount")
+  status       String    @default("PENDING") @map("Status") @db.VarChar(20)
+  totalAmount  Int       @map("Total_Amount")
   /// Lý do đóng đơn khi giao thiếu
-  closeNote   String?  @map("Close_Note") @db.VarChar(500)
-  createdAt   DateTime @default(now()) @map("Created_At")
-  updatedAt   DateTime @updatedAt @map("Updated_At")
+  closeNote    String?   @map("Close_Note") @db.VarChar(500)
+  /// Hạn giao bù sớm nhất còn chờ (quá hạn → nhắc quản lý / thủ kho)
+  backorderDue DateTime? @map("Backorder_Due") @db.Date
+  createdAt    DateTime  @default(now()) @map("Created_At")
+  updatedAt    DateTime  @updatedAt @map("Updated_At")
 
-  quote    SupplierQuote  @relation(fields: [quoteId], references: [id])
-  supplier Supplier       @relation(fields: [supplierId], references: [id])
+  quote    SupplierQuote         @relation(fields: [quoteId], references: [id])
+  supplier Supplier              @relation(fields: [supplierId], references: [id])
   receipts GoodsReceipt[]
+  cancels  PurchaseOrderCancel[]
+  returns  SupplierReturn[]
 
   /// Chi nhánh
   storeId Int   @map("Store_ID")
@@ -1135,6 +1158,8 @@ model Store {
   menuProposals         MenuProposal[]
   branchProposals       BranchProposal[]
   inventoryCounts       InventoryCount[]
+  supplierReturns       SupplierReturn[]
+  supplierCredits       SupplierCredit[]
 
   @@map("Stores")
 }
@@ -1552,22 +1577,24 @@ model SafeSession {
 
 /// Công nợ phải trả nhà cung cấp — phát sinh khi nhận hàng (phiếu nhập) hoặc nhập tay hoá đơn mua ngoài
 model SupplierBill {
-  id          Int      @id @default(autoincrement()) @map("Bill_ID")
-  code        String   @unique @map("Code") @db.VarChar(30)
-  storeId     Int      @map("Store_ID")
-  supplierId  Int      @map("Supplier_ID")
+  id            Int      @id @default(autoincrement()) @map("Bill_ID")
+  code          String   @unique @map("Code") @db.VarChar(30)
+  storeId       Int      @map("Store_ID")
+  supplierId    Int      @map("Supplier_ID")
   /// GRN = từ phiếu nhập hàng · MANUAL = hoá đơn nhập tay
-  source      String   @default("MANUAL") @map("Source") @db.VarChar(10)
-  grnId       Int?     @unique @map("GRN_ID")
-  amount      Int      @map("Amount")
-  paidAmount  Int      @default(0) @map("Paid_Amount")
-  billDate    DateTime @default(now()) @map("Bill_Date")
-  dueDate     DateTime @map("Due_Date")
+  source        String   @default("MANUAL") @map("Source") @db.VarChar(10)
+  grnId         Int?     @unique @map("GRN_ID")
+  amount        Int      @map("Amount")
+  paidAmount    Int      @default(0) @map("Paid_Amount")
+  /// Phần được bù trừ bằng khoản nhà cung cấp còn nợ quán (trả hàng) — không phải tiền chi ra
+  creditApplied Int      @default(0) @map("Credit_Applied")
+  billDate      DateTime @default(now()) @map("Bill_Date")
+  dueDate       DateTime @map("Due_Date")
   /// UNPAID · PARTIAL · PAID · CANCELLED
-  status      String   @default("UNPAID") @map("Status") @db.VarChar(15)
-  note        String?  @map("Note") @db.VarChar(500)
-  createdById Int?     @map("Created_By")
-  createdAt   DateTime @default(now()) @map("Created_At")
+  status        String   @default("UNPAID") @map("Status") @db.VarChar(15)
+  note          String?  @map("Note") @db.VarChar(500)
+  createdById   Int?     @map("Created_By")
+  createdAt     DateTime @default(now()) @map("Created_At")
 
   store     Store         @relation(fields: [storeId], references: [id])
   supplier  Supplier      @relation(fields: [supplierId], references: [id])
@@ -1578,6 +1605,103 @@ model SupplierBill {
   @@index([storeId, status])
   @@index([supplierId])
   @@map("Supplier_Bills")
+}
+
+/// Phần hàng của đơn mua bị hủy (nhà cung cấp không giao bù) — còn phải giao = đặt − đã nhận − đã hủy
+model PurchaseOrderCancel {
+  id          Int           @id @default(autoincrement()) @map("POC_ID")
+  poId        Int           @map("PO_ID")
+  itemId      Int           @map("Item_ID")
+  qty         Int           @map("Qty")
+  reason      String?       @map("Reason") @db.VarChar(255)
+  /// Đợt nhận đã quyết định hủy (null = quản lý hủy sau)
+  grnId       Int?          @map("GRN_ID")
+  createdById Int           @map("Created_By")
+  createdAt   DateTime      @default(now()) @map("Created_At")
+  po          PurchaseOrder @relation(fields: [poId], references: [id])
+  item        InventoryItem @relation(fields: [itemId], references: [id])
+
+  @@index([poId])
+  @@map("Purchase_Order_Cancels")
+}
+
+/**
+ * Phiếu trả hàng nhà cung cấp — hàng lỗi phát hiện SAU khi đã nhập kho.
+ * PENDING (thủ kho lập) → APPROVED (quản lý duyệt: trừ kho + xử lý tiền) | REJECTED
+ * Nhà cung cấp: CONFIRMED / DISPUTED (không chặn quy trình, chỉ để đối chiếu)
+ */
+model SupplierReturn {
+  id             Int       @id @default(autoincrement()) @map("Return_ID")
+  code           String    @unique @map("Code") @db.VarChar(30)
+  storeId        Int       @map("Store_ID")
+  supplierId     Int       @map("Supplier_ID")
+  poId           Int?      @map("PO_ID")
+  status         String    @default("PENDING") @map("Status") @db.VarChar(15)
+  /// CREDIT (giảm trừ công nợ) · REFUND (NCC hoàn tiền) · REPLACE (đổi hàng, mở lại đơn mua) · WRITE_OFF (NCC không nhận, quán chịu)
+  resolution     String?   @map("Resolution") @db.VarChar(15)
+  note           String?   @map("Note") @db.VarChar(500)
+  /// Lý do quản lý duyệt khi đã quá hạn trả hàng
+  lateReason     String?   @map("Late_Reason") @db.VarChar(255)
+  rejectNote     String?   @map("Reject_Note") @db.VarChar(255)
+  /// Giá trị hàng trả (số lượng × giá nhập của lô)
+  amount         Int       @default(0) @map("Amount")
+  supplierStatus String?   @map("Supplier_Status") @db.VarChar(15)
+  supplierNote   String?   @map("Supplier_Note") @db.VarChar(500)
+  supplierAt     DateTime? @map("Supplier_At")
+  createdById    Int       @map("Created_By")
+  approvedById   Int?      @map("Approved_By")
+  approvedAt     DateTime? @map("Approved_At")
+  createdAt      DateTime  @default(now()) @map("Created_At")
+
+  store      Store                @relation(fields: [storeId], references: [id])
+  supplier   Supplier             @relation(fields: [supplierId], references: [id])
+  po         PurchaseOrder?       @relation(fields: [poId], references: [id])
+  createdBy  Staff                @relation("SupplierReturnCreatedBy", fields: [createdById], references: [id])
+  approvedBy Staff?               @relation("SupplierReturnApprovedBy", fields: [approvedById], references: [id])
+  items      SupplierReturnItem[]
+  credit     SupplierCredit?
+
+  @@index([storeId, status])
+  @@index([supplierId])
+  @@map("Supplier_Returns")
+}
+
+model SupplierReturnItem {
+  id        Int     @id @default(autoincrement()) @map("SRI_ID")
+  returnId  Int     @map("Return_ID")
+  lotId     Int     @map("Receipt_ID")
+  itemId    Int     @map("Item_ID")
+  qty       Float   @map("Qty")
+  unitPrice Int     @default(0) @map("Unit_Price")
+  /// DAMAGED · WRONG_SPEC · NEAR_EXPIRY · WRONG_ITEM · QUALITY
+  reason    String  @map("Reason") @db.VarChar(20)
+  photoUrl  String? @map("Photo_Url") @db.VarChar(1024)
+
+  ret  SupplierReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  lot  StockReceipt   @relation(fields: [lotId], references: [id])
+  item InventoryItem  @relation(fields: [itemId], references: [id])
+
+  @@map("Supplier_Return_Items")
+}
+
+/// Khoản nhà cung cấp còn nợ quán (từ phiếu trả hàng) — tự bù trừ vào các hoá đơn chưa trả của NCC đó tại chi nhánh
+model SupplierCredit {
+  id         Int      @id @default(autoincrement()) @map("Credit_ID")
+  storeId    Int      @map("Store_ID")
+  supplierId Int      @map("Supplier_ID")
+  returnId   Int      @unique @map("Return_ID")
+  amount     Int      @map("Amount")
+  usedAmount Int      @default(0) @map("Used_Amount")
+  /// OPEN · USED
+  status     String   @default("OPEN") @map("Status") @db.VarChar(10)
+  createdAt  DateTime @default(now()) @map("Created_At")
+
+  store    Store          @relation(fields: [storeId], references: [id])
+  supplier Supplier       @relation(fields: [supplierId], references: [id])
+  ret      SupplierReturn @relation(fields: [returnId], references: [id])
+
+  @@index([storeId, supplierId, status])
+  @@map("Supplier_Credits")
 }
 
 /// Công việc quản lý giao trong ngày (vệ sinh khu vực, kiểm kê, chuẩn bị…) cho một hoặc nhiều nhân viên

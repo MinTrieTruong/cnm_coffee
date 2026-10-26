@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { LogOut, Package, FileText, Send, CheckCircle } from "lucide-react";
-import { apiBase } from "../lib/api";
+import { apiBase, mediaUrl } from "../lib/api";
+import { REJECT_REASON, RESOLUTION_LABEL, SUPPLIER_STATUS } from "../lib/supplierReturns";
 import { PasswordInput } from "../components/PasswordInput";
 
 export function SupplierPortal() {
@@ -9,11 +10,12 @@ export function SupplierPortal() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [tab, setTab] = useState<"rfq" | "orders" | "bills">("rfq");
+  const [tab, setTab] = useState<"rfq" | "orders" | "bills" | "returns">("rfq");
   
   const [rfqs, setRfqs] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [bills, setBills] = useState<any[]>([]);
+  const [returns, setReturns] = useState<any[]>([]);
   
   const [quotingRfqId, setQuotingRfqId] = useState<number | null>(null);
   const [quotePrices, setQuotePrices] = useState<Record<number, string>>({});
@@ -39,6 +41,12 @@ export function SupplierPortal() {
         });
         if (!res.ok) throw new Error("Unauthorized");
         setBills(await res.json());
+      } else if (tab === "returns") {
+        const res = await fetch(`${apiBase()}/api/supplier/returns`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error("Unauthorized");
+        setReturns(await res.json());
       } else {
         const res = await fetch(`${apiBase()}/api/supplier/orders`, {
           headers: { Authorization: `Bearer ${token}` }
@@ -49,6 +57,26 @@ export function SupplierPortal() {
     } catch (e) {
       logout();
     }
+  }
+
+  async function respondReturn(t: any, action: "CONFIRM" | "DISPUTE") {
+    let note = "";
+    if (action === "DISPUTE") {
+      const v = window.prompt(`Lý do khiếu nại phiếu ${t.code}:`);
+      if (!v?.trim()) return;
+      note = v;
+    } else if (!window.confirm(`Xác nhận đã nhận lại hàng theo phiếu ${t.code}?`)) return;
+    const res = await fetch(`${apiBase()}/api/supplier/returns/${t.id}/respond`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action, note }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      alert(j.error ?? "Không gửi được phản hồi");
+      return;
+    }
+    void loadData();
   }
 
   async function login(e: React.FormEvent) {
@@ -130,6 +158,9 @@ export function SupplierPortal() {
           <button className={tab === "bills" ? "primary-btn" : "secondary-btn"} onClick={() => setTab("bills")}>
             <FileText size={18} /> Công nợ & thanh toán
           </button>
+          <button className={tab === "returns" ? "primary-btn" : "secondary-btn"} onClick={() => setTab("returns")}>
+            <Package size={18} /> Hàng trả lại
+          </button>
         </div>
 
         {tab === "rfq" && (
@@ -207,24 +238,79 @@ export function SupplierPortal() {
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--border)", textAlign: "left", color: "var(--muted)" }}>
                       <th style={{ padding: "0.5rem" }}>Mặt hàng</th>
-                      <th style={{ padding: "0.5rem" }}>Số lượng</th>
+                      <th style={{ padding: "0.5rem" }}>Đặt</th>
                       <th style={{ padding: "0.5rem" }}>Đơn giá</th>
+                      <th style={{ padding: "0.5rem" }}>Quán đã nhận</th>
+                      <th style={{ padding: "0.5rem" }}>Bị trả lại</th>
+                      <th style={{ padding: "0.5rem" }}>Còn phải giao</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {po.quote.rfq.requisition.items.map((i: any) => {
-                      const qItem = po.quote.items.find((qi:any) => qi.itemId === i.itemId);
-                      return (
-                        <tr key={i.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                          <td style={{ padding: "0.5rem" }}>{i.item.name}</td>
-                          <td style={{ padding: "0.5rem" }}>{i.qty} {i.item.unit}</td>
-                          <td style={{ padding: "0.5rem" }}>{qItem?.unitPrice?.toLocaleString()} đ</td>
-                        </tr>
-                      );
-                    })}
+                    {po.lines.map((l: any) => (
+                      <tr key={l.itemId} style={{ borderBottom: "1px solid var(--border)" }}>
+                        <td style={{ padding: "0.5rem" }}>{l.name}</td>
+                        <td style={{ padding: "0.5rem" }}>{l.ordered} {l.unit}</td>
+                        <td style={{ padding: "0.5rem" }}>{l.unitPrice.toLocaleString()} đ</td>
+                        <td style={{ padding: "0.5rem" }}>{l.received}</td>
+                        <td style={{ padding: "0.5rem", color: l.rejected ? "var(--danger)" : undefined }}>{l.rejected || "—"}</td>
+                        <td style={{ padding: "0.5rem", color: l.remaining > 0 ? "#b45309" : undefined }}>
+                          {l.remaining || "—"}
+                          {l.remaining > 0 && l.backorderDate && <div style={{ fontSize: "0.8rem" }}>Hẹn giao bù {new Date(l.backorderDate).toLocaleDateString("vi-VN")}</div>}
+                          {l.cancelled > 0 && <div style={{ fontSize: "0.8rem", color: "var(--muted)" }}>Quán đã hủy {l.cancelled}</div>}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
+                {po.receipts.length > 0 && (
+                  <div style={{ marginTop: "0.75rem", fontSize: "0.85rem", color: "var(--muted)", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                    {po.receipts.map((g: any) => (
+                      <div key={g.id}>
+                        {g.code} · {new Date(g.createdAt).toLocaleDateString("vi-VN")}: {g.items.filter((x: any) => x.receivedQty || x.rejectedQty).map((x: any) => `${x.item.name} nhận ${x.receivedQty}${x.rejectedQty ? `, trả lại ${x.rejectedQty} (${REJECT_REASON[x.rejectReason] ?? x.rejectReason})` : ""}`).join("; ")}
+                        {g.items.filter((x: any) => x.rejectPhoto).map((x: any) => <a key={x.id} href={mediaUrl(x.rejectPhoto)} target="_blank" rel="noreferrer" style={{ marginLeft: 6 }}>ảnh {x.item.name}</a>)}
+                        {g.note ? ` · ${g.note}` : ""}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {po.status === "CLOSED" && po.closeNote && <div style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "var(--muted)" }}>Quán đã đóng đơn: {po.closeNote}</div>}
               </motion.div>
+            ))}
+          </div>
+        )}
+        {tab === "returns" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            <p style={{ margin: 0, color: "var(--muted)" }}>Hàng quán trả lại sau khi đã nhập kho. Vui lòng xác nhận, hoặc khiếu nại kèm lý do.</p>
+            {returns.length === 0 ? <p style={{ color: "var(--muted)" }}>Không có phiếu trả hàng nào.</p> : returns.map((t) => (
+              <div key={t.id} style={{ background: "var(--surface2)", padding: "1.25rem", borderRadius: 8, border: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
+                  <div>
+                    <h3 style={{ margin: "0 0 0.25rem", color: "var(--accent)" }}>{t.code}</h3>
+                    <div style={{ fontSize: "0.9rem", color: "var(--muted)" }}>{t.store.name}{t.po ? ` · ${t.po.code}` : ""} · {new Date(t.approvedAt ?? t.createdAt).toLocaleDateString("vi-VN")}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontWeight: 700 }}>{t.amount.toLocaleString()} đ</div>
+                    <div style={{ fontSize: "0.85rem" }}>{RESOLUTION_LABEL[t.resolution] ?? t.resolution}</div>
+                    {t.supplierStatus && <div style={{ fontSize: "0.85rem", color: t.supplierStatus === "DISPUTED" ? "var(--danger)" : "#047857" }}>{SUPPLIER_STATUS[t.supplierStatus]}</div>}
+                  </div>
+                </div>
+                <ul style={{ margin: "0.75rem 0 0", paddingLeft: "1.1rem", fontSize: "0.9rem" }}>
+                  {t.items.map((i: any) => (
+                    <li key={i.id}>
+                      {i.qty} {i.item.unit ?? ""} {i.item.name} — {REJECT_REASON[i.reason] ?? i.reason}
+                      {i.photoUrl && <> · <a href={mediaUrl(i.photoUrl)} target="_blank" rel="noreferrer">ảnh</a></>}
+                    </li>
+                  ))}
+                </ul>
+                {t.note && <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "0.5rem" }}>Ghi chú của quán: {t.note}</div>}
+                {t.supplierNote && <div style={{ fontSize: "0.85rem", marginTop: "0.25rem" }}>Phản hồi của bạn: {t.supplierNote}</div>}
+                {!t.supplierStatus && (
+                  <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end", marginTop: "1rem" }}>
+                    <button className="secondary-btn" onClick={() => void respondReturn(t, "DISPUTE")}>Khiếu nại</button>
+                    <button className="primary-btn" onClick={() => void respondReturn(t, "CONFIRM")}>Xác nhận</button>
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         )}
@@ -243,6 +329,7 @@ export function SupplierPortal() {
                     <th style={{ padding: "0.5rem" }}>Hạn trả</th>
                     <th style={{ padding: "0.5rem", textAlign: "right" }}>Số tiền</th>
                     <th style={{ padding: "0.5rem", textAlign: "right" }}>Đã thanh toán</th>
+                    <th style={{ padding: "0.5rem", textAlign: "right" }}>Trừ hàng trả</th>
                     <th style={{ padding: "0.5rem", textAlign: "right" }}>Còn lại</th>
                   </tr>
                 </thead>
@@ -255,6 +342,7 @@ export function SupplierPortal() {
                       <td style={{ padding: "0.5rem" }}>{new Date(b.dueDate).toLocaleDateString("vi-VN")}</td>
                       <td style={{ padding: "0.5rem", textAlign: "right" }}>{b.amount.toLocaleString()} đ</td>
                       <td style={{ padding: "0.5rem", textAlign: "right" }}>{b.paidAmount.toLocaleString()} đ</td>
+                      <td style={{ padding: "0.5rem", textAlign: "right" }}>{b.creditApplied ? `${b.creditApplied.toLocaleString()} đ` : "—"}</td>
                       <td style={{ padding: "0.5rem", textAlign: "right", fontWeight: 600, color: b.status === "PAID" ? "#047857" : "var(--text)" }}>{b.status === "PAID" ? "Đã tất toán" : `${b.remaining.toLocaleString()} đ`}</td>
                     </tr>
                   ))}

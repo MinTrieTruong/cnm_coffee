@@ -45,6 +45,7 @@ import { notificationsRouter } from "./routes/notifications.js";
 import { initNotify, startNotificationCleanup } from "./lib/notify.js";
 import { initWebPush } from "./lib/webPush.js";
 import { initOpenShifts, startOpenShiftJob } from "./lib/openShifts.js";
+import { startBackorderReminder } from "./lib/supplierReturns.js";
 import { comboRouter } from "./routes/combo.js";
 import { payrollRoutes } from "./routes/payroll.js";
 import { procurementRouter } from "./routes/procurement.js";
@@ -154,6 +155,7 @@ startGraceWorker(prisma, io);
 startDispatchWorker(prisma, io);
 startNotificationCleanup();
 startOpenShiftJob();
+startBackorderReminder(prisma);
 
 const port = Number(process.env.PORT) || 4000;
 

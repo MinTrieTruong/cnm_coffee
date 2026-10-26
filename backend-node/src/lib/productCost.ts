@@ -53,3 +53,23 @@ export async function applyIncomingCost(db: Db, itemId: number, qty: number, uni
   await db.inventoryItem.update({ where: { id: itemId }, data: { unitCostPrice: avg } });
   await recalcProductCost(db, await productsUsingItems(db, [itemId]));
 }
+
+/**
+ * Trả hàng nhà cung cấp theo giá nhập của lô → gỡ phần đó khỏi giá nhập bình quân.
+ * Gọi TRƯỚC khi trừ tồn. Không đổi nếu kết quả vô lý (hết tồn, giá âm).
+ */
+export async function applyOutgoingCost(db: Db, itemId: number, qty: number, unitPrice: number) {
+  if (!(qty > 0) || !(unitPrice > 0)) return;
+  const [item, chainStock] = await Promise.all([
+    db.inventoryItem.findUnique({ where: { id: itemId }, select: { unitCostPrice: true } }),
+    db.storeInventory.aggregate({ where: { itemId }, _sum: { stockQty: true } }),
+  ]);
+  const oldQty = Math.max(0, chainStock._sum.stockQty ?? 0);
+  const oldCost = item?.unitCostPrice ?? 0;
+  const after = oldQty - qty;
+  if (oldCost <= 0 || after <= 0) return;
+  const avg = Math.round((oldQty * oldCost - qty * unitPrice) / after);
+  if (avg <= 0) return;
+  await db.inventoryItem.update({ where: { id: itemId }, data: { unitCostPrice: avg } });
+  await recalcProductCost(db, await productsUsingItems(db, [itemId]));
+}

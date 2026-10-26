@@ -24,6 +24,8 @@ export type NotifyType =
   | "MENU_BACK"
   | "DELIVERY_NEW"
   | "DELIVERY_REFUND"
+  | "SUPPLIER_RETURN"
+  | "PO_BACKORDER"
   | "HR_REQUEST"
   | "HR_REVIEWED"
   | "LOW_STOCK"

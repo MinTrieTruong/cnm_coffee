@@ -11,6 +11,8 @@ type Bill = {
   source: "GRN" | "MANUAL";
   amount: number;
   paidAmount: number;
+  /** Bù trừ bằng khoản NCC còn nợ quán (trả hàng) */
+  creditApplied: number;
   remaining: number;
   billDate: string;
   dueDate: string;
@@ -30,12 +32,15 @@ const BILL_STATUS: Record<Bill["status"], { label: string; tone: Tone }> = {
   PAID: { label: "Đã trả", tone: "success" },
   CANCELLED: { label: "Đã huỷ", tone: "neutral" },
 };
+type Credit = { id: number; amount: number; usedAmount: number; remaining: number; createdAt: string; supplier: { id: number; name: string }; ret: { code: string } };
+
 const statusOf = (b: Bill) => (b.overdue ? { label: "Quá hạn", tone: "danger" as Tone } : BILL_STATUS[b.status]);
 const in7days = (b: Bill) => b.status !== "PAID" && !b.overdue && new Date(b.dueDate).getTime() - Date.now() < 7 * 86400_000;
 
 /** Tài chính › Công nợ NCC — phát sinh khi nhận hàng; trả một phần / toàn bộ, tự lập phiếu chi */
 export function Payables() {
   const { data: rows, loading, error, reload } = useResource<Bill[]>("/api/cash/payables", []);
+  const { data: credits } = useResource<Credit[]>("/api/cash/supplier-credits", []);
   const [open, setOpen] = useState<Bill | null>(null);
   const [creating, setCreating] = useState(false);
   const allStores = isOwnerRole(getStaffInfo()?.role) && activeStoreId() == null;
@@ -58,6 +63,13 @@ export function Payables() {
             <Kpi label="Quá hạn" value={formatVnd(unpaid.filter((b) => b.overdue).reduce((s, b) => s + b.remaining, 0))} tone="danger" />
             <Kpi label="Đến hạn trong 7 ngày" value={formatVnd(unpaid.filter(in7days).reduce((s, b) => s + b.remaining, 0))} />
             <Kpi label="Số nhà cung cấp đang nợ" value={new Set(unpaid.map((b) => b.supplier.id)).size} />
+            {credits.length > 0 && (
+              <Kpi
+                label={`NCC còn nợ quán (trả hàng): ${[...new Set(credits.map((c) => c.supplier.name))].join(", ")}`}
+                value={formatVnd(credits.reduce((s, c) => s + c.remaining, 0))}
+                tone="success"
+              />
+            )}
           </div>
         }
         columns={[
@@ -69,6 +81,7 @@ export function Payables() {
           { key: "due", label: "Hạn trả", value: (b) => b.dueDate, render: (b) => fmtDate(b.dueDate) },
           { key: "amt", label: "Số tiền", value: (b) => b.amount, numeric: true, sum: true, formatSum: formatVnd, render: (b) => formatVnd(b.amount) },
           { key: "paid", label: "Đã trả", value: (b) => b.paidAmount, numeric: true, sum: true, formatSum: formatVnd, render: (b) => formatVnd(b.paidAmount) },
+          { key: "credit", label: "Bù trừ trả hàng", value: (b) => b.creditApplied, numeric: true, sum: true, formatSum: formatVnd, render: (b) => (b.creditApplied ? formatVnd(b.creditApplied) : "—"), optional: true },
           { key: "rem", label: "Còn nợ", value: (b) => b.remaining, numeric: true, sum: true, formatSum: formatVnd, render: (b) => <b>{formatVnd(b.remaining)}</b> },
           { key: "st", label: "Trạng thái", value: (b) => statusOf(b).label, render: (b) => <Badge tone={statusOf(b).tone}>{statusOf(b).label}</Badge> },
         ]}
@@ -136,7 +149,7 @@ function BillDetail({ bill: b, onClose, onChanged }: { bill: Bill; onClose: () =
       onClose={onClose}
       footer={
         <>
-          {b.paidAmount === 0 && b.status !== "CANCELLED" && <Button variant="danger" onClick={() => void cancel()}>Huỷ công nợ</Button>}
+          {b.paidAmount === 0 && b.creditApplied === 0 && b.status !== "CANCELLED" && <Button variant="danger" onClick={() => void cancel()}>Huỷ công nợ</Button>}
           {canPay && <Button variant="primary" disabled={busy || safeClosed} onClick={() => void pay()}>Thanh toán</Button>}
         </>
       }
@@ -146,6 +159,7 @@ function BillDetail({ bill: b, onClose, onChanged }: { bill: Bill; onClose: () =
         <div className="o-kpis">
           <Kpi label="Số tiền" value={formatVnd(b.amount)} />
           <Kpi label="Đã trả" value={formatVnd(b.paidAmount)} tone="success" />
+          {b.creditApplied > 0 && <Kpi label="Bù trừ trả hàng" value={formatVnd(b.creditApplied)} tone="success" />}
           <Kpi label="Còn nợ" value={formatVnd(b.remaining)} tone={b.overdue ? "danger" : "warning"} />
         </div>
         <div>

@@ -949,7 +949,9 @@ export function adminRouter(prisma: PrismaClient) {
       faceMatchThreshold: number;
       pettyCashLimit: number;
       cancelWindowMinutes: number;
+      supplierReturnDays: number;
     }>;
+    const supplierReturnDays = b.supplierReturnDays == null ? undefined : Math.min(90, Math.max(1, Math.floor(Number(b.supplierReturnDays)) || 7));
     const cancelWindowMinutes = b.cancelWindowMinutes == null ? undefined : Math.min(120, Math.max(0, Math.floor(Number(b.cancelWindowMinutes)) || 0));
     res.json(
       await prisma.storeSettings.upsert({
@@ -965,6 +967,7 @@ export function adminRouter(prisma: PrismaClient) {
           faceMatchThreshold: b.faceMatchThreshold ?? 0.5,
           pettyCashLimit: b.pettyCashLimit ?? 200000,
           cancelWindowMinutes: cancelWindowMinutes ?? 5,
+          supplierReturnDays: supplierReturnDays ?? 7,
         },
         update: {
           vatRatePercent: b.vatRatePercent,
@@ -976,6 +979,7 @@ export function adminRouter(prisma: PrismaClient) {
           faceMatchThreshold: b.faceMatchThreshold,
           pettyCashLimit: b.pettyCashLimit,
           cancelWindowMinutes,
+          supplierReturnDays,
         },
       }),
     );

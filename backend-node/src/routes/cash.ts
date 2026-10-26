@@ -20,6 +20,7 @@ import {
   parseDenominations,
   type Fund,
 } from "../lib/cash.js";
+import { applySupplierCredits, billRemaining, billStatus } from "../lib/supplierReturns.js";
 
 const staffOf = (req: Request) => (req as StaffRequest).staffRow!;
 const staffName = { select: { id: true, fullName: true } } as const;
@@ -521,7 +522,17 @@ export function cashRouter(prisma: PrismaClient) {
       orderBy: [{ dueDate: "asc" }, { id: "asc" }],
     });
     const now = new Date();
-    res.json(bills.map((b) => ({ ...b, remaining: b.amount - b.paidAmount, overdue: b.status !== "PAID" && b.dueDate < now })));
+    res.json(bills.map((b) => ({ ...b, remaining: billRemaining(b), overdue: b.status !== "PAID" && b.dueDate < now })));
+  });
+
+  /** Khoản nhà cung cấp còn nợ quán (từ phiếu trả hàng), chưa bù hết vào hoá đơn */
+  r.get("/cash/supplier-credits", ...manager, async (req, res) => {
+    const rows = await prisma.supplierCredit.findMany({
+      where: { ...storeWhere(req), status: "OPEN" },
+      include: { supplier: { select: { id: true, name: true } }, ret: { select: { code: true } } },
+      orderBy: { id: "asc" },
+    });
+    res.json(rows.map((c) => ({ ...c, remaining: c.amount - c.usedAmount })));
   });
 
   /** Ghi nhận hoá đơn mua ngoài (không qua quy trình đặt hàng) */
@@ -535,7 +546,12 @@ export function cashRouter(prisma: PrismaClient) {
     const bd = billDate ? new Date(billDate) : new Date();
     const dd = dueDate ? new Date(dueDate) : new Date(bd.getTime() + supplier.paymentTermDays * 86400_000);
     if (Number.isNaN(bd.getTime()) || Number.isNaN(dd.getTime())) return res.status(400).json({ error: "Ngày không hợp lệ." });
-    const bill = await createBill(prisma, { storeId, supplierId: supplier.id, source: "MANUAL", amount: amount as number, billDate: bd, dueDate: dd, note: note?.trim() || null, createdById: me.id });
+    const bill = await prisma.$transaction(async (tx) => {
+      const b = await createBill(tx, { storeId, supplierId: supplier.id, source: "MANUAL", amount: amount as number, billDate: bd, dueDate: dd, note: note?.trim() || null, createdById: me.id });
+      // NCC đang nợ quán (trả hàng) → bù trừ ngay
+      await applySupplierCredits(tx, storeId, supplier.id, b.id);
+      return tx.supplierBill.findUniqueOrThrow({ where: { id: b.id } });
+    });
     audit(me.id, "PAYABLE_CREATE", bill.code, `${supplier.name} ${vnd(bill.amount)}`);
     res.status(201).json(bill);
   });
@@ -548,7 +564,7 @@ export function cashRouter(prisma: PrismaClient) {
     if (!bill || !inStore(req, bill)) return res.status(404).json({ error: "Không tìm thấy công nợ." });
     if (["PAID", "CANCELLED"].includes(bill.status)) return res.status(400).json({ error: "Công nợ đã tất toán / đã huỷ." });
     const amt = Number(amount);
-    const remaining = bill.amount - bill.paidAmount;
+    const remaining = billRemaining(bill);
     if (!Number.isInteger(amt) || amt <= 0 || amt > remaining) return res.status(400).json({ error: `Số tiền trả phải từ 1đ đến ${vnd(remaining)}.` });
     if (fund !== "SAFE" && fund !== "BANK") return res.status(400).json({ error: "Chọn trả bằng tiền mặt (két) hoặc chuyển khoản (ngân hàng)." });
     const session = fund === "SAFE" ? await openSafeSession(prisma, bill.storeId) : null;
@@ -581,7 +597,7 @@ export function cashRouter(prisma: PrismaClient) {
       const paid = bill.paidAmount + amt;
       const updated = await tx.supplierBill.update({
         where: { id: bill.id },
-        data: { paidAmount: paid, status: paid >= bill.amount ? "PAID" : "PARTIAL" },
+        data: { paidAmount: paid, status: billStatus({ ...bill, paidAmount: paid }) },
       });
       return { entry, bill: updated };
     });
@@ -593,7 +609,7 @@ export function cashRouter(prisma: PrismaClient) {
     const me = staffOf(req);
     const bill = await prisma.supplierBill.findUnique({ where: { id: idOf(req) } });
     if (!bill || !inStore(req, bill)) return res.status(404).json({ error: "Không tìm thấy công nợ." });
-    if (bill.paidAmount > 0) return res.status(400).json({ error: "Đã trả một phần — không huỷ được." });
+    if (bill.paidAmount > 0 || bill.creditApplied > 0) return res.status(400).json({ error: "Đã trả / đã bù trừ một phần — không huỷ được." });
     const updated = await prisma.supplierBill.update({ where: { id: bill.id }, data: { status: "CANCELLED" } });
     audit(me.id, "PAYABLE_CANCEL", bill.code, "");
     res.json(updated);

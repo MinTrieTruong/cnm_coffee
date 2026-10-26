@@ -27,6 +27,7 @@ export const CATEGORIES: Record<string, { label: string; kind: EntryKind; system
   OPENING_BALANCE: { label: "Số dư đầu kỳ", kind: "IN", managerOnly: true },
   CAPITAL: { label: "Bổ sung quỹ", kind: "IN", managerOnly: true },
   OTHER_INCOME: { label: "Thu khác", kind: "IN" },
+  SUPPLIER_REFUND: { label: "Nhà cung cấp hoàn tiền", kind: "IN", system: true },
   // Chuyển quỹ
   SHIFT_FLOAT: { label: "Lấy tiền đầu ca", kind: "TRANSFER", system: true },
   SHIFT_DEPOSIT: { label: "Nộp tiền cuối ca", kind: "TRANSFER", system: true },
