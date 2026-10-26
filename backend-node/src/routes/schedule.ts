@@ -9,6 +9,8 @@
  * DELETE /schedule/:id                — Xoá ca
  * POST   /schedule/admin/auto         — Tự xếp lịch tháng (tạo bản Nháp)
  * POST   /schedule/admin/publish      — Công bố: Nháp/Chờ → Đã duyệt, Nháp chưa có người → Ca trống
+ * GET    /schedule/open               — Ca trống tôi nhận được (cùng vị trí, ngày đó chưa có ca)
+ * POST   /schedule/open/:id/claim     — Nhận ca trống (ai bấm trước được ca)
  */
 import { Router } from "express";
 import type { Request } from "express";
@@ -18,6 +20,7 @@ import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../m
 import { inStore, mustStoreId, storeWhere, toStore } from "../lib/storeScope.js";
 import { getHrConfig, getShiftTemplates, shiftDefsOf, SHIFT_ROLES } from "../lib/hrConfig.js";
 import { autoSchedule } from "../lib/autoSchedule.js";
+import { announceOpenShifts, claimOpenShift, closeOpenShift, openShiftsFor } from "../lib/openShifts.js";
 
 function pad2(n: number) { return String(n).padStart(2, "0"); }
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
@@ -129,6 +132,22 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
     res.json({ weekStart: from, weekEnd: to, schedules, shiftDefs: shiftDefsOf(templates) });
   });
 
+  /* ── GET /schedule/open — Ca trống tôi nhận được ── */
+  r.get("/schedule/open", ...anyStaff, async (req, res) => {
+    const me = (req as StaffRequest).staffRow!;
+    res.json({ shifts: await openShiftsFor(me.id) });
+  });
+
+  /* ── POST /schedule/open/:id/claim — Nhận ca trống ── */
+  r.post("/schedule/open/:id/claim", ...anyStaff, async (req, res) => {
+    const me = (req as StaffRequest).staffRow!;
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ." });
+    const result = await claimOpenShift(me.id, id);
+    if (!result.ok) return res.status(409).json({ error: result.error });
+    res.json({ ok: true, schedule: result.schedule });
+  });
+
   /* ── GET /schedule/admin/all — Bảng lịch tổng chi nhánh ── */
   r.get("/schedule/admin/all", ...anyStaff, async (req, res) => {
     const { from, to, days } = rangeOf(req.query);
@@ -202,6 +221,9 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
         include: { staff: { select: { id: true, fullName: true } } },
       });
       notify(updated.storeId, [existing.staffId, updated.staffId], "schedule:updated", updated);
+      // Quản lý tự xếp người cho ca trống → thu hồi lời mời; bỏ người khỏi ca → mời người khác nhận
+      if (existing.status === "OPEN_SHIFT" && updated.status !== "OPEN_SHIFT") void closeOpenShift(id);
+      else if (updated.status === "OPEN_SHIFT" && existing.staffId != null) void announceOpenShifts([id], "Ca vừa trống người");
       res.json(updated);
     } catch (e: any) {
       if (e.code === "P2002") return res.status(400).json({ error: "Nhân viên đã được gán ca này trong ngày." });
@@ -218,6 +240,7 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
     if (!existing || !inStore(req, existing)) return res.status(404).json({ error: "Không tìm thấy ca." });
     if (existing.actualCheckIn) return res.status(400).json({ error: "Ca đã chấm công, không xoá được." });
 
+    if (existing.openNotifId) await closeOpenShift(id);
     await prisma.workSchedule.delete({ where: { id } });
     notify(existing.storeId, [existing.staffId], "schedule:deleted", { id });
     res.json({ ok: true });
@@ -245,6 +268,13 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
       where: { ...where, status: "APPROVED" }, select: { staffId: true }, distinct: ["staffId"],
     });
     notify(storeId, affected.map((a) => a.staffId), "schedule:published", { weekStart: from, weekEnd: to });
+    // Ca trống trong 3 ngày tới: mời nhận ngay (ca xa hơn do tác vụ nền mời dần — lib/openShifts)
+    const soon = new Date(Date.now() + 3 * 86_400_000);
+    const openIds = await prisma.workSchedule.findMany({
+      where: { ...where, status: "OPEN_SHIFT", staffId: null, openedAt: null, workDate: { gte: from, lte: soon < to ? soon : to } },
+      select: { id: true },
+    });
+    void announceOpenShifts(openIds.map((w) => w.id));
     res.json({ ok: true, count: approved.count, openCount: open.count });
   });
 

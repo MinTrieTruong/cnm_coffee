@@ -5,6 +5,14 @@ import { ShoppingCart, FilePlus, Package, FolderOpen, FileText, Download, X, Sea
 import { getStaffInfo, isAdminRole, staffApi } from "../lib/staffApi";
 import { fmtQty } from "../components/erp";
 
+/** Trạng thái đơn mua (PO) */
+const PO_STATUS: Record<string, { label: string; bg: string; color: string }> = {
+  PENDING: { label: "Chờ Giao Hàng", bg: "rgba(245,158,11,0.2)", color: "#b45309" },
+  PARTIAL: { label: "Đã nhận một phần", bg: "rgba(59,130,246,0.2)", color: "#1d4ed8" },
+  DELIVERED: { label: "Đã Giao & Nhập Kho", bg: "rgba(16,185,129,0.2)", color: "#047857" },
+  CLOSED: { label: "Đã đóng (giao thiếu)", bg: "rgba(107,114,128,0.2)", color: "#4b5563" },
+};
+
 export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = {}) {
   // Thủ kho lập đề xuất & nhận hàng; Quản lý chi nhánh duyệt đề xuất & chọn báo giá
   const role = getStaffInfo()?.role;
@@ -25,7 +33,9 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
   const [selectedRfq, setSelectedRfq] = useState<any>(null);
 
   const [receivingPo, setReceivingPo] = useState<any>(null);
-  const [expiries, setExpiries] = useState<Record<number, string>>({}); // itemId -> date
+  /** Nhận hàng theo PO: số thực nhận / hỏng-trả lại / hạn dùng / ghi chú từng mặt hàng (itemId → giá trị) */
+  const [recv, setRecv] = useState<Record<number, { qty: string; rejected: string; expiry: string; note: string }>>({});
+  const [recvNote, setRecvNote] = useState("");
 
   const [previewDoc, setPreviewDoc] = useState<any>(null);
   const printRef = useRef<HTMLDivElement>(null);
@@ -83,13 +93,19 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
     } catch (e: any) { alert(e.message); }
   }
 
-  async function selectQuote(rfqId: number, quoteId: number) {
-    if (!window.confirm("Chốt báo giá này và tự động tạo Đơn Đặt Hàng (PO)?")) return;
+  async function selectQuote(rfq: any, quote: any) {
+    // Báo giá thiếu mặt hàng → hỏi rõ; phần thiếu được tách sang đề xuất mua mới
+    const missing = rfq.requisition.items.filter((i: any) => !quote.items.some((qi: any) => qi.itemId === i.itemId && qi.unitPrice > 0));
+    const ask = missing.length
+      ? `Báo giá của ${quote.supplier.name} THIẾU: ${missing.map((m: any) => m.item.name).join(", ")}.\n\nVẫn chốt báo giá này? Các mặt hàng thiếu sẽ được tạo thành một đề xuất mua mới để lấy báo giá khác.`
+      : "Chốt báo giá này và tự động tạo Đơn Đặt Hàng (PO)?";
+    if (!window.confirm(ask)) return;
     try {
-      await staffApi(`/api/purchasing/rfqs/${rfqId}/select-quote`, {
+      const r = await staffApi<{ poCode: string; followUp: string | null }>(`/api/purchasing/rfqs/${rfq.id}/select-quote`, {
         method: "POST",
-        body: JSON.stringify({ quoteId })
+        body: JSON.stringify({ quoteId: quote.id, allowPartial: missing.length > 0 })
       });
+      if (r.followUp) alert(`Đã tạo ${r.poCode}. Các mặt hàng thiếu đã chuyển sang đề xuất ${r.followUp} (chờ duyệt).`);
       setSelectedRfq(null);
       loadData();
     } catch (e: any) {
@@ -97,25 +113,48 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
     }
   }
 
+  function openReceive(po: any) {
+    setRecv(Object.fromEntries(po.lines.filter((l: any) => l.remaining > 0).map((l: any) => [l.itemId, { qty: String(l.remaining), rejected: "", expiry: "", note: "" }])));
+    setRecvNote("");
+    setReceivingPo(po);
+  }
+
+  async function closeOrder(po: any) {
+    const note = window.prompt(`Đóng ${po.code}, không nhận thêm hàng? Ghi lý do (VD: NCC hết hàng, không giao bù):`);
+    if (!note?.trim()) return;
+    try {
+      await staffApi(`/api/purchasing/orders/${po.id}/close`, { method: "POST", body: JSON.stringify({ note }) });
+      loadData();
+    } catch (e: any) { alert(e.message); }
+  }
+
   async function receiveOrder() {
     if (!receivingPo) return;
-    // Validate that all items have an expiry date
-    const items = receivingPo.quote.rfq.requisition.items;
-    for (const i of items) {
-      if (!expiries[i.itemId]) {
-        alert(`Vui lòng nhập Hạn sử dụng cho ${i.item.name}`);
-        return;
-      }
-    }
-
-    if (!window.confirm("Xác nhận nhập kho hàng hóa (GRN)? Hệ thống sẽ tự động cập nhật số lượng tồn.")) return;
+    const toInt = (v: string) => (v.trim() === "" ? 0 : Number(v));
+    const lines = receivingPo.lines
+      .filter((l: any) => recv[l.itemId])
+      .map((l: any) => {
+        const r = recv[l.itemId];
+        return { itemId: l.itemId, name: l.name, remaining: l.remaining, receivedQty: toInt(r.qty), rejectedQty: toInt(r.rejected), expiryDate: r.expiry || null, note: r.note };
+      });
+    const bad = lines.find((l: any) => !Number.isInteger(l.receivedQty) || l.receivedQty < 0 || !Number.isInteger(l.rejectedQty) || l.rejectedQty < 0 || l.receivedQty > l.remaining);
+    if (bad) return alert(`Số lượng của ${bad.name} không hợp lệ (nhận tối đa ${bad.remaining}).`);
+    if (!lines.some((l: any) => l.receivedQty > 0 || l.rejectedQty > 0)) return alert("Nhập số thực nhận cho ít nhất 1 mặt hàng.");
+    const noExpiry = lines.filter((l: any) => l.receivedQty > 0 && !l.expiryDate).map((l: any) => l.name);
+    const short = lines.filter((l: any) => l.receivedQty < l.remaining);
+    const msg = [
+      "Xác nhận nhập kho (tạo phiếu nhập GRN)? Tồn kho và công nợ NCC tính theo số thực nhận.",
+      short.length ? `\nGiao thiếu: ${short.map((l: any) => `${l.name} (${l.receivedQty}/${l.remaining})`).join(", ")} — đơn chuyển sang "Đã nhận một phần", nhận tiếp đợt sau.` : "",
+      noExpiry.length ? `\nChưa nhập hạn sử dụng: ${noExpiry.join(", ")} — sẽ không có cảnh báo hết hạn cho lô này.` : "",
+    ].join("");
+    if (!window.confirm(msg)) return;
     try {
       await staffApi(`/api/purchasing/orders/${receivingPo.id}/receive`, {
         method: "POST",
-        body: JSON.stringify({ expiries })
+        body: JSON.stringify({ note: recvNote, lines: lines.map(({ itemId, receivedQty, rejectedQty, expiryDate, note }: any) => ({ itemId, receivedQty, rejectedQty, expiryDate, note })) })
       });
       setReceivingPo(null);
-      setExpiries({});
+      setRecv({});
       loadData();
     } catch (e: any) {
       alert(e.message);
@@ -296,7 +335,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                       <th key={q.id} style={{ padding: "1rem", textAlign: "right" }}>
                         <div style={{ color: "var(--accent)" }}>{q.supplier.name}</div>
                         {approver && (
-                          <button className="primary-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem", marginTop: "0.5rem" }} onClick={() => selectQuote(selectedRfq.id, q.id)}>
+                          <button className="primary-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem", marginTop: "0.5rem" }} onClick={() => selectQuote(selectedRfq, q)}>
                             Chốt Báo giá & Tạo PO
                           </button>
                         )}
@@ -349,8 +388,8 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                   <p style={{ margin: 0, color: "var(--muted)" }}>Nhà cung cấp: <strong style={{ color: "var(--text)" }}>{po.supplier.name}</strong></p>
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <span style={{ padding: "0.25rem 0.75rem", borderRadius: 999, fontSize: "0.85rem", background: po.status === "DELIVERED" ? "rgba(16,185,129,0.2)" : "rgba(245,158,11,0.2)", color: po.status === "DELIVERED" ? "#047857" : "#b45309", display: "inline-block", marginBottom: "0.5rem" }}>
-                    {po.status === "DELIVERED" ? "Đã Giao & Nhập Kho" : "Chờ Giao Hàng"}
+                  <span style={{ padding: "0.25rem 0.75rem", borderRadius: 999, fontSize: "0.85rem", background: PO_STATUS[po.status]?.bg ?? "rgba(245,158,11,0.2)", color: PO_STATUS[po.status]?.color ?? "#b45309", display: "inline-block", marginBottom: "0.5rem" }}>
+                    {PO_STATUS[po.status]?.label ?? po.status}
                   </span>
                   <div style={{ fontWeight: "bold" }}>Tổng: {po.totalAmount.toLocaleString()} đ</div>
                 </div>
@@ -360,24 +399,39 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--border)", textAlign: "left", color: "var(--muted)" }}>
                       <th style={{ padding: "0.5rem" }}>Mặt hàng</th>
-                      <th style={{ padding: "0.5rem" }}>Số lượng</th>
+                      <th style={{ padding: "0.5rem" }}>Đặt</th>
+                      <th style={{ padding: "0.5rem" }}>Đã nhận</th>
+                      <th style={{ padding: "0.5rem" }}>Còn phải giao</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {po.quote.rfq.requisition.items.map((i: any) => (
-                      <tr key={i.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                        <td style={{ padding: "0.5rem" }}>{i.item.name}</td>
-                        <td style={{ padding: "0.5rem" }}>{i.qty} {i.item.unit}</td>
+                    {po.lines.map((l: any) => (
+                      <tr key={l.itemId} style={{ borderBottom: "1px solid var(--border)" }}>
+                        <td style={{ padding: "0.5rem" }}>{l.name}</td>
+                        <td style={{ padding: "0.5rem" }}>{l.ordered} {l.unit}</td>
+                        <td style={{ padding: "0.5rem" }}>{l.received} {l.unit}</td>
+                        <td style={{ padding: "0.5rem", color: l.remaining > 0 && po.status !== "CLOSED" ? "#b45309" : undefined }}>{po.status === "CLOSED" && l.remaining > 0 ? `Thiếu ${l.remaining} (đã đóng)` : l.remaining || "—"}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              {po.status === "PENDING" && keeper && (
-                <div style={{ marginTop: "1rem", textAlign: "right" }}>
-                  <button className="primary-btn" onClick={() => setReceivingPo(po)}>
-                    <Package size={16} /> Nhận Hàng (Tạo Phiếu Nhập)
-                  </button>
+              {po.receipts.length > 0 && (
+                <div style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "var(--muted)" }}>
+                  {po.receipts.map((g: any) => `${g.code} · ${new Date(g.createdAt).toLocaleDateString("vi-VN")} · ${g.receivedBy?.fullName ?? ""}${g.items.some((x: any) => x.rejectedQty > 0) ? ` · trả lại ${g.items.reduce((s: number, x: any) => s + x.rejectedQty, 0)}` : ""}${g.note ? ` · ${g.note}` : ""}`).join(" | ")}
+                </div>
+              )}
+              {po.status === "CLOSED" && po.closeNote && <div style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "var(--muted)" }}>Đã đóng: {po.closeNote}</div>}
+              {(po.status === "PENDING" || po.status === "PARTIAL") && (keeper || approver) && (
+                <div style={{ marginTop: "1rem", display: "flex", gap: "0.5rem", justifyContent: "flex-end", flexWrap: "wrap" }}>
+                  {approver && po.status === "PARTIAL" && (
+                    <button className="secondary-btn" onClick={() => closeOrder(po)}>Đóng đơn (không nhận thêm)</button>
+                  )}
+                  {keeper && (
+                    <button className="primary-btn" onClick={() => openReceive(po)}>
+                      <Package size={16} /> {po.status === "PARTIAL" ? "Nhận tiếp đợt sau" : "Nhận Hàng (Tạo Phiếu Nhập)"}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -391,27 +445,28 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} style={{ background: "var(--bg)", width: "100%", maxWidth: 600, padding: "2rem", borderRadius: 12, border: "1px solid var(--border)", maxHeight: "90vh", overflowY: "auto" }}>
               <h2 style={{ margin: "0 0 1rem 0", color: "var(--accent)" }}>Nhập Kho - {receivingPo.code}</h2>
-              <p style={{ color: "var(--muted)", marginBottom: "2rem" }}>Vui lòng kiểm tra số lượng và nhập Hạn sử dụng (Expiry Date) cho từng lô hàng.</p>
+              <p style={{ color: "var(--muted)", marginBottom: "1.5rem" }}>Đếm hàng thực nhận. Hàng hỏng / sai quy cách ghi vào "Trả lại" (không nhập kho, không tính tiền). Giao thiếu thì đơn chờ nhận tiếp đợt sau.</p>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                {receivingPo.quote.rfq.requisition.items.map((i: any) => (
-                  <div key={i.id} style={{ background: "var(--surface2)", padding: "1rem", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
-                    <div>
-                      <div style={{ fontWeight: "bold" }}>{i.item.name}</div>
-                      <div style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Số lượng: {i.qty} {i.item.unit}</div>
+                {receivingPo.lines.filter((l: any) => recv[l.itemId]).map((l: any) => {
+                  const r = recv[l.itemId];
+                  const set = (k: "qty" | "rejected" | "expiry" | "note", v: string) => setRecv((prev) => ({ ...prev, [l.itemId]: { ...prev[l.itemId], [k]: v } }));
+                  return (
+                    <div key={l.itemId} style={{ background: "var(--surface2)", padding: "1rem", borderRadius: 8, display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                      <div>
+                        <div style={{ fontWeight: "bold" }}>{l.name}</div>
+                        <div style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Đặt {l.ordered} {l.unit}{l.received ? ` · đã nhận ${l.received}` : ""} · còn phải giao {l.remaining}</div>
+                      </div>
+                      <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+                        <label style={{ fontSize: "0.85rem" }}>Thực nhận<br /><input className="input-field" style={{ padding: "0.4rem", width: 90 }} inputMode="numeric" value={r.qty} onChange={(e) => set("qty", e.target.value.replace(/\D/g, ""))} /></label>
+                        <label style={{ fontSize: "0.85rem" }}>Trả lại (hỏng)<br /><input className="input-field" style={{ padding: "0.4rem", width: 90 }} inputMode="numeric" value={r.rejected} onChange={(e) => set("rejected", e.target.value.replace(/\D/g, ""))} /></label>
+                        <label style={{ fontSize: "0.85rem" }}>Hạn sử dụng<br /><input type="date" className="input-field" style={{ padding: "0.4rem" }} value={r.expiry} onChange={(e) => set("expiry", e.target.value)} /></label>
+                        <label style={{ fontSize: "0.85rem", flex: 1, minWidth: 140 }}>Ghi chú<br /><input className="input-field" style={{ padding: "0.4rem", width: "100%" }} value={r.note} onChange={(e) => set("note", e.target.value)} placeholder="VD: 2 hộp móp" /></label>
+                      </div>
                     </div>
-                    <div>
-                      <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginBottom: "0.25rem" }}>Hạn sử dụng:</div>
-                      <input 
-                        type="date" 
-                        className="input-field" 
-                        style={{ padding: "0.4rem" }}
-                        value={expiries[i.itemId] || ""}
-                        onChange={e => setExpiries(prev => ({ ...prev, [i.itemId]: e.target.value }))}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
+                <label style={{ fontSize: "0.85rem" }}>Ghi chú đợt nhận<br /><input className="input-field" style={{ padding: "0.4rem", width: "100%" }} value={recvNote} onChange={(e) => setRecvNote(e.target.value)} placeholder="VD: NCC hẹn giao bù thứ 6" /></label>
               </div>
 
               <div style={{ display: "flex", gap: "1rem", marginTop: "2rem", justifyContent: "flex-end" }}>

@@ -38,11 +38,15 @@ type MeData = {
   stats: { deliveredToday: number; failedToday: number; shippingFeeToday: number; shippingFeeMonth: number };
 };
 
+/** Khớp FAIL_REASONS ở backend (lib/points.ts): lỗi quán/shipper → khách được hoàn 100% ra điểm ngay; còn lại → quản lý quyết định */
 const FAIL_REASONS = [
-  "Không liên lạc được khách",
-  "Khách từ chối nhận hàng",
-  "Sai địa chỉ / không tìm thấy",
-  "Hàng bị đổ vỡ",
+  { code: "NO_ANSWER", label: "Không liên lạc được khách" },
+  { code: "CUSTOMER_REFUSED", label: "Khách đổi ý, không nhận hàng" },
+  { code: "WRONG_ADDRESS", label: "Sai địa chỉ / vị trí" },
+  { code: "DAMAGED", label: "Hàng bị đổ / hỏng" },
+  { code: "SHIPPER_INCIDENT", label: "Shipper gặp sự cố" },
+  { code: "LATE", label: "Giao quá trễ, khách từ chối nhận" },
+  { code: "OTHER", label: "Lý do khác" },
 ];
 
 function beep() {
@@ -570,17 +574,16 @@ function ProofSheet({ order, onClose, onDone }: { order: ShipOrder; onClose: () 
 
 /* ═══════════ Bottom sheet: giao thất bại ═══════════ */
 function FailSheet({ order, onClose, onDone }: { order: ShipOrder; onClose: () => void; onDone: () => void }) {
-  const [reason, setReason] = useState(FAIL_REASONS[0]);
+  const [reason, setReason] = useState(FAIL_REASONS[0].code);
   const [custom, setCustom] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   async function submit() {
-    const r = reason === "other" ? custom.trim() : reason;
-    if (!r) return setErr("Nhập lý do");
+    if (reason === "OTHER" && !custom.trim()) return setErr("Nhập lý do");
     setBusy(true);
     try {
-      await staffApi(`/api/shipper/orders/${order.id}/fail`, { method: "POST", body: JSON.stringify({ reason: r }) });
+      await staffApi(`/api/shipper/orders/${order.id}/fail`, { method: "POST", body: JSON.stringify({ reasonCode: reason, reason: custom.trim() || undefined }) });
       onDone();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Lỗi");
@@ -597,13 +600,13 @@ function FailSheet({ order, onClose, onDone }: { order: ShipOrder; onClose: () =
         </div>
         <p className="sp-sub" style={{ margin: 0 }}>Hãy gọi cho khách ít nhất 2 lần trước khi báo thất bại.</p>
         <div className="sp-reasons">
-          {[...FAIL_REASONS, "other"].map((r) => (
-            <button key={r} type="button" className={reason === r ? "active" : ""} onClick={() => setReason(r)}>
-              {r === "other" ? "Lý do khác" : r}
+          {FAIL_REASONS.map((r) => (
+            <button key={r.code} type="button" className={reason === r.code ? "active" : ""} onClick={() => setReason(r.code)}>
+              {r.label}
             </button>
           ))}
         </div>
-        {reason === "other" && <input className="input" placeholder="Nhập lý do…" value={custom} onChange={(e) => setCustom(e.target.value)} />}
+        <input className="input" placeholder={reason === "OTHER" ? "Nhập lý do…" : "Ghi chú thêm (tuỳ chọn)"} value={custom} onChange={(e) => setCustom(e.target.value)} />
         {err && <div className="sp-error">{err}</div>}
         <button type="button" className="sp-btn sp-btn-danger sp-btn-block" onClick={submit} disabled={busy}>
           {busy ? "Đang gửi…" : "Xác nhận giao thất bại"}

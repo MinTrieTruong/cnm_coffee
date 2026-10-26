@@ -182,7 +182,6 @@ export function OrderCheckout() {
         body: JSON.stringify({
           sessionId: getTakeawaySessionId(),
           tableId: getTableId(),
-          discountVoucherAmt: voucherApplied?.discountValue ?? 0,
           voucherCode: voucherApplied?.code ?? null
         })
       });
@@ -200,7 +199,6 @@ export function OrderCheckout() {
         method: "POST", 
         body: JSON.stringify({ 
           returnOrigin: origin, 
-          discountVoucherAmt: voucherApplied?.discountValue ?? 0, 
           voucherCode: voucherApplied?.code ?? null 
         }) 
       });
@@ -212,7 +210,7 @@ export function OrderCheckout() {
     if (Number.isNaN(orderId) || sepayForm || sepayLoading) return;
     setSepayLoading(true); setMsg(null);
     try {
-      const res = await api<{ checkoutUrl: string; fields: Record<string, string | number> }>(`/api/orders/${orderId}/sepay/create`, { method: "POST", body: JSON.stringify({ discountVoucherAmt: voucherApplied?.discountValue ?? 0, voucherCode: voucherApplied?.code ?? null }) });
+      const res = await api<{ checkoutUrl: string; fields: Record<string, string | number> }>(`/api/orders/${orderId}/sepay/create`, { method: "POST", body: JSON.stringify({ voucherCode: voucherApplied?.code ?? null }) });
       setSepayForm(res);
     } catch (e) { setMsg(e instanceof Error ? e.message : "Không tạo được link SePay"); }
     finally { setSepayLoading(false); }

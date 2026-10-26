@@ -1,8 +1,25 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { staffApi } from "../lib/staffApi";
 import { ROLE_LABEL } from "../lib/roles";
 import { Alert, Badge, Button, ControlPanel, EmptyState, Tabs, errMsg } from "../components/erp";
 import { HR_TABS, STATUS_UI, SwapState, itemTitle, useShiftNames, type HrItem, type HrTab } from "./HrRequests";
+
+type StatusFilter = "PENDING" | "APPROVED" | "REJECTED" | "ALL";
+const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
+  { id: "PENDING", label: "Chờ duyệt" },
+  { id: "APPROVED", label: "Đã duyệt" },
+  { id: "REJECTED", label: "Từ chối" },
+  { id: "ALL", label: "Tất cả" },
+];
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+/** ISO → YYYY-MM-DD theo giờ máy (để so với ô chọn ngày) */
+const localDay = (s: string) => { const d = new Date(s); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
+/** Khoảng ngày mà đơn áp dụng: nghỉ nhiều ngày → [date, toDate]; đơn gắn ca → ngày ca */
+function itemDays(it: HrItem): [string, string] {
+  const start: string = (it.date ?? it.schedule?.workDate)?.slice(0, 10) ?? localDay(it.createdAt);
+  return [start, it.toDate?.slice(0, 10) ?? start];
+}
 
 /** Nhân sự › Duyệt đơn từ (quản lý chi nhánh) */
 export function AdminHrRequests() {
@@ -11,7 +28,12 @@ export function AdminHrRequests() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const [showDone, setShowDone] = useState(false);
+  // Bộ lọc: trạng thái, khoảng ngày (theo ngày của đơn hoặc ngày gửi), tìm theo tên/lý do
+  const [status, setStatus] = useState<StatusFilter>("PENDING");
+  const [dateBy, setDateBy] = useState<"item" | "created">("item");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [q, setQ] = useState("");
   const names = useShiftNames();
   const endpoint = HR_TABS.find((t) => t.id === tab)!.endpoint;
 
@@ -50,8 +72,33 @@ export function AdminHrRequests() {
   }
 
   const who = (it: HrItem) => it.user ?? it.requester;
-  const pending = items.filter((i) => i.status === "PENDING");
-  const done = items.filter((i) => i.status !== "PENDING");
+
+  const counts = useMemo(() => {
+    const c: Record<StatusFilter, number> = { ALL: items.length, PENDING: 0, APPROVED: 0, REJECTED: 0 };
+    for (const i of items) if (i.status in c) c[i.status as StatusFilter]++;
+    return c;
+  }, [items]);
+
+  const shown = useMemo(() => {
+    const kw = q.trim().toLowerCase();
+    return items.filter((it) => {
+      if (status !== "ALL" && it.status !== status) return false;
+      if (from || to) {
+        const [a, b] = dateBy === "created" ? [localDay(it.createdAt), localDay(it.createdAt)] : itemDays(it);
+        if (from && b < from) return false;
+        if (to && a > to) return false;
+      }
+      if (kw) {
+        const p = it.user ?? it.requester;
+        const hay = [p?.fullName, it.reason, it.targetUser?.fullName].filter(Boolean).join(" ").toLowerCase();
+        if (!hay.includes(kw)) return false;
+      }
+      return true;
+    });
+  }, [items, status, dateBy, from, to, q]);
+
+  const filtered = status !== "PENDING" || !!from || !!to || !!q.trim();
+  const clearFilters = () => { setStatus("PENDING"); setFrom(""); setTo(""); setQ(""); };
 
   const row = (it: HrItem) => {
     // Đổi ca: chỉ duyệt được khi người nhận đã đồng ý
@@ -86,22 +133,30 @@ export function AdminHrRequests() {
 
   return (
     <div>
-      <ControlPanel crumbs={[{ label: "Duyệt đơn từ" }]} />
+      <ControlPanel crumbs={[{ label: "Duyệt đơn từ" }]} search={q} onSearch={setQ} />
       <div className="o-content o-stack" style={{ maxWidth: 1000, margin: "0 auto" }}>
         <Tabs tabs={HR_TABS} active={tab} onChange={setTab} />
+        <div className="o-row">
+          <select className="o-input" style={{ width: "auto" }} value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)} aria-label="Trạng thái">
+            {STATUS_FILTERS.map((s) => <option key={s.id} value={s.id}>{s.label} ({counts[s.id]})</option>)}
+          </select>
+          <select className="o-input" style={{ width: "auto" }} value={dateBy} onChange={(e) => setDateBy(e.target.value as "item" | "created")} aria-label="Lọc ngày theo">
+            <option value="item">Theo ngày của đơn</option>
+            <option value="created">Theo ngày gửi</option>
+          </select>
+          <input type="date" className="o-input" style={{ width: 145 }} value={from} onChange={(e) => setFrom(e.target.value)} aria-label="Từ ngày" />
+          <span className="o-muted">→</span>
+          <input type="date" className="o-input" style={{ width: 145 }} value={to} onChange={(e) => setTo(e.target.value)} aria-label="Đến ngày" />
+          {filtered && <Button variant="link" onClick={clearFilters}>Xoá lọc</Button>}
+        </div>
         {err && <Alert>{err}</Alert>}
         {msg && <Alert tone="info">{msg}</Alert>}
         {loading && <p className="o-muted">Đang tải…</p>}
 
-        {!loading && pending.length === 0 && <EmptyState title="Không có đơn chờ duyệt" />}
-        {pending.length > 0 && <section className="o-card">{pending.map(row)}</section>}
-
-        {done.length > 0 && (
-          <>
-            <Button variant="link" onClick={() => setShowDone((s) => !s)}>{showDone ? "Ẩn" : "Xem"} đơn đã xử lý ({done.length})</Button>
-            {showDone && <section className="o-card">{done.map(row)}</section>}
-          </>
+        {!loading && shown.length === 0 && (
+          <EmptyState title={filtered ? "Không có đơn phù hợp bộ lọc" : "Không có đơn chờ duyệt"} />
         )}
+        {shown.length > 0 && <section className="o-card">{shown.map(row)}</section>}
       </div>
     </div>
   );

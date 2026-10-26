@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { ReceiptText } from "lucide-react";
 import { activeStoreId, getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
-import { Alert, Badge, Button, EmptyState, Field, Modal, RecordList, errMsg, fmtDateTime, formatVnd } from "../../components/erp";
+import { Alert, Badge, Button, EmptyState, Field, Modal, RecordList, errMsg, fmtDateTime, formatVnd, ymd } from "../../components/erp";
 import { useResource } from "../shared";
 import { Attachment, EntryDialog, FUND_LABEL, KIND_LABEL, STATUS, catLabel, flowLabel, isManager, type CashEntry } from "./shared";
 
-const today = () => new Date().toISOString().slice(0, 10);
-const daysAgo = (n: number) => new Date(Date.now() - n * 86400_000).toISOString().slice(0, 10);
+const today = () => ymd(new Date());
+const daysAgo = (n: number) => ymd(new Date(Date.now() - n * 86400_000));
 
 /** Tài chính › Phiếu thu chi — sổ quỹ: lập phiếu, duyệt phiếu chi vượt hạn mức, tra cứu */
 export function Entries() {

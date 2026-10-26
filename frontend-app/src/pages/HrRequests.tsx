@@ -70,7 +70,7 @@ export function HrRequests() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setItems(await staffApi<HrItem[]>(endpoint));
+      setItems(await staffApi<HrItem[]>(`${endpoint}?mine=1`));
       setErr(null);
     } catch (e) {
       setErr(errMsg(e));

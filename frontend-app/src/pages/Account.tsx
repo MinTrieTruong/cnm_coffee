@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { clearSession, getUser, isGuestMode, mergeSessionUser, type SessionUser } from "../lib/session";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, User, Star, Award, Ticket, MessageSquare, ImagePlus, X, Lock, Package, XCircle } from "lucide-react";
+import { ArrowLeft, User, Star, Award, Ticket, MessageSquare, ImagePlus, X, Lock, Package, XCircle, Coins } from "lucide-react";
 import { deliveryLabel } from "../lib/delivery";
 import { PasswordInput } from "../components/PasswordInput";
 
@@ -42,7 +42,35 @@ type EligibleOrder = { id: number; totalAmount: number; createdAt: string; table
 type PublicVoucher = { id: number; code: string; description: string | null; discountValue: number; minBillValue: number; endDate: string; quantity: number; usedCount: number; goldHourStart: number | null; goldHourEnd: number | null; };
 type MyVoucher = { id: number; isUsed: boolean; claimedAt: string; usedAt: string | null; voucher: { id: number; code: string; description: string | null; discountValue: number; minBillValue: number; endDate: string; isActive: boolean; goldHourStart: number | null; goldHourEnd: number | null; }; };
 
-type CustomerOrder = { id: number; createdAt: string; totalAmount: number; status: string; orderType: string; deliveryStatus?: string | null; details: { quantity: number; product: { name: string } }[]; };
+type CustomerOrder = {
+  id: number; createdAt: string; totalAmount: number; status: string; orderType: string; deliveryStatus?: string | null;
+  details: { quantity: number; product: { name: string } }[];
+  /** Đơn giao đã trả: hạn tự hủy (null = hết hạn / không áp dụng) và số điểm sẽ nhận lại */
+  cancelUntil?: string | null; refundPreview?: number | null;
+  refundStatus?: string | null; refundPoints?: number;
+};
+type PointTx = { id: number; orderId: number | null; delta: number; type: string; note: string | null; createdAt: string };
+
+const POINT_TX_LABEL: Record<string, string> = {
+  EARN: "Tích điểm", REDEEM: "Dùng điểm", CANCEL_REFUND: "Hoàn tiền đơn hủy",
+  REDEEM_RETURN: "Trả lại điểm đã dùng", EARN_REVERSAL: "Thu hồi điểm thưởng",
+};
+
+/** Đếm ngược thời gian còn được tự hủy; hết giờ thì gọi onExpire */
+function CancelCountdown({ until, onExpire }: { until: string; onExpire: () => void }) {
+  const end = new Date(until).getTime();
+  const [left, setLeft] = useState(() => Math.max(0, end - Date.now()));
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const l = Math.max(0, end - Date.now());
+      setLeft(l);
+      if (l <= 0) { clearInterval(iv); onExpire(); }
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [end, onExpire]);
+  const sec = Math.ceil(left / 1000);
+  return <span>còn {Math.floor(sec / 60)}:{String(sec % 60).padStart(2, "0")}</span>;
+}
 type CustomerSummary = { totalSpent: number; totalOrders: number; };
 
 function VoucherCard({
@@ -109,6 +137,7 @@ export function Account() {
   const [myVouchers, setMyVouchers] = useState<MyVoucher[] | null>(null);
   const [orders, setOrders] = useState<CustomerOrder[] | null>(null);
   const [summary, setSummary] = useState<CustomerSummary | null>(null);
+  const [pointTxs, setPointTxs] = useState<PointTx[] | null>(null);
 
   const [profileMsg, setProfileMsg] = useState<{ text: string, ok: boolean } | null>(null);
   const [pwdMsg, setPwdMsg] = useState<{ text: string, ok: boolean } | null>(null);
@@ -123,8 +152,8 @@ export function Account() {
   const [pwdNew, setPwdNew] = useState("");
 
   // Dashboard Tabs
-  type MainTab = "profile" | "orders" | "vouchers" | "reviews_write" | "reviews_public";
-  const MAIN_TABS: MainTab[] = ["profile", "orders", "vouchers", "reviews_write", "reviews_public"];
+  type MainTab = "profile" | "orders" | "points" | "vouchers" | "reviews_write" | "reviews_public";
+  const MAIN_TABS: MainTab[] = ["profile", "orders", "points", "vouchers", "reviews_write", "reviews_public"];
   const [params, setParams] = useSearchParams();
   const navTo = useNavigate();
   const tabParam = params.get("tab") as MainTab | null;
@@ -160,6 +189,13 @@ export function Account() {
       setOrders(o); setSummary(s);
     } catch { }
   }, []);
+
+  const loadPoints = useCallback(async () => {
+    try { setPointTxs(await api<PointTx[]>("/api/customer/points-history")); } catch { setPointTxs([]); }
+  }, []);
+  useEffect(() => {
+    if (mainTab === "points" && !guest && getUser()) void loadPoints();
+  }, [mainTab, guest, loadPoints]);
 
   const loadEligible = useCallback(async () => {
     try {
@@ -244,12 +280,16 @@ export function Account() {
     }
   }
 
-  async function cancelOrder(orderId: number) {
-    if (!window.confirm("Bạn có chắc muốn hủy đơn hàng này không?")) return;
+  async function cancelOrder(orderId: number, refundPreview?: number | null) {
+    const ask = refundPreview
+      ? `Hủy đơn #${orderId}? Số tiền đã thanh toán sẽ được hoàn 100% thành điểm — bạn nhận lại ${refundPreview.toLocaleString("vi-VN")} điểm để dùng cho lần mua sau.`
+      : "Bạn có chắc muốn hủy đơn hàng này không?";
+    if (!window.confirm(ask)) return;
     try {
-      await api(`/api/orders/${orderId}/cancel`, { method: "POST" });
-      alert("Đã hủy đơn hàng thành công!");
+      const r = await api<{ ok: boolean; totalReturned?: number }>(`/api/orders/${orderId}/cancel`, { method: "POST" });
+      alert(r.totalReturned != null ? `Đã hủy đơn. Bạn nhận lại ${r.totalReturned.toLocaleString("vi-VN")} điểm.` : "Đã hủy đơn hàng thành công!");
       void loadOrders();
+      void refreshMe();
     } catch (e) {
       alert(e instanceof Error ? e.message : "Lỗi khi hủy đơn");
     }
@@ -353,6 +393,7 @@ export function Account() {
         {[
           { id: "profile", label: "Hồ sơ của tôi", icon: User },
           { id: "orders", label: "Lịch sử đơn hàng", icon: Package },
+          { id: "points", label: "Lịch sử điểm", icon: Coins },
           { id: "vouchers", label: "Ví Voucher", icon: Ticket },
           { id: "reviews_write", label: "Đánh giá đơn hàng", icon: Star },
           { id: "reviews_public", label: "Xem nhận xét chung", icon: MessageSquare },
@@ -496,6 +537,16 @@ export function Account() {
                             📍 {o.deliveryStatus === "Delivered" ? "Xem chi tiết giao hàng" : "Theo dõi đơn"}
                           </Link>
                         )}
+                        {o.refundStatus === "Refunded" && (
+                          <div style={{ fontSize: "0.8rem", color: "#15803d", fontWeight: 600 }}>Đã hoàn {(o.refundPoints ?? 0).toLocaleString("vi-VN")} điểm</div>
+                        )}
+                        {o.refundStatus === "Pending" && <div style={{ fontSize: "0.8rem", color: "#b45309" }}>Quán đang xem xét hoàn tiền</div>}
+                        {o.refundStatus === "Declined" && <div style={{ fontSize: "0.8rem", color: "var(--muted)" }}>Không được hoàn tiền</div>}
+                        {o.cancelUntil && o.refundPreview != null && (
+                          <button type="button" onClick={() => cancelOrder(o.id, o.refundPreview)} className="btn btn-ghost" style={{ fontSize: "0.8rem", padding: "0.4rem 0.8rem", borderRadius: 999, display: "flex", gap: "0.25rem", alignItems: "center", color: "var(--danger)", border: "1px solid var(--danger)", marginTop: "0.25rem" }}>
+                            <XCircle size={14} /> Hủy, nhận lại {o.refundPreview.toLocaleString("vi-VN")} điểm · <CancelCountdown until={o.cancelUntil} onExpire={loadOrders} />
+                          </button>
+                        )}
                         {["Pending_Grace", "Confirmed"].includes(o.status) && (!o.deliveryStatus || o.deliveryStatus === "Awaiting_Confirm") && (
                           <button type="button" onClick={() => cancelOrder(o.id)} className="btn btn-ghost" style={{ fontSize: "0.8rem", padding: "0.4rem 0.8rem", borderRadius: 999, display: "flex", gap: "0.25rem", alignItems: "center", color: "var(--danger)", border: "1px solid var(--danger)", marginTop: "0.25rem" }}>
                             <XCircle size={14} /> Hủy đơn
@@ -507,6 +558,28 @@ export function Account() {
                       {o.details.map((d, idx) => (
                         <span key={idx} style={{ fontSize: "0.85rem", color: "var(--text)", background: "var(--surface2)", padding: "0.25rem 0.75rem", borderRadius: 999 }}>{d.quantity}x {d.product.name}</span>
                       ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+
+        {/* TAB: LỊCH SỬ ĐIỂM */}
+        {mainTab === "points" && (
+          <motion.div key="points" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+            <h3 style={{ fontFamily: "var(--font-display)", color: "var(--text)", marginBottom: "1rem" }}>Lịch sử điểm</h3>
+            {pointTxs === null ? <p className="subtle">Đang tải…</p> : pointTxs.length === 0 ? <p className="subtle">Chưa có biến động điểm.</p> : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                {pointTxs.map((t) => (
+                  <div key={t.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", background: "var(--surface2)", border: "1px solid var(--border)", padding: "0.85rem 1.1rem", borderRadius: 14 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, color: "var(--text)" }}>{POINT_TX_LABEL[t.type] ?? t.type}</div>
+                      <div style={{ fontSize: "0.8rem", color: "var(--muted)" }}>{t.note ?? ""} · {new Date(t.createdAt).toLocaleString("vi-VN")}</div>
+                    </div>
+                    <div style={{ fontWeight: 800, fontSize: "1.05rem", whiteSpace: "nowrap", color: t.delta > 0 ? "#15803d" : "#b91c1c" }}>
+                      {t.delta > 0 ? "+" : ""}{t.delta.toLocaleString("vi-VN")}
                     </div>
                   </div>
                 ))}

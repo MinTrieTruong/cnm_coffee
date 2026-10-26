@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Socket } from "socket.io-client";
 import { Bike, Check, MapPin, Phone, X } from "lucide-react";
 import { mediaUrl } from "../lib/api";
-import { staffApi, staffSocket as openStaffSocket } from "../lib/staffApi";
+import { getStaffInfo, isAdminRole, staffApi, staffSocket as openStaffSocket } from "../lib/staffApi";
 import { deliveryLabel, formatVnd } from "../lib/delivery";
 
 type BoardOrder = {
@@ -20,16 +20,25 @@ type BoardOrder = {
   customer: { fullName: string; phone: string | null } | null;
   shipper: { id: number; fullName: string } | null;
   details: { id: number; quantity: number; kdsStatus: string; product: { name: string } }[];
+  payments: { method: string; amount: number }[];
+  /** Pending = giao thất bại do phía khách, chờ quản lý quyết định hoàn · Refunded · Declined */
+  refundStatus: string | null;
+  refundPoints: number;
 };
 type BoardShipper = { id: number; fullName: string; phone: string | null; shipperOnline: boolean; activeOrders: number };
 
-const COLUMNS: { key: string; title: string; statuses: string[] }[] = [
-  { key: "new", title: "Chờ xác nhận", statuses: ["Awaiting_Confirm"] },
-  { key: "kitchen", title: "Đang pha chế", statuses: ["Preparing"] },
-  { key: "dispatch", title: "Chờ / Đã gán tài xế", statuses: ["Ready", "Assigned"] },
-  { key: "road", title: "Đang giao", statuses: ["Delivering"] },
-  { key: "done", title: "Hoàn tất", statuses: ["Delivered", "Failed"] },
+const COLUMNS: { key: string; title: string; match: (o: BoardOrder) => boolean }[] = [
+  { key: "new", title: "Chờ xác nhận", match: (o) => o.deliveryStatus === "Awaiting_Confirm" },
+  { key: "kitchen", title: "Đang pha chế", match: (o) => o.deliveryStatus === "Preparing" },
+  { key: "dispatch", title: "Chờ / Đã gán tài xế", match: (o) => ["Ready", "Assigned"].includes(o.deliveryStatus) },
+  { key: "road", title: "Đang giao", match: (o) => o.deliveryStatus === "Delivering" },
+  { key: "refund", title: "Chờ xử lý hoàn", match: (o) => o.refundStatus === "Pending" },
+  { key: "done", title: "Hoàn tất / Hủy", match: (o) => ["Delivered", "Failed", "Rejected"].includes(o.deliveryStatus) && o.refundStatus !== "Pending" },
 ];
+
+/** Quán còn hủy được tới trước khi shipper lấy hàng */
+const STORE_CANCELLABLE = ["Awaiting_Confirm", "Preparing", "Ready", "Assigned"];
+const paidMoney = (o: BoardOrder) => o.payments.filter((p) => p.method !== "Points").reduce((s, p) => s + p.amount, 0);
 
 /** Bảng điều phối đơn giao hàng trên POS (thu ngân xác nhận / từ chối / đổi tài xế). */
 export function PosDeliveryPanel({ onToast }: { onToast: (m: string) => void }) {
@@ -80,8 +89,31 @@ export function PosDeliveryPanel({ onToast }: { onToast: (m: string) => void }) 
     }
   }
 
-  const counts = Object.fromEntries(COLUMNS.map((c) => [c.key, orders.filter((o) => c.statuses.includes(o.deliveryStatus)).length]));
-  const list = orders.filter((o) => COLUMNS.find((c) => c.key === col)!.statuses.includes(o.deliveryStatus));
+  const counts = Object.fromEntries(COLUMNS.map((c) => [c.key, orders.filter(c.match).length]));
+  const list = orders.filter(COLUMNS.find((c) => c.key === col)!.match);
+  const canDecideRefund = isAdminRole(getStaffInfo()?.role);
+
+  function cancelByStore(o: BoardOrder) {
+    const isNew = o.deliveryStatus === "Awaiting_Confirm";
+    const refundNote = o.status === "Paid" ? `
+
+Khách đã trả ${formatVnd(paidMoney(o))} — sẽ được hoàn 100% thành điểm.` : "";
+    const reason = window.prompt(`Lý do ${isNew ? "từ chối" : "hủy"} đơn #${o.id}:${refundNote}`, isNew ? "Hết món / quá tải" : "");
+    if (reason !== null) void act(o.id, "reject", { reason }, `Đã ${isNew ? "từ chối" : "hủy"} đơn #${o.id}${o.status === "Paid" ? " — đã hoàn điểm cho khách" : ""}`);
+  }
+
+  function decideRefund(o: BoardOrder, decision: "full" | "partial" | "none") {
+    const money = paidMoney(o);
+    if (decision === "full") {
+      if (window.confirm(`Hoàn 100% (${formatVnd(money)}) thành điểm cho khách đơn #${o.id}?`)) void act(o.id, "refund-decision", { decision }, `Đã hoàn điểm đơn #${o.id}`);
+    } else if (decision === "partial") {
+      const v = window.prompt(`Số điểm hoàn cho đơn #${o.id} (tối đa ~${money.toLocaleString("vi-VN")}):`, String(Math.round(money / 2)));
+      if (v !== null) void act(o.id, "refund-decision", { decision, points: Number(v.replace(/D/g, "")) }, `Đã hoàn một phần đơn #${o.id}`);
+    } else {
+      const note = window.prompt(`Không hoàn tiền đơn #${o.id}. Ghi chú lý do:`, "Lỗi phía khách");
+      if (note !== null) void act(o.id, "refund-decision", { decision, note }, `Đã đánh dấu không hoàn đơn #${o.id}`);
+    }
+  }
   const onlineCount = shippers.filter((s) => s.shipperOnline).length;
 
   return (
@@ -103,7 +135,7 @@ export function PosDeliveryPanel({ onToast }: { onToast: (m: string) => void }) 
         {COLUMNS.map((c) => (
           <button key={c.key} type="button" role="tab" aria-selected={col === c.key} className={col === c.key ? "active" : ""} onClick={() => setCol(c.key)}>
             {c.title}
-            {counts[c.key] > 0 && <em className={c.key === "new" ? "hot" : ""}>{counts[c.key]}</em>}
+            {counts[c.key] > 0 && <em className={c.key === "new" || c.key === "refund" ? "hot" : ""}>{counts[c.key]}</em>}
           </button>
         ))}
       </div>
@@ -132,7 +164,20 @@ export function PosDeliveryPanel({ onToast }: { onToast: (m: string) => void }) 
                 )}
                 {o.shipper && <div className="pd-line pd-sub">{o.shipper.fullName}{o.routeSeq ? ` · điểm #${o.routeSeq}` : ""}</div>}
                 {o.deliveryStatus === "Ready" && <div className="pd-line pd-sub">Đang chờ tài xế rảnh…</div>}
-                {o.deliveryStatus === "Failed" && <div className="pd-line" style={{ color: "var(--danger)" }}>{o.deliveryNote}</div>}
+                {(o.deliveryStatus === "Failed" || o.deliveryStatus === "Rejected") && <div className="pd-line" style={{ color: "var(--danger)" }}>{o.deliveryNote}</div>}
+                {o.refundStatus === "Refunded" && <div className="pd-line pd-paid">Đã hoàn {o.refundPoints.toLocaleString("vi-VN")} điểm cho khách</div>}
+                {o.refundStatus === "Declined" && <div className="pd-line pd-sub">Không hoàn tiền</div>}
+                {o.refundStatus === "Pending" && (
+                  canDecideRefund ? (
+                    <div className="pd-actions">
+                      <button type="button" className="btn btn-primary" disabled={busyId === o.id} onClick={() => decideRefund(o, "full")}>Hoàn 100%</button>
+                      <button type="button" className="btn btn-ghost" disabled={busyId === o.id} onClick={() => decideRefund(o, "partial")}>Một phần</button>
+                      <button type="button" className="btn btn-ghost pd-danger" disabled={busyId === o.id} onClick={() => decideRefund(o, "none")}>Không hoàn</button>
+                    </div>
+                  ) : (
+                    <div className="pd-line pd-sub">Chờ quản lý quyết định hoàn tiền</div>
+                  )
+                )}
                 {o.deliveryProofUrl && (
                   <a href={mediaUrl(o.deliveryProofUrl)} target="_blank" rel="noreferrer" className="pd-proof">
                     <img src={mediaUrl(o.deliveryProofUrl)} alt={`Ảnh giao #${o.id}`} />
@@ -144,16 +189,15 @@ export function PosDeliveryPanel({ onToast }: { onToast: (m: string) => void }) 
                     <button type="button" className="btn btn-primary" disabled={busyId === o.id} onClick={() => act(o.id, "confirm", undefined, `Đã xác nhận đơn #${o.id} — chuyển bếp`)}>
                       <Check size={16} /> Xác nhận
                     </button>
-                    <button
-                      type="button"
-                      className="btn btn-ghost pd-danger"
-                      disabled={busyId === o.id}
-                      onClick={() => {
-                        const reason = window.prompt("Lý do từ chối đơn:", "Hết món / quá tải");
-                        if (reason !== null) void act(o.id, "reject", { reason }, `Đã từ chối đơn #${o.id}`);
-                      }}
-                    >
+                    <button type="button" className="btn btn-ghost pd-danger" disabled={busyId === o.id} onClick={() => cancelByStore(o)}>
                       <X size={16} /> Từ chối
+                    </button>
+                  </div>
+                )}
+                {STORE_CANCELLABLE.includes(o.deliveryStatus) && o.deliveryStatus !== "Awaiting_Confirm" && (
+                  <div className="pd-actions">
+                    <button type="button" className="btn btn-ghost pd-danger" disabled={busyId === o.id} onClick={() => cancelByStore(o)}>
+                      <X size={16} /> Hủy đơn{o.status === "Paid" ? " · hoàn điểm" : ""}
                     </button>
                   </div>
                 )}

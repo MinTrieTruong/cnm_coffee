@@ -5,8 +5,7 @@ import { activeStoreId, getStaffInfo, isOwnerRole, staffApi } from "../../lib/st
 import { BRANCH_STAFF_ROLES, ROLE_LABEL } from "../../lib/roles";
 import {
   Alert, Badge, Button, Chatter, EmptyState, Field, FormGroup, FormGroups, FormView, RecordList, StatusBar, Tabs,
-  errMsg, fmtDate, formatVnd,
-} from "../../components/erp";
+  errMsg, fmtDate, formatVnd, ymd } from "../../components/erp";
 import { useRecordNav, useResource } from "../shared";
 import { PasswordInput } from "../../components/PasswordInput";
 import { useAttendanceWarnings } from "./AttendanceWarnings";
@@ -103,7 +102,7 @@ export function EmployeeList() {
 
 const EMPTY = {
   username: "", password: "", fullName: "", role: "Cashier", status: "Active", phone: "", address: "",
-  dob: "", hireDate: new Date().toISOString().slice(0, 10), baseSalary: "0", allowance: "0", storeId: "",
+  dob: "", hireDate: ymd(new Date()), baseSalary: "0", allowance: "0", storeId: "",
 };
 
 export function EmployeeForm({ recordId }: { recordId?: string }) {

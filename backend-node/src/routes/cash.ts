@@ -15,6 +15,7 @@ import {
   fundBalance,
   groupByMethod,
   isBankMethod,
+  NON_MONEY_METHODS,
   openSafeSession,
   parseDenominations,
   type Fund,
@@ -384,7 +385,8 @@ export function cashRouter(prisma: PrismaClient) {
       prisma.cashEntry.findMany({ where: { shiftId: shift.id }, include: entryInclude, orderBy: { id: "asc" } }),
       drawerSummary(prisma, shift),
     ]);
-    const money = payments.filter((p) => p.method !== "Points");
+    // Dòng tiền thật: bỏ điểm đổi và dòng hoàn ra điểm
+    const money = payments.filter((p) => !NON_MONEY_METHODS.includes(p.method));
     const orders = new Map(payments.map((p) => [p.order.id, p.order]));
     const cancelled = await prisma.order.count({
       where: { storeId: shift.storeId, status: "Cancelled", createdAt: { gte: shift.startTime, lt: shift.endTime ?? new Date() } },
@@ -435,7 +437,8 @@ export function cashRouter(prisma: PrismaClient) {
     const [store, payments, shifts, entries, sessions, safeEnd, bankEnd, safeStart, bankStart] = await Promise.all([
       prisma.store.findUnique({ where: { id: storeId }, select: { name: true, address: true } }),
       prisma.payment.findMany({
-        where: { paymentTime: { gte: start, lt: end }, order: { storeId, status: "Paid" } },
+        // Gồm cả đơn đã hoàn 100% ra điểm: tiền đã vào tài khoản trong ngày (khớp số dư ngân hàng)
+        where: { paymentTime: { gte: start, lt: end }, order: { storeId, OR: [{ status: "Paid" }, { refundStatus: "Refunded" }] } },
         include: { order: { select: { id: true, subTotal: true, discountAmt: true, vatAmount: true, shippingFee: true, orderType: true } } },
       }),
       prisma.shift.findMany({
@@ -454,7 +457,7 @@ export function cashRouter(prisma: PrismaClient) {
       fundBalance(prisma, storeId, "SAFE", new Date(start.getTime() - 1)),
       fundBalance(prisma, storeId, "BANK", new Date(start.getTime() - 1)),
     ]);
-    const money = payments.filter((p) => p.method !== "Points");
+    const money = payments.filter((p) => !NON_MONEY_METHODS.includes(p.method));
     const orders = new Map(payments.map((p) => [p.order.id, p.order]));
     const approved = entries.filter((e) => e.status === "APPROVED");
     const byCategory = (kind: string) => {
@@ -627,7 +630,8 @@ export function cashRouter(prisma: PrismaClient) {
     ]);
     const money = payments.filter((p) => p.method !== "Points");
     const collected = money.reduce((s, p) => s + p.amount, 0);
-    const orderShip = new Map(payments.map((p) => [p.order.id, p.order.shippingFee]));
+    // Phí ship trừ theo đơn có tiền thu trong kỳ (dòng hoàn ra điểm ở kỳ sau không trừ lại)
+    const orderShip = new Map(payments.filter((p) => p.amount > 0).map((p) => [p.order.id, p.order.shippingFee]));
     const shippingFee = [...orderShip.values()].reduce((s, v) => s + v, 0);
     const revenue = collected - shippingFee;
     const cogs = lines.reduce((s, l) => s + l.quantity * l.product.costPrice, 0);

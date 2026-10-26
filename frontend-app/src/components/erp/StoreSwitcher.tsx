@@ -6,10 +6,12 @@ import { Dropdown } from "./ControlPanel";
 type StoreOpt = { id: number; name: string; isActive: boolean };
 
 /**
- * Chi nhánh đang làm việc trên thanh điều hướng.
+ * Chi nhánh đang làm việc.
  * Nhân viên: chỉ hiển thị tên chi nhánh. Chủ chuỗi: chọn chi nhánh hoặc "Tất cả chi nhánh".
+ * - `side`: ô chọn đầy đủ trong sidebar (`iconOnly` khi sidebar thu gọn)
+ * - `compact`: nút nhỏ trên header mobile, chỉ hiện khi vai trò có nhiều chi nhánh
  */
-export function StoreSwitcher() {
+export function StoreSwitcher({ variant = "side", iconOnly = false }: { variant?: "side" | "compact"; iconOnly?: boolean }) {
   const info = getStaffInfo();
   const owner = isOwnerRole(info?.role);
   const [stores, setStores] = useState<StoreOpt[]>([]);
@@ -20,12 +22,14 @@ export function StoreSwitcher() {
     staffApi<StoreOpt[]>("/api/admin/stores").then(setStores).catch(() => setStores([]));
   }, [owner]);
 
+  const cls = `o-store-sw is-${variant}${iconOnly ? " is-icon" : ""}`;
+
   if (!owner) {
-    if (!info?.storeName) return null;
+    if (variant === "compact" || !info?.storeName) return null;
     return (
-      <span className="o-nav-btn o-nav-branch-label" title="Chi nhánh">
-        <Store size={16} aria-hidden />
-        <span className="o-nav-branch-name">{info.storeName}</span>
+      <span className={`${cls} is-static`} title={`Chi nhánh: ${info.storeName}`}>
+        <Store size={18} strokeWidth={1.75} aria-hidden />
+        {!iconOnly && <span className="o-store-sw-name">{info.storeName}</span>}
       </span>
     );
   }
@@ -40,12 +44,12 @@ export function StoreSwitcher() {
 
   return (
     <Dropdown
-      align="right"
+      align={variant === "compact" ? "right" : "left"}
       button={({ open, toggle }) => (
-        <button type="button" className="o-nav-btn" onClick={toggle} aria-expanded={open} aria-label="Chọn chi nhánh">
-          <Store size={16} aria-hidden />
-          <span className="o-nav-branch-name">{label}</span>
-          <ChevronDown size={14} aria-hidden />
+        <button type="button" className={cls} onClick={toggle} aria-expanded={open} aria-label={`Chọn chi nhánh — đang xem: ${label}`} title={iconOnly ? label : undefined}>
+          <Store size={18} strokeWidth={1.75} aria-hidden />
+          {!iconOnly && <span className="o-store-sw-name">{label}</span>}
+          {!iconOnly && <ChevronDown size={16} strokeWidth={1.75} aria-hidden />}
         </button>
       )}
     >

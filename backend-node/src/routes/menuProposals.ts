@@ -16,6 +16,7 @@ import type { Server } from "socket.io";
 import { attachStaff, isOwner, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
 import { mustStoreId, storeWhere, toStore } from "../lib/storeScope.js";
 import { audit } from "../lib/audit.js";
+import { notify } from "../lib/notify.js";
 
 export function menuProposalsRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
@@ -73,6 +74,14 @@ export function menuProposalsRouter(prisma: PrismaClient, io: Server) {
     audit(me.id, "MENU_PROPOSAL_CREATE", row.name);
     // Chủ chuỗi nhận thông báo qua phòng quản lý của chi nhánh
     toStore(io, "admin_room", storeId).emit("menu-proposal:new", { id: row.id, name: row.name, by: me.fullName });
+    void notify({
+      type: "MENU_PROPOSAL",
+      title: `Đề xuất món mới: ${row.name}`,
+      body: `${me.fullName} đề xuất — chờ Chủ chuỗi duyệt.`,
+      link: "/app/sales/proposals",
+      storeId,
+      to: { roles: ["Owner"] },
+    });
     res.status(201).json(row);
   });
 
@@ -92,6 +101,12 @@ export function menuProposalsRouter(prisma: PrismaClient, io: Server) {
     });
     audit(me.id, status === "APPROVED" ? "MENU_PROPOSAL_APPROVE" : "MENU_PROPOSAL_REJECT", row.name);
     io.to(`staff_${row.staffId}`).emit("menu-proposal:reviewed", { id, status });
+    void notify({
+      type: "MENU_PROPOSAL",
+      title: `Đề xuất "${row.name}" ${status === "APPROVED" ? "đã được duyệt" : "bị từ chối"}`,
+      body: note?.trim() || null,
+      to: { staffIds: [row.staffId] },
+    });
     res.json(row);
   });
 
@@ -109,6 +124,7 @@ export function menuProposalsRouter(prisma: PrismaClient, io: Server) {
     const row = await prisma.menuProposal.update({ where: { id }, data: { status: "CREATED", productId }, include });
     audit(me.id, "MENU_PROPOSAL_CREATED", row.name, `Món #${productId}`);
     io.to(`staff_${row.staffId}`).emit("menu-proposal:reviewed", { id, status: "CREATED" });
+    void notify({ type: "MENU_PROPOSAL", title: `Món "${row.name}" bạn đề xuất đã lên thực đơn`, to: { staffIds: [row.staffId] } });
     res.json(row);
   });
 

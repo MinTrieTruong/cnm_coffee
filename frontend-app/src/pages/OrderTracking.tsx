@@ -27,6 +27,11 @@ type Tracking = {
   subTotal: number;
   shippingFee: number;
   totalAmount: number;
+  refundStatus: string | null;
+  refundPoints: number;
+  /** Còn được tự hủy tới lúc nào (null = không) và số điểm sẽ nhận lại */
+  cancelUntil: string | null;
+  refundPreview: number | null;
 };
 
 const STEPS = [
@@ -89,6 +94,8 @@ export function OrderTracking() {
   const [road, setRoad] = useState<[number, number][] | null>(null);
   const [showItems, setShowItems] = useState(false);
   const loadedOnce = useRef(false);
+  const [cancelLeft, setCancelLeft] = useState(0);
+  const [cancelling, setCancelling] = useState(false);
 
   const load = useCallback(async () => {
     if (Number.isNaN(orderId)) return;
@@ -155,6 +162,35 @@ export function OrderTracking() {
     return p;
   }, [t, dest, showRider, rider]);
 
+  // Đếm ngược thời gian còn được tự hủy
+  const cancelUntil = t?.cancelUntil ?? null;
+  useEffect(() => {
+    if (!cancelUntil) { setCancelLeft(0); return; }
+    const end = new Date(cancelUntil).getTime();
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+      setCancelLeft(left);
+      return left;
+    };
+    tick();
+    const iv = window.setInterval(() => { if (tick() <= 0) { window.clearInterval(iv); void load(); } }, 1000);
+    return () => window.clearInterval(iv);
+  }, [cancelUntil, load]);
+
+  async function cancelOrder() {
+    if (!t?.refundPreview) return;
+    if (!window.confirm(`Hủy đơn #${t.id}? Số tiền đã thanh toán được hoàn 100% thành ${t.refundPreview.toLocaleString("vi-VN")} điểm.`)) return;
+    setCancelling(true);
+    try {
+      await api(`/api/orders/${t.id}/cancel`, { method: "POST", body: "{}" });
+      await load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Không hủy được đơn");
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   if (err && !t) {
     return (
       <div className="tk-page">
@@ -220,6 +256,16 @@ export function OrderTracking() {
 
         {(t.deliveryStatus === "Failed" || t.deliveryStatus === "Rejected") && t.deliveryNote && (
           <div className="tk-alert">Lý do: {t.deliveryNote}</div>
+        )}
+        {t.refundStatus === "Refunded" && (
+          <div className="tk-note tk-note-ok">Đã hoàn {t.refundPoints.toLocaleString("vi-VN")} điểm vào tài khoản của bạn để dùng cho lần mua sau.</div>
+        )}
+        {t.refundStatus === "Pending" && <div className="tk-note">Quán đang xem xét hoàn tiền cho đơn này.</div>}
+        {t.refundStatus === "Declined" && <div className="tk-note">Đơn này không được hoàn tiền.</div>}
+        {t.cancelUntil && t.refundPreview != null && cancelLeft > 0 && (
+          <button type="button" className="btn btn-ghost tk-cancel" disabled={cancelling} onClick={() => void cancelOrder()}>
+            Hủy đơn, nhận lại {t.refundPreview.toLocaleString("vi-VN")} điểm · còn {Math.floor(cancelLeft / 60)}:{String(cancelLeft % 60).padStart(2, "0")}
+          </button>
         )}
 
         {t.shipper && !["Rejected"].includes(t.deliveryStatus ?? "") && (

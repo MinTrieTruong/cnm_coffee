@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
 import { toStore } from "./storeScope.js";
+import { notify } from "./notify.js";
 
 /**
  * Luồng giao hàng (Order.deliveryStatus):
@@ -294,6 +295,14 @@ export async function releaseOrderToKitchen(prisma: PrismaClient, io: Server, or
       await prisma.order.update({ where: { id: orderId }, data: { deliveryStatus: DS.AwaitingConfirm } });
       toStore(io, "pos", order.storeId).emit("delivery:new", { orderId });
       emitDeliveryChanged(io, order.storeId, [orderId]);
+      void notify({
+        type: "DELIVERY_NEW",
+        title: `Đơn giao hàng mới #${orderId}`,
+        body: `${order.totalAmount.toLocaleString("vi-VN")}đ${order.deliveryAddress ? ` · ${order.deliveryAddress}` : ""} — chờ thu ngân xác nhận.`,
+        link: "/app/delivery/orders",
+        storeId: order.storeId,
+        to: { storeId: order.storeId, roles: ["Cashier", "Admin"] },
+      });
     }
     return;
   }

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { PrismaClient } from "@prisma/client";
 import { attachStaff, requireRoles } from "../middleware/staff.js";
 import { storeWhere } from "../lib/storeScope.js";
+import { bizHour, bizRange, bizYmd, daysInRange, addDaysYmd } from "../lib/bizTime.js";
 
 const prisma = new PrismaClient();
 
@@ -19,10 +20,7 @@ export function reportsRouter() {
   r.get("/reports/revenue", ...admin, async (req, res) => {
     const fromStr = req.query.from as string | undefined;
     const toStr   = req.query.to   as string | undefined;
-    const from = fromStr ? new Date(fromStr) : (() => { const d = new Date(); d.setDate(d.getDate() - 29); d.setHours(0,0,0,0); return d; })();
-    const to   = toStr   ? new Date(toStr)   : new Date();
-    from.setHours(0, 0, 0, 0);
-    to.setHours(23, 59, 59, 999);
+    const { from, to, fromYmd, toYmd } = bizRange(fromStr, toStr, 29);
 
     const payments = await prisma.payment.findMany({
       where: { paymentTime: { gte: from, lte: to }, order: { ...storeWhere(req), status: "Paid" } },
@@ -34,7 +32,8 @@ export function reportsRouter() {
     const pointsPayments = payments.filter(p => p.method === "Points");
 
     // Phí ship khách trả cùng đơn là tiền của shipper (cộng vào lương) — không tính doanh thu quán
-    const shipOf = new Map(payments.map(p => [p.order.id, p.order.shippingFee]));
+    // Chỉ đơn có tiền thu trong kỳ (dòng hoàn ra điểm ở kỳ sau không trừ phí ship lần nữa)
+    const shipOf = new Map(payments.filter(p => p.amount > 0).map(p => [p.order.id, p.order.shippingFee]));
     const shippingFee = [...shipOf.values()].reduce((s, v) => s + v, 0);
     const total = cashPayments.reduce((s, p) => s + p.amount, 0) - shippingFee;
     const pointsRedeemTotal = pointsPayments.reduce((s, p) => s + p.amount, 0);
@@ -42,11 +41,11 @@ export function reportsRouter() {
     const byDay: Record<string, { cash: number; points: number }> = {};
     const shipCounted = new Set<number>();
     for (const p of payments) {
-      const d = p.paymentTime.toISOString().slice(0, 10);
+      const d = bizYmd(p.paymentTime);
       if (!byDay[d]) byDay[d] = { cash: 0, points: 0 };
       if (p.method !== "Points") {
         byDay[d].cash += p.amount;
-        if (!shipCounted.has(p.order.id)) {
+        if (p.amount > 0 && !shipCounted.has(p.order.id)) {
           shipCounted.add(p.order.id);
           byDay[d].cash -= p.order.shippingFee;
         }
@@ -63,8 +62,8 @@ export function reportsRouter() {
       shippingFee,         // phí ship thu hộ shipper (không tính doanh thu)
       byMethod,
       byDay,
-      from: from.toISOString().slice(0, 10),
-      to: to.toISOString().slice(0, 10),
+      from: fromYmd,
+      to: toYmd,
     });
 
   });
@@ -78,10 +77,7 @@ export function reportsRouter() {
     const toStr   = req.query.to   as string | undefined;
     const page  = Math.max(1, Number(req.query.page)  || 1);
     const limit = Math.min(500, Number(req.query.limit) || 50);
-    const from = fromStr ? new Date(fromStr) : (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
-    const to   = toStr   ? new Date(toStr)   : new Date();
-    from.setHours(0, 0, 0, 0);
-    to.setHours(23, 59, 59, 999);
+    const { from, to, fromYmd, toYmd } = bizRange(fromStr, toStr, 0);
 
     const [total, orders] = await Promise.all([
       prisma.order.count({ where: { ...storeWhere(req), createdAt: { gte: from, lte: to } } }),
@@ -110,10 +106,7 @@ export function reportsRouter() {
   r.get("/reports/orders/export", ...admin, async (req, res) => {
     const fromStr = req.query.from as string | undefined;
     const toStr   = req.query.to   as string | undefined;
-    const from = fromStr ? new Date(fromStr) : (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
-    const to   = toStr   ? new Date(toStr)   : new Date();
-    from.setHours(0, 0, 0, 0);
-    to.setHours(23, 59, 59, 999);
+    const { from, to, fromYmd, toYmd } = bizRange(fromStr, toStr, 0);
 
     const orders = await prisma.order.findMany({
       where: { ...storeWhere(req), createdAt: { gte: from, lte: to } },
@@ -160,7 +153,7 @@ export function reportsRouter() {
     });
 
     const csv = "\uFEFF" + [header, ...rows].join("\r\n"); // UTF-8 BOM for Excel
-    const fname = `donhang_${from.toISOString().slice(0,10)}_${to.toISOString().slice(0,10)}.csv`;
+    const fname = `donhang_${fromYmd}_${toYmd}.csv`;
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(fname)}`);
     res.send(csv);
@@ -173,10 +166,7 @@ export function reportsRouter() {
     const fromStr = req.query.from as string | undefined;
     const toStr   = req.query.to   as string | undefined;
     const lim     = Math.min(50, Number(req.query.limit) || 15);
-    const from = fromStr ? new Date(fromStr) : (() => { const d = new Date(); d.setDate(d.getDate() - 29); d.setHours(0,0,0,0); return d; })();
-    const to   = toStr   ? new Date(toStr)   : new Date();
-    from.setHours(0, 0, 0, 0);
-    to.setHours(23, 59, 59, 999);
+    const { from, to, fromYmd, toYmd } = bizRange(fromStr, toStr, 29);
 
     const lines = await prisma.orderDetail.findMany({
       where: { order: { ...storeWhere(req), status: "Paid", createdAt: { gte: from, lte: to } } },
@@ -206,10 +196,7 @@ export function reportsRouter() {
   r.get("/reports/profit", ...admin, async (req, res) => {
     const fromStr = req.query.from as string | undefined;
     const toStr   = req.query.to   as string | undefined;
-    const from = fromStr ? new Date(fromStr) : (() => { const d = new Date(); d.setDate(d.getDate() - 29); d.setHours(0,0,0,0); return d; })();
-    const to   = toStr   ? new Date(toStr)   : new Date();
-    from.setHours(0, 0, 0, 0);
-    to.setHours(23, 59, 59, 999);
+    const { from, to, fromYmd, toYmd } = bizRange(fromStr, toStr, 29);
 
     // 1. Doanh thu từ đơn đã thanh toán
     // Tiền thật (bỏ điểm đổi) trừ phí ship thu hộ shipper
@@ -219,7 +206,7 @@ export function reportsRouter() {
     }));
     const shipSeen = new Set<number>();
     const netOf = (p: (typeof payments)[number]) => {
-      if (shipSeen.has(p.order.id)) return p.amount;
+      if (p.amount <= 0 || shipSeen.has(p.order.id)) return p.amount;
       shipSeen.add(p.order.id);
       return p.amount - p.order.shippingFee;
     };
@@ -262,20 +249,20 @@ export function reportsRouter() {
     // Theo ngày
     const byDay: Record<string, { revenue: number; cost: number; profit: number }> = {};
     for (const { p, net } of netAmounts) {
-      const d = p.paymentTime.toISOString().slice(0, 10);
+      const d = bizYmd(p.paymentTime);
       if (!byDay[d]) byDay[d] = { revenue: 0, cost: 0, profit: 0 };
       byDay[d].revenue += net;
     }
     for (const l of orderLines) {
-      const d = l.order.createdAt.toISOString().slice(0, 10);
+      const d = bizYmd(l.order.createdAt);
       if (!byDay[d]) byDay[d] = { revenue: 0, cost: 0, profit: 0 };
       byDay[d].cost += l.quantity * l.product.costPrice;
     }
     for (const d of Object.values(byDay)) d.profit = d.revenue - d.cost;
 
     res.json({
-      from: from.toISOString().slice(0, 10),
-      to: to.toISOString().slice(0, 10),
+      from: fromYmd,
+      to: toYmd,
       totalRevenue,
       totalProductCost,
       totalIngredientCost,
@@ -286,16 +273,79 @@ export function reportsRouter() {
   });
 
   /**
+   * GET /api/admin/reports/dashboard?from=&to=
+   * Số liệu gộp cho Bảng điều khiển (thay việc tải từng trang /reports/orders):
+   *  - summary: doanh số (đơn không hủy, trừ phí ship), công nợ (đơn chưa thanh toán), số đơn, số đơn hủy
+   *  - series: theo giờ (khi xem 1 ngày) hoặc theo ngày — doanh số, thực thu, đơn tạo, đơn hủy (giờ quán)
+   *  - channels: doanh số theo kênh tại quán / mang đi / giao hàng
+   */
+  r.get("/reports/dashboard", ...admin, async (req, res) => {
+    const { from, to, fromYmd, toYmd } = bizRange(req.query.from, req.query.to, 6);
+    const days = daysInRange(fromYmd, toYmd);
+    if (days > 370) return res.status(400).json({ error: "Khoảng ngày tối đa 1 năm." });
+
+    const orders = await prisma.order.findMany({
+      where: { ...storeWhere(req), createdAt: { gte: from, lte: to } },
+      select: { createdAt: true, status: true, orderType: true, totalAmount: true, shippingFee: true, payments: { select: { method: true, amount: true } } },
+    });
+
+    const byHour = days === 1;
+    type Bucket = { key: string; sales: number; cash: number; created: number; cancelled: number };
+    const buckets = new Map<string, Bucket>();
+    const blank = (key: string): Bucket => ({ key, sales: 0, cash: 0, created: 0, cancelled: 0 });
+    if (byHour) {
+      const hours = orders.map((o) => bizHour(o.createdAt));
+      for (let h = Math.min(6, ...hours); h <= Math.max(22, ...hours); h++) buckets.set(String(h), blank(String(h)));
+    } else {
+      for (let i = 0; i < days; i++) {
+        const k = addDaysYmd(fromYmd, i);
+        buckets.set(k, blank(k));
+      }
+    }
+
+    const channelOf = (t: string) => (t === "Delivery" ? "ship" : t.toLowerCase().includes("take") ? "take" : "dine");
+    const channels: Record<"dine" | "take" | "ship", number> = { dine: 0, take: 0, ship: 0 };
+    const summary = { sales: 0, debt: 0, orders: 0, cancelled: 0 };
+    for (const o of orders) {
+      const b = buckets.get(byHour ? String(bizHour(o.createdAt)) : bizYmd(o.createdAt));
+      if (b) b.created += 1;
+      if (o.status === "Cancelled") {
+        summary.cancelled += 1;
+        if (b) b.cancelled += 1;
+        continue;
+      }
+      // Phí ship là tiền của shipper — không tính doanh số quán
+      const net = o.totalAmount - o.shippingFee;
+      summary.sales += net;
+      summary.orders += 1;
+      channels[channelOf(o.orderType)] += net;
+      if (o.status !== "Paid") summary.debt += net;
+      else if (b) b.cash += Math.max(0, o.payments.filter((p) => p.method !== "Points").reduce((s, p) => s + p.amount, 0) - o.shippingFee);
+      if (b) b.sales += net;
+    }
+
+    res.json({
+      from: fromYmd,
+      to: toYmd,
+      granularity: byHour ? "hour" : "day",
+      summary,
+      series: [...buckets.values()],
+      channels: [
+        { id: "dine", label: "Tại quán", value: channels.dine },
+        { id: "take", label: "Mang đi", value: channels.take },
+        { id: "ship", label: "Giao hàng", value: channels.ship },
+      ],
+    });
+  });
+
+  /**
    * GET /api/admin/reports/stores-compare?from=&to=
    * So sánh các chi nhánh (chỉ Chủ chuỗi): doanh thu thực thu, số đơn, giá trị đơn TB, lợi nhuận gộp.
    */
   r.get("/reports/stores-compare", auth, requireRoles("Owner"), async (req, res) => {
     const fromStr = req.query.from as string | undefined;
     const toStr   = req.query.to   as string | undefined;
-    const from = fromStr ? new Date(fromStr) : (() => { const d = new Date(); d.setDate(d.getDate() - 29); d.setHours(0,0,0,0); return d; })();
-    const to   = toStr   ? new Date(toStr)   : new Date();
-    from.setHours(0, 0, 0, 0);
-    to.setHours(23, 59, 59, 999);
+    const { from, to, fromYmd, toYmd } = bizRange(fromStr, toStr, 29);
 
     const [stores, payments, orders, lines] = await Promise.all([
       prisma.store.findMany({ orderBy: { id: "asc" }, select: { id: true, code: true, name: true, isActive: true } }),
@@ -320,7 +370,7 @@ export function reportsRouter() {
     const shipDeducted = new Set<number>();
     for (const p of payments) {
       let amt = p.amount;
-      if (p.order.shippingFee > 0 && !shipDeducted.has(p.order.id)) {
+      if (p.amount > 0 && p.order.shippingFee > 0 && !shipDeducted.has(p.order.id)) {
         shipDeducted.add(p.order.id);
         amt -= p.order.shippingFee;
       }
@@ -343,8 +393,8 @@ export function reportsRouter() {
     });
 
     res.json({
-      from: from.toISOString().slice(0, 10),
-      to: to.toISOString().slice(0, 10),
+      from: fromYmd,
+      to: toYmd,
       stores: rows,
       total: {
         revenue: rows.reduce((s, r) => s + r.revenue, 0),

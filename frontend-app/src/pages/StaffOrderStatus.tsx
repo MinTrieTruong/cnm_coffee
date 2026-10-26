@@ -126,9 +126,9 @@ function ItemCard({
         {item.priority && (
           <span style={{
             display: "inline-block", alignSelf: "flex-start",
-            background: "rgba(146,64,14,0.18)",
-            border: "1px solid rgba(146,64,14,0.45)",
-            color: "#e8b84a",
+            background: "var(--o-warning-bg)",
+            border: "1px solid #fde68a",
+            color: "var(--o-warning)",
             fontSize: "0.68rem", fontWeight: 700,
             letterSpacing: "0.06em",
             padding: "0.15rem 0.5rem", borderRadius: 5,
@@ -138,7 +138,7 @@ function ItemCard({
         )}
 
         {/* Tên món + số lượng */}
-        <div style={{ fontWeight: 700, fontSize: "0.93rem", color: "#fff", lineHeight: 1.35 }}>
+        <div style={{ fontWeight: 700, fontSize: "0.93rem", color: "var(--text)", lineHeight: 1.35 }}>
           {item.product.name}
           <span style={{ color: meta.color, marginLeft: "0.45rem", fontWeight: 800 }}>
             x{item.quantity}
@@ -168,7 +168,7 @@ function ItemCard({
             borderRadius: 6, padding: "0.18rem 0.55rem",
             fontSize: "0.75rem", color: "var(--muted)",
           }}>
-            Bill #{item.orderId}
+            Hóa đơn #{item.orderId}
           </span>
         </div>
 
@@ -194,7 +194,7 @@ function ItemCard({
               transition: "background 0.15s",
             }}
           >
-            {serving ? "Đang xác nhận..." : "Da be ra cho khach"}
+            {serving ? "Đang xác nhận…" : "Đã bê ra cho khách"}
           </button>
         )}
       </div>
@@ -300,7 +300,7 @@ export function StaffOrderStatus() {
               id: `${d.id}-${Date.now()}`,
               productName: d.product.name,
               quantity: d.quantity,
-              tableName: d.order.table?.name ?? "Mang ve",
+              tableName: d.order.table?.name ?? "Mang về",
               orderId: d.orderId,
               detailId: d.id,
             })),
@@ -313,7 +313,7 @@ export function StaffOrderStatus() {
       }
       prevReadyIds.current = new Set(readyNow.map((d) => d.id));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Loi tai du lieu");
+      setErr(e instanceof Error ? e.message : "Lỗi tải dữ liệu");
     }
   }, []);
 
@@ -379,7 +379,7 @@ export function StaffOrderStatus() {
       setItems((prev) => prev.filter((i) => i.id !== detailId));
       setPopups((prev) => prev.filter((p) => p.detailId !== detailId));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Loi xac nhan");
+      setErr(e instanceof Error ? e.message : "Lỗi xác nhận");
     } finally {
       setServingIds((prev) => { const s = new Set(prev); s.delete(detailId); return s; });
     }
@@ -389,9 +389,9 @@ export function StaffOrderStatus() {
   if (!info || !(info.role === "Waiter" || isAdminRole(info.role))) {
     return (
       <div className="staff-page-inner">
-        <h1 className="page-title">Trang thai mon</h1>
-        <p className="subtle">Ban can dang nhap nhan su de xem trang nay.</p>
-        <Link to="/staff/login" className="btn btn-primary">Dang nhap</Link>
+        <h1 className="page-title">Trạng thái món</h1>
+        <p className="subtle">Bạn cần đăng nhập tài khoản nhân viên để xem trang này.</p>
+        <Link to="/staff/login" className="btn btn-primary">Đăng nhập</Link>
       </div>
     );
   }
@@ -426,7 +426,7 @@ export function StaffOrderStatus() {
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontWeight: 900, fontSize: "0.78rem", color: "#15803d", letterSpacing: "0.07em" }}>
-                  MON SAN SANG — BE RA NGAY
+                  MÓN SẴN SÀNG — BÊ RA NGAY
                 </span>
                 <button
                   type="button"
@@ -437,8 +437,8 @@ export function StaffOrderStatus() {
                     fontSize: "0.95rem", lineHeight: 1,
                     padding: "0.2rem 0.4rem", borderRadius: 5,
                   }}
-                  aria-label="Dong"
-                >x</button>
+                  aria-label="Đóng"
+                >×</button>
               </div>
 
               <div style={{ fontWeight: 800, fontSize: "1.05rem", color: "#fff" }}>
@@ -456,7 +456,7 @@ export function StaffOrderStatus() {
                   background: "var(--surface2)", border: "1px solid var(--border)",
                   borderRadius: 6, padding: "0.18rem 0.5rem",
                   fontSize: "0.78rem", color: "var(--muted)",
-                }}>Bill #{p.orderId}</span>
+                }}>Hóa đơn #{p.orderId}</span>
               </div>
 
               {/* Nút xác nhận ngay từ popup */}
@@ -475,7 +475,7 @@ export function StaffOrderStatus() {
                   letterSpacing: "0.02em",
                 }}
               >
-                Da be ra cho khach
+                Đã bê ra cho khách
               </button>
             </div>
           ))}
@@ -485,10 +485,10 @@ export function StaffOrderStatus() {
       {/* ── Header ── */}
       <div className="staff-page-head">
         <div>
-          <h1 className="page-title" style={{ margin: 0 }}>Trang thai mon</h1>
+          <h1 className="page-title" style={{ margin: 0 }}>Trạng thái món</h1>
           {lastUpdated && (
             <span style={{ fontSize: "0.73rem", color: "var(--muted)", display: "block", marginTop: "0.1rem" }}>
-              Cap nhat luc {lastUpdated.toLocaleTimeString("vi-VN")}
+              Cập nhật lúc {lastUpdated.toLocaleTimeString("vi-VN")}
             </span>
           )}
         </div>
@@ -498,12 +498,12 @@ export function StaffOrderStatus() {
           className="btn btn-ghost staff-btn-light"
           onClick={() => void load()}
         >
-          Lam moi
+          Làm mới
         </button>
       </div>
 
       <p className="subtle" style={{ marginBottom: "0.85rem" }}>
-        Cot <strong style={{ color: "#15803d" }}>San sang</strong> — bam "Da be ra cho khach" de xoa mon khoi danh sach.
+        Cột <strong style={{ color: "#15803d" }}>Sẵn sàng</strong> — bấm “Đã bê ra cho khách” để xóa món khỏi danh sách.
       </p>
 
       {err && <p style={{ color: "var(--danger)", marginBottom: "0.75rem" }}>{err}</p>}
@@ -530,7 +530,7 @@ export function StaffOrderStatus() {
         })}
       </div>
 
-      {/* Board 3 cot */}
+      {/* Bảng 3 cột */}
       <div
         className="order-status-board"
         style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "0.85rem", alignItems: "start" }}

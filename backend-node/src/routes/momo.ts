@@ -1,9 +1,27 @@
 import { Router } from "express";
-import type { PrismaClient } from "@prisma/client";
+import type { Order, PrismaClient } from "@prisma/client";
 import { createMomoPayment, verifyMomoIpn } from "../lib/momo.js";
 import type { Server } from "socket.io";
 import { deductInventoryForOrder } from "../lib/inventory.js";
 import { releaseOrderToKitchen } from "../lib/delivery.js";
+import { computeBill, computePointsEarned, getStoreSettings } from "../lib/pricing.js";
+import { settlePaidPoints } from "../lib/points.js";
+import { resolveVoucher, voucherHold } from "../lib/vouchers.js";
+import { toStore } from "../lib/storeScope.js";
+
+/** Tổng tiền thanh toán online: VAT, điểm đã áp, voucher đang giữ trong cancelReason (VOUCHER:code:giá trị), phí ship */
+async function onlineBill(prisma: PrismaClient, order: Order) {
+  let voucherCode: string | null = null;
+  let voucherDiscount = 0;
+  if (order.cancelReason?.startsWith("VOUCHER:")) {
+    const parts = order.cancelReason.split(":");
+    voucherCode = parts[1] || null;
+    voucherDiscount = Number(parts[2]) || 0;
+  }
+  const settings = await getStoreSettings(prisma);
+  const computed = computeBill(order.subTotal, order.discountAmt + voucherDiscount, order.pointsUsed, settings.pointValueVnd, settings.vatRatePercent);
+  return { voucherCode, voucherDiscount, computed, finalTotal: computed.totalAmount + order.shippingFee, settings };
+}
 
 export function momoRouter(prisma: PrismaClient, io?: Server) {
   const r = Router();
@@ -45,9 +63,15 @@ export function momoRouter(prisma: PrismaClient, io?: Server) {
     // Nếu không có, dùng fallback (MoMo sẽ không gọi được nhưng payUrl/deeplink vẫn hoạt động).
     const ipnUrl = process.env.MOMO_IPN_URL ?? `${publicAppUrl}/api/momo/ipn`;
 
+    // Tính tiền giống VNPay/SePay (VAT, điểm, voucher, phí ship); giá trị voucher lấy từ DB, không tin trình duyệt
+    const v = await resolveVoucher(prisma, (req.body as { voucherCode?: string | null } | undefined)?.voucherCode, order);
+    if ("error" in v) return res.status(400).json({ error: v.error });
+    await prisma.order.update({ where: { id: orderId }, data: { cancelReason: voucherHold(v) } });
+    const { finalTotal } = await onlineBill(prisma, { ...order, cancelReason: voucherHold(v) });
+
     try {
       const result = await createMomoPayment({
-        amount:      Math.round(order.totalAmount),
+        amount:      Math.max(1000, Math.round(finalTotal)),
         orderId,
         orderInfo:   `TD Coffee don ${orderId}`,
         redirectUrl: `${publicAppUrl}/order/${orderId}/checkout`,
@@ -103,23 +127,57 @@ export function momoRouter(prisma: PrismaClient, io?: Server) {
     if (resultCode === 0 && !Number.isNaN(rawOrderId)) {
       const order = await prisma.order.findUnique({ where: { id: rawOrderId } });
       if (order && order.status !== "Paid") {
-        await prisma.$transaction(async (tx) => {
-          await tx.order.update({
-            where: { id: rawOrderId },
-            data:  { status: "Paid" },
+        const { voucherCode, voucherDiscount, computed, finalTotal, settings } = await onlineBill(prisma, order);
+        const paidAmount = Math.round(Number(body.amount) || finalTotal);
+        const done = await prisma.$transaction(async (tx) => {
+          // Khóa theo trạng thái: MoMo gọi IPN lại nhiều lần
+          const locked = await tx.order.updateMany({
+            where: { id: rawOrderId, status: { not: "Paid" } },
+            data: {
+              status: "Paid",
+              paidAt: new Date(),
+              discountAmt: order.discountAmt + voucherDiscount,
+              vatAmount: computed.vatAmount,
+              totalAmount: finalTotal,
+              cancelReason: null,
+              voucherCode,
+            },
           });
+          if (locked.count === 0) return false;
           await deductInventoryForOrder(tx, rawOrderId);
           await tx.payment.create({
             data: {
               orderId:   rawOrderId,
               method:    "MoMo",
-              amount:    order.totalAmount,
+              amount:    paidAmount,
               transCode: String(body.transId ?? momoOrderId),
             },
           });
+          if (voucherCode) {
+            await tx.voucher.updateMany({ where: { code: voucherCode }, data: { usedCount: { increment: 1 } } });
+          }
+          if (order.customerId) {
+            await settlePaidPoints(tx, {
+              customerId: order.customerId,
+              orderId: rawOrderId,
+              pointsUsed: order.pointsUsed,
+              pointsEarned: computePointsEarned(computed.totalAmount, settings.pointEarnEveryVnd, settings.pointEarnEach),
+            });
+          }
+          if (order.tableId) {
+            await tx.cafeTable.update({ where: { id: order.tableId }, data: { status: "Cleaning" } });
+          }
+          return true;
         });
-        console.log("[momo/ipn] Đã xác nhận thanh toán đơn #", rawOrderId);
-        if (io) await releaseOrderToKitchen(prisma, io, rawOrderId);
+        if (done) {
+          if (paidAmount !== Math.round(finalTotal)) console.warn("[momo/ipn] Số tiền lệch đơn #", rawOrderId, paidAmount, "≠", finalTotal);
+          console.log("[momo/ipn] Đã xác nhận thanh toán đơn #", rawOrderId);
+          if (io) {
+            toStore(io, "pos", order.storeId).emit("payment:done", { orderId: rawOrderId, method: "MoMo", amount: paidAmount, isOnline: true });
+            io.to(`order:${rawOrderId}`).emit("payment:success", { orderId: rawOrderId, totalAmount: finalTotal, method: "MoMo" });
+            await releaseOrderToKitchen(prisma, io, rawOrderId);
+          }
+        }
       }
     }
 

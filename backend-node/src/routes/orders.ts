@@ -3,18 +3,36 @@ import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
 import type { Request } from "express";
 import { randomUUID } from "crypto";
-import { attachStaff, requireRoles, requireStore } from "../middleware/staff.js";
+import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
 import { inStore, storeWhere, toStore } from "../lib/storeScope.js";
-import { resolveCustomerStore, voucherStoreError } from "../lib/stores.js";
+import { resolveCustomerStore } from "../lib/stores.js";
+import { resolveVoucher, voucherHold } from "../lib/vouchers.js";
 import { priceLines, type RawLine } from "../lib/menuPrice.js";
 import { optionalCustomerAuth } from "../middleware/customer.js";
 import { computeBill, computePointsEarned, getStoreSettings } from "../lib/pricing.js";
 import { DS, getStoreLocation, haversineKm, onKitchenProgress, shippingFeeForDistance } from "../lib/delivery.js";
+import { customerCancelDeadline, emitRefunded, refundOrderToPoints, RefundError } from "../lib/points.js";
+import { verifyToken, type StaffPayload } from "../lib/jwt.js";
 
 /** Dòng giỏ hàng khách gửi lên. unitPrice của trình duyệt chỉ để tham khảo — máy chủ tự tính lại giá (lib/menuPrice). */
 type CartLine = RawLine & { unitPrice?: number };
 
 const GRACE_MS = 15_000; // 15 giây ân hạn
+
+/** Nhân viên đang hoạt động nếu request mang token nhân sự (không bắt buộc) */
+async function staffFromToken(prisma: PrismaClient, req: Request) {
+  const h = req.headers.authorization;
+  const token = h?.startsWith("Bearer ") ? h.slice(7) : null;
+  if (!token) return null;
+  try {
+    const p = verifyToken<StaffPayload>(token);
+    if (p.typ !== "staff") return null;
+    const s = await prisma.staff.findUnique({ where: { id: p.sub } });
+    return s && s.status === "Active" ? s : null;
+  } catch {
+    return null;
+  }
+}
 
 export function ordersRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
@@ -207,7 +225,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
   r.post("/orders/:id/request-payment", optionalCustomerAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ" });
-    const body = req.body as { sessionId?: string | null; tableId?: number | null; discountVoucherAmt?: number; voucherCode?: string | null };
+    const body = req.body as { sessionId?: string | null; tableId?: number | null; voucherCode?: string | null };
     const order = await prisma.order.findUnique({
       where: { id },
       include: { payments: true, customer: true, table: true },
@@ -240,27 +258,17 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     } else {
       return res.status(400).json({ error: "Không xác định được quyền trên đơn này." });
     }
-    const discountVoucherAmt = body.discountVoucherAmt ?? 0;
-    const voucherCode = body.voucherCode ?? null;
-    if (voucherCode) {
-      const v = await prisma.voucher.findUnique({ where: { code: voucherCode.trim().toUpperCase() } });
-      if (!v) return res.status(400).json({ error: "Mã voucher không tồn tại." });
-      const storeErr = await voucherStoreError(prisma, v.id, order.storeId);
-      if (storeErr) return res.status(400).json({ error: storeErr });
-    }
+    // Giá trị giảm lấy từ DB, không tin số tiền trình duyệt gửi lên (POS thu theo giá trị này)
+    const v = await resolveVoucher(prisma, body.voucherCode, order);
+    if ("error" in v) return res.status(400).json({ error: v.error });
     if (order.tableId) {
       await prisma.cafeTable.update({
         where: { id: order.tableId },
         data: { status: "Waiting_Pay" },
       });
     }
-    if (discountVoucherAmt > 0 || voucherCode) {
-      await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          cancelReason: voucherCode ? `VOUCHER:${voucherCode}:${discountVoucherAmt}` : null,
-        }
-      });
+    if (v.voucherCode) {
+      await prisma.order.update({ where: { id: order.id }, data: { cancelReason: voucherHold(v) } });
     }
 
     toStore(io, "pos", order.storeId).emit("payment:request", {
@@ -271,11 +279,10 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     res.json({ ok: true });
   });
 
-  r.post("/orders", async (req, res) => {
+  r.post("/orders", optionalCustomerAuth, async (req, res) => {
     const body = req.body as {
       tableId?: number | null;
       storeId?: number | null;
-      customerId?: number | null;
       orderType?: string;
       sessionId?: string | null;
       payMode?: "now" | "later";
@@ -298,6 +305,12 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     
     if (!isTakeaway && !isDelivery && !body.tableId) {
       return res.status(400).json({ error: "Đơn tại quán bắt buộc phải có thông tin bàn." });
+    }
+    // Khách lấy từ token đăng nhập, không tin customerId trình duyệt gửi lên
+    const customerId = (req as Request & { customerId?: number }).customerId ?? null;
+    // Đơn giao hàng trả trước, hủy thì hoàn ra điểm → bắt buộc có tài khoản
+    if (isDelivery && !customerId) {
+      return res.status(401).json({ error: "Vui lòng đăng nhập để đặt giao hàng." });
     }
     if (isDelivery && !body.deliveryAddress) {
       return res.status(400).json({ error: "Đơn giao hàng bắt buộc phải có địa chỉ." });
@@ -333,7 +346,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       data: {
         storeId,
         tableId: body.tableId ?? null,
-        customerId: body.customerId ?? null,
+        customerId,
         staffId: null,
         sessionId,
         orderType,
@@ -395,12 +408,55 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     });
   });
 
-  r.post("/orders/:id/cancel", async (req, res) => {
+  /**
+   * Hủy đơn. Người gọi phải là: khách đặt đơn (token), đúng phiên mang về / bàn, hoặc nhân viên chi nhánh.
+   * Đơn giao hàng đã trả online: khách tự hủy trong `cancelWindowMinutes` khi quán chưa nhận → hoàn 100% ra điểm.
+   */
+  r.post("/orders/:id/cancel", optionalCustomerAuth, async (req, res) => {
     const id = Number(req.params.id);
-    const { cancelReason } = (req.body || {}) as { cancelReason?: string };
+    const { cancelReason, sessionId, tableId } = (req.body || {}) as { cancelReason?: string; sessionId?: string | null; tableId?: number | null };
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ" });
     const order = await prisma.order.findUnique({ where: { id } });
     if (!order) return res.status(404).json({ error: "Không tìm thấy đơn" });
+
+    const reqCustomerId = (req as Request & { customerId?: number }).customerId;
+    const staff = await staffFromToken(prisma, req);
+    const isStaff = !!staff && (staff.role === "Owner" || staff.storeId === order.storeId);
+    const isOwnerCustomer = order.customerId
+      ? reqCustomerId === order.customerId
+      : order.sessionId
+        ? !!sessionId && sessionId === order.sessionId
+        : order.tableId != null && Number(tableId) === order.tableId;
+    if (!isStaff && !isOwnerCustomer) {
+      return res.status(403).json({ error: "Bạn không có quyền hủy đơn này." });
+    }
+
+    if (order.orderType === "Delivery" && order.status === "Paid") {
+      if (!isOwnerCustomer) return res.status(400).json({ error: "Đơn giao hàng đã thanh toán — quán hủy trên bảng Đơn giao hàng." });
+      if (order.deliveryStatus !== DS.AwaitingConfirm) {
+        return res.status(400).json({ error: "Quán đã nhận đơn, không thể tự hủy. Vui lòng liên hệ quán." });
+      }
+      const settings = await getStoreSettings(prisma);
+      const deadline = customerCancelDeadline(order, settings.cancelWindowMinutes)!;
+      if (Date.now() > deadline.getTime()) {
+        return res.status(400).json({ error: `Đã quá ${settings.cancelWindowMinutes} phút kể từ lúc thanh toán, không thể tự hủy. Vui lòng liên hệ quán.` });
+      }
+      try {
+        const r2 = await refundOrderToPoints(prisma, id, {
+          mode: "full",
+          by: "Customer",
+          reason: cancelReason?.trim() || "Khách hàng tự hủy",
+          expect: { deliveryStatus: DS.AwaitingConfirm },
+          extra: { deliveryStatus: DS.Rejected, deliveryNote: "Khách hủy đơn" },
+        });
+        emitRefunded(io, r2);
+        return res.json({ ok: true, refundPoints: r2.refundPoints, totalReturned: r2.totalReturned });
+      } catch (e) {
+        if (e instanceof RefundError) return res.status(400).json({ error: e.message });
+        throw e;
+      }
+    }
+
     if (["Paid", "Shipping", "Delivered", "Failed", "Cancelled"].includes(order.status)) {
       return res.status(400).json({ error: "Không thể hủy đơn ở trạng thái này." });
     }
@@ -419,6 +475,8 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       data: {
         status: "Cancelled",
         cancelReason: cancelReason || "Khách hàng tự hủy",
+        cancelledAt: new Date(),
+        cancelledBy: isOwnerCustomer ? "Customer" : "Store",
         ...(order.deliveryStatus ? { deliveryStatus: DS.Rejected, deliveryNote: "Khách hủy đơn" } : {}),
       },
     });
@@ -454,9 +512,17 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     if (!["Confirmed", "Paid"].includes(cur.order.status)) {
       return res.status(400).json({ error: "Đơn chưa xác nhận xuống bếp." });
     }
+    // Ghi người pha khi món chuyển sang "Xong"; bị đưa lại hàng chờ thì xoá (thống kê pha chế theo người)
+    const me = (req as StaffRequest).staffRow!;
+    const made =
+      kdsStatus === "Ready" && cur.kdsStatus !== "Ready" && cur.kdsStatus !== "Served"
+        ? { madeById: me.id, madeAt: new Date() }
+        : kdsStatus === "Waiting" || kdsStatus === "Cooking"
+          ? { madeById: null, madeAt: null }
+          : {};
     const d = await prisma.orderDetail.update({
       where: { id },
-      data: { kdsStatus },
+      data: { kdsStatus, ...made },
       include: { product: true, order: { include: { table: true } } },
     });
     const staffRoom = toStore(io, "staff", d.order.storeId);

@@ -3,9 +3,10 @@ import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
 import { buildVnpayUrl, verifyVnpaySign } from "../lib/vnpay.js";
 import { computeBill, getStoreSettings, computePointsEarned } from "../lib/pricing.js";
-import { rankTierFromLifetimeSpend } from "../lib/rank.js";
+import { settlePaidPoints } from "../lib/points.js";
 import { deductInventoryForOrder } from "../lib/inventory.js";
 import { releaseOrderToKitchen } from "../lib/delivery.js";
+import { resolveVoucher, voucherHold } from "../lib/vouchers.js";
 import { toStore } from "../lib/storeScope.js";
 
 export function vnpayRouter(prisma: PrismaClient, io: Server) {
@@ -43,10 +44,12 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
 
     // Tính lại tổng tiền đúng (có VAT) — giống bill endpoint
     const settings = await getStoreSettings(prisma);
-    const { discountVoucherAmt = 0, voucherCode = null } = (req.body ?? {}) as { discountVoucherAmt?: number, voucherCode?: string | null };
+    // Voucher: kiểm tra và lấy giá trị giảm từ DB (bỏ qua discountVoucherAmt trình duyệt gửi lên)
+    const v = await resolveVoucher(prisma, (req.body as { voucherCode?: string | null } | undefined)?.voucherCode, order);
+    if ("error" in v) return res.status(400).json({ error: v.error });
     const computed = computeBill(
       Number(order.subTotal),
-      Number(order.discountAmt) + Number(discountVoucherAmt),
+      Number(order.discountAmt) + v.voucherDiscount,
       Number(order.pointsUsed),
       settings.pointValueVnd,
       settings.vatRatePercent,
@@ -57,7 +60,7 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
     await prisma.order.update({
       where: { id: orderId },
       data: {
-        cancelReason: voucherCode ? `VOUCHER:${voucherCode}:${discountVoucherAmt}` : null,
+        cancelReason: voucherHold(v),
       },
     });
 
@@ -125,7 +128,7 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
     if (existingByCode || existingByOrder || order.status === "Paid") {
       // Đảm bảo status = Paid
       if (order.status !== "Paid") {
-        await prisma.order.update({ where: { id: orderId }, data: { status: "Paid" } });
+        await prisma.order.update({ where: { id: orderId }, data: { status: "Paid", paidAt: order.paidAt ?? new Date() } });
       }
       return res.json({ ok: true, alreadyPaid: true });
     }
@@ -158,6 +161,8 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
           vatAmount: computed.vatAmount,
           totalAmount: finalTotal,
           cancelReason: null,
+          paidAt: new Date(),
+          voucherCode,
         } 
       });
       if (updateResult.count === 0) return; // Đã được xử lý bởi request khác
@@ -180,24 +185,12 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
       }
 
       if (order.customerId) {
-        const customer = await tx.customer.findUnique({ where: { id: order.customerId } });
-        if (customer) {
-          const pointsEarned = computePointsEarned(computed.totalAmount, settings.pointEarnEveryVnd, settings.pointEarnEach);
-          const prevPaid = await tx.order.aggregate({
-            where: { customerId: order.customerId, status: "Paid" },
-            _sum: { totalAmount: true },
-          });
-          const lifetimeAfter = (prevPaid._sum.totalAmount ?? 0) + computed.totalAmount;
-          const rankTier = rankTierFromLifetimeSpend(lifetimeAfter);
-  
-          await tx.customer.update({
-            where: { id: order.customerId },
-            data: {
-              points: customer.points - Number(order.pointsUsed) + pointsEarned,
-              rankTier,
-            },
-          });
-        }
+        await settlePaidPoints(tx, {
+          customerId: order.customerId,
+          orderId,
+          pointsUsed: Number(order.pointsUsed),
+          pointsEarned: computePointsEarned(computed.totalAmount, settings.pointEarnEveryVnd, settings.pointEarnEach),
+        });
       }
   
       if (order.tableId) {
@@ -304,6 +297,8 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
             vatAmount: computed.vatAmount,
             totalAmount: finalTotal,
             cancelReason: null,
+            paidAt: new Date(),
+            voucherCode,
           },
         });
         if (updateResult.count === 0) return; // Đã được xử lý bởi request khác
@@ -326,26 +321,13 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
         }
 
         if (order.customerId) {
-          const customer = await tx.customer.findUnique({ where: { id: order.customerId } });
-          if (customer) {
-            const pointsEarned = computePointsEarned(computed.totalAmount, settings.pointEarnEveryVnd, settings.pointEarnEach);
-            const prevPaid = await tx.order.aggregate({
-              where: { customerId: order.customerId, status: "Paid" },
-              _sum: { totalAmount: true },
-            });
-            const lifetimeAfter = (prevPaid._sum.totalAmount ?? 0) + computed.totalAmount;
-            const rankTier = rankTierFromLifetimeSpend(lifetimeAfter);
-    
-            await tx.customer.update({
-              where: { id: order.customerId },
-              data: {
-                points: customer.points - Number(order.pointsUsed) + pointsEarned,
-                rankTier,
-              },
-            });
-          }
+          await settlePaidPoints(tx, {
+            customerId: order.customerId,
+            orderId,
+            pointsUsed: Number(order.pointsUsed),
+            pointsEarned: computePointsEarned(computed.totalAmount, settings.pointEarnEveryVnd, settings.pointEarnEach),
+          });
         }
-    
         if (order.tableId) {
           await tx.cafeTable.update({
             where: { id: order.tableId },

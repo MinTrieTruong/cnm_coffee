@@ -2,8 +2,11 @@ import { useState } from "react";
 import { PackageMinus } from "lucide-react";
 import { activeStoreId, getStaffInfo, isOwnerRole } from "../../lib/staffApi";
 import { EmptyState, MonthYearPicker, RecordList, fmtDateTime, formatVnd } from "../../components/erp";
-import { WASTE_REASON } from "../../components/KdsTools";
+import { WASTE_REASON as KDS_REASON } from "../../components/KdsTools";
 import { useResource } from "../shared";
+
+/** Lý do pha chế chọn + lý do hệ thống tự ghi (kiểm kê thiếu) */
+const WASTE_REASON: Record<string, string> = { ...KDS_REASON, STOCKTAKE: "Kiểm kê thiếu" };
 
 type WasteRow = {
   id: number;

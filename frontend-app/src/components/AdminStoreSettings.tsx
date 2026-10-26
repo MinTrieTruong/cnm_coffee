@@ -11,6 +11,7 @@ type StoreSettingsPayload = {
   pointEarnEach: number;
   faceMatchThreshold: number;
   pettyCashLimit: number;
+  cancelWindowMinutes: number;
 };
 
 export function AdminStoreSettings({
@@ -32,6 +33,7 @@ export function AdminStoreSettings({
   const [round, setRound] = useState(String(settings.cashRoundTo ?? 1000));
   const [threshold, setThreshold] = useState(settings.faceMatchThreshold ?? 0.5);
   const [pettyLimit, setPettyLimit] = useState(String(settings.pettyCashLimit ?? 200000));
+  const [cancelWin, setCancelWin] = useState(String(settings.cancelWindowMinutes ?? 5));
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -42,6 +44,7 @@ export function AdminStoreSettings({
     setRound(String(settings.cashRoundTo ?? 1000));
     setThreshold(settings.faceMatchThreshold ?? 0.5);
     setPettyLimit(String(settings.pettyCashLimit ?? 200000));
+    setCancelWin(String(settings.cancelWindowMinutes ?? 5));
   }, [settings]);
 
   async function save(e: FormEvent) {
@@ -59,6 +62,7 @@ export function AdminStoreSettings({
           pointEarnEach: Number(earnEach),
           faceMatchThreshold: threshold,
           pettyCashLimit: Number(pettyLimit),
+          cancelWindowMinutes: Number(cancelWin),
         }),
       });
       await onSaved();
@@ -116,6 +120,12 @@ export function AdminStoreSettings({
               <label className="label">Hạn mức chi không cần duyệt (VND / phiếu)</label>
               <input className="input" type="number" value={pettyLimit} onChange={(e) => setPettyLimit(e.target.value)} />
               <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>Thu ngân tự chi từ két / ngăn kéo đến mức này; vượt mức phải chờ quản lý duyệt.</p>
+            </div>
+
+            <div className="field" style={{ marginTop: "1rem" }}>
+              <label className="label">Thời gian khách tự hủy đơn giao hàng (phút)</label>
+              <input className="input" type="number" min={0} max={120} value={cancelWin} onChange={(e) => setCancelWin(e.target.value)} />
+              <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>Tính từ lúc khách thanh toán, khi quán chưa nhận đơn. Hủy trong thời gian này được hoàn 100% số tiền thành điểm.</p>
             </div>
           </div>
 

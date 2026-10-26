@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Search } from "lucide-react";
-import { Alert, Badge, Button, ControlPanel, Kpi, ListView, formatVnd } from "../../components/erp";
+import { Alert, Badge, Button, ControlPanel, Kpi, ListView, formatVnd, ymd } from "../../components/erp";
 import { useResource } from "../shared";
 
 type StoreStat = {
@@ -23,7 +23,7 @@ type Compare = {
 const daysAgo = (n: number) => {
   const d = new Date();
   d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
+  return ymd(d);
 };
 
 /** Tổng quan › So sánh chi nhánh (chỉ Chủ chuỗi) */

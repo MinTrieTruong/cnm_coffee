@@ -99,7 +99,7 @@ export function DailyReport() {
             <div className="o-groups" style={{ gap: 16 }}>
               <Section title="Tiền thu theo phương thức">
                 <table className="o-list"><tbody>
-                  {d.byMethod.map((m) => <Row key={m.method} label={`${m.label} (${m.count} giao dịch)`} value={formatVnd(m.amount)} muted={m.method === "Points"} />)}
+                  {d.byMethod.map((m) => <Row key={m.method} label={`${m.label} (${m.count} giao dịch)`} value={formatVnd(m.amount)} muted={m.method === "Points" || m.method === "PointsRefund"} />)}
                   <Row label="Tổng tiền thật (không gồm điểm)" value={formatVnd(d.sales.totalCollected)} strong />
                   {d.unassignedOnline > 0 && <Row label="— online chưa thu ngân nào xác nhận vào ca" value={formatVnd(d.unassignedOnline)} muted />}
                 </tbody></table>

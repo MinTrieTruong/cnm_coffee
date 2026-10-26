@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { HandCoins } from "lucide-react";
 import { activeStoreId, getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
-import { Alert, Badge, Button, EmptyState, Field, Kpi, ListView, Modal, RecordList, errMsg, fmtDate, fmtDateTime, formatVnd, type Tone } from "../../components/erp";
+import { Alert, Badge, Button, EmptyState, Field, Kpi, ListView, Modal, RecordList, errMsg, fmtDate, fmtDateTime, formatVnd, type Tone, ymd } from "../../components/erp";
 import { useResource } from "../shared";
 import { PhotoInput, SafeOpenDialog, useSafe, type CashEntry } from "./shared";
 
@@ -200,7 +200,7 @@ function BillCreate({ onClose, onDone }: { onClose: () => void; onDone: () => vo
   const { data: suppliers } = useResource<{ id: number; name: string; paymentTermDays: number; isActive: boolean }[]>("/api/admin/suppliers", []);
   const [supplierId, setSupplierId] = useState("");
   const [amount, setAmount] = useState("");
-  const [billDate, setBillDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [billDate, setBillDate] = useState(() => ymd(new Date()));
   const [dueDate, setDueDate] = useState("");
   const [note, setNote] = useState("");
   const [err, setErr] = useState<string | null>(null);

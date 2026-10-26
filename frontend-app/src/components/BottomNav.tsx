@@ -54,6 +54,8 @@ export type MoreSheet = {
   items: NavItem[];
   /** Danh sách app (Quản lý) */
   apps?: NavItem[];
+  /** Danh sách đầy đủ theo nhóm (dựng từ SIDEBAR_GROUPS) — có thì thay cho `apps` + `items` */
+  groups?: { label: string; items: NavItem[] }[];
   profile?: { name: string; role: string };
   onChangePassword?: () => void;
   onLogout?: () => void;
@@ -102,7 +104,7 @@ export function BottomNav({
   const tabs = more ? items.slice(0, 4) : items.slice(0, 5);
   const act = (i: NavItem) => isActive(i, loc.pathname, loc.search);
   const anyTabActive = tabs.some(act);
-  const moreActive = !!more && (sheetOpen || (!anyTabActive && [...more.items, ...(more.apps ?? [])].some(act)));
+  const moreActive = !!more && (sheetOpen || (!anyTabActive && [...more.items, ...(more.apps ?? []), ...(more.groups ?? []).flatMap((g) => g.items)].some(act)));
 
   return (
     <>
@@ -148,7 +150,21 @@ export function BottomNav({
               <button type="button" className="bn-close" onClick={() => setSheetOpen(false)} aria-label="Đóng"><X size={20} /></button>
             </div>
             <div className="bn-sheet-body">
-              {more.apps && more.apps.length > 0 && (
+              {more.groups?.map((g) => (
+                <div key={g.label} className="bn-group">
+                  <div className="bn-section">{g.label}</div>
+                  {g.items.map((i) => {
+                    const Icon = i.icon;
+                    return (
+                      <Link key={i.id} to={i.to} className={act(i) ? "bn-row active" : "bn-row"}>
+                        <Icon size={20} aria-hidden /> <span>{i.label}</span>
+                        <Badge n={i.badge ? badges[i.badge] : undefined} />
+                      </Link>
+                    );
+                  })}
+                </div>
+              ))}
+              {!more.groups && more.apps && more.apps.length > 0 && (
                 <>
                   <div className="bn-section">Ứng dụng</div>
                   <div className="bn-apps">
@@ -164,7 +180,7 @@ export function BottomNav({
                   </div>
                 </>
               )}
-              {more.items.length > 0 && (
+              {!more.groups && more.items.length > 0 && (
                 <>
                   <div className="bn-section">Cá nhân</div>
                   {more.items.map((i) => {

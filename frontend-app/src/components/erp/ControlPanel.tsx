@@ -81,10 +81,14 @@ export function ControlPanel({
   onView?: (v: "list" | "kanban") => void;
   pager?: { offset: number; limit: number; total: number; onChange: (offset: number) => void };
 }) {
+  // Tiêu đề trang đã nằm ở PageHeader: chỉ hiện breadcrumb khi có cấp cha (danh sách › bản ghi)
+  const showCrumbs = crumbs.length > 1;
+  const hasTools = !!(onSearch || actions || filters?.length || groupBys?.length || (pager && pager.total > 0) || (views && views.length > 1 && onView));
+  if (!showCrumbs && !hasTools) return null;
   return (
     <div className="o-cp">
       <div className="o-cp-left">
-        <Breadcrumb items={crumbs} />
+        {showCrumbs && <Breadcrumb items={crumbs} />}
       </div>
       <div className="o-cp-right">
         {onSearch && (

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Clock } from "lucide-react";
 import { activeStoreId, getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
-import { Alert, Badge, Button, EmptyState, Field, Modal, RecordList, errMsg, fmtDateTime, formatVnd } from "../../components/erp";
+import { Alert, Badge, Button, EmptyState, Field, Modal, RecordList, errMsg, fmtDateTime, formatVnd, ymd } from "../../components/erp";
 import { useResource } from "../shared";
 import { Money, PrintButton, ShiftReportView, isManager, type ShiftReport } from "./shared";
 
@@ -21,8 +21,8 @@ type ShiftRow = {
   store: { name: string };
 };
 
-const daysAgo = (n: number) => new Date(Date.now() - n * 86400_000).toISOString().slice(0, 10);
-const today = () => new Date().toISOString().slice(0, 10);
+const daysAgo = (n: number) => ymd(new Date(Date.now() - n * 86400_000));
+const today = () => ymd(new Date());
 
 /** Tài chính › Báo cáo ca — mỗi ca: tiền theo phương thức, tiền mặt dự kiến vs đếm được, chênh lệch */
 export function Shifts() {

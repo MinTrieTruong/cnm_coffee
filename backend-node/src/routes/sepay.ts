@@ -5,6 +5,7 @@ import { SePayPgClient } from "sepay-pg-node";
 import crypto from "crypto";
 import { deductInventoryForOrder } from "../lib/inventory.js";
 import { releaseOrderToKitchen } from "../lib/delivery.js";
+import { resolveVoucher, voucherHold } from "../lib/vouchers.js";
 
 export function sepayRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
@@ -52,12 +53,14 @@ export function sepayRouter(prisma: PrismaClient, io: Server) {
       return res.status(400).json({ error: "Đơn chưa được xác nhận" });
     }
 
-    const { discountVoucherAmt = 0, voucherCode = null } = (req.body ?? {}) as { discountVoucherAmt?: number; voucherCode?: string | null };
+    // Voucher: kiểm tra và lấy giá trị giảm từ DB (bỏ qua discountVoucherAmt trình duyệt gửi lên)
+    const v = await resolveVoucher(prisma, (req.body as { voucherCode?: string | null } | undefined)?.voucherCode, order);
+    if ("error" in v) return res.status(400).json({ error: v.error });
     
     const settings = await getStoreSettings(prisma);
     const computed = computeBill(
       Number(order.subTotal),
-      Number(order.discountAmt) + Number(discountVoucherAmt),
+      Number(order.discountAmt) + v.voucherDiscount,
       Number(order.pointsUsed),
       settings.pointValueVnd,
       settings.vatRatePercent,
@@ -68,7 +71,7 @@ export function sepayRouter(prisma: PrismaClient, io: Server) {
     await prisma.order.update({
       where: { id: orderId },
       data: {
-        cancelReason: voucherCode ? `VOUCHER:${voucherCode}:${discountVoucherAmt}` : null,
+        cancelReason: voucherHold(v),
       },
     });
 
@@ -180,7 +183,7 @@ export function sepayRouter(prisma: PrismaClient, io: Server) {
 }
 
 import { computeBill, getStoreSettings, computePointsEarned } from "../lib/pricing.js";
-import { rankTierFromLifetimeSpend } from "../lib/rank.js";
+import { settlePaidPoints } from "../lib/points.js";
 import { toStore } from "../lib/storeScope.js";
 
 /** Hàm dùng chung: cập nhật đơn thành Paid + tạo Payment record + emit socket */
@@ -242,7 +245,9 @@ async function confirmOrderPaid(
         vatAmount: computed.vatAmount,
         totalAmount: finalTotal,
         cancelReason: null,
-      } 
+        paidAt: new Date(),
+        voucherCode,
+      }
     });
     if (updateResult.count === 0) return; // Đã được xử lý bởi request khác
     await deductInventoryForOrder(tx, orderId);
@@ -264,24 +269,12 @@ async function confirmOrderPaid(
     }
 
     if (order.customerId) {
-      const customer = await tx.customer.findUnique({ where: { id: order.customerId } });
-      if (customer) {
-        const pointsEarned = computePointsEarned(computed.totalAmount, settings.pointEarnEveryVnd, settings.pointEarnEach);
-        const prevPaid = await tx.order.aggregate({
-          where: { customerId: order.customerId, status: "Paid" },
-          _sum: { totalAmount: true },
-        });
-        const lifetimeAfter = (prevPaid._sum.totalAmount ?? 0) + computed.totalAmount;
-        const rankTier = rankTierFromLifetimeSpend(lifetimeAfter);
-
-        await tx.customer.update({
-          where: { id: order.customerId },
-          data: {
-            points: customer.points - Number(order.pointsUsed) + pointsEarned,
-            rankTier,
-          },
-        });
-      }
+      await settlePaidPoints(tx, {
+        customerId: order.customerId,
+        orderId,
+        pointsUsed: Number(order.pointsUsed),
+        pointsEarned: computePointsEarned(computed.totalAmount, settings.pointEarnEveryVnd, settings.pointEarnEach),
+      });
     }
 
     if (order.tableId) {

@@ -199,7 +199,7 @@ export function SupplierPortal() {
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "1rem" }}>
                   <h3 style={{ margin: 0, color: "var(--accent)" }}>{po.code}</h3>
                   <span style={{ color: po.status === "DELIVERED" ? "#047857" : "#b45309", fontWeight: "bold" }}>
-                    {po.status === "DELIVERED" ? "Đã Giao" : "Đang Chờ Giao"}
+                    {po.status === "DELIVERED" ? "Đã Giao" : po.status === "PARTIAL" ? "Đã giao một phần" : po.status === "CLOSED" ? "Đã đóng" : "Đang Chờ Giao"}
                   </span>
                 </div>
                 <p style={{ margin: "0 0 1rem 0", color: "var(--muted)" }}>Tổng tiền: <strong style={{ color: "var(--text)" }}>{po.totalAmount.toLocaleString()} đ</strong></p>

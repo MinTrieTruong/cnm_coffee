@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { staffApi } from "../../lib/staffApi";
-import { Alert, Button, ControlPanel, Kpi, ListView, errMsg, formatVnd } from "../../components/erp";
+import { Alert, Button, ControlPanel, Kpi, ListView, errMsg, formatVnd, ymd } from "../../components/erp";
 
 type ProfitData = {
   totalRevenue: number;
@@ -15,9 +15,9 @@ export function Profit() {
   const [from, setFrom] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 29);
-    return d.toISOString().slice(0, 10);
+    return ymd(d);
   });
-  const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [to, setTo] = useState(() => ymd(new Date()));
   const [data, setData] = useState<ProfitData | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);

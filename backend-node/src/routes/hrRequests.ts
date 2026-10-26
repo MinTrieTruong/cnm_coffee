@@ -15,8 +15,30 @@ import { attachStaff, isAdminLike, requireRoles, type StaffRequest } from "../mi
 import { inStore, storeWhere, toStore } from "../lib/storeScope.js";
 import { getHrConfig } from "../lib/hrConfig.js";
 import { syncOvertime } from "../lib/overtime.js";
+import { notify } from "../lib/notify.js";
+import { announceOpenShifts } from "../lib/openShifts.js";
 
 const DAY_MS = 86_400_000;
+
+type HrPing = { type: "LEAVE" | "SWAP" | "SWAP_INCOMING" | "WORK" | "ATTENDANCE"; id: number; status?: string; targetUserStatus?: string };
+const OK = new Set(["APPROVED", "ACCEPTED"]);
+/** Tiêu đề thông báo khi đơn từ được xử lý */
+function hrPingText(p: HrPing): { title: string; body?: string; severity?: "NORMAL" } {
+  const verdict = (s?: string) => (s && OK.has(s) ? "đã được duyệt" : "bị từ chối");
+  switch (p.type) {
+    case "SWAP_INCOMING":
+      return { title: "Đồng nghiệp đề nghị nhường ca cho bạn", body: "Mở Đơn từ của tôi để đồng ý hoặc từ chối." };
+    case "SWAP":
+      if (p.targetUserStatus) return { title: `Người nhận ca ${OK.has(p.targetUserStatus) ? "đã đồng ý" : "đã từ chối"} đổi ca`, body: OK.has(p.targetUserStatus) ? "Đang chờ quản lý duyệt." : undefined };
+      return { title: `Đề nghị đổi ca ${verdict(p.status)}` };
+    case "LEAVE":
+      return { title: `Đơn xin nghỉ ${verdict(p.status)}` };
+    case "WORK":
+      return { title: `Phiếu theo ca ${verdict(p.status)}` };
+    case "ATTENDANCE":
+      return { title: `Giải trình chấm công ${verdict(p.status)}` };
+  }
+}
 const dateOnly = (s: string) => new Date(`${String(s).slice(0, 10)}T00:00:00Z`);
 const isDateStr = (s: unknown) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}/.test(s) && !Number.isNaN(dateOnly(s).getTime());
 const todayUtc = () => {
@@ -35,10 +57,22 @@ export function hrRequestsRouter(prisma: PrismaClient, io: Server) {
     inStore(req, await prisma.staff.findUnique({ where: { id: staffId }, select: { storeId: true } }));
 
   /** Báo quản lý chi nhánh có đơn mới / báo nhân viên đơn đã được xử lý */
-  const pingManagers = (storeId: number | null | undefined) => {
-    if (storeId != null) toStore(io, "admin_room", storeId).emit("hr:request", {});
+  const pingManagers = (storeId: number | null | undefined, from?: { id: number; fullName: string }, what = "đơn từ") => {
+    if (storeId == null) return;
+    toStore(io, "admin_room", storeId).emit("hr:request", {});
+    void notify({
+      type: "HR_REQUEST",
+      title: `${from?.fullName ?? "Nhân viên"} gửi ${what}`,
+      body: "Đang chờ bạn duyệt.",
+      link: "/app/hr/approvals",
+      storeId,
+      to: { storeId, roles: ["Admin"], exceptStaffId: from?.id },
+    });
   };
-  const pingStaff = (staffId: number, payload: unknown) => io.to(`staff_${staffId}`).emit("hr:reviewed", payload);
+  const pingStaff = (staffId: number, payload: HrPing) => {
+    io.to(`staff_${staffId}`).emit("hr:reviewed", payload);
+    void notify({ type: "HR_REVIEWED", ...hrPingText(payload), link: "/app/hr/requests", to: { staffIds: [staffId] } });
+  };
 
   /** Có ca khác trùng giờ trong ngày không */
   async function busyAt(staffId: number, workDate: Date, startMin: number, endMin: number) {
@@ -77,13 +111,13 @@ export function hrRequestsRouter(prisma: PrismaClient, io: Server) {
         reason: reason.trim(),
       },
     });
-    pingManagers(me.storeId);
+    pingManagers(me.storeId, me, "đơn xin nghỉ");
     res.json({ ok: true, request });
   });
 
   r.get("/hr/leave", ...anyStaff, async (req, res) => {
     const me = (req as StaffRequest).staffRow!;
-    const where = isAdminLike(me.role) ? { user: storeWhere(req) } : { userId: me.id };
+    const where = isAdminLike(me.role) && !req.query.mine ? { user: storeWhere(req) } : { userId: me.id };
     const requests = await prisma.leaveRequest.findMany({
       where,
       include: { user: { select: { fullName: true, role: true } }, manager: { select: { fullName: true } } },
@@ -114,19 +148,27 @@ export function hrRequestsRouter(prisma: PrismaClient, io: Server) {
     const request = await prisma.leaveRequest.update({ where: { id }, data: { status, managerId: me.id } });
 
     // Duyệt → các ca chưa chấm công trong khoảng nghỉ thành ca trống (giữ vị trí để xếp người thay)
+    // rồi mời nhân viên cùng vị trí đang trống lịch nhận ca (lib/openShifts)
     let opened = 0;
     if (status === "APPROVED") {
+      const ids = (
+        await prisma.workSchedule.findMany({
+          where: {
+            staffId: cur.userId,
+            workDate: { gte: cur.date, lte: cur.toDate ?? cur.date },
+            actualCheckIn: null,
+            status: { in: ["APPROVED", "PENDING", "DRAFT"] },
+          },
+          select: { id: true },
+        })
+      ).map((w) => w.id);
       const result = await prisma.workSchedule.updateMany({
-        where: {
-          staffId: cur.userId,
-          workDate: { gte: cur.date, lte: cur.toDate ?? cur.date },
-          actualCheckIn: null,
-          status: { in: ["APPROVED", "PENDING", "DRAFT"] },
-        },
+        where: { id: { in: ids } },
         data: { status: "OPEN_SHIFT", staffId: null, role: cur.user.role, managerNote: `Ca trống do ${cur.user.fullName} nghỉ phép` },
       });
       opened = result.count;
       if (cur.user.storeId != null) toStore(io, "admin_room", cur.user.storeId).emit("schedule:updated", {});
+      void announceOpenShifts(ids, `${cur.user.fullName} nghỉ phép`);
     }
     pingStaff(cur.userId, { type: "LEAVE", id, status });
     res.json({ ok: true, request, openedShifts: opened });
@@ -166,7 +208,7 @@ export function hrRequestsRouter(prisma: PrismaClient, io: Server) {
 
   r.get("/hr/swap", ...anyStaff, async (req, res) => {
     const me = (req as StaffRequest).staffRow!;
-    const where = isAdminLike(me.role) ? { requester: storeWhere(req) } : { OR: [{ requesterId: me.id }, { targetUserId: me.id }] };
+    const where = isAdminLike(me.role) && !req.query.mine ? { requester: storeWhere(req) } : { OR: [{ requesterId: me.id }, { targetUserId: me.id }] };
     const requests = await prisma.shiftSwapRequest.findMany({
       where,
       include: {
@@ -205,7 +247,7 @@ export function hrRequestsRouter(prisma: PrismaClient, io: Server) {
       data: { targetUserStatus: status, ...(status === "REJECTED" ? { status: "REJECTED" } : {}) },
     });
     pingStaff(cur.requesterId, { type: "SWAP", id, targetUserStatus: status });
-    if (status === "ACCEPTED") pingManagers(me.storeId);
+    if (status === "ACCEPTED") pingManagers(me.storeId, me, "đề nghị đổi ca");
     res.json({ ok: true, request });
   });
 
@@ -277,13 +319,13 @@ export function hrRequestsRouter(prisma: PrismaClient, io: Server) {
         reason: reason.trim(),
       },
     });
-    pingManagers(me.storeId);
+    pingManagers(me.storeId, me, "phiếu theo ca");
     res.json({ ok: true, request });
   });
 
   r.get("/hr/work", ...anyStaff, async (req, res) => {
     const me = (req as StaffRequest).staffRow!;
-    const where = isAdminLike(me.role) ? { user: storeWhere(req) } : { userId: me.id };
+    const where = isAdminLike(me.role) && !req.query.mine ? { user: storeWhere(req) } : { userId: me.id };
     const requests = await prisma.workRequest.findMany({
       where,
       include: {
@@ -364,13 +406,13 @@ export function hrRequestsRouter(prisma: PrismaClient, io: Server) {
         reason: reason.trim(),
       },
     });
-    pingManagers(me.storeId);
+    pingManagers(me.storeId, me, "giải trình chấm công");
     res.json({ ok: true, request });
   });
 
   r.get("/hr/attendance", ...anyStaff, async (req, res) => {
     const me = (req as StaffRequest).staffRow!;
-    const where = isAdminLike(me.role) ? { user: storeWhere(req) } : { userId: me.id };
+    const where = isAdminLike(me.role) && !req.query.mine ? { user: storeWhere(req) } : { userId: me.id };
     const requests = await prisma.attendanceAdjustment.findMany({
       where,
       include: { user: { select: { fullName: true, role: true } }, manager: { select: { fullName: true } } },

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { clearCartBackup, restoreCartFromBackup } from "../lib/cart";
+import { getTableId, getTakeawaySessionId } from "../lib/session";
 
 type OrderPayload = {
   id: number;
@@ -66,7 +67,8 @@ export function OrderGrace() {
   async function onCancel() {
     if (!id) return;
     try {
-      await api(`/api/orders/${id}/cancel`, { method: "POST", body: "{}" });
+      // Chứng minh đúng người đặt: phiên mang về / bàn (khách đăng nhập thì máy chủ dựa vào token)
+      await api(`/api/orders/${id}/cancel`, { method: "POST", body: JSON.stringify({ sessionId: getTakeawaySessionId(), tableId: getTableId() }) });
       restoreCartFromBackup();
       nav("/cart", { replace: true });
     } catch (e) {

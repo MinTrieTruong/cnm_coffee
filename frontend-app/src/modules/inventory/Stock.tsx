@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { AlertTriangle, PackagePlus, Trash2, Warehouse } from "lucide-react";
 import { mediaUrl } from "../../lib/api";
 import { getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
@@ -22,7 +23,7 @@ export type InvRow = {
   recipeUnit: string | null;
   recipePerUnit: number;
 };
-type ExpiringLot = { id: number; expiryDate: string; remainingQty: number; item: { name: string; unit: string | null } };
+type ExpiringLot = { id: number; expiryDate: string; remainingQty: number; source: string; note: string | null; item: { name: string; unit: string | null } };
 
 const BASE = "/app/inventory/stock";
 const isLow = (i: InvRow) => i.stockQty <= i.minLevel;
@@ -33,7 +34,7 @@ export function StockList() {
   const go = useRecordNav(BASE);
 
   async function discard(id: number) {
-    if (!window.confirm("Bạn có chắc chắn muốn hủy lô hàng này không? Sẽ bị trừ khỏi tồn kho!")) return;
+    if (!window.confirm("Hủy phần còn lại của lô này? Số lượng bị trừ khỏi tồn kho và ghi vào Sổ hao hụt (Hư / hết hạn).")) return;
     try {
       await staffApi(`/api/admin/inventory/receipts/${id}/discard`, { method: "POST" });
       await Promise.all([lots.reload(), reload()]);
@@ -71,9 +72,9 @@ export function StockList() {
                     return (
                       <tr key={r.id}>
                         <td>{r.item.name}{r.item.unit ? ` (${r.item.unit})` : ""}</td>
-                        <td>#{r.id}</td>
+                        <td>#{r.id}<div className="o-muted" style={{ fontSize: 12 }}>{r.source === "PO" ? `Theo PO${r.note ? ` · ${r.note}` : ""}` : "Nhập tay"}</div></td>
                         <td>{fmtDate(r.expiryDate)} {overdue ? <Badge tone="danger">Đã quá hạn</Badge> : <Badge tone="warning">Sắp hết hạn</Badge>}</td>
-                        <td className="num">{r.remainingQty}</td>
+                        <td className="num">{fmtQty(r.remainingQty)}</td>
                         <td style={{ textAlign: "right" }}><Button size="sm" variant="danger" onClick={() => void discard(r.id)}>Hủy lô</Button></td>
                       </tr>
                     );
@@ -158,7 +159,9 @@ export function StockForm({ recordId }: { recordId?: string }) {
       recipeUnit: form.recipeUnit.trim() || null,
       recipePerUnit: Number(form.recipePerUnit.replace(",", ".")) || 1,
     };
-    const body = JSON.stringify(owner ? { ...catalog, ...stock } : stock);
+    // Số tồn chỉ nhập lúc tạo mới; sau đó điều chỉnh qua Phiếu kiểm kê
+    const stockBody = isNew ? stock : { minLevel: stock.minLevel };
+    const body = JSON.stringify(owner ? { ...catalog, ...stockBody } : stockBody);
     try {
       if (isNew) {
         const created = await staffApi<{ id?: number }>("/api/admin/inventory", { method: "POST", body });
@@ -244,7 +247,16 @@ export function StockForm({ recordId }: { recordId?: string }) {
           )}
         </FormGroup>
         <FormGroup title="Tồn kho">
-          <Field label={isNew ? "Tồn ban đầu" : "Tồn kho"}><input className="o-input" value={form.stockQty} disabled={ro} onChange={(e) => set("stockQty", e.target.value)} /></Field>
+          <Field label={isNew ? "Tồn ban đầu" : "Tồn kho"}>
+            {isNew ? (
+              <input className="o-input" value={form.stockQty} onChange={(e) => set("stockQty", e.target.value)} />
+            ) : (
+              <span>
+                {fmtQty(Number(form.stockQty) || 0)} {form.unit}
+                {editing && <span className="o-muted" style={{ display: "block", fontSize: 13 }}>Lệch với thực tế? <Link to="/app/inventory/counts">Lập phiếu kiểm kê</Link></span>}
+              </span>
+            )}
+          </Field>
           <Field label="Mức tối thiểu"><input className="o-input" value={form.minLevel} disabled={ro} onChange={(e) => set("minLevel", e.target.value)} /></Field>
         </FormGroup>
       </FormGroups>
@@ -265,17 +277,29 @@ export function StockForm({ recordId }: { recordId?: string }) {
   );
 }
 
+/** Nhập kho tay (hàng mua ngoài đơn mua): có giá nhập → giá vốn bình quân; chọn NCC → ghi công nợ */
 function ReceiveDialog({ item, onClose, onDone }: { item: InvRow; onClose: () => void; onDone: () => Promise<void> }) {
+  const suppliers = useResource<{ id: number; name: string; isActive: boolean; paymentTermDays: number }[]>("/api/admin/suppliers", []);
   const [qty, setQty] = useState("");
   const [expiry, setExpiry] = useState("");
+  const [price, setPrice] = useState(item.unitCostPrice ? String(item.unitCostPrice) : "");
+  const [supplierId, setSupplierId] = useState("");
+  const [note, setNote] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const n = Number(qty.replace(",", "."));
+  const unitPrice = digits(price);
+  const supplier = suppliers.data.find((s) => String(s.id) === supplierId);
   async function submit() {
-    const n = digits(qty);
-    if (Number.isNaN(n) || n <= 0) return setErr("Số lượng nhập không hợp lệ");
+    if (!Number.isFinite(n) || n <= 0) return setErr("Số lượng nhập không hợp lệ");
+    if (price.trim() === "") return setErr("Nhập giá nhập / 1 đơn vị (0 nếu hàng tặng).");
+    if (!supplierId && !note.trim()) return setErr("Không chọn nhà cung cấp thì ghi rõ nguồn hàng (VD: mua lẻ ở chợ, đã trả tiền mặt).");
     setBusy(true);
     try {
-      await staffApi(`/api/admin/inventory/${item.id}/receive`, { method: "POST", body: JSON.stringify({ qty: n, expiryDate: expiry || undefined }) });
+      await staffApi(`/api/admin/inventory/${item.id}/receive`, {
+        method: "POST",
+        body: JSON.stringify({ qty: n, expiryDate: expiry || undefined, unitPrice, supplierId: supplierId ? Number(supplierId) : null, note }),
+      });
       await onDone();
     } catch (e) {
       setErr(errMsg(e));
@@ -298,8 +322,22 @@ function ReceiveDialog({ item, onClose, onDone }: { item: InvRow; onClose: () =>
       <Field label={`Số lượng${item.unit ? ` (${item.unit})` : ""}`} required>
         <input className="o-input" value={qty} onChange={(e) => setQty(e.target.value)} autoFocus />
       </Field>
+      <Field label={`Giá nhập / 1 ${item.unit || "đơn vị"}`} required>
+        <input className="o-input" inputMode="numeric" value={price ? Number(digits(price)).toLocaleString("vi-VN") : ""} onChange={(e) => setPrice(e.target.value.replace(/\D/g, ""))} placeholder="VD 230.000" />
+      </Field>
+      {Number.isFinite(n) && n > 0 && unitPrice > 0 && <div className="o-muted">Thành tiền: {formatVnd(Math.round(n * unitPrice))} · giá vốn bình quân và giá vốn món sẽ cập nhật</div>}
       <Field label="Hạn sử dụng">
         <input className="o-input" type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} />
+      </Field>
+      <Field label="Nhà cung cấp">
+        <select className="o-input" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
+          <option value="">Không qua NCC (mua lẻ)</option>
+          {suppliers.data.filter((s) => s.isActive || String(s.id) === supplierId).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </Field>
+      {supplier && unitPrice > 0 && <div className="o-muted">Ghi công nợ phải trả {supplier.name}, hạn trả sau {supplier.paymentTermDays} ngày.</div>}
+      <Field label={supplierId ? "Ghi chú" : "Nguồn hàng"} required={!supplierId}>
+        <input className="o-input" value={note} onChange={(e) => setNote(e.target.value)} maxLength={255} placeholder={supplierId ? "Số hoá đơn, ghi chú…" : "VD: mua lẻ ở chợ, đã trả tiền mặt từ két"} />
       </Field>
     </Modal>
   );

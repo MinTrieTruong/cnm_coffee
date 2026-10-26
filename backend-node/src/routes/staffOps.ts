@@ -360,7 +360,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
       const detail = await prisma.orderDetail.findUnique({ where: { id }, include: { order: true } });
       if (!detail || !inStore(req, detail.order)) return res.status(404).json({ error: "Không tìm thấy món." });
       if (detail.kdsStatus !== "Ready") {
-        return res.status(400).json({ error: "Chỉ xác nhận bê khi món đã sẵn sàng (Ready)." });
+        return res.status(400).json({ error: "Chỉ xác nhận bê khi món đã pha xong (cột Sẵn sàng)." });
       }
       const updated = await prisma.orderDetail.update({
         where: { id },

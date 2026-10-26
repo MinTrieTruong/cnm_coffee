@@ -1,69 +1,89 @@
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronLeft, Grip, LogOut, Menu as MenuIcon, Store, UserRound } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { clearStaffSession, getStaffInfo, getStaffToken, staffApi } from "../../lib/staffApi";
 import { BottomNav } from "../BottomNav";
-import { staffNav } from "../../lib/navConfig";
-import { useStaffBadges } from "../../lib/navBadges";
-import {
-  appPath,
-  canSee,
-  defaultRouteForRole,
-  firstPathOf,
-  isLeaf,
-  listed,
-  locate,
-  visibleApps,
-  type AppDef,
-  type MenuLeaf,
-} from "../../apps/registry";
-import { Dropdown } from "./ControlPanel";
+import { staffNav, type NavItem } from "../../lib/navConfig";
+import { refreshBadges, useStaffBadges } from "../../lib/navBadges";
+import { useAttendanceToday } from "../../lib/attendanceReminder";
+import { AttendanceReminder } from "./AttendanceReminder";
+import { appPath, canSee, defaultRouteForRole, isLeaf, listed, locate, type MenuLeaf } from "../../apps/registry";
+import { LEAF_BADGES, buildSidebar, leavesOfGroup } from "../../apps/sidebar";
+import { Sidebar } from "./Sidebar";
 import { StoreSwitcher } from "./StoreSwitcher";
+import { PageHeader } from "./dashboard";
 import { roleLabel } from "../../lib/roles";
 import { Alert, Button, EmptyState, Field, Modal } from "./primitives";
 import { PasswordInput } from "../PasswordInput";
+import { NotificationProvider, useNotifications } from "../../lib/notifications";
+import { unsubscribePush } from "../../lib/push";
+import { ImportantNotice, NotificationBell, NotificationToasts } from "./Notifications";
 
-function useOutsideClose(open: boolean, close: () => void) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) close();
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open, close]);
-  return ref;
-}
+const COLLAPSE_KEY = "td.sidebar.collapsed";
+/** Đường dẫn các mục có badge (/app/<app>/<menu>) */
+const BADGE_PATHS = Object.keys(LEAF_BADGES).map((k) => `/app/${k}`);
+const readCollapsed = () => {
+  try {
+    return localStorage.getItem(COLLAPSE_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
 
 /**
- * Khung chung khu vực nhân sự (kiểu Odoo):
- * [Ứng dụng] Tên app | menu con … | chi nhánh | người dùng
+ * Khung chung khu vực nhân sự: sidebar điều khiển bên trái (desktop) + vùng nội dung.
+ * Điện thoại (≤ 768px): header gọn + BottomNav; mục "Thêm" liệt kê đủ chức năng theo SIDEBAR_GROUPS.
+ * Chuông thông báo: đầu sidebar (desktop) / header (điện thoại) — dữ liệu từ NotificationProvider.
  */
 export function AppShell() {
+  const id = getStaffToken() ? getStaffInfo()?.id : undefined;
+  return (
+    <NotificationProvider staffId={id}>
+      <Shell />
+    </NotificationProvider>
+  );
+}
+
+function Shell() {
   const token = getStaffToken();
   const info = getStaffInfo();
+  const { unread } = useNotifications();
   const loc = useLocation();
   const nav = useNavigate();
-  const [appsOpen, setAppsOpen] = useState(false);
-  const [menusOpen, setMenusOpen] = useState(false);
-  const appsRef = useOutsideClose(appsOpen, () => setAppsOpen(false));
   const [pwOpen, setPwOpen] = useState(false);
-  const badges = useStaffBadges(info?.role, info?.id);
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  // Trang toàn màn hình tự thu gọn; mở tạm (peek) không ghi đè lựa chọn của người dùng
+  const [peek, setPeek] = useState(false);
+  const sourceBadges = useStaffBadges(info?.role, info?.id);
+  const role = info?.role ?? "";
+  const groups = useMemo(() => buildSidebar(role), [role]);
+  const attendance = useAttendanceToday(info ? role : undefined);
+  const badges = { ...sourceBadges, attendance: attendance.reminder ? 1 : 0, notifications: unread };
+  const onAttendancePage = loc.pathname === "/app/hr/attendance";
 
+  useEffect(() => setPeek(false), [loc.pathname]);
+  // Vừa rời màn có badge (duyệt đơn, mua hàng, tồn kho…) → badge tính lại ngay, không đợi 60 giây
+  const prevPath = useRef(loc.pathname);
   useEffect(() => {
-    setAppsOpen(false);
-    setMenusOpen(false);
+    const was = prevPath.current;
+    prevPath.current = loc.pathname;
+    if (was !== loc.pathname && BADGE_PATHS.some((p) => was.startsWith(p))) refreshBadges();
   }, [loc.pathname]);
+  // Vừa rời màn chấm công → tải lại ca để tắt lời nhắc ngay
+  const [wasOnAttendance, setWasOnAttendance] = useState(onAttendancePage);
+  if (wasOnAttendance !== onAttendancePage) {
+    setWasOnAttendance(onAttendancePage);
+    if (!onAttendancePage) attendance.reload();
+  }
 
   if (!token || !info) return <Navigate to="/staff/login" replace state={{ from: loc.pathname }} />;
-  const role = info.role;
   const found = locate(loc.pathname);
   if (!found) return <Navigate to={defaultRouteForRole(role)} replace />;
   const { app, leaf } = found;
-  const apps = visibleApps(role);
 
-  const logout = () => {
+  const logout = async () => {
+    // Gỡ thiết bị khỏi tài khoản trước khi xóa token (máy dùng chung không nhận thông báo của người trước)
+    await unsubscribePush().catch(() => {});
     clearStaffSession();
     nav("/staff/login", { replace: true });
   };
@@ -73,126 +93,83 @@ export function AppShell() {
   const recordId = rest ? decodeURIComponent(rest) : undefined;
   const Comp = recordId && leaf.form ? leaf.form : leaf.component;
 
-  const contentClass = leaf.layout === "erp" ? "o-content o-content-full" : leaf.layout === "full" ? "o-content o-content-full" : "o-content o-content-legacy";
+  const full = leaf.layout === "full";
+  const sideCollapsed = full ? !peek : collapsed;
+  const toggleSide = () => {
+    if (full) return setPeek((v) => !v);
+    setCollapsed((v) => {
+      try {
+        localStorage.setItem(COLLAPSE_KEY, v ? "0" : "1");
+      } catch {
+        /* bỏ qua */
+      }
+      return !v;
+    });
+  };
+
   const labelOf = (l: MenuLeaf) => (l.labelFor ? l.labelFor(role) : l.label);
-  // Menu chỉ liệt kê mục của vai trò; màn "hỗ trợ ca" của quản lý mở từ Trang chủ
+  const currentKey = `${app.id}/${leaf.alias ?? leaf.id}`;
+  // Mobile: các mục con của app hiện tại, cuộn ngang
   const appLeaves = app.menus.flatMap((m) => (isLeaf(m) ? [m] : m.children)).filter((l) => listed(l, role));
   const mobileNav = staffNav(role);
+  // "Thêm" trên điện thoại: đủ chức năng theo nhóm sidebar
+  const moreGroups = groups.map((g) => ({
+    label: g.label,
+    items: leavesOfGroup(g).map((l): NavItem => ({ id: l.key, label: l.label, short: l.label, icon: l.icon, to: l.to, badge: l.badge })),
+  }));
+  const back = recordId ? (
+    <Link to={appPath(app, leaf)} className="o-ph-back"><ChevronLeft size={16} aria-hidden /> {labelOf(leaf)}</Link>
+  ) : undefined;
+
+  const page = canSee(leaf, role) ? (
+    <Suspense fallback={<div className="o-empty">Đang tải…</div>}>
+      <Comp key={`${app.id}/${leaf.id}/${recordId ?? ""}`} {...(leaf.props ?? {})} {...(recordId ? { recordId } : {})} />
+    </Suspense>
+  ) : (
+    <EmptyState title="Không có quyền truy cập" hint="Màn hình này không dành cho vai trò của bạn." />
+  );
 
   return (
-    <div className="o-app">
-      <header className={menusOpen ? "o-navbar menus-open" : "o-navbar"}>
-        {/* Mobile: chỉ tiêu đề trang (+ nút quay lại ở trang con) */}
-        <div className="o-mobile-head">
+    <div className={sideCollapsed ? "o-app side-collapsed" : "o-app"}>
+      <Sidebar
+        groups={groups}
+        currentKey={currentKey}
+        collapsed={sideCollapsed}
+        onToggle={toggleSide}
+        badges={badges}
+        profile={{ name: info.fullName ?? "Nhân viên", role: roleLabel(role) }}
+        onChangePassword={() => setPwOpen(true)}
+        onLogout={logout}
+        bell={<NotificationBell variant="side" />}
+      />
+
+      <div className="o-main">
+        {/* Mobile: tiêu đề trang (+ quay lại ở trang con) + chọn chi nhánh */}
+        <header className="o-mobile-head">
           {recordId && (
-            <Link to={appPath(app, leaf)} className="o-nav-btn" aria-label="Quay lại">
+            <Link to={appPath(app, leaf)} className="o-mobile-back" aria-label="Quay lại">
               <ChevronLeft size={20} aria-hidden />
             </Link>
           )}
           <span className="o-mobile-title">{labelOf(leaf)}</span>
-        </div>
-        <div className="o-dropdown o-desk" ref={appsRef}>
-          <button type="button" className="o-nav-btn" onClick={() => setAppsOpen((v) => !v)} aria-expanded={appsOpen} aria-label="Ứng dụng" title="Ứng dụng">
-            <Grip size={18} aria-hidden />
-          </button>
-          {appsOpen && <AppsPanel apps={apps} role={role} current={app} />}
-        </div>
-        <Link to={firstPathOf(app, role)} className="o-nav-btn o-nav-app o-desk">{app.label}</Link>
+          <StoreSwitcher variant="compact" />
+          <NotificationBell variant="compact" />
+        </header>
+        {appLeaves.length > 1 && (
+          <nav className="o-mobile-subnav" aria-label={`Mục trong ${app.label}`}>
+            {appLeaves.map((l) => (
+              <Link key={l.id} to={appPath(app, l)} className={l.id === (leaf.alias ?? leaf.id) ? "active" : undefined} aria-current={l.id === leaf.id ? "page" : undefined}>
+                {labelOf(l)}
+              </Link>
+            ))}
+          </nav>
+        )}
 
-        <button type="button" className="o-nav-btn o-nav-burger" onClick={() => setMenusOpen((v) => !v)} aria-expanded={menusOpen} aria-label="Menu">
-          <MenuIcon size={18} aria-hidden />
-        </button>
-        <nav className="o-nav-menus" aria-label={`Menu ${app.label}`}>
-          {app.menus.map((m) => {
-            if (isLeaf(m)) {
-              if (!listed(m, role)) return null;
-              return (
-                <Link key={m.id} to={appPath(app, m)} className={m.id === leaf.id ? "o-nav-btn active" : "o-nav-btn"} aria-current={m.id === leaf.id ? "page" : undefined}>
-                  {labelOf(m)}
-                </Link>
-              );
-            }
-            const kids = m.children.filter((c) => listed(c, role));
-            if (!kids.length) return null;
-            if (kids.length === 1) {
-              const k = kids[0];
-              return (
-                <Link key={m.id} to={appPath(app, k)} className={k.id === leaf.id ? "o-nav-btn active" : "o-nav-btn"}>
-                  {labelOf(k)}
-                </Link>
-              );
-            }
-            const activeGroup = kids.some((k) => k.id === leaf.id);
-            return (
-              <Dropdown
-                key={m.id}
-                button={({ open, toggle }) => (
-                  <button type="button" className={activeGroup ? "o-nav-btn active" : "o-nav-btn"} onClick={toggle} aria-expanded={open}>
-                    {m.label} <ChevronDown size={14} aria-hidden />
-                  </button>
-                )}
-              >
-                {(close) =>
-                  kids.map((k) => (
-                    <Link key={k.id} to={appPath(app, k)} className={k.id === leaf.id ? "o-dropdown-item active" : "o-dropdown-item"} onClick={close}>
-                      {labelOf(k)}
-                    </Link>
-                  ))
-                }
-              </Dropdown>
-            );
-          })}
-        </nav>
-
-        <span className="o-nav-spacer" />
-        <div className="o-nav-branch">
-          <StoreSwitcher />
-        </div>
-        <div className="o-desk">
-        <Dropdown
-          align="right"
-          button={({ open, toggle }) => (
-            <button type="button" className="o-nav-btn" onClick={toggle} aria-expanded={open} aria-label="Tài khoản">
-              <UserRound size={16} aria-hidden />
-              <span className="o-nav-user-name">{info.fullName ?? "Nhân viên"}</span>
-              <span className="o-nav-user-role">{roleLabel(role)}</span>
-            </button>
-          )}
-        >
-          {() => (
-            <>
-              <div className="o-dropdown-header">{info.fullName ?? "Nhân viên"} · {roleLabel(role)}</div>
-              <Link to="/menu" className="o-dropdown-item"><Store size={16} aria-hidden /> Trang khách</Link>
-              <div className="o-dropdown-sep" />
-              <button type="button" className="o-dropdown-item" onClick={logout}><LogOut size={16} aria-hidden /> Đăng xuất</button>
-            </>
-          )}
-        </Dropdown>
-        </div>
-      </header>
-
-      {/* Mobile: các mục con của app hiện tại, cuộn ngang */}
-      {appLeaves.length > 1 && (
-        <nav className="o-mobile-subnav" aria-label={`Mục trong ${app.label}`}>
-          {appLeaves.map((l) => (
-            <Link key={l.id} to={appPath(app, l)} className={l.id === leaf.id ? "active" : undefined} aria-current={l.id === leaf.id ? "page" : undefined}>
-              {labelOf(l)}
-            </Link>
-          ))}
-        </nav>
-      )}
-
-      <main className="o-main">
-        <div className={contentClass}>
-          {canSee(leaf, role) ? (
-            <Suspense fallback={<div className="o-empty">Đang tải…</div>}>
-              <Comp key={`${app.id}/${leaf.id}/${recordId ?? ""}`} {...(leaf.props ?? {})} {...(recordId ? { recordId } : {})} />
-            </Suspense>
-          ) : (
-            <EmptyState title="Không có quyền truy cập" hint="Màn hình này không dành cho vai trò của bạn." />
-          )}
-        </div>
-      </main>
+        <main className={full ? "o-content o-content-full" : "o-page"}>
+          {!full && !leaf.ownHeader && <PageHeader title={labelOf(leaf)} description={leaf.description} back={back} />}
+          {full ? page : <div className={leaf.layout === "legacy" ? "o-page-body is-legacy" : "o-page-body"}>{page}</div>}
+        </main>
+      </div>
 
       <BottomNav
         items={mobileNav.primary}
@@ -200,11 +177,15 @@ export function AppShell() {
         more={{
           items: mobileNav.more,
           apps: mobileNav.moreApps,
+          groups: moreGroups,
           profile: { name: info.fullName ?? "Nhân viên", role: roleLabel(role) },
           onChangePassword: () => setPwOpen(true),
           onLogout: logout,
         }}
       />
+      {!onAttendancePage && <AttendanceReminder reminder={attendance.reminder} />}
+      <NotificationToasts />
+      <ImportantNotice />
       {pwOpen && <ChangePasswordDialog onClose={() => setPwOpen(false)} />}
     </div>
   );
@@ -250,21 +231,5 @@ function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
       <Field label="Mật khẩu mới"><PasswordInput className="o-input" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" /></Field>
       <Field label="Nhập lại"><PasswordInput className="o-input" value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" /></Field>
     </Modal>
-  );
-}
-
-function AppsPanel({ apps, role, current }: { apps: AppDef[]; role: string; current: AppDef }) {
-  return (
-    <div className="o-apps-panel" role="menu" aria-label="Ứng dụng">
-      {apps.map((a) => {
-        const Icon = a.icon;
-        return (
-          <Link key={a.id} to={firstPathOf(a, role)} className={a.id === current.id ? "o-app-tile active" : "o-app-tile"} role="menuitem">
-            <span className="o-app-tile-icon"><Icon aria-hidden /></span>
-            {a.label}
-          </Link>
-        );
-      })}
-    </div>
   );
 }

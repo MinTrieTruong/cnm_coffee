@@ -3,6 +3,7 @@ export * from "./ControlPanel";
 export * from "./ListView";
 export * from "./RecordList";
 export * from "./FormView";
+export * from "./dashboard";
 
 export function formatVnd(n: number) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";

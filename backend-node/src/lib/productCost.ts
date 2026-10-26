@@ -34,3 +34,22 @@ export async function productsUsingItems(db: Db, itemIds: number[]) {
   const rows = await db.productFormula.findMany({ where: { itemId: { in: itemIds } }, select: { productId: true }, distinct: ["productId"] });
   return rows.map((r) => r.productId);
 }
+
+/**
+ * Hàng nhập kho có giá → cập nhật giá nhập bình quân gia quyền của nguyên liệu và giá vốn các món dùng nó.
+ * Giá vốn dùng chung cả chuỗi nên tồn cũ là tổng tồn mọi chi nhánh; gọi TRƯỚC khi cộng tồn của lần nhập này.
+ * Tồn cũ chưa có giá (0đ) thì không tính vào, lấy luôn giá nhập — tránh kéo giá vốn xuống vô lý.
+ */
+export async function applyIncomingCost(db: Db, itemId: number, qty: number, unitPrice: number) {
+  if (!(qty > 0) || !(unitPrice > 0)) return;
+  const [item, chainStock] = await Promise.all([
+    db.inventoryItem.findUnique({ where: { id: itemId }, select: { unitCostPrice: true } }),
+    db.storeInventory.aggregate({ where: { itemId }, _sum: { stockQty: true } }),
+  ]);
+  const oldQty = Math.max(0, chainStock._sum.stockQty ?? 0);
+  const oldCost = item?.unitCostPrice ?? 0;
+  const after = oldQty + qty;
+  const avg = oldCost > 0 && after > 0 ? Math.round((oldQty * oldCost + qty * unitPrice) / after) : Math.round(unitPrice);
+  await db.inventoryItem.update({ where: { id: itemId }, data: { unitCostPrice: avg } });
+  await recalcProductCost(db, await productsUsingItems(db, [itemId]));
+}

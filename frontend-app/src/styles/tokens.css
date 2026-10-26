@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════
-   DESIGN TOKENS — phong cách ERP (Odoo-like): phẳng, gọn, dày đặc.
-   Màu chủ đạo: nâu cà phê #6F4E37.
+   DESIGN TOKENS — dashboard SaaS có sidebar trái: nền trắng, viền mảnh,
+   thẻ bo 12px, nút / input bo 8px, không gradient / glass / bóng đổ dày.
+   Màu chủ đạo: nâu cà phê #6F4E37 (dòng đang chọn, nút chính, liên kết, viền focus).
    File này nạp SAU index.css nên các biến cũ (--accent, --radius…)
    được ánh xạ lại về token mới để mọi trang cũ đồng bộ màu/font/bo góc.
    ═══════════════════════════════════════════════════════════════════ */
@@ -11,6 +12,8 @@
   --o-surface-alt: #f3f4f6;
   --o-border: #e5e7eb;
   --o-border-strong: #d1d5db;
+  --o-hover: #f3f4f6;
+  --o-side-bg: #f9fafb;
 
   /* Chữ */
   --o-text: #111827;
@@ -39,11 +42,24 @@
   --o-fs: 14px;
   --o-fs-sm: 13px;
   --o-fs-xs: 12px;
-  --o-radius: 4px;
-  --o-radius-lg: 8px;
+  /* Nút / input / dòng menu */
+  --o-radius: 8px;
+  /* Thẻ, modal */
+  --o-radius-lg: 12px;
   --o-shadow-pop: 0 4px 16px rgba(17, 24, 39, 0.12);
-  --o-navbar-h: 46px;
+  /* Chỉ có header trên điện thoại (≤ 768px); desktop dùng sidebar */
+  --o-navbar-h: 0px;
+  --o-side-w: 260px;
+  --o-side-w-collapsed: 64px;
   --o-icon: 16px;
+
+  /* Biểu đồ: thứ tự series cố định (xem components/erp/charts.tsx) */
+  --o-chart-1: #6f4e37;
+  --o-chart-2: #16a34a;
+  --o-chart-3: #2563eb;
+  --o-chart-4: #d97706;
+  --o-up: #16a34a;
+  --o-down: #dc2626;
 
   /* ── Ánh xạ biến cũ → token mới (trang cũ & trang khách tự đồng bộ) ── */
   --bg: var(--o-bg);
@@ -78,9 +94,13 @@
   --shadow-sm: none;
   --shadow-md: 0 1px 3px rgba(17, 24, 39, 0.08);
   --shadow-lg: var(--o-shadow-pop);
-  --radius: var(--o-radius-lg);
-  --radius-sm: var(--o-radius);
-  --radius-lg: var(--o-radius-lg);
+  --radius: 8px;
+  --radius-sm: 4px;
+  --radius-lg: 8px;
   --font-display: var(--o-font);
   --font-body: var(--o-font);
+}
+
+@media (max-width: 768px) {
+  :root { --o-navbar-h: 52px; }
 }

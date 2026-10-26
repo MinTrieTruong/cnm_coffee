@@ -4,6 +4,9 @@ import type { PrismaClient } from "@prisma/client";
 import { customerAuth } from "../middleware/customer.js";
 import bcrypt from "bcryptjs";
 import { saveDataUrlImage } from "../lib/uploadImage.js";
+import { getStoreSettings } from "../lib/pricing.js";
+import { DS } from "../lib/delivery.js";
+import { customerCancelDeadline, moneyToPoints, paidMoney } from "../lib/points.js";
 
 export function customerRouter(prisma: PrismaClient) {
   const r = Router();
@@ -79,11 +82,35 @@ export function customerRouter(prisma: PrismaClient) {
       where: whereClause,
       include: {
         details: { include: { product: true } },
+        payments: { select: { method: true, amount: true } },
       },
       orderBy: { id: "desc" },
     });
 
-    res.json(orders);
+    // Đơn giao hàng đã trả: hạn tự hủy + số điểm sẽ nhận lại nếu hủy
+    const settings = await getStoreSettings(prisma);
+    res.json(
+      orders.map(({ payments, ...o }) => {
+        const deadline = o.deliveryStatus === DS.AwaitingConfirm ? customerCancelDeadline(o, settings.cancelWindowMinutes) : null;
+        const open = deadline != null && deadline.getTime() > Date.now();
+        return {
+          ...o,
+          cancelUntil: open ? deadline.toISOString() : null,
+          refundPreview: open ? moneyToPoints(paidMoney(payments), settings.pointValueVnd) + o.pointsUsed - o.pointsEarned : null,
+        };
+      }),
+    );
+  });
+
+  /** Lịch sử biến động điểm */
+  r.get("/points-history", customerAuth, async (req, res) => {
+    const customerId = (req as Request & { customerId?: number }).customerId!;
+    const rows = await prisma.pointTransaction.findMany({
+      where: { customerId },
+      orderBy: { id: "desc" },
+      take: 100,
+    });
+    res.json(rows);
   });
 
   r.get("/summary", customerAuth, async (req, res) => {

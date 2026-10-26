@@ -17,6 +17,7 @@ import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../m
 import { mustStoreId, reqStoreId, toStore } from "../lib/storeScope.js";
 import { adjustStoreStock } from "../lib/inventory.js";
 import { audit } from "../lib/audit.js";
+import { notify } from "../lib/notify.js";
 import { nextTransferCode } from "./stockTransfer.js";
 
 export function stockRequestsRouter(prisma: PrismaClient, io: Server) {
@@ -77,6 +78,17 @@ export function stockRequestsRouter(prisma: PrismaClient, io: Server) {
     });
     audit(me.id, "STOCK_REQUEST_CREATE", item.name, `Cần gấp ${qty} ${item.unit ?? ""}`);
     await notifyStores("stock-request:new", { id: row.id, storeName: row.store.name, itemName: item.name, qty }, storeId);
+    // Kho & quản lý các chi nhánh khác có thể "Chuyển giúp"
+    const others = await prisma.store.findMany({ where: { isActive: true, id: { not: storeId } }, select: { id: true } });
+    for (const s of others)
+      void notify({
+        type: "STOCK_REQUEST",
+        title: `${row.store.name} cần gấp ${qty} ${item.unit ?? ""} ${item.name}`.replace(/\s+/g, " "),
+        body: note?.trim() || "Chi nhánh bạn còn hàng thì bấm \"Chuyển giúp\".",
+        link: "/app/inventory/urgent",
+        storeId: s.id,
+        to: { storeId: s.id, roles: ["Warehouse", "Admin"] },
+      });
     res.status(201).json(row);
   });
 
@@ -123,6 +135,14 @@ export function stockRequestsRouter(prisma: PrismaClient, io: Server) {
 
     audit(me.id, "STOCK_REQUEST_ACCEPT", cur.item.name, `Chuyển ${qty} ${cur.item.unit ?? ""} → ${cur.store.name} (${code})`);
     toStore(io, "admin_room", cur.storeId).emit("stock-request:accepted", { id, fromStore: result.acceptedStore?.name, itemName: cur.item.name, qty, code });
+    void notify({
+      type: "STOCK_REQUEST",
+      title: `${result.acceptedStore?.name ?? "Chi nhánh khác"} đã chuyển giúp ${qty} ${cur.item.unit ?? ""} ${cur.item.name}`.replace(/\s+/g, " "),
+      body: `Phiếu ${code} — xác nhận nhận hàng ở Chuyển kho.`,
+      link: "/app/inventory/transfers",
+      storeId: cur.storeId,
+      to: { storeId: cur.storeId, roles: ["Warehouse", "Admin"] },
+    });
     await notifyStores("stock-request:closed", { id }, cur.storeId);
     res.json(result);
   });

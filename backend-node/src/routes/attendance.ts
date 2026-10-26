@@ -7,6 +7,7 @@
  * GET  /attendance/face-descriptor   — Lấy face descriptor của NV
  * GET  /attendance/store-location    — Lấy tọa độ quán
  * GET  /attendance/today             — Lấy trạng thái chấm công hôm nay
+ * GET  /attendance/today-store       — Ca hôm nay của cả chi nhánh: ai chưa chấm công (quản lý)
  * GET  /attendance/warnings          — Cảnh báo chấm công theo tháng (quản lý)
  */
 import { Router } from "express";
@@ -93,6 +94,45 @@ export function attendanceRouter(prisma: PrismaClient) {
     });
     const names = new Map((await getShiftTemplates(prisma)).map((t) => [t.code, t.name]));
     res.json({ schedules: schedules.map((s) => ({ ...s, shiftName: names.get(s.shiftCode) ?? s.shiftCode })) });
+  });
+
+  /* ══════════════════════════════════════════════════════════════════
+     GET /attendance/today-store — Ca hôm nay của cả chi nhánh (quản lý nhắc chấm công)
+     state: upcoming (chưa tới giờ) | missing (đã tới giờ, chưa vào) | working | missing_out (hết ca chưa ra) | done
+  ══════════════════════════════════════════════════════════════════ */
+  r.get("/attendance/today-store", ...mgmtOnly, requireStore, async (req, res) => {
+    const [cfg, templates, schedules] = await Promise.all([
+      getHrConfig(prisma),
+      getShiftTemplates(prisma),
+      prisma.workSchedule.findMany({
+        where: { storeId: mustStoreId(req), workDate: { gte: todayStart(), lte: todayEnd() }, status: "APPROVED", staffId: { not: null } },
+        include: { staff: { select: { id: true, fullName: true, role: true } } },
+        orderBy: [{ startMin: "asc" }, { id: "asc" }],
+      }),
+    ]);
+    const names = new Map(templates.map((t) => [t.code, t.name]));
+    const nowMin = dateToMinutes(new Date());
+    const stateOf = (s: (typeof schedules)[number]) => {
+      if (s.actualCheckIn && s.actualCheckOut) return "done";
+      if (s.actualCheckIn) return nowMin > s.endMin ? "missing_out" : "working";
+      return nowMin >= s.startMin + cfg.lateGraceMin ? "missing" : "upcoming";
+    };
+    res.json({
+      lateGraceMin: cfg.lateGraceMin,
+      rows: schedules.map((s) => ({
+        id: s.id,
+        staffId: s.staffId,
+        fullName: s.staff?.fullName ?? "",
+        role: s.staff?.role ?? s.role,
+        shiftCode: s.shiftCode,
+        shiftName: names.get(s.shiftCode) ?? s.shiftCode,
+        startMin: s.startMin,
+        endMin: s.endMin,
+        actualCheckIn: s.actualCheckIn,
+        actualCheckOut: s.actualCheckOut,
+        state: stateOf(s),
+      })),
+    });
   });
 
   /* ══════════════════════════════════════════════════════════════════

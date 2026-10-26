@@ -48,9 +48,14 @@ export const TRANSFER_ROUTES: Record<string, { from: Fund; to: Fund }> = {
   BANK_WITHDRAW: { from: "BANK", to: "SAFE" },
 };
 
-/** Phương thức thanh toán: tiền mặt vào ngăn kéo; điểm không phải tiền; còn lại vào tài khoản ngân hàng */
+/**
+ * Phương thức thanh toán: tiền mặt vào ngăn kéo; điểm không phải tiền; còn lại vào tài khoản ngân hàng.
+ * PointsRefund: dòng âm khi hoàn một phần tiền đơn ra điểm — giảm doanh thu nhưng không phải dòng tiền
+ * (tiền vẫn ở tài khoản quán, chỉ chuyển thành điểm khách giữ).
+ */
 export const CASH_METHOD = "Cash";
-export const NON_MONEY_METHODS = ["Points"];
+export const POINTS_REFUND_METHOD = "PointsRefund";
+export const NON_MONEY_METHODS = ["Points", POINTS_REFUND_METHOD];
 /** COD cũ (shipper thu hộ) — không còn dùng, không tính vào quỹ nào */
 const LEGACY_METHODS = ["COD"];
 export const isBankMethod = (m: string) => m !== CASH_METHOD && !NON_MONEY_METHODS.includes(m) && !LEGACY_METHODS.includes(m);
@@ -63,6 +68,7 @@ export const METHOD_LABEL: Record<string, string> = {
   VNPay: "VNPay",
   SePay: "SePay (chuyển khoản)",
   Points: "Điểm đổi",
+  PointsRefund: "Hoàn ra điểm",
   COD: "COD (cũ)",
 };
 
@@ -91,7 +97,8 @@ export async function fundBalance(db: Db, storeId: number, fund: "SAFE" | "BANK"
     // Tiền khách trả online / chuyển khoản / thẻ vào thẳng tài khoản
     const pays = await db.payment.groupBy({
       by: ["method"],
-      where: { paymentTime: time, order: { storeId, status: "Paid" } },
+      // Đơn hoàn 100% ra điểm: tiền vẫn nằm trong tài khoản (thành điểm khách giữ) → vẫn tính vào số dư
+      where: { paymentTime: time, order: { storeId, OR: [{ status: "Paid" }, { refundStatus: "Refunded" }] } },
       _sum: { amount: true },
     });
     balance += pays.filter((p) => isBankMethod(p.method)).reduce((s, p) => s + (p._sum.amount ?? 0), 0);

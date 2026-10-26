@@ -4,6 +4,9 @@ import type { Server } from "socket.io";
 import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
 import { inStore, mustStoreId, storeWhere, toStore } from "../lib/storeScope.js";
 import { saveDataUrlImage } from "../lib/uploadImage.js";
+import { notify } from "../lib/notify.js";
+import { customerCancelDeadline, emitRefunded, FAIL_REASONS, moneyToPoints, paidMoney, refundOrderToPoints, RefundError, type FailReasonCode } from "../lib/points.js";
+import { getStoreSettings } from "../lib/pricing.js";
 import {
   ACTIVE_SHIPPER_STATUSES,
   DS,
@@ -43,7 +46,9 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
           orderType: "Delivery",
           OR: [
             { deliveryStatus: { in: [DS.AwaitingConfirm, DS.Preparing, DS.Ready, DS.Assigned, DS.Delivering] } },
-            { deliveryStatus: { in: [DS.Delivered, DS.Failed] }, createdAt: { gte: since } },
+            { deliveryStatus: { in: [DS.Delivered, DS.Failed, DS.Rejected] }, createdAt: { gte: since } },
+            // Đơn giao thất bại chờ quyết định hoàn tiền: luôn hiện tới khi xử lý xong
+            { refundStatus: "Pending" },
           ],
         },
         include: orderInclude,
@@ -79,24 +84,77 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
     res.json({ ok: true });
   });
 
-  /** Thu ngân từ chối đơn (hết món, ngoài vùng giao…) */
+  /**
+   * Quán từ chối / hủy đơn (hết món, ngoài vùng giao, quá tải…) — được hủy tới trước khi shipper lấy hàng.
+   * Đơn đã trả online → hoàn 100% ra điểm cho khách.
+   */
   r.post("/delivery/:id/reject", ...cashier, async (req, res) => {
     const id = Number(req.params.id);
     const reason = String((req.body as { reason?: string })?.reason ?? "").trim() || "Quán không thể nhận đơn";
     const order = await prisma.order.findUnique({ where: { id } });
     if (!order || !inStore(req, order) || order.orderType !== "Delivery") return res.status(404).json({ error: "Không tìm thấy đơn giao hàng" });
-    if (order.deliveryStatus !== DS.AwaitingConfirm) return res.status(400).json({ error: "Chỉ từ chối được đơn đang chờ xác nhận" });
-    await prisma.order.update({
-      where: { id },
-      data: {
-        deliveryStatus: DS.Rejected,
-        deliveryNote: reason,
-        // Đơn đã trả online giữ status Paid để kế toán hoàn tiền
-        ...(order.status === "Paid" ? {} : { status: "Cancelled", cancelReason: reason }),
-      },
-    });
-    emitDeliveryChanged(io, order.storeId, [id]);
-    res.json({ ok: true });
+    const cancellable: string[] = [DS.AwaitingConfirm, DS.Preparing, DS.Ready, DS.Assigned];
+    if (!cancellable.includes(order.deliveryStatus ?? "")) {
+      return res.status(400).json({ error: "Shipper đã lấy hàng — không hủy được nữa" });
+    }
+    const extra = { deliveryStatus: DS.Rejected, deliveryNote: reason, shipperId: null };
+    let refund: { refundPoints: number; totalReturned: number } | null = null;
+    if (order.status === "Paid") {
+      try {
+        const r2 = await refundOrderToPoints(prisma, id, {
+          mode: "full", by: "Store", reason: `Quán hủy: ${reason}`,
+          expect: { deliveryStatus: order.deliveryStatus }, extra,
+        });
+        emitRefunded(io, r2);
+        refund = r2;
+      } catch (e) {
+        if (e instanceof RefundError) return res.status(400).json({ error: e.message });
+        throw e;
+      }
+    } else {
+      const done = await prisma.order.updateMany({
+        where: { id, deliveryStatus: order.deliveryStatus },
+        data: { ...extra, status: "Cancelled", cancelReason: reason, cancelledAt: new Date(), cancelledBy: "Store" },
+      });
+      if (done.count === 0) return res.status(400).json({ error: "Đơn đã đổi trạng thái, vui lòng tải lại." });
+    }
+    // Đơn đã gán tài xế → gỡ khỏi tuyến của tài xế đó
+    if (order.shipperId) {
+      await recomputeRoute(prisma, order.shipperId);
+      emitDeliveryChanged(io, order.storeId, [id], [order.shipperId]);
+    } else {
+      emitDeliveryChanged(io, order.storeId, [id]);
+    }
+    res.json({ ok: true, refund });
+  });
+
+  /**
+   * Quản lý quyết định hoàn tiền cho đơn giao thất bại do phía khách (refundStatus = Pending).
+   * Body: { decision: "full" | "partial" | "none", points?: number, note?: string }
+   */
+  r.post("/delivery/:id/refund-decision", auth, requireRoles("Admin"), async (req, res) => {
+    const id = Number(req.params.id);
+    const { decision, points, note } = req.body as { decision?: string; points?: number; note?: string };
+    const order = await prisma.order.findUnique({ where: { id } });
+    if (!order || !inStore(req, order) || order.orderType !== "Delivery") return res.status(404).json({ error: "Không tìm thấy đơn giao hàng" });
+    if (order.refundStatus !== "Pending") return res.status(400).json({ error: "Đơn không ở trạng thái chờ xử lý hoàn" });
+    const reason = `Giao thất bại: ${order.deliveryNote ?? ""}${note?.trim() ? ` — QL: ${note.trim()}` : ""}`;
+    if (decision === "none") {
+      await prisma.order.updateMany({ where: { id, refundStatus: "Pending" }, data: { refundStatus: "Declined", cancelReason: reason.slice(0, 255) } });
+      emitDeliveryChanged(io, order.storeId, [id]);
+      io.to(`order:${id}`).emit("order:refunded", { orderId: id, refundPoints: 0, totalReturned: 0 });
+      return res.json({ ok: true, refund: null });
+    }
+    if (decision !== "full" && decision !== "partial") return res.status(400).json({ error: "Quyết định không hợp lệ" });
+    try {
+      const r2 = await refundOrderToPoints(prisma, id, { mode: decision, by: "Manager", reason, points: Number(points) });
+      emitRefunded(io, r2);
+      emitDeliveryChanged(io, order.storeId, [id]);
+      res.json({ ok: true, refund: r2 });
+    } catch (e) {
+      if (e instanceof RefundError) return res.status(400).json({ error: e.message });
+      throw e;
+    }
   });
 
   /** Gán / đổi shipper thủ công */
@@ -268,8 +326,11 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
   r.post("/shipper/orders/:id/fail", ...shipperOnly, async (req, res) => {
     const me = (req as StaffRequest).staffRow!;
     const id = Number(req.params.id);
-    const { reason, photo } = req.body as { reason?: string; photo?: string };
-    if (!reason?.trim()) return res.status(400).json({ error: "Cần nhập lý do" });
+    const { reasonCode, reason: detail, photo } = req.body as { reasonCode?: FailReasonCode; reason?: string; photo?: string };
+    const meta = reasonCode ? FAIL_REASONS[reasonCode] : undefined;
+    if (!meta) return res.status(400).json({ error: "Chọn lý do giao thất bại" });
+    if (reasonCode === "OTHER" && !detail?.trim()) return res.status(400).json({ error: "Cần nhập lý do" });
+    const reason = detail?.trim() ? `${meta.label}: ${detail.trim()}` : meta.label;
     const order = await prisma.order.findUnique({ where: { id } });
     if (!order || !inStore(req, order) || (order.shipperId !== me.id && me.role === "Shipper")) return res.status(404).json({ error: "Không tìm thấy đơn" });
     if (order.deliveryStatus !== DS.Delivering) return res.status(400).json({ error: "Đơn chưa ở trạng thái đang giao" });
@@ -277,16 +338,41 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
     if (photo) {
       try { proofUrl = await saveDataUrlImage(photo); } catch { /* ảnh tùy chọn */ }
     }
-    await prisma.order.update({
-      where: { id },
-      data: {
-        deliveryStatus: DS.Failed,
-        deliveryNote: reason.trim(),
-        deliveryProofUrl: proofUrl,
-        routeSeq: null,
-        ...(order.status === "Paid" ? {} : { status: "Cancelled", cancelReason: `Giao thất bại: ${reason.trim()}` }),
-      },
-    });
+    const failed = { deliveryStatus: DS.Failed, deliveryNote: reason.slice(0, 255), deliveryProofUrl: proofUrl, routeSeq: null };
+    if (order.status === "Paid" && order.customerId && meta.storeFault) {
+      // Lỗi phía quán / shipper → tự hoàn 100% ra điểm
+      try {
+        const r2 = await refundOrderToPoints(prisma, id, {
+          mode: "full", by: "Shipper", reason: `Giao thất bại: ${reason}`,
+          expect: { deliveryStatus: DS.Delivering }, extra: failed,
+        });
+        emitRefunded(io, r2);
+      } catch (e) {
+        if (e instanceof RefundError) return res.status(400).json({ error: e.message });
+        throw e;
+      }
+    } else {
+      await prisma.order.update({
+        where: { id },
+        data: {
+          ...failed,
+          // Lỗi phía khách (hoặc lý do khác) → chờ quản lý quyết định hoàn
+          ...(order.status === "Paid"
+            ? { refundStatus: order.customerId ? "Pending" : null }
+            : { status: "Cancelled", cancelReason: `Giao thất bại: ${reason}`, cancelledAt: new Date(), cancelledBy: "Shipper" }),
+        },
+      });
+      if (order.status === "Paid" && order.customerId) {
+        void notify({
+          type: "DELIVERY_REFUND",
+          title: `Đơn giao #${id} thất bại — chờ quyết định hoàn tiền`,
+          body: reason,
+          link: "/app/delivery/orders",
+          storeId: order.storeId,
+          to: { storeId: order.storeId, roles: ["Admin"] },
+        });
+      }
+    }
     await recomputeRoute(prisma, me.id);
     emitDeliveryChanged(io, order.storeId, [id], [me.id]);
     await dispatchReadyOrders(prisma, io);
@@ -329,6 +415,11 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
       etaMinutes = Math.round((order.deliveryStatus === DS.Ready ? 5 : 13) + travelMinutes(haversineKm(store, dest)));
     }
 
+    // Khách còn được tự hủy (hoàn 100% ra điểm) không
+    const settings = await getStoreSettings(prisma);
+    const cancelDeadline = order.deliveryStatus === DS.AwaitingConfirm ? customerCancelDeadline(order, settings.cancelWindowMinutes) : null;
+    const cancelOpen = cancelDeadline != null && cancelDeadline.getTime() > Date.now();
+
     res.json({
       id: order.id,
       status: order.status,
@@ -355,6 +446,10 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
       subTotal: order.subTotal,
       shippingFee: order.shippingFee,
       totalAmount: order.totalAmount,
+      refundStatus: order.refundStatus,
+      refundPoints: order.refundPoints,
+      cancelUntil: cancelOpen ? cancelDeadline!.toISOString() : null,
+      refundPreview: cancelOpen ? moneyToPoints(paidMoney(order.payments), settings.pointValueVnd) + order.pointsUsed - order.pointsEarned : null,
     });
   });
 

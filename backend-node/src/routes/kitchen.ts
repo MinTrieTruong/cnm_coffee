@@ -16,19 +16,15 @@ import { mustStoreId, storeWhere, toStore } from "../lib/storeScope.js";
 import { adjustStoreStock, deductForCups, roundQty } from "../lib/inventory.js";
 import { emitLowStock, type LowStockAlert } from "../lib/realtime.js";
 import { audit } from "../lib/audit.js";
+import { announceMenuChange } from "../lib/menuEvents.js";
 
 export const WASTE_REASONS = ["SPILL", "BROKEN", "EXPIRED", "REMAKE", "OTHER"] as const;
-const REASON_LABEL: Record<string, string> = { SPILL: "Đổ", BROKEN: "Bể / vỡ", EXPIRED: "Hư / hết hạn", REMAKE: "Làm lại món", OTHER: "Khác" };
+const REASON_LABEL: Record<string, string> = { SPILL: "Đổ", BROKEN: "Bể / vỡ", EXPIRED: "Hư / hết hạn", REMAKE: "Làm lại món", OTHER: "Khác", STOCKTAKE: "Kiểm kê thiếu" };
 
 export function kitchenRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
   const kitchen = [attachStaff(prisma), requireRoles("Kitchen", "Admin"), requireStore];
   const viewers = [attachStaff(prisma), requireRoles("Kitchen", "Admin", "Warehouse")];
-
-  /** Phục vụ / POS / KDS khác cùng chi nhánh tải lại thực đơn */
-  const broadcastMenu = (storeId: number, payload: unknown) => {
-    for (const room of ["staff", "pos", "kds"] as const) toStore(io, room, storeId).emit("menu:availability", payload);
-  };
 
   r.get("/kitchen/products", ...kitchen, async (req, res) => {
     const storeId = mustStoreId(req);
@@ -76,7 +72,8 @@ export function kitchenRouter(prisma: PrismaClient, io: Server) {
     });
     const what = typeof outOfStock === "boolean" ? (outOfStock ? "Báo hết món" : "Mở bán lại") : isAvailable ? "Hiện món" : "Ẩn món";
     audit(me.id, "KITCHEN_MENU", product.name, what);
-    broadcastMenu(storeId, { productId, name: product.name, outOfStock: row.outOfStock, isAvailable: row.isAvailable });
+    // Socket cho POS / Sơ đồ bàn / KDS + thông báo cho thu ngân, phục vụ, quản lý
+    announceMenuChange({ storeIds: [storeId], productId, name: product.name, outOfStock: row.outOfStock, isAvailable: row.isAvailable, actor: me });
     res.json({ productId, outOfStock: row.outOfStock, isAvailable: row.isAvailable });
   });
 

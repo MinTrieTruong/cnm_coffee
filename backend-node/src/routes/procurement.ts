@@ -1,12 +1,12 @@
 import { Router } from "express";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { signSupplierToken } from "../lib/jwt.js";
 import { attachSupplier, type SupplierRequest } from "../middleware/supplier.js";
 import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
 import { inStore, mustStoreId, storeWhere } from "../lib/storeScope.js";
 import { adjustStoreStock } from "../lib/inventory.js";
-import { productsUsingItems, recalcProductCost } from "../lib/productCost.js";
+import { applyIncomingCost } from "../lib/productCost.js";
 import { createBill } from "../lib/cash.js";
 
 export function procurementRouter(prisma: PrismaClient) {
@@ -17,6 +17,23 @@ export function procurementRouter(prisma: PrismaClient) {
   const purchasingStore = [...purchasing, requireStore];
   const approver = [authStaff, requireRoles("Admin"), requireStore];
   const authSupp = attachSupplier(prisma);
+
+  /** Đơn mua kèm đủ dữ liệu tính số đã đặt / đã nhận của từng mặt hàng */
+  const poLinesInclude = {
+    quote: { include: { items: true, rfq: { include: { requisition: { include: { items: { include: { item: { select: { name: true, unit: true } } } } } } } } } },
+    receipts: { include: { items: true } },
+  } as const;
+  type PoWithLines = Prisma.PurchaseOrderGetPayload<{ include: typeof poLinesInclude }>;
+
+  /** Mặt hàng của đơn mua = mặt hàng trong đề xuất có báo giá; còn phải giao = đặt − đã nhận các đợt trước */
+  function orderedLines(po: PoWithLines) {
+    return po.quote.rfq.requisition.items.flatMap((pi) => {
+      const q = po.quote.items.find((x) => x.itemId === pi.itemId);
+      if (!q) return [];
+      const received = po.receipts.reduce((s, g) => s + g.items.filter((x) => x.itemId === pi.itemId).reduce((a, x) => a + x.receivedQty, 0), 0);
+      return [{ itemId: pi.itemId, name: pi.item.name, unit: pi.item.unit, ordered: pi.qty, received, remaining: Math.max(0, pi.qty - received), unitPrice: q.unitPrice }];
+    });
+  }
 
   // --- SUPPLIER PORTAL ---
 
@@ -201,43 +218,58 @@ export function procurementRouter(prisma: PrismaClient) {
   // 5. Chốt Quote -> Tạo PO
   r.post("/purchasing/rfqs/:id/select-quote", ...approver, async (req, res) => {
     const rfqId = Number(req.params.id);
-    const { quoteId } = req.body as { quoteId: number };
+    const { quoteId, allowPartial } = req.body as { quoteId: number; allowPartial?: boolean };
 
     const quote = await prisma.supplierQuote.findUnique({
       where: { id: quoteId },
-      include: { items: true, rfq: { include: { requisition: { include: { items: true } } } } }
+      include: { items: true, rfq: { include: { requisition: { include: { items: { include: { item: { select: { name: true } } } } } } } } }
     });
 
-    if (!quote || quote.rfqId !== rfqId || !inStore(req, quote.rfq.requisition)) return res.status(400).json({ error: "Invalid quote" });
-    if (quote.rfq.status === "CLOSED") return res.status(400).json({ error: "RFQ already closed" });
+    if (!quote || quote.rfqId !== rfqId || !inStore(req, quote.rfq.requisition)) return res.status(400).json({ error: "Báo giá không hợp lệ." });
+    if (quote.rfq.status === "CLOSED") return res.status(400).json({ error: "Yêu cầu báo giá đã chốt." });
 
     const pr = quote.rfq.requisition;
-    let totalAmount = 0;
-    for (const pItem of pr.items) {
-      const qItem = quote.items.find(q => q.itemId === pItem.itemId);
-      if (qItem) totalAmount += qItem.unitPrice * pItem.qty;
+    const priced = (itemId: number) => quote.items.find((q) => q.itemId === itemId && q.unitPrice > 0);
+    // Báo giá thiếu mặt hàng: không bỏ qua im lặng — quản lý xác nhận, phần thiếu sang đề xuất mua mới
+    const missing = pr.items.filter((i) => !priced(i.itemId));
+    if (missing.length === pr.items.length) return res.status(400).json({ error: "Báo giá này không có mặt hàng nào trong đề xuất." });
+    if (missing.length && !allowPartial) {
+      return res.status(409).json({ error: `Báo giá thiếu: ${missing.map((m) => m.item.name).join(", ")}.`, missing: missing.map((m) => ({ itemId: m.itemId, name: m.item.name, qty: m.qty })) });
     }
+    const totalAmount = pr.items.reduce((sum, i) => sum + (priced(i.itemId)?.unitPrice ?? 0) * i.qty, 0);
 
-    const poCount = await prisma.purchaseOrder.count();
-    const poCode = `PO-${new Date().getFullYear()}${(new Date().getMonth()+1).toString().padStart(2, '0')}-${String(poCount+1).padStart(4, '0')}`;
+    const now = new Date();
+    const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const tmp = () => `TMP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const result = await prisma.$transaction(async (tx) => {
+      // Chỉ 1 người chốt được (2 người bấm cùng lúc không tạo 2 PO)
+      const lock = await tx.requestForQuotation.updateMany({ where: { id: rfqId, status: { not: "CLOSED" } }, data: { status: "CLOSED" } });
+      if (!lock.count) return null;
+      await tx.purchaseRequisition.update({ where: { id: pr.id }, data: { status: "COMPLETED" } });
+      await tx.supplierQuote.updateMany({ where: { rfqId, id: { not: quoteId } }, data: { status: "REJECTED" } });
+      await tx.supplierQuote.update({ where: { id: quoteId }, data: { status: "SELECTED" } });
+      // Mã theo id: không trùng khi nhiều chi nhánh chốt cùng lúc
+      const po = await tx.purchaseOrder.create({ data: { code: tmp(), storeId: pr.storeId, quoteId: quote.id, supplierId: quote.supplierId, totalAmount } });
+      const poCode = `PO-${ym}-${String(po.id).padStart(4, "0")}`;
+      await tx.purchaseOrder.update({ where: { id: po.id }, data: { code: poCode } });
 
-    await prisma.$transaction([
-      prisma.requestForQuotation.update({ where: { id: rfqId }, data: { status: "CLOSED" } }),
-      prisma.purchaseRequisition.update({ where: { id: pr.id }, data: { status: "COMPLETED" } }),
-      prisma.supplierQuote.updateMany({ where: { rfqId, id: { not: quoteId } }, data: { status: "REJECTED" } }),
-      prisma.supplierQuote.update({ where: { id: quoteId }, data: { status: "SELECTED" } }),
-      prisma.purchaseOrder.create({
-        data: {
-          code: poCode,
-          storeId: pr.storeId,
-          quoteId: quote.id,
-          supplierId: quote.supplierId,
-          totalAmount
-        }
-      })
-    ]);
+      let followUp: string | null = null;
+      if (missing.length) {
+        const npr = await tx.purchaseRequisition.create({
+          data: {
+            code: tmp(), storeId: pr.storeId, staffId: pr.staffId, status: "PENDING",
+            note: `Bổ sung từ ${pr.code}: báo giá được chọn (${poCode}) thiếu các mặt hàng này`.slice(0, 255),
+            items: { create: missing.map((m) => ({ itemId: m.itemId, qty: m.qty, note: m.note })) },
+          },
+        });
+        followUp = `PR-${ym}-${String(npr.id).padStart(4, "0")}`;
+        await tx.purchaseRequisition.update({ where: { id: npr.id }, data: { code: followUp } });
+      }
+      return { poCode, followUp };
+    });
+    if (!result) return res.status(409).json({ error: "Yêu cầu báo giá vừa được người khác chốt." });
 
-    res.json({ ok: true, poCode });
+    res.json({ ok: true, ...result });
   });
 
   // 6. Lấy danh sách PO
@@ -248,128 +280,105 @@ export function procurementRouter(prisma: PrismaClient) {
         store: { select: { id: true, name: true, address: true } },
         supplier: { select: { name: true } },
         quote: { include: { items: { include: { item: { select: { name: true, unit: true } } } }, rfq: { include: { requisition: { include: { items: { include: { item: { select: { name: true, unit: true } } } } } } } } } },
-        receipts: true
+        receipts: { include: { items: true, receivedBy: { select: { fullName: true } } }, orderBy: { createdAt: "asc" } },
       },
       orderBy: { createdAt: "desc" }
     });
-    res.json(pos);
+    // lines: đặt / đã nhận / còn phải giao từng mặt hàng (nhận nhiều đợt)
+    res.json(pos.map((po) => ({ ...po, lines: orderedLines(po) })));
   });
 
-  // 7. Nhập kho (Receive PO) -> GRN & InventoryBatch
+  // 7. Nhập kho theo PO → GRN + lô hàng. Nhận được nhiều đợt (giao thiếu / giao bù), công nợ theo số thực nhận
+  //    body: { lines: [{ itemId, receivedQty, rejectedQty?, expiryDate?, note? }], note? }
+  //    (body cũ { expiries } = nhận đủ phần còn lại)
   r.post("/purchasing/orders/:id/receive", ...purchasingStore, async (req, res) => {
     const poId = Number(req.params.id);
     const staff = (req as StaffRequest).staffRow!;
-    const { expiries } = req.body as { expiries: Record<number, string> }; // itemId -> YYYY-MM-DD
+    type ReceiveLine = { itemId: number; receivedQty: number; rejectedQty?: number; expiryDate?: string | null; note?: string };
+    const body = req.body as {
+      lines?: ReceiveLine[];
+      note?: string;
+      expiries?: Record<number, string>;
+    };
 
-    const po = await prisma.purchaseOrder.findUnique({
-      where: { id: poId },
-      include: { quote: { include: { items: true, rfq: { include: { requisition: { include: { items: true } } } } } } }
-    });
+    const po = await prisma.purchaseOrder.findUnique({ where: { id: poId }, include: poLinesInclude });
+    if (!po || !inStore(req, po)) return res.status(404).json({ error: "Không tìm thấy đơn mua." });
+    if (po.status === "DELIVERED" || po.status === "CLOSED") return res.status(400).json({ error: "Đơn mua đã nhận đủ hoặc đã đóng." });
 
-    if (!po || !inStore(req, po) || po.status === "DELIVERED") return res.status(400).json({ error: "PO invalid or already received" });
+    const ordered = orderedLines(po);
+    const lines: ReceiveLine[] = body.lines ?? ordered.filter((o) => o.remaining > 0).map((o) => ({ itemId: o.itemId, receivedQty: o.remaining, expiryDate: body.expiries?.[o.itemId] ?? null }));
+    for (const l of lines) {
+      const o = ordered.find((x) => x.itemId === l.itemId);
+      if (!o) return res.status(400).json({ error: "Có mặt hàng không thuộc đơn mua này." });
+      if (!Number.isInteger(l.receivedQty) || l.receivedQty < 0) return res.status(400).json({ error: `Số nhận của ${o.name} phải là số nguyên từ 0 trở lên.` });
+      if (l.rejectedQty != null && (!Number.isInteger(l.rejectedQty) || l.rejectedQty < 0)) return res.status(400).json({ error: `Số hỏng / trả lại của ${o.name} không hợp lệ.` });
+      if (l.receivedQty > o.remaining) return res.status(400).json({ error: `${o.name}: nhận ${l.receivedQty} vượt số còn phải giao (${o.remaining}).` });
+      if (l.expiryDate && Number.isNaN(Date.parse(l.expiryDate))) return res.status(400).json({ error: `Hạn sử dụng của ${o.name} không hợp lệ.` });
+    }
+    const taking = lines.filter((l) => l.receivedQty > 0 || (l.rejectedQty ?? 0) > 0);
+    if (!taking.length) return res.status(400).json({ error: "Nhập số lượng thực nhận cho ít nhất 1 mặt hàng." });
 
-    const grnCount = await prisma.goodsReceipt.count();
-    const grnCode = `GRN-${new Date().getFullYear()}${(new Date().getMonth()+1).toString().padStart(2, '0')}-${String(grnCount+1).padStart(4, '0')}`;
-
-    await prisma.$transaction(async (tx) => {
-      await tx.purchaseOrder.update({ where: { id: poId }, data: { status: "DELIVERED" } });
-
-      const grn = await tx.goodsReceipt.create({
-        data: {
-          code: grnCode,
-          storeId: po.storeId,
-          poId,
-          receivedById: staff.id,
-          status: "COMPLETED"
-        }
+    const now = new Date();
+    const out = await prisma.$transaction(async (tx) => {
+      // Khoá đơn: chỉ 1 lượt nhận chạy tại một thời điểm (2 người cùng bấm không nhập kho 2 lần)
+      const lock = await tx.purchaseOrder.updateMany({ where: { id: poId, status: po.status, updatedAt: po.updatedAt }, data: { status: "RECEIVING" } });
+      if (!lock.count) return null;
+      const g = await tx.goodsReceipt.create({
+        data: { code: `TMP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, storeId: po.storeId, poId, receivedById: staff.id, status: "COMPLETED", note: body.note?.trim().slice(0, 500) || null },
       });
+      // Mã theo id: không trùng khi 2 chi nhánh nhận hàng cùng lúc
+      const grnCode = `GRN-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}-${String(g.id).padStart(4, "0")}`;
+      await tx.goodsReceipt.update({ where: { id: g.id }, data: { code: grnCode } });
 
-      for (const prItem of po.quote.rfq.requisition.items) {
-        const qItem = po.quote.items.find(q => q.itemId === prItem.itemId);
-        if (!qItem) continue;
-
-        const expiryDate = expiries && expiries[prItem.itemId] ? new Date(expiries[prItem.itemId]) : null;
-
-        // Lấy tồn kho + giá vốn TRƯỚC KHI nhập để tính bình quân gia quyền.
-        // Giá vốn dùng chung cả chuỗi nên tồn cũ là tổng tồn mọi chi nhánh.
-        const currentItem = await tx.inventoryItem.findUnique({
-          where: { id: prItem.itemId },
-          select: { unitCostPrice: true }
+      let billAmount = 0;
+      for (const l of taking) {
+        const o = ordered.find((x) => x.itemId === l.itemId)!;
+        const expiryDate = l.expiryDate ? new Date(l.expiryDate) : null;
+        await tx.goodsReceiptItem.create({
+          data: { grnId: g.id, itemId: l.itemId, receivedQty: l.receivedQty, rejectedQty: l.rejectedQty ?? 0, note: l.note?.trim().slice(0, 255) || null, expiryDate },
         });
-        const chainStock = await tx.storeInventory.aggregate({
-          where: { itemId: prItem.itemId },
-          _sum: { stockQty: true },
-        });
-        const oldQty = Math.max(0, chainStock._sum.stockQty ?? 0);
-        const oldCost = currentItem?.unitCostPrice ?? 0;
-        const newQty = prItem.qty;
-        const newUnitPrice = qItem.unitPrice; // Đơn giá từ báo giá nhà cung cấp
-
-        // Bình quân gia quyền: (tồn_cũ × giá_cũ + lượng_nhập × giá_nhập) / (tồn_cũ + lượng_nhập).
-        // Tồn cũ chưa có giá (0đ) thì không tính vào, lấy luôn giá nhập — tránh kéo giá vốn xuống vô lý.
-        const totalQtyAfter = oldQty + newQty;
-        const weightedAvgCost = oldCost > 0 && totalQtyAfter > 0
-          ? Math.round((oldQty * oldCost + newQty * newUnitPrice) / totalQtyAfter)
-          : newUnitPrice;
-
-        await tx.inventoryItem.update({
-          where: { id: prItem.itemId },
-          data: { unitCostPrice: weightedAvgCost },
-        });
-        // Giá nhập đổi → giá vốn các món dùng nguyên liệu này đổi theo
-        await recalcProductCost(tx, await productsUsingItems(tx, [prItem.itemId]));
-
-        await adjustStoreStock(tx, {
-          storeId: po.storeId,
-          itemId: prItem.itemId,
-          qtyChange: prItem.qty,
-          type: "RECEIVE",
-          referenceId: grnCode,
-        });
-
-        const gri = await tx.goodsReceiptItem.create({
+        if (l.receivedQty <= 0) continue;
+        billAmount += l.receivedQty * o.unitPrice;
+        // Giá nhập bình quân (tính trước khi cộng tồn) → giá vốn món đổi theo
+        await applyIncomingCost(tx, l.itemId, l.receivedQty, o.unitPrice);
+        await adjustStoreStock(tx, { storeId: po.storeId, itemId: l.itemId, qtyChange: l.receivedQty, type: "RECEIVE", referenceId: grnCode });
+        // Lô hàng (bảng lô chung với nhập tay): có hạn dùng → cảnh báo sắp hết hạn, trừ dần khi xuất kho
+        await tx.stockReceipt.create({
           data: {
-            grnId: grn.id,
-            itemId: prItem.itemId,
-            receivedQty: prItem.qty,
-            expiryDate
-          }
-        });
-
-        await tx.inventoryBatch.create({
-          data: {
-            storeId: po.storeId,
-            itemId: prItem.itemId,
-            grnItemId: gri.id,
-            originalQty: prItem.qty,
-            remainingQty: prItem.qty,
-            expiryDate
-          }
+            storeId: po.storeId, itemId: l.itemId, qty: l.receivedQty, remainingQty: l.receivedQty, expiryDate,
+            source: "PO", supplierId: po.supplierId, unitPrice: o.unitPrice, note: `${grnCode} · ${po.code}`, receivedById: staff.id,
+          },
         });
       }
 
-      // Công nợ phải trả NCC = số lượng thực nhận × đơn giá báo giá, hạn trả theo kỳ hạn của NCC
-      const billAmount = po.quote.rfq.requisition.items.reduce((sum, prItem) => {
-        const qItem = po.quote.items.find((q) => q.itemId === prItem.itemId);
-        return qItem ? sum + prItem.qty * qItem.unitPrice : sum;
-      }, 0);
+      // Công nợ phải trả NCC = số thực nhận × đơn giá báo giá, hạn trả theo kỳ hạn của NCC
       if (billAmount > 0) {
         const supplier = await tx.supplier.findUniqueOrThrow({ where: { id: po.supplierId }, select: { paymentTermDays: true } });
-        const now = new Date();
         await createBill(tx, {
-          storeId: po.storeId,
-          supplierId: po.supplierId,
-          source: "GRN",
-          grnId: grn.id,
-          amount: billAmount,
-          billDate: now,
-          dueDate: new Date(now.getTime() + supplier.paymentTermDays * 86400_000),
-          note: `Nhận hàng ${grnCode} theo ${po.code}`,
-          createdById: staff.id,
+          storeId: po.storeId, supplierId: po.supplierId, source: "GRN", grnId: g.id, amount: billAmount,
+          billDate: now, dueDate: new Date(now.getTime() + supplier.paymentTermDays * 86400_000),
+          note: `Nhận hàng ${grnCode} theo ${po.code}`, createdById: staff.id,
         });
       }
-    });
 
+      const left = ordered.reduce((s, o) => s + Math.max(0, o.remaining - (taking.find((l) => l.itemId === o.itemId)?.receivedQty ?? 0)), 0);
+      const status = left > 0 ? "PARTIAL" : "DELIVERED";
+      await tx.purchaseOrder.update({ where: { id: poId }, data: { status } });
+      return { grnCode, billAmount, status };
+    });
+    if (!out) return res.status(409).json({ error: "Đơn mua vừa được người khác nhận hàng. Tải lại để xem số còn phải giao." });
+
+    res.json({ ok: true, ...out });
+  });
+
+  // 7b. Đóng đơn mua giao thiếu: không nhận thêm (phần thiếu không tính công nợ)
+  r.post("/purchasing/orders/:id/close", ...approver, async (req, res) => {
+    const note = (req.body as { note?: string }).note?.trim();
+    if (!note) return res.status(400).json({ error: "Ghi lý do đóng đơn (VD: NCC hết hàng, không giao bù)." });
+    const po = await prisma.purchaseOrder.findUnique({ where: { id: Number(req.params.id) } });
+    if (!po || !inStore(req, po)) return res.status(404).json({ error: "Không tìm thấy đơn mua." });
+    const done = await prisma.purchaseOrder.updateMany({ where: { id: po.id, status: { in: ["PENDING", "PARTIAL"] } }, data: { status: "CLOSED", closeNote: note.slice(0, 500) } });
+    if (!done.count) return res.status(400).json({ error: "Đơn mua đã nhận đủ hoặc đã đóng." });
     res.json({ ok: true });
   });
 

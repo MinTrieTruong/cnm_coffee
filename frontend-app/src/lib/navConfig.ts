@@ -5,11 +5,14 @@
  * Thêm vai trò mới (vd "ChainOwner", "BranchManager"): thêm một mục vào NAV_BY_ROLE.
  */
 import {
+  BarChart3,
   Bike,
   ArrowRightLeft,
   CalendarCheck,
+  CalendarPlus,
   CalendarDays,
   ChefHat,
+  ClipboardCheck,
   ClipboardList,
   Clock,
   Coffee,
@@ -20,6 +23,7 @@ import {
   LayoutDashboard,
   LayoutGrid,
   ListChecks,
+  ListTodo,
   Map as MapIcon,
   MessageSquare,
   Monitor,
@@ -34,11 +38,33 @@ import {
   Wallet,
   Warehouse,
   type LucideIcon,
+  Send,
 } from "lucide-react";
 import { canSee, firstPathOf, locate, visibleApps } from "../apps/registry";
 
 /** Nguồn số badge (lấy từ socket / API hiện có — xem lib/navBadges.ts) */
-export type BadgeKey = "cart" | "kds" | "deliveryNew" | "shipperOrders";
+export type BadgeKey =
+  | "cart"
+  | "kds"
+  | "deliveryNew"
+  | "shipperOrders"
+  | "tasks"
+  // Ca trống mình nhận được (GET /api/schedule/open)
+  | "openShifts"
+  | "attendance"
+  // Thông báo chưa đọc (lib/notifications)
+  | "notifications"
+  // Việc chờ xử lý (GET /api/admin/stats → pending)
+  | "approvals"
+  | "purchase"
+  | "proposals"
+  | "lowStock"
+  | "transfers"
+  | "urgentStock"
+  // Đề xuất chi nhánh: Chủ chuỗi — chờ duyệt · Quản lý — cần bổ sung
+  | "branchProposals"
+  // Phiếu kiểm kê chờ quản lý duyệt
+  | "inventoryCounts";
 
 export type NavItem = {
   id: string;
@@ -69,21 +95,26 @@ const withView = (path: string, view: string | null) => (p: string, s: string) =
 /* ─────────── Mục dùng chung ─────────── */
 const I: Record<string, NavItem> = {
   home: { id: "home", label: "Trang chủ", short: "Trang chủ", icon: Home, to: "/app/overview/home" },
-  attendance: { id: "attendance", label: "Chấm công", short: "Chấm công", icon: Clock, to: "/app/hr/attendance" },
+  // Badge "attendance" = 1 khi tới giờ ca mà chưa chấm công (lib/attendanceReminder)
+  attendance: { id: "attendance", label: "Chấm công", short: "Chấm công", icon: Clock, to: "/app/hr/attendance", badge: "attendance" },
+  myTasks: { id: "my-tasks", label: "Việc được giao", short: "Việc", icon: ListTodo, to: "/app/hr/my-tasks", badge: "tasks" },
+  openShifts: { id: "open-shifts", label: "Ca trống cần người", short: "Ca trống", icon: CalendarPlus, to: "/app/hr/open-shifts", badge: "openShifts" },
+  tasks: { id: "tasks", label: "Giao việc", short: "Giao việc", icon: ClipboardCheck, to: "/app/hr/tasks" },
   floor: { id: "floor", label: "Sơ đồ bàn", short: "Bàn", icon: LayoutGrid, to: "/app/tables/floor" },
   orderStatus: { id: "order-status", label: "Trạng thái món", short: "Món", icon: ListChecks, to: "/app/tables/order-status" },
   chat: { id: "chat", label: "Tin nhắn", short: "Tin nhắn", icon: MessageSquare, to: "/app/tables/chat" },
   pos: { id: "pos", label: "Thu ngân (POS)", short: "POS", icon: Monitor, to: "/pos" },
   onlineOrders: { id: "delivery-orders", label: "Đơn online / giao hàng", short: "Đơn online", icon: Bike, to: "/app/delivery/orders", badge: "deliveryNew" },
+  kitchenStats: { id: "kitchen-stats", label: "Thống kê pha chế", short: "Thống kê", icon: BarChart3, to: "/app/kitchen/stats" },
   kds: { id: "kds", label: "Pha chế (KDS)", short: "KDS", icon: ChefHat, to: "/app/kitchen/kds", badge: "kds" },
   schedule: { id: "schedule", label: "Bảng lịch tổng", short: "Lịch", icon: CalendarDays, to: "/app/hr/schedule" },
   // Shipper: 3 tab cùng một màn hình, phân biệt bằng ?view= (chưa có route riêng)
   shipOrders: { id: "ship-orders", label: "Đơn giao", short: "Đơn giao", icon: Package, to: "/app/delivery/shipper", match: withView("/app/delivery/shipper", null), badge: "shipperOrders" },
   shipMap: { id: "ship-map", label: "Bản đồ tuyến", short: "Bản đồ", icon: MapIcon, to: "/app/delivery/shipper?view=map", match: withView("/app/delivery/shipper", "map") },
   shipHistory: { id: "ship-history", label: "Lịch sử giao", short: "Lịch sử", icon: History, to: "/app/delivery/shipper?view=history", match: withView("/app/delivery/shipper", "history") },
-  purchase: { id: "purchase", label: "Mua hàng", short: "Mua hàng", icon: ShoppingCart, to: "/app/purchase/orders" },
+  purchase: { id: "purchase", label: "Mua hàng", short: "Mua hàng", icon: ShoppingCart, to: "/app/purchase/orders", badge: "purchase" },
   suppliers: { id: "suppliers", label: "Nhà cung cấp", short: "NCC", icon: Truck, to: "/app/purchase/suppliers" },
-  stock: { id: "stock", label: "Tồn kho", short: "Tồn kho", icon: Warehouse, to: "/app/inventory/stock" },
+  stock: { id: "stock", label: "Tồn kho", short: "Tồn kho", icon: Warehouse, to: "/app/inventory/stock", badge: "lowStock" },
   // Quản lý: "Tổng quan / Kho / Nhân sự" khớp theo cả app
   overview: { id: "overview", label: "Tổng quan", short: "Tổng quan", icon: LayoutDashboard, to: "/app/overview/dashboard", match: (p: string) => startsWith("/app/overview")(p) && p !== "/app/overview/home" },
   // "Đơn hàng" chưa có màn riêng → màn đơn chờ thanh toán / đơn giao của POS
@@ -91,9 +122,10 @@ const I: Record<string, NavItem> = {
   inventoryApp: { id: "inventory", label: "Kho", short: "Kho", icon: Warehouse, to: "/app/inventory/stock", match: startsWith("/app/inventory") },
   products: { id: "products", label: "Thực đơn & giá", short: "Thực đơn", icon: Coffee, to: "/app/sales/products" },
   employees: { id: "employees", label: "Nhân viên", short: "Nhân viên", icon: UsersRound, to: "/app/hr/employees" },
-  approvals: { id: "approvals", label: "Duyệt đơn từ", short: "Duyệt", icon: FileCheck, to: "/app/hr/approvals" },
+  approvals: { id: "approvals", label: "Duyệt đơn từ", short: "Duyệt", icon: FileCheck, to: "/app/hr/approvals", badge: "approvals" },
   urgentStock: { id: "urgent-stock", label: "Cần hàng gấp", short: "Hàng gấp", icon: ClipboardList, to: "/app/inventory/urgent" },
   transfers: { id: "transfers", label: "Chuyển kho", short: "Chuyển kho", icon: ArrowRightLeft, to: "/app/inventory/transfers" },
+  branchProposals: { id: "branch-proposals", label: "Đề xuất chi nhánh", short: "Đề xuất", icon: Send, to: "/app/overview/branch-proposals", badge: "branchProposals" },
   storesCompare: { id: "stores-compare", label: "So sánh chi nhánh", short: "Chi nhánh", icon: Store, to: "/app/overview/compare" },
   stores: { id: "stores", label: "Quản lý chi nhánh", short: "Chi nhánh", icon: Store, to: "/app/settings/stores" },
   hrApp: { id: "hr", label: "Nhân sự", short: "Nhân sự", icon: UsersRound, to: "/app/hr/employees", match: (p: string) => startsWith("/app/hr")(p) && !["/app/hr/attendance", "/app/hr/schedule"].includes(p) },
@@ -101,6 +133,8 @@ const I: Record<string, NavItem> = {
 
 /** Luôn có trong "Thêm" của mọi nhân viên (Đổi mật khẩu & Đăng xuất là hành động, do BottomNav vẽ) */
 export const STAFF_COMMON_MORE: NavItem[] = [
+  I.myTasks,
+  I.openShifts,
   { id: "my-schedule", label: "Lịch cá nhân", short: "Lịch", icon: CalendarCheck, to: "/app/hr/my-schedule" },
   { id: "my-requests", label: "Đề xuất cá nhân", short: "Đề xuất", icon: FileText, to: "/app/hr/requests" },
   { id: "payslips", label: "Phiếu lương", short: "Lương", icon: Wallet, to: "/app/hr/payslips" },
@@ -111,14 +145,14 @@ export const NAV_BY_ROLE: Record<string, RoleNav> = {
   Waiter: { primary: [I.home, I.floor, I.orderStatus, I.attendance], more: [I.chat] },
   Cashier: { primary: [I.home, I.pos, I.onlineOrders, I.attendance], more: [I.floor, I.chat, I.schedule] },
   // Pha chế chỉ tập trung pha chế: hết món / hao hụt / đề xuất món đều nằm trong màn KDS
-  Kitchen: { primary: [I.home, I.kds, I.schedule, I.attendance], more: [] },
+  Kitchen: { primary: [I.home, I.kds, I.schedule, I.attendance], more: [I.kitchenStats] },
   Shipper: { primary: [I.home, I.shipOrders, I.shipMap, I.attendance], more: [I.shipHistory, I.schedule] },
   // Thủ kho kiểm tồn hằng ngày, sắp hết thì đặt mua hoặc nhờ chi nhánh khác chuyển gấp
   Warehouse: { primary: [I.home, I.stock, I.purchase, I.attendance], more: [I.urgentStock, I.transfers, I.suppliers] },
   // Quản lý chi nhánh: duyệt & lịch; thao tác ca nằm ở nhóm "Theo dõi ca" của Trang chủ
-  Admin: { primary: [I.home, I.approvals, I.schedule, I.attendance], more: [I.overview, I.inventoryApp, I.employees], moreAllApps: true },
+  Admin: { primary: [I.home, I.approvals, I.schedule, I.attendance], more: [I.tasks, I.branchProposals, I.overview, I.inventoryApp, I.employees], moreAllApps: true },
   // Chủ chuỗi: việc của cả chuỗi
-  Owner: { primary: [I.home, I.storesCompare, I.products, I.employees], more: [I.stores, I.overview], moreAllApps: true },
+  Owner: { primary: [I.home, I.storesCompare, I.products, I.employees], more: [I.branchProposals, I.stores, I.overview], moreAllApps: true },
 };
 
 /** Tab khách hàng (tối đa 5, không có "Thêm") */

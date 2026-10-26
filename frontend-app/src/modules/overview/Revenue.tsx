@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Download, Search } from "lucide-react";
 import { staffApi, staffDownloadBlob } from "../../lib/staffApi";
-import { Alert, Badge, Button, ControlPanel, Kpi, ListView, errMsg, fmtDateTime, formatVnd } from "../../components/erp";
+import { Alert, Badge, Button, ControlPanel, Kpi, ListView, errMsg, fmtDateTime, formatVnd, ymd } from "../../components/erp";
 import { useResource } from "../shared";
 
 type RevenueReport = {
@@ -38,7 +38,7 @@ async function saveBlob(path: string, filename: string) {
 }
 
 const vnd = (n: number | undefined) => (typeof n === "number" ? formatVnd(n) : "—");
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => ymd(new Date());
 
 export function Revenue() {
   const rev = useResource<RevenueReport | null>("/api/admin/reports/revenue", null);

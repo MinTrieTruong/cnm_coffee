@@ -4,7 +4,7 @@ import type { Server } from "socket.io";
 import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
 import { inStore, storeWhere, toStore } from "../lib/storeScope.js";
 import { computeBill, computePointsEarned, getStoreSettings, roundCashAmount } from "../lib/pricing.js";
-import { rankTierFromLifetimeSpend } from "../lib/rank.js";
+import { settlePaidPoints } from "../lib/points.js";
 import { deductInventoryForOrder } from "../lib/inventory.js";
 import { releaseOrderToKitchen } from "../lib/delivery.js";
 
@@ -63,7 +63,8 @@ export function posRouter(prisma: PrismaClient, io: Server) {
           { status: "Confirmed" },
           { status: "Pending_Grace" },
           { status: "Waiting_Pay" },
-          { status: "Paid", payments: { some: { shiftId: null } } },
+          // Đơn trả online chưa gắn ca (dòng hoàn ra điểm không cần thu ngân xác nhận)
+          { status: "Paid", payments: { some: { shiftId: null, method: { not: "PointsRefund" } } } },
         ]
       },
       include: {
@@ -195,6 +196,8 @@ export function posRouter(prisma: PrismaClient, io: Server) {
           pointsUsed: pointsToUse,
           pointsRedeemAmt,
           cancelReason: null,
+          paidAt: new Date(),
+          voucherCode,
         },
       });
       // Deduct inventory
@@ -208,19 +211,7 @@ export function posRouter(prisma: PrismaClient, io: Server) {
       }
       // Cập nhật điểm + rank khách
       if (order.customerId && order.customer) {
-        const prevPaid = await tx.order.aggregate({
-          where: { customerId: order.customerId, status: "Paid" },
-          _sum: { totalAmount: true },
-        });
-        const lifetimeAfter = (prevPaid._sum.totalAmount ?? 0) + displayTotal;
-        const rankTier = rankTierFromLifetimeSpend(lifetimeAfter);
-        await tx.customer.update({
-          where: { id: order.customerId },
-          data: {
-            points: order.customer.points - pointsToUse + pointsEarned,
-            rankTier,
-          },
-        });
+        await settlePaidPoints(tx, { customerId: order.customerId, orderId, pointsUsed: pointsToUse, pointsEarned });
       }
       if (order.tableId) {
         await tx.cafeTable.update({
@@ -274,7 +265,7 @@ export function posRouter(prisma: PrismaClient, io: Server) {
 
     // Cập nhật payment
     await prisma.payment.updateMany({
-      where: { orderId, shiftId: null },
+      where: { orderId, shiftId: null, method: { not: "PointsRefund" } },
       data: { shiftId: shift.id },
     });
 
