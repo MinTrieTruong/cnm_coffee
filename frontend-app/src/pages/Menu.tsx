@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, mediaUrl, calculateFinalPrice, type MenuResponse, type Product } from "../lib/api";
 import {
   getTableId,
@@ -30,15 +30,21 @@ export function Menu() {
   const [data, setData] = useState<MenuResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // ?category=<id> (pop up / liên kết ngoài) → lọc sẵn danh mục
+  const [params] = useSearchParams();
+  const catParam = params.get("category");
   const [filters, setFilters] = useState<FilterState>({
     search: "",
-    categoryId: "all",
+    categoryId: catParam && /^\d+$/.test(catParam) ? Number(catParam) : "all",
     minPrice: "",
     maxPrice: "",
     tags: []
   });
   
   const catSectionRefs = useRef<Record<number, HTMLElement | null>>({});
+  useEffect(() => {
+    if (catParam && /^\d+$/.test(catParam)) setFilters((f) => ({ ...f, categoryId: Number(catParam) }));
+  }, [catParam]);
 
   const user = getUser();
   const guest = isGuestMode();

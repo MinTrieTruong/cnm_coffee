@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
+import { getUser, isGuestMode } from "../lib/session";
 import { Ticket, Clock, Tag, ChevronRight, Gift, Zap } from "lucide-react";
 
 type Voucher = {
@@ -137,6 +138,62 @@ function VoucherCard({ v }: { v: Voucher }) {
   );
 }
 
+/** Voucher được mở sẵn từ pop up / liên kết: /promotions?voucher=<id> — có nút "Lưu vào ví" */
+function VoucherSpotlight({ id }: { id: string }) {
+  const nav = useNavigate();
+  const loc = useLocation();
+  const [v, setV] = useState<Voucher | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
+  const box = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (v) box.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [v]);
+  useEffect(() => {
+    api<Voucher>(`/api/popups/voucher/${id}`).then(setV).catch((e) => setErr(e instanceof Error ? e.message : "Voucher không còn hiệu lực."));
+  }, [id]);
+  if (err) return <div style={{ padding: "1rem 1.25rem", borderRadius: 16, border: "1px solid var(--border)", background: "var(--surface)", color: "var(--muted)", marginBottom: "2rem" }}>{err}</div>;
+  if (!v) return null;
+  const personal = v.voucherType === "personal";
+  async function save() {
+    if (isGuestMode() || !getUser()) {
+      nav(`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`);
+      return;
+    }
+    setState("saving");
+    try {
+      await api("/api/vouchers/claim", { method: "POST", body: JSON.stringify({ voucherId: v!.id }) });
+      setState("saved");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Không lưu được voucher.";
+      if (/đã lưu/i.test(msg)) setState("saved");
+      else {
+        setErr(msg);
+        setState("idle");
+      }
+    }
+  }
+  return (
+    <section ref={box} style={{ marginBottom: "2.5rem", padding: "1.25rem", borderRadius: 20, border: "2px solid var(--accent)", background: "var(--surface)", display: "flex", flexWrap: "wrap", gap: "1rem", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ display: "flex", gap: "1rem", alignItems: "center", minWidth: 0 }}>
+        <div style={{ width: 56, height: 56, borderRadius: 16, background: "var(--accent)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Ticket size={26} /></div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: "1.25rem", color: "var(--text)" }}>Giảm {formatVnd(v.discountValue)}</div>
+          <div className="subtle">{v.description ?? `Mã ${v.code}`} · đơn từ {formatVnd(v.minBillValue)} · đến {formatDate(v.endDate)}</div>
+          <div style={{ fontFamily: "monospace", fontWeight: 700, letterSpacing: "0.08em", color: "var(--accent)", marginTop: 4 }}>{v.code}</div>
+        </div>
+      </div>
+      {personal ? (
+        <button type="button" className="btn btn-primary" disabled={state !== "idle"} onClick={() => void save()} style={{ minHeight: 48, padding: "0 1.5rem", borderRadius: 12, background: "var(--accent)", color: "#fff", border: 0, fontWeight: 700 }}>
+          {state === "saved" ? "Đã lưu vào ví" : state === "saving" ? "Đang lưu…" : "Lưu vào ví"}
+        </button>
+      ) : (
+        <span className="subtle">Nhập mã khi thanh toán</span>
+      )}
+    </section>
+  );
+}
+
 /** Ưu đãi số lượng đang chạy — GET /api/promotions/active (tự áp khi đặt đủ số ly, không cần mã) */
 type BulkPromo = {
   id: number; name: string; description: string | null; endAt: string;
@@ -147,6 +204,8 @@ type BulkPromo = {
 const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
 export function Promotions() {
+  const [params] = useSearchParams();
+  const spotlight = params.get("voucher");
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [bulk, setBulk] = useState<BulkPromo[]>([]);
   useEffect(() => {
@@ -191,6 +250,7 @@ export function Promotions() {
       </div>
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 1.5rem 4rem" }}>
+        {spotlight && /^\d+$/.test(spotlight) && <VoucherSpotlight id={spotlight} />}
         {bulk.length > 0 && (
           <section style={{ marginBottom: "3rem" }}>
             <h2 style={{ fontFamily: "var(--font-display)", color: "var(--text)", display: "flex", alignItems: "center", gap: 8 }}><Gift size={22} color="var(--accent)" /> Mua càng nhiều càng ưu đãi</h2>

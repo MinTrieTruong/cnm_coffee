@@ -6,6 +6,7 @@ import { LogoMark } from "./LogoMark";
 import { BottomNav } from "./BottomNav";
 import { customerNav } from "../lib/navConfig";
 import { canGoBackInApp } from "../lib/appHistory";
+import { PopupHost } from "./popup/PopupHost";
 
 const CONTACT = {
   phone: "0389730362",
@@ -147,6 +148,7 @@ export function PublicLayout() {
 
       <main className="site-main">
         <Outlet />
+        <PopupHost />
       </main>
 
       <BottomNav items={customerNav(loggedIn)} badges={{ cart: cartCount }} hidden={!showTabBar} />
