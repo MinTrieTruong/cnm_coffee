@@ -100,6 +100,7 @@ const StoreSettings = L(() => import("../modules/settings/StoreSettings"), "Stor
 const AuditLog = L(() => import("../modules/settings/AuditLog"), "AuditLog");
 const StoreList = L(() => import("../modules/settings/Stores"), "StoreList");
 const StoreForm = L(() => import("../modules/settings/Stores"), "StoreForm");
+const ContactButtons = L(() => import("../modules/settings/ContactButtons"), "ContactButtons");
 const GamesHub = L(() => import("../modules/games/GamesHub"), "GamesHub");
 const GameCampaignDetail = L(() => import("../modules/games/GameCampaignDetail"), "GameCampaignDetail");
 const WinnersPage = L(() => import("../modules/games/WinnerList"), "WinnersPage");
@@ -339,6 +340,7 @@ export const APPS: AppDef[] = [
     icon: Cog,
     menus: [
       { id: "stores", label: "Chi nhánh", description: "Thông tin, vị trí và giờ mở cửa chi nhánh", roles: CHAIN_AND_BRANCH, component: StoreList, form: StoreForm, layout: "erp" },
+      { id: "contact", label: "Nút liên hệ", description: "Nút Gọi ngay, Zalo, Messenger nổi ở góc trang khách — dán link, bật tắt, sắp thứ tự", roles: CHAIN_AND_BRANCH, component: ContactButtons, layout: "erp" },
       { id: "store", label: "Cài đặt chung", description: "Thông tin chuỗi, thuế, điểm thưởng, thanh toán", roles: OWNER, component: StoreSettings, layout: "erp" },
       { id: "audit", label: "Nhật ký hệ thống", description: "Lịch sử thao tác của nhân viên", roles: CHAIN_AND_BRANCH, component: AuditLog, layout: "erp" },
     ],

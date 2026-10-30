@@ -103,16 +103,17 @@ export async function staffApi<T>(path: string, init?: RequestInit): Promise<T> 
       throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
     }
     let msg = res.statusText;
-    let fields: Record<string, string> | undefined;
+    const extra: { fields?: Record<string, string>; rows?: Record<number, Record<string, string>> } = {};
     try {
-      const j = (await res.json()) as { error?: string; fields?: Record<string, string> };
+      const j = (await res.json()) as { error?: string; fields?: Record<string, string>; rows?: Record<number, Record<string, string>> };
       if (j.error) msg = j.error;
-      fields = j.fields;
+      if (j.fields) extra.fields = j.fields;
+      if (j.rows) extra.rows = j.rows;
     } catch {
       /* ignore */
     }
-    // `fields`: lỗi theo từng ô của form (vd pop up) — form hiện dưới từng ô
-    throw Object.assign(new Error(msg), fields ? { fields } : {});
+    // `fields`: lỗi theo từng ô của form (vd pop up); `rows`: lỗi theo từng dòng của bảng (vd nút liên hệ)
+    throw Object.assign(new Error(msg), extra);
   }
   if (res.status === 204) return undefined as T;
   const ct = res.headers.get("Content-Type") ?? "";
