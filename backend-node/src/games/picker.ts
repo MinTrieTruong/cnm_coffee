@@ -75,6 +75,12 @@ export async function pickPrize(
   prizes: GamePrize[],
   ctx: { customerId: number; storeId: number | null },
 ): Promise<GamePrize | null> {
+  // Khoá mọi giải của chiến dịch theo thứ tự id trước khi chọn: các lượt cùng chiến dịch xếp hàng lần lượt,
+  // không bao giờ khoá chéo (deadlock) dù giải bị chọn lại theo thứ tự ngẫu nhiên
+  const campaignId = prizes[0]?.campaignId;
+  if (campaignId != null) {
+    await tx.$queryRaw(Prisma.sql`SELECT Prize_ID FROM Game_Prizes WHERE Campaign_ID = ${campaignId} ORDER BY Prize_ID FOR UPDATE`);
+  }
   let pool = prizes.filter((p) => p.isActive && weightOf(p) > 0);
   while (pool.length) {
     const chosen = weightedPick(pool, weightOf)!;

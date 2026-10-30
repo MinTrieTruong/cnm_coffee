@@ -36,6 +36,8 @@ import { stockRequestsRouter } from "./routes/stockRequests.js";
 import { menuProposalsRouter } from "./routes/menuProposals.js";
 import { searchInsightsRouter } from "./routes/searchInsights.js";
 import { promotionsRouter } from "./routes/promotions.js";
+import { gamesRouter } from "./routes/games.js";
+import { startGiftClaimExpiryJob } from "./games/service.js";
 import { startSearchLogCleanup } from "./lib/searchInsights.js";
 import { branchProposalsRouter } from "./routes/branchProposals.js";
 import { inventoryCountsRouter } from "./routes/inventoryCounts.js";
@@ -123,6 +125,7 @@ app.use("/api", stockRequestsRouter(prisma, io));
 app.use("/api", menuProposalsRouter(prisma, io));
 app.use("/api", searchInsightsRouter(prisma));
 app.use("/api", promotionsRouter(prisma));
+app.use("/api", gamesRouter(prisma));
 app.use("/api", branchProposalsRouter(prisma, io));
 app.use("/api", inventoryCountsRouter(prisma, io));
 app.use("/api", hrRequestsRouter(prisma, io));
@@ -162,6 +165,7 @@ startNotificationCleanup();
 startOpenShiftJob();
 startBackorderReminder(prisma);
 startSearchLogCleanup(prisma);
+startGiftClaimExpiryJob(prisma);
 
 const port = Number(process.env.PORT) || 4000;
 

@@ -1,11 +1,12 @@
-import type { GameCampaign, PrismaClient } from "@prisma/client";
+import { Prisma, type GameCampaign, type PrismaClient } from "@prisma/client";
 import { bizDayStart, bizToday } from "../lib/bizTime.js";
 import { GAME_HANDLERS, READY_GAMES } from "./registry.js";
 import { grantReward } from "./rewards.js";
 import type { Tx } from "./types.js";
 
-/** Lỗi nghiệp vụ trả về cho khách / nhân viên (400) */
-export class GameError extends Error {}
+import { GameError } from "./errors.js";
+
+export { GameError };
 
 export const isRunning = (c: Pick<GameCampaign, "isActive" | "startAt" | "endAt" | "gameType">, now = new Date()) =>
   c.isActive && c.startAt <= now && c.endAt >= now && READY_GAMES.includes(c.gameType);
@@ -86,22 +87,23 @@ export async function playCampaign(prisma: PrismaClient, args: { campaignId: num
   if (sum.playedToday >= campaign.maxPlaysPerDay) throw new GameError(`Hôm nay bạn đã chơi đủ ${campaign.maxPlaysPerDay} lượt, quay lại vào ngày mai nhé.`);
   if (!sum.tickets) throw new GameError("Bạn đã hết lượt chơi.");
 
-  const ticket = await prisma.gameTicket.findFirst({
-    where: { campaignId: campaign.id, customerId: args.customerId, status: "UNUSED", expiresAt: { gt: new Date() } },
-    orderBy: { createdAt: "asc" },
-  });
-  if (!ticket) throw new GameError("Bạn đã hết lượt chơi.");
-  const orderStore = ticket.orderId
-    ? (await prisma.order.findUnique({ where: { id: ticket.orderId }, select: { storeId: true } }))?.storeId ?? null
-    : null;
-  const storeId = args.storeId ?? orderStore;
   const handler = GAME_HANDLERS[campaign.gameType];
 
-  return prisma.$transaction(
+  return withDeadlockRetry(() => prisma.$transaction(
     async (tx) => {
       const now = new Date();
-      const lock = await tx.gameTicket.updateMany({ where: { id: ticket.id, status: "UNUSED" }, data: { status: "USED", usedAt: now } });
-      if (!lock.count) throw new GameError("Lượt này vừa được dùng, vui lòng thử lại.");
+      // Lấy 1 vé chưa dùng và khoá luôn; SKIP LOCKED: khách bấm quay liên tục thì mỗi request lấy một vé khác, không tranh nhau
+      const [ticket] = await tx.$queryRaw<{ id: number; orderId: number | null }[]>(
+        Prisma.sql`SELECT Ticket_ID AS id, Order_ID AS orderId FROM Game_Tickets
+                   WHERE Campaign_ID = ${campaign.id} AND Customer_ID = ${args.customerId} AND Status = 'UNUSED' AND Expires_At > ${now}
+                   ORDER BY Ticket_ID LIMIT 1 FOR UPDATE SKIP LOCKED`,
+      );
+      if (!ticket) throw new GameError("Bạn đã hết lượt chơi.");
+      await tx.gameTicket.update({ where: { id: ticket.id }, data: { status: "USED", usedAt: now } });
+      const orderStore = ticket.orderId
+        ? (await tx.order.findUnique({ where: { id: ticket.orderId }, select: { storeId: true } }))?.storeId ?? null
+        : null;
+      const storeId = args.storeId ?? orderStore;
 
       const { prize, data } = await handler.play(tx, { campaign, customerId: args.customerId, storeId });
       const play = await tx.gamePlay.create({
@@ -141,8 +143,25 @@ export async function playCampaign(prisma: PrismaClient, args: { campaignId: num
         giftClaim: granted.giftClaim ? { ...granted.giftClaim, store } : null,
       };
     },
-    { timeout: 15_000 },
-  );
+    // READ COMMITTED: không khoá khoảng trống index (tránh deadlock giữa chọn vé ↔ đổi trạng thái vé);
+    // các lệnh SELECT … FOR UPDATE vẫn đọc số mới nhất nên không vượt số lượng giải
+    { timeout: 15_000, maxWait: 10_000, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
+  ));
+}
+
+/** MySQL báo deadlock / xung đột ghi (P2034, mã 1213) → transaction đã rollback trọn vẹn, thử lại vài lần sau một khoảng chờ ngẫu nhiên */
+async function withDeadlockRetry<T>(fn: () => Promise<T>, tries = 5): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const err = e as { code?: string; message?: string; meta?: { code?: string; message?: string } };
+      const retryable =
+        err.code === "P2034" || err.meta?.code === "1213" || /1213|Deadlock|write conflict/i.test(`${err.message ?? ""} ${err.meta?.message ?? ""}`);
+      if (!retryable || i >= tries) throw e;
+      await new Promise((r) => setTimeout(r, 30 + Math.random() * 120));
+    }
+  }
 }
 
 /* ═══════════════ Nhận quà tại quầy ═══════════════ */

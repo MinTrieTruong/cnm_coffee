@@ -1,3 +1,4 @@
+import { GameError } from "../errors.js";
 import { pickPrize } from "../picker.js";
 import type { CampaignWithPrizes, GameHandler } from "../types.js";
 
@@ -16,15 +17,15 @@ export const wheelHandler: GameHandler = {
     const c = (raw ?? {}) as Partial<WheelConfig>;
     const wheelColor = c.wheelColor ?? WHEEL_DEFAULTS.wheelColor;
     const borderColor = c.borderColor ?? WHEEL_DEFAULTS.borderColor;
-    if (!HEX.test(wheelColor)) throw new Error("Màu nền vòng quay phải dạng #RRGGBB.");
-    if (!HEX.test(borderColor)) throw new Error("Màu viền vòng quay phải dạng #RRGGBB.");
+    if (!HEX.test(wheelColor)) throw new GameError("Màu nền vòng quay phải dạng #RRGGBB.");
+    if (!HEX.test(borderColor)) throw new GameError("Màu viền vòng quay phải dạng #RRGGBB.");
     const backgroundUrl = typeof c.backgroundUrl === "string" && c.backgroundUrl.trim() ? c.backgroundUrl.trim().slice(0, 1024) : null;
     return { backgroundUrl, wheelColor: wheelColor.toUpperCase(), borderColor: borderColor.toUpperCase() };
   },
 
   async play(tx, ctx) {
     const segments = segmentsOf(ctx.campaign);
-    if (segments.length < 2) throw new Error("Vòng quay cần ít nhất 2 ô.");
+    if (segments.length < 2) throw new GameError("Vòng quay cần ít nhất 2 ô.");
     const prize = await pickPrize(tx, segments, { customerId: ctx.customerId, storeId: ctx.storeId });
     const segmentIndex = prize ? segments.findIndex((s) => s.id === prize.id) : -1;
     return { prize, data: { segmentIndex, segmentCount: segments.length } };

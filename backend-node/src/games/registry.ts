@@ -1,11 +1,12 @@
 import type { GameType } from "@prisma/client";
+import { GameError } from "./errors.js";
 import { wheelHandler } from "./handlers/wheel.js";
 import type { GameHandler } from "./types.js";
 
 /** Game chưa cài: tạo chiến dịch / chơi đều báo lỗi rõ ràng */
 const comingSoon = (label: string): GameHandler => {
   const fail = () => {
-    throw new Error(`${label} sắp ra mắt.`);
+    throw new GameError(`${label} sắp ra mắt.`);
   };
   return { validateConfig: fail, play: async () => fail(), publicView: fail };
 };
