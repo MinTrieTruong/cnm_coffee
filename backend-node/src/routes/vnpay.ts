@@ -6,6 +6,7 @@ import { computeBill, getStoreSettings, computePointsEarned } from "../lib/prici
 import { settlePaidPoints } from "../lib/points.js";
 import { deductInventoryForOrder } from "../lib/inventory.js";
 import { releaseOrderToKitchen } from "../lib/delivery.js";
+import { customerShipping, refreshOrderPromotion } from "../lib/promotions.js";
 import { resolveVoucher, voucherHold } from "../lib/vouchers.js";
 import { toStore } from "../lib/storeScope.js";
 
@@ -19,6 +20,7 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
   r.post("/orders/:id/vnpay/create", async (req, res) => {
     const orderId = Number(req.params.id);
     if (Number.isNaN(orderId)) return res.status(400).json({ error: "Id không hợp lệ" });
+    await refreshOrderPromotion(prisma, orderId);
 
     const order = await prisma.order.findUnique({ where: { id: orderId } });
     if (!order) return res.status(404).json({ error: "Đơn không tìm thấy" });
@@ -54,7 +56,7 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
       settings.pointValueVnd,
       settings.vatRatePercent,
     );
-    const chargeAmount = Math.max(1000, Math.round(computed.totalAmount + Number(order.shippingFee || 0)));
+    const chargeAmount = Math.max(1000, Math.round(computed.totalAmount + customerShipping(order)));
 
     // Save the voucherCode temporarily in cancelReason (format VOUCHER:code:discount)
     await prisma.order.update({
@@ -149,7 +151,7 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
       settings.pointValueVnd,
       settings.vatRatePercent,
     );
-    const finalTotal = computed.totalAmount + Number(order.shippingFee || 0);
+    const finalTotal = computed.totalAmount + customerShipping(order);
     const chargeAmount = Math.round(finalTotal);
 
     await prisma.$transaction(async (tx) => {
@@ -287,7 +289,7 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
           settings.vatRatePercent,
         );
         // Khách trả cả phí ship (giống lúc tạo link thanh toán)
-        const finalTotal = computed.totalAmount + Number(order.shippingFee || 0);
+        const finalTotal = computed.totalAmount + customerShipping(order);
 
         const updateResult = await tx.order.updateMany({
           where: { id: orderId, status: { not: "Paid" } },

@@ -192,9 +192,11 @@ export function vouchersRouter(prisma: PrismaClient, io: Server) {
    * Body: { code, subTotal, customerId? }
    */
   r.post("/vouchers/validate-public", async (req, res) => {
-    const { code, subTotal, customerId, storeId, tableId } = req.body as {
+    const { code, subTotal, customerId, storeId, tableId, orderId } = req.body as {
       code?: string; subTotal?: number; customerId?: number | null;
       storeId?: number | null; tableId?: number | null;
+      /** Đơn đang thanh toán — kiểm tra ưu đãi số lượng có cho dùng chung voucher không */
+      orderId?: number | null;
     };
     if (!code?.trim() || typeof subTotal !== "number") {
       return res.status(400).json({ error: "Thiếu mã voucher hoặc tổng tiền." });
@@ -206,6 +208,7 @@ export function vouchersRouter(prisma: PrismaClient, io: Server) {
       subTotal,
       storeId: table?.storeId ?? storeFromQuery(storeId),
       customerId: customerId ? Number(customerId) : null,
+      promoId: orderId ? (await prisma.order.findUnique({ where: { id: Number(orderId) }, select: { promoId: true } }))?.promoId ?? null : null,
     });
     if ("error" in checked) return res.status(400).json({ error: checked.error });
     const voucher = await prisma.voucher.findUniqueOrThrow({ where: { id: checked.voucherId! } });

@@ -4,6 +4,7 @@ import { createMomoPayment, verifyMomoIpn } from "../lib/momo.js";
 import type { Server } from "socket.io";
 import { deductInventoryForOrder } from "../lib/inventory.js";
 import { releaseOrderToKitchen } from "../lib/delivery.js";
+import { customerShipping, refreshOrderPromotion } from "../lib/promotions.js";
 import { computeBill, computePointsEarned, getStoreSettings } from "../lib/pricing.js";
 import { settlePaidPoints } from "../lib/points.js";
 import { resolveVoucher, voucherHold } from "../lib/vouchers.js";
@@ -20,7 +21,7 @@ async function onlineBill(prisma: PrismaClient, order: Order) {
   }
   const settings = await getStoreSettings(prisma);
   const computed = computeBill(order.subTotal, order.discountAmt + voucherDiscount, order.pointsUsed, settings.pointValueVnd, settings.vatRatePercent);
-  return { voucherCode, voucherDiscount, computed, finalTotal: computed.totalAmount + order.shippingFee, settings };
+  return { voucherCode, voucherDiscount, computed, finalTotal: computed.totalAmount + customerShipping(order), settings };
 }
 
 export function momoRouter(prisma: PrismaClient, io?: Server) {
@@ -40,6 +41,7 @@ export function momoRouter(prisma: PrismaClient, io?: Server) {
   r.post("/orders/:id/momo/create", async (req, res) => {
     const orderId = Number(req.params.id);
     if (Number.isNaN(orderId)) return res.status(400).json({ error: "Id không hợp lệ" });
+    await refreshOrderPromotion(prisma, orderId);
 
     const order = await prisma.order.findUnique({ where: { id: orderId } });
     if (!order) return res.status(404).json({ error: "Đơn không tìm thấy" });

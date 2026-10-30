@@ -57,7 +57,8 @@ export function ProductDetail() {
     ? Math.round(basePrice * (1 - p.discountPercent! / 100))
     : basePrice;
 
-  const isFood = p.category?.name?.toLowerCase().includes("đồ ăn") || p.category?.name?.toLowerCase().includes("bánh");
+  // Món 1 loại (bánh…): không size / đá / đường — theo cờ hasSizes của món
+  const isFood = p.hasSizes === false;
 
   function onAdd() {
     if (!p) return;

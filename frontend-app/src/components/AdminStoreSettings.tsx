@@ -13,6 +13,9 @@ type StoreSettingsPayload = {
   pettyCashLimit: number;
   cancelWindowMinutes: number;
   supplierReturnDays: number;
+  searchMinCustomers: number;
+  searchMinPercent: number;
+  searchWindowDays: number;
 };
 
 export function AdminStoreSettings({
@@ -36,6 +39,9 @@ export function AdminStoreSettings({
   const [pettyLimit, setPettyLimit] = useState(String(settings.pettyCashLimit ?? 200000));
   const [cancelWin, setCancelWin] = useState(String(settings.cancelWindowMinutes ?? 5));
   const [returnDays, setReturnDays] = useState(String(settings.supplierReturnDays ?? 7));
+  const [searchMin, setSearchMin] = useState(String(settings.searchMinCustomers ?? 3));
+  const [searchPct, setSearchPct] = useState(String(settings.searchMinPercent ?? 2));
+  const [searchDays, setSearchDays] = useState(String(settings.searchWindowDays ?? 30));
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -48,6 +54,9 @@ export function AdminStoreSettings({
     setPettyLimit(String(settings.pettyCashLimit ?? 200000));
     setCancelWin(String(settings.cancelWindowMinutes ?? 5));
     setReturnDays(String(settings.supplierReturnDays ?? 7));
+    setSearchMin(String(settings.searchMinCustomers ?? 3));
+    setSearchPct(String(settings.searchMinPercent ?? 2));
+    setSearchDays(String(settings.searchWindowDays ?? 30));
   }, [settings]);
 
   async function save(e: FormEvent) {
@@ -67,6 +76,9 @@ export function AdminStoreSettings({
           pettyCashLimit: Number(pettyLimit),
           cancelWindowMinutes: Number(cancelWin),
           supplierReturnDays: Number(returnDays),
+          searchMinCustomers: Number(searchMin),
+          searchMinPercent: Number(searchPct),
+          searchWindowDays: Number(searchDays),
         }),
       });
       await onSaved();
@@ -136,6 +148,16 @@ export function AdminStoreSettings({
               <label className="label">Hạn trả hàng nhà cung cấp (ngày)</label>
               <input className="input" type="number" min={1} max={90} value={returnDays} onChange={(e) => setReturnDays(e.target.value)} />
               <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>Tính từ ngày nhận lô hàng. Quá hạn thì quản lý chi nhánh vẫn duyệt được nhưng phải ghi lý do.</p>
+            </div>
+
+            <div className="field" style={{ marginTop: "1rem" }}>
+              <label className="label">Gợi ý món từ tìm kiếm của khách</label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
+                <label style={{ fontSize: "0.85rem" }}>Tối thiểu (khách)<input className="input" type="number" min={1} value={searchMin} onChange={(e) => setSearchMin(e.target.value)} /></label>
+                <label style={{ fontSize: "0.85rem" }}>Tỷ lệ tối thiểu (%)<input className="input" type="number" min={0} step={0.5} value={searchPct} onChange={(e) => setSearchPct(e.target.value)} /></label>
+                <label style={{ fontSize: "0.85rem" }}>Trong (ngày)<input className="input" type="number" min={1} max={365} value={searchDays} onChange={(e) => setSearchDays(e.target.value)} /></label>
+              </div>
+              <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>Từ khóa quán chưa có món được gợi ý khi đủ số khách khác nhau tìm không ra VÀ đạt tỷ lệ trên tổng số khách dùng ô tìm kiếm.</p>
             </div>
           </div>
 

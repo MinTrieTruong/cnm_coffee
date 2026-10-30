@@ -70,6 +70,8 @@ export const CATEGORIES: Record<string, { label: string; kind: Kind; system?: bo
   REFUND: { label: "Hoàn tiền khách", kind: "OUT" },
   OTHER_EXPENSE: { label: "Chi khác", kind: "OUT" },
   SUPPLIER_PAYMENT: { label: "Trả nhà cung cấp", kind: "OUT", system: true },
+  INGREDIENT_PURCHASE: { label: "Mua nguyên liệu (nhập kho tay)", kind: "OUT", system: true },
+  SUPPLIER_REFUND: { label: "Nhà cung cấp hoàn tiền", kind: "IN", system: true },
   OPENING_BALANCE: { label: "Số dư đầu kỳ", kind: "IN", manager: true },
   CAPITAL: { label: "Bổ sung quỹ", kind: "IN", manager: true },
   OTHER_INCOME: { label: "Thu khác", kind: "IN" },

@@ -69,6 +69,8 @@ export type Product = {
   sellPrice: number;
   priceSizeS?: number | null;
   priceSizeL?: number | null;
+  /** false = món 1 loại (bánh, đồ ăn): không chọn size */
+  hasSizes?: boolean;
   isActive: boolean;
   isBestSeller?: boolean;
   discountPercent?: number | null;

@@ -44,7 +44,7 @@ export function kitchenRouter(prisma: PrismaClient, io: Server) {
         imageUrl: p.imageUrl,
         category: p.category.name,
         // Món nước bán theo size (giá S/L ngầm định) — có định mức S/L thì cho chọn size khi báo hao hụt
-        hasSizes: p.priceSizeS != null || p.priceSizeL != null || p.formulas.some((f) => f.qtySizeS != null || f.qtySizeL != null),
+        hasSizes: p.hasSizes,
         outOfStock: p.outOfStock || !!p.storeProducts[0]?.outOfStock,
         isAvailable: p.storeProducts[0]?.isAvailable ?? true,
         itemIds: p.formulas.map((f) => f.itemId),

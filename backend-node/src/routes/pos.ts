@@ -5,6 +5,7 @@ import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../m
 import { inStore, storeWhere, toStore } from "../lib/storeScope.js";
 import { computeBill, computePointsEarned, getStoreSettings, roundCashAmount } from "../lib/pricing.js";
 import { settlePaidPoints } from "../lib/points.js";
+import { refreshOrderPromotion } from "../lib/promotions.js";
 import { deductInventoryForOrder } from "../lib/inventory.js";
 import { releaseOrderToKitchen } from "../lib/delivery.js";
 
@@ -94,6 +95,8 @@ export function posRouter(prisma: PrismaClient, io: Server) {
     if (!shift) {
       return res.status(400).json({ error: "Phải mở ca (YCCN-TN01) trước khi thanh toán." });
     }
+    // Chốt ưu đãi số lượng theo món & giờ lúc tính tiền
+    await refreshOrderPromotion(prisma, orderId);
 
     const order = await prisma.order.findUnique({
       where: { id: orderId },
@@ -132,6 +135,14 @@ export function posRouter(prisma: PrismaClient, io: Server) {
       const parts = order.cancelReason.split(":");
       voucherCode = parts[1];
       voucherDiscount = Number(parts[2]) || 0;
+    }
+    // Ưu đãi số lượng không cho dùng chung voucher → bỏ voucher đã gắn trước đó (khách được ưu đãi số lượng)
+    if (voucherCode && order.promoId) {
+      const promo = await prisma.bulkPromotion.findUnique({ where: { id: order.promoId }, select: { allowVoucher: true } });
+      if (promo && !promo.allowVoucher) {
+        voucherCode = null;
+        voucherDiscount = 0;
+      }
     }
 
     // Tính bill cuối cùng (bao gồm cả giảm trừ điểm và voucher vào discountAmt)
@@ -277,12 +288,18 @@ export function posRouter(prisma: PrismaClient, io: Server) {
 
 
   /**
-   * GET /pos/bills?date=YYYY-MM-DD
-   * Lịch sử bill trong ngày (chỉ cho phép 20 ngày gần nhất).
-   * Trả về tất cả đơn Paid trong ngày đó kèm chi tiết đầy đủ.
+   * GET /pos/bills?date=YYYY-MM-DD  hoặc  ?from=YYYY-MM-DD&to=YYYY-MM-DD
+   * Lịch sử bill trong ngày / khoảng ngày (chỉ cho phép 20 ngày gần nhất).
+   * Trả về tất cả đơn Paid trong khoảng đó kèm chi tiết đầy đủ.
    */
   r.get("/pos/bills", ...cashier, async (req, res) => {
+    const isDay = (s: string | undefined): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
     const dateStr = (req.query.date as string | undefined)?.trim();
+    let fromStr = (req.query.from as string | undefined)?.trim();
+    let toStr = (req.query.to as string | undefined)?.trim();
+    if (isDay(dateStr)) fromStr = toStr = dateStr;
+    if (isDay(fromStr) && !isDay(toStr)) toStr = fromStr;
+    if (isDay(toStr) && !isDay(fromStr)) fromStr = toStr;
 
     // Tính giới hạn 20 ngày gần nhất
     const today = new Date();
@@ -294,13 +311,15 @@ export function posRouter(prisma: PrismaClient, io: Server) {
     let dayStart: Date;
     let dayEnd: Date;
 
-    if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-      dayStart = new Date(`${dateStr}T00:00:00`);
-      dayEnd = new Date(`${dateStr}T23:59:59.999`);
+    if (isDay(fromStr) && isDay(toStr)) {
+      if (fromStr > toStr) [fromStr, toStr] = [toStr, fromStr];
+      dayStart = new Date(`${fromStr}T00:00:00`);
+      dayEnd = new Date(`${toStr}T23:59:59.999`);
       // Validate trong 20 ngày
       if (dayStart < oldest || dayStart > today) {
         return res.status(400).json({ error: "Chỉ xem được lịch sử trong vòng 20 ngày gần nhất." });
       }
+      if (dayEnd > today) dayEnd = today;
     } else {
       // Mặc định hôm nay
       dayStart = new Date();
@@ -426,6 +445,7 @@ export function posRouter(prisma: PrismaClient, io: Server) {
       const subTotal = details.reduce((acc, d) => acc + d.unitPrice * d.quantity, 0);
       await tx.order.update({ where: { id: targetOrderId }, data: { subTotal, totalAmount: subTotal, vatAmount: 0 } });
       await tx.order.delete({ where: { id: sourceOrderId } });
+      await refreshOrderPromotion(tx, targetOrderId);
       await tx.cafeTable.update({ where: { id: sourceTableId }, data: { status: "Empty", mergedWithTableId: targetTableId } });
     });
     res.json({ ok: true });
@@ -466,6 +486,10 @@ export function posRouter(prisma: PrismaClient, io: Server) {
                 orderId: newOrder.id,
                 productId: d.productId,
                 comboId: d.comboId,
+                comboRef: d.comboRef,
+                comboQty: d.comboQty,
+                // Giữ size: tách bill không được làm ly size L bị trừ kho theo định mức M
+                size: d.size,
                 quantity: move.quantity,
                 unitPrice: d.unitPrice,
                 customNotes: d.customNotes,
@@ -484,6 +508,8 @@ export function posRouter(prisma: PrismaClient, io: Server) {
         
         await tx.order.update({ where: { id: order.id }, data: { subTotal: oldSubTotal, totalAmount: oldSubTotal, vatAmount: 0 } });
         await tx.order.update({ where: { id: newOrder.id }, data: { subTotal: newSubTotal, totalAmount: newSubTotal, vatAmount: 0 } });
+        await refreshOrderPromotion(tx, order.id);
+        await refreshOrderPromotion(tx, newOrder.id);
       });
       res.json({ ok: true });
     } catch (e: any) {

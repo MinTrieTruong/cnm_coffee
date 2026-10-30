@@ -6,6 +6,7 @@ import { getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
 import { Alert, Badge, Button, EmptyState, Field, Modal, RecordList, errMsg, fmtDateTime, formatVnd, type Tone } from "../../components/erp";
 import { useResource } from "../shared";
 import { PRODUCTS_BASE } from "./ProductList";
+import { SearchSuggestions } from "./SearchInsights";
 
 export type ProposalRow = {
   id: number;
@@ -23,6 +24,8 @@ export type ProposalRow = {
   category: { id: number; name: string } | null;
   reviewer: { fullName: string } | null;
   product: { id: number; name: string } | null;
+  /** STAFF = pha chế / quản lý gửi · SEARCH = từ từ khóa khách tìm mà quán chưa có */
+  source: "STAFF" | "SEARCH";
 };
 
 export const PROPOSAL_STATUS: Record<ProposalRow["status"], { label: string; tone: Tone }> = {
@@ -38,6 +41,7 @@ export function ProposalList() {
   const [open, setOpen] = useState<ProposalRow | null>(null);
   return (
     <>
+      <SearchSuggestions onChanged={() => void reload()} />
       <RecordList
         crumbs={[{ label: "Đề xuất món" }]}
         rows={rows}
@@ -48,7 +52,7 @@ export function ProposalList() {
         columns={[
           { key: "date", label: "Ngày gửi", value: (p) => p.createdAt, render: (p) => fmtDateTime(p.createdAt) },
           { key: "name", label: "Tên món", value: (p) => p.name, render: (p) => <strong style={{ fontWeight: 500 }}>{p.name}</strong> },
-          { key: "by", label: "Pha chế", value: (p) => p.staff.fullName },
+          { key: "by", label: "Người đề xuất", value: (p) => p.staff.fullName, render: (p) => <>{p.staff.fullName}{p.source === "SEARCH" && <> <Badge tone="info">Từ tìm kiếm</Badge></>}</> },
           { key: "store", label: "Chi nhánh", value: (p) => p.store.name },
           { key: "price", label: "Giá đề xuất", value: (p) => p.suggestedPrice ?? 0, numeric: true, render: (p) => (p.suggestedPrice ? formatVnd(p.suggestedPrice) : "") },
           { key: "status", label: "Trạng thái", value: (p) => PROPOSAL_STATUS[p.status].label, render: (p) => <Badge tone={PROPOSAL_STATUS[p.status].tone}>{PROPOSAL_STATUS[p.status].label}</Badge> },
@@ -116,7 +120,7 @@ function ProposalModal({ p, onClose, onChanged }: { p: ProposalRow; onClose: () 
         </div>
         {mediaUrl(p.imageUrl) && <img src={mediaUrl(p.imageUrl)} alt={p.name} style={{ maxWidth: "100%", maxHeight: 220, objectFit: "cover", borderRadius: 8 }} />}
         {p.description && <Field label="Ý tưởng / hương vị"><div style={{ whiteSpace: "pre-line" }}>{p.description}</div></Field>}
-        <Field label="Nguyên liệu & cách làm"><div style={{ whiteSpace: "pre-line" }}>{p.recipe}</div></Field>
+        <Field label="Nguyên liệu & cách làm"><div style={{ whiteSpace: "pre-line" }}>{p.recipe || <span className="o-muted">Chưa có — pha chế bổ sung sau khi duyệt ý tưởng</span>}</div></Field>
         <div className="o-inline">
           {p.suggestedPrice != null && <span>Giá đề xuất: <strong>{formatVnd(p.suggestedPrice)}</strong></span>}
           {p.category && <span>· Danh mục: {p.category.name}</span>}

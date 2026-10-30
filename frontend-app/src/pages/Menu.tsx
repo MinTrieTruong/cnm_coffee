@@ -13,6 +13,7 @@ import { motion } from "framer-motion";
 import { AdvancedFilter, type FilterState } from "../components/AdvancedFilter";
 import { StorePicker } from "../components/StorePicker";
 import { useCustomerStore } from "../lib/customerStore";
+import { logMenuSearch } from "../lib/searchLog";
 
 function formatVnd(n: number) {
   return new Intl.NumberFormat("vi-VN").format(n) + " đ";
@@ -57,6 +58,14 @@ export function Menu() {
     if (filters.tags.length > 0) params.append("tags", filters.tags.join(","));
     return `?${params.toString()}`;
   }, [user, filters, storeId]);
+
+  // Thống kê "khách tìm gì": chỉ ghi khi khách ngừng gõ 1,5 giây (không ghi từng ký tự)
+  useEffect(() => {
+    const q = filters.search;
+    if (q.trim().length < 2) return;
+    const t = window.setTimeout(() => logMenuSearch(q, storeId), 1500);
+    return () => window.clearTimeout(t);
+  }, [filters.search, storeId]);
 
   useEffect(() => {
     let cancelled = false;

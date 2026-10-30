@@ -28,12 +28,17 @@ type Draft = {
   discountPercent: string;
   isActive: boolean;
   outOfStock: boolean;
+  /** false = món 1 loại (bánh, đồ ăn): 1 giá, công thức trừ 1 mức */
+  hasSizes: boolean;
 };
 
 const EMPTY: Draft = {
   name: "", sku: "", costPrice: "", sellPrice: "", priceSizeS: "", priceSizeL: "",
-  categoryId: "", imageUrl: "", tags: [], discountPercent: "", isActive: true, outOfStock: false,
+  categoryId: "", imageUrl: "", tags: [], discountPercent: "", isActive: true, outOfStock: false, hasSizes: true,
 };
+
+/** Danh mục đồ ăn / bánh → món mới mặc định không size */
+const isFoodCategory = (name?: string) => !!name && /đồ ăn|bánh/i.test(name);
 
 /** Ô giá theo size. S/L để trống → S = M − 3.000đ, L = M + 5.000đ (cùng quy tắc màn đặt món của khách) */
 const SIZES = [
@@ -64,6 +69,7 @@ function toDraft(p: ProductRow): Draft {
     discountPercent: p.discountPercent != null ? String(p.discountPercent) : "",
     isActive: p.isActive,
     outOfStock: p.outOfStock,
+    hasSizes: p.hasSizes !== false,
   };
 }
 
@@ -119,8 +125,9 @@ export function ProductForm({ recordId }: { recordId?: string }) {
           body: JSON.stringify({
             name: draft.name.trim(),
             sellPrice: price,
-            priceSizeS: draft.priceSizeS ? digits(draft.priceSizeS) : undefined,
-            priceSizeL: draft.priceSizeL ? digits(draft.priceSizeL) : undefined,
+            hasSizes: draft.hasSizes,
+            priceSizeS: draft.hasSizes && draft.priceSizeS ? digits(draft.priceSizeS) : undefined,
+            priceSizeL: draft.hasSizes && draft.priceSizeL ? digits(draft.priceSizeL) : undefined,
             categoryId: draft.categoryId,
             sku: draft.sku.trim() || undefined,
             imageUrl: draft.imageUrl.trim() || undefined,
@@ -141,8 +148,9 @@ export function ProductForm({ recordId }: { recordId?: string }) {
           name: draft.name.trim(),
           sku: draft.sku.trim() || null,
           sellPrice: price,
-          priceSizeS: draft.priceSizeS ? digits(draft.priceSizeS) : null,
-          priceSizeL: draft.priceSizeL ? digits(draft.priceSizeL) : null,
+          hasSizes: draft.hasSizes,
+          priceSizeS: draft.hasSizes && draft.priceSizeS ? digits(draft.priceSizeS) : null,
+          priceSizeL: draft.hasSizes && draft.priceSizeL ? digits(draft.priceSizeL) : null,
           categoryId: draft.categoryId,
           imageUrl: draft.imageUrl.trim() || null,
           tags: draft.tags.length > 0 ? draft.tags : null,
@@ -241,7 +249,16 @@ export function ProductForm({ recordId }: { recordId?: string }) {
             {ro ? (
               catName || <span className="o-muted">—</span>
             ) : (
-              <select className="o-input" value={draft.categoryId === "" ? "" : String(draft.categoryId)} onChange={(e) => set("categoryId", e.target.value ? Number(e.target.value) : "")}>
+              <select
+                className="o-input"
+                value={draft.categoryId === "" ? "" : String(draft.categoryId)}
+                onChange={(e) => {
+                  const id = e.target.value ? Number(e.target.value) : "";
+                  set("categoryId", id);
+                  // Món mới thuộc danh mục bánh / đồ ăn → mặc định món 1 loại
+                  if (isNew && id !== "") set("hasSizes", !isFoodCategory(cats.data.find((c) => c.id === id)?.name));
+                }}
+              >
                 <option value="">—</option>
                 {cats.data.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -250,11 +267,26 @@ export function ProductForm({ recordId }: { recordId?: string }) {
           <Field label="SKU">
             <input className="o-input" value={draft.sku} disabled={ro} onChange={(e) => set("sku", e.target.value)} placeholder={ro ? "" : "Tùy chọn"} />
           </Field>
+          <Field label="Loại món">
+            {ro ? (
+              draft.hasSizes ? "Có size S / M / L" : "Món 1 loại (không size)"
+            ) : (
+              <select className="o-input" value={draft.hasSizes ? "1" : "0"} onChange={(e) => set("hasSizes", e.target.value === "1")}>
+                <option value="1">Có size S / M / L (đồ uống)</option>
+                <option value="0">Món 1 loại — bánh, đồ ăn (không size, công thức trừ 1 mức)</option>
+              </select>
+            )}
+          </Field>
           <Field label="Nhãn">
             <TagsInput tags={draft.tags} onChange={(t) => set("tags", t)} disabled={ro} />
           </Field>
         </FormGroup>
         <FormGroup>
+          {!draft.hasSizes ? (
+            <Field label="Giá bán" required>
+              {ro ? formatVnd(digits(draft.sellPrice) || 0) : <input className="o-input" inputMode="numeric" value={draft.sellPrice} onChange={(e) => set("sellPrice", e.target.value)} placeholder="VD: 29000" />}
+            </Field>
+          ) : (
           <Field label="Giá bán theo size" required>
             <span className="o-inline" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, width: "100%" }}>
               {SIZES.map(({ size, key, hint }) => {
@@ -283,9 +315,17 @@ export function ProductForm({ recordId }: { recordId?: string }) {
               })}
             </span>
           </Field>
+          )}
           <Field label="Giá vốn (COST)">
             {isNew ? (
               <span className="o-muted">Tính từ công thức sau khi tạo món</span>
+            ) : cost && !draft.hasSizes ? (
+              // Món 1 loại: giá vốn = định mức 1 mức × giá nhập (bánh: 1 cái × giá nhập 1 cái)
+              <span className="o-inline">
+                <strong>{formatVnd(cost.M)}</strong>
+                <span className="o-muted">({digits(draft.sellPrice) > 0 ? Math.round((cost.M / digits(draft.sellPrice)) * 100) : 0}% giá bán) · theo giá nhập</span>
+                <Link to="/app/kitchen/formulas">Sửa công thức</Link>
+              </span>
             ) : cost ? (
               <span className="o-inline">
                 {(["S", "M", "L"] as const).map((sz) => {

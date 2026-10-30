@@ -20,7 +20,11 @@ type BillPayload = {
   customerPoints: number;
   maxPointsCanUse: number;
   pointValueVnd: number;
-  items: Array<{ id: number; name: string; quantity: number; unitPrice: number; lineTotal: number }>;
+  items: Array<{ id: number; name: string; quantity: number; unitPrice: number; lineTotal: number; isGift?: boolean }>;
+  /** Ưu đãi số lượng đang áp (giảm đã nằm trong discountAmt) */
+  promotion?: { id: number; name: string; discount: number; qty: number; allowVoucher: boolean; shippingDiscount: number; giftValue: number } | null;
+  /** Phí ship khách được miễn (quán chịu) */
+  shippingDiscount?: number;
   subTotal: number;
   discountAmt: number;
   pointsUsed: number;
@@ -220,7 +224,7 @@ export function OrderCheckout() {
     if (!voucherCode.trim() || !bill) return;
     setVoucherLoading(true); setVoucherMsg(null);
     try {
-      const res = await api<{ ok: boolean; voucher: any }>("/api/vouchers/validate-public", { method: "POST", body: JSON.stringify({ code: voucherCode.trim(), subTotal: bill.subTotal, customerId: user?.customerId ?? null, storeId: bill.storeId ?? null }) });
+      const res = await api<{ ok: boolean; voucher: any }>("/api/vouchers/validate-public", { method: "POST", body: JSON.stringify({ code: voucherCode.trim(), subTotal: bill.subTotal, customerId: user?.customerId ?? null, storeId: bill.storeId ?? null, orderId: bill.orderId }) });
       setVoucherApplied(res.voucher);
       setVoucherMsg({ text: `✅ Áp dụng thành công! Giảm ${formatVnd(res.voucher.discountValue)}`, ok: true });
       setSepayResult(null);
@@ -284,16 +288,21 @@ export function OrderCheckout() {
           {bill.items.map(it => (
             <div key={it.id} style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", color: "var(--text)" }}>
               <span>{it.name} <span style={{ color: "var(--muted)" }}>× {it.quantity}</span></span>
-              <span>{formatVnd(it.lineTotal)}</span>
+              <span>{it.isGift ? <span style={{ color: "#15803d" }}>Tặng</span> : formatVnd(it.lineTotal)}</span>
             </div>
           ))}
           <div style={{ borderTop: "1px solid var(--border)", margin: "1rem 0" }} />
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
             <span className="subtle">Tạm tính</span><span>{formatVnd(bill.subTotal)}</span>
           </div>
-          {bill.discountAmt > 0 && bill.discountAmt !== bill.pointsRedeemAmt && (
+          {bill.promotion && bill.promotion.discount > 0 && (
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", color: "#15803d" }}>
-              <span>Giảm giá</span><span>−{formatVnd(bill.discountAmt - bill.pointsRedeemAmt)}</span>
+              <span>Ưu đãi: {bill.promotion.name}</span><span>−{formatVnd(bill.promotion.discount)}</span>
+            </div>
+          )}
+          {bill.discountAmt - bill.pointsRedeemAmt - (bill.promotion?.discount ?? 0) > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", color: "#15803d" }}>
+              <span>Giảm giá</span><span>−{formatVnd(bill.discountAmt - bill.pointsRedeemAmt - (bill.promotion?.discount ?? 0))}</span>
             </div>
           )}
           {bill.pointsRedeemAmt > 0 && (
@@ -303,7 +312,7 @@ export function OrderCheckout() {
           )}
           {bill.orderType === "Delivery" && (
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-              <span className="subtle">Phí giao hàng</span><span>{bill.shippingFee > 0 ? formatVnd(bill.shippingFee) : "Miễn phí"}</span>
+              <span className="subtle">Phí giao hàng</span><span>{bill.shippingFee - (bill.shippingDiscount ?? 0) > 0 ? formatVnd(bill.shippingFee - (bill.shippingDiscount ?? 0)) : "Miễn phí"}</span>
             </div>
           )}
           <div style={{ borderTop: "1px solid var(--border)", margin: "1rem 0" }} />
@@ -339,7 +348,8 @@ export function OrderCheckout() {
   const taxable = Math.max(0, bill.subTotal - bill.discountAmt - bill.pointsRedeemAmt - (voucherApplied?.discountValue ?? 0));
   const expectedVat = Math.floor((taxable * bill.vatRatePercent) / 100);
   // Phí ship cộng sau VAT, không bị giảm bởi voucher/điểm (khớp số tiền backend gửi sang VNPay/SePay)
-  const effectiveTotal = taxable + expectedVat + bill.shippingFee;
+  const shipToPay = Math.max(0, bill.shippingFee - (bill.shippingDiscount ?? 0));
+  const effectiveTotal = taxable + expectedVat + shipToPay;
 
   function handleSelectMethod(m: "counter" | "vnpay" | "sepay") {
     setPayMethod(m);
@@ -370,13 +380,19 @@ export function OrderCheckout() {
           {bill.items.map((it) => (
             <div key={it.id} style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", color: "var(--text)" }}>
               <span>{it.name} <span style={{ color: "var(--muted)" }}>× {it.quantity}</span></span>
-              <span style={{ fontWeight: 500 }}>{formatVnd(it.lineTotal)}</span>
+              <span style={{ fontWeight: 500 }}>{it.isGift ? <span style={{ color: "#15803d" }}>Tặng</span> : formatVnd(it.lineTotal)}</span>
             </div>
           ))}
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: "1rem", paddingTop: "1rem", borderTop: "1px solid var(--border)" }}>
             <span className="subtle">Tạm tính</span>
             <span>{formatVnd(bill.subTotal)}</span>
           </div>
+          {bill.promotion && bill.promotion.discount > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.5rem", color: "#15803d" }}>
+              <span>Ưu đãi: {bill.promotion.name} ({bill.promotion.qty} ly)</span>
+              <span>−{formatVnd(bill.promotion.discount)}</span>
+            </div>
+          )}
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.5rem" }}>
             <span className="subtle">VAT ({bill.vatRatePercent}%)</span>
             <span>{formatVnd(expectedVat)}</span>
@@ -384,7 +400,10 @@ export function OrderCheckout() {
           {isDelivery && (
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.5rem" }}>
               <span className="subtle">Phí giao hàng</span>
-              <span>{bill.shippingFee > 0 ? formatVnd(bill.shippingFee) : "Miễn phí"}</span>
+              <span>
+                {(bill.shippingDiscount ?? 0) > 0 && <s style={{ color: "var(--muted)", marginRight: 6 }}>{formatVnd(bill.shippingFee)}</s>}
+                {shipToPay > 0 ? formatVnd(shipToPay) : "Miễn phí"}
+              </span>
             </div>
           )}
         </div>

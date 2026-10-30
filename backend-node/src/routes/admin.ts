@@ -7,7 +7,8 @@ import { saveDataUrlImage } from "../lib/uploadImage.js";
 import { audit } from "../lib/audit.js";
 import { inStore, mustStoreId, reqStoreId, storeWhere } from "../lib/storeScope.js";
 import { applyIncomingCost, productsUsingItems, recalcProductCost } from "../lib/productCost.js";
-import { createBill } from "../lib/cash.js";
+import { createBill, createEntry, fundBalance, openSafeSession } from "../lib/cash.js";
+import { getStoreSettings } from "../lib/pricing.js";
 import { adjustStoreStock, roundQty } from "../lib/inventory.js";
 import { announceMenuChange } from "../lib/menuEvents.js";
 
@@ -207,6 +208,8 @@ export function adminRouter(prisma: PrismaClient) {
       isActive?: boolean;
       tags?: any;
       discountPercent?: number;
+      /** false = món 1 loại (bánh…): không size */
+      hasSizes?: boolean;
     };
     if (!b.name || typeof b.sellPrice !== "number" || !b.categoryId) {
       return res.status(400).json({ error: "Thiếu tên, giá bán hoặc danh mục." });
@@ -220,8 +223,9 @@ export function adminRouter(prisma: PrismaClient) {
         name: b.name,
         costPrice: b.costPrice ?? 0,
         sellPrice: b.sellPrice,
-        priceSizeS: b.priceSizeS ?? null,
-        priceSizeL: b.priceSizeL ?? null,
+        hasSizes: b.hasSizes ?? true,
+        priceSizeS: b.hasSizes === false ? null : b.priceSizeS ?? null,
+        priceSizeL: b.hasSizes === false ? null : b.priceSizeL ?? null,
         isActive: b.isActive ?? true,
         imageUrl: b.imageUrl ?? null,
         tags: b.tags ?? null,
@@ -246,9 +250,16 @@ export function adminRouter(prisma: PrismaClient) {
       categoryId: number;
       tags: any;
       discountPercent: number | null;
+      hasSizes: boolean;
     }>;
     // outOfStock là trạng thái theo chi nhánh — không ghi vào món chung
     const { outOfStock, ...rest } = b;
+    // Món 1 loại: bỏ giá S/L và định mức theo size (công thức trừ 1 mức duy nhất)
+    if (rest.hasSizes === false) {
+      rest.priceSizeS = null;
+      rest.priceSizeL = null;
+      await prisma.productFormula.updateMany({ where: { productId: id }, data: { qtySizeS: null, qtySizeM: null, qtySizeL: null } });
+    }
     // Món đã có định mức: giá vốn tính từ nguyên liệu, không nhận giá nhập tay
     if (rest.costPrice !== undefined && (await prisma.productFormula.count({ where: { productId: id } })) > 0) delete rest.costPrice;
     const actor = (req as StaffRequest).staffRow!;
@@ -773,7 +784,13 @@ export function adminRouter(prisma: PrismaClient) {
   // có NCC → ghi công nợ phải trả; mua lẻ không qua NCC → bắt buộc ghi nguồn hàng
   r.post("/inventory/:id/receive", ...stockStore, async (req, res) => {
     const id = Number(req.params.id);
-    const { qty, expiryDate, unitPrice, supplierId, note } = req.body as { qty?: number; expiryDate?: string; unitPrice?: number; supplierId?: number | null; note?: string };
+    const { qty, expiryDate, unitPrice, supplierId, note, payFund, photo } = req.body as {
+      qty?: number; expiryDate?: string; unitPrice?: number; supplierId?: number | null; note?: string;
+      /** Không qua NCC (mua lẻ, trả ngay): chi từ két (SAFE) / ngân hàng (BANK) → tự lập phiếu chi; NONE = không ghi chi (hàng tặng, đã lập phiếu riêng) */
+      payFund?: "SAFE" | "BANK" | "NONE";
+      /** Ảnh hoá đơn mua hàng — bắt buộc khi ghi công nợ NCC hoặc lập phiếu chi */
+      photo?: string;
+    };
     if (typeof qty !== "number" || !Number.isFinite(qty) || qty <= 0) return res.status(400).json({ error: "Số lượng không hợp lệ" });
     if (typeof unitPrice !== "number" || !Number.isFinite(unitPrice) || unitPrice < 0) return res.status(400).json({ error: "Nhập giá nhập / 1 đơn vị (0 nếu hàng tặng)." });
     if (!supplierId && !note?.trim()) return res.status(400).json({ error: "Không chọn nhà cung cấp thì ghi rõ nguồn hàng (VD: mua lẻ ở chợ, đã trả tiền mặt)." });
@@ -794,6 +811,39 @@ export function adminRouter(prisma: PrismaClient) {
     const storeId = mustStoreId(req);
     const price = Math.round(unitPrice);
     const amount = Math.round(qty * price);
+
+    // Mua lẻ trả tiền ngay → phiếu chi "Mua nguyên liệu" (sổ quỹ trừ tiền đúng quỹ)
+    const fund = !supplier && amount > 0 && (payFund === "SAFE" || payFund === "BANK") ? payFund : null;
+    if (!supplier && amount > 0 && !payFund) return res.status(400).json({ error: "Chọn trả tiền từ két, ngân hàng, hoặc không ghi chi." });
+    const manager = staff.role === "Admin" || isOwner(staff.role);
+    // Có tiền với NCC (ghi công nợ) hoặc chi tiền ngay → phải có ảnh hoá đơn làm chứng từ
+    const needsProof = (!!supplier && amount > 0) || !!fund;
+    if (needsProof && !photo) {
+      return res.status(400).json({ error: supplier ? "Chụp ảnh hoá đơn của nhà cung cấp làm chứng từ công nợ." : "Chụp ảnh hoá đơn mua hàng cho phiếu chi." });
+    }
+    let attachmentUrl: string | null = null;
+    if (needsProof && photo) {
+      try {
+        attachmentUrl = await saveDataUrlImage(photo);
+      } catch (e) {
+        return res.status(400).json({ error: e instanceof Error ? e.message : "Ảnh không hợp lệ" });
+      }
+    }
+    let entryPlan: { status: "APPROVED" | "PENDING"; sessionId: number | null } | null = null;
+    if (fund) {
+      if (fund === "BANK" && !manager) return res.status(403).json({ error: "Chỉ quản lý chi từ quỹ ngân hàng." });
+      const session = fund === "SAFE" ? await openSafeSession(prisma, storeId) : null;
+      if (fund === "SAFE" && !session) return res.status(400).json({ error: "Két đang đóng — mở két trước khi chi tiền mua hàng." });
+      const settings = await getStoreSettings(prisma);
+      const needsApproval = !manager && amount > settings.pettyCashLimit;
+      if (!needsApproval) {
+        const avail = await fundBalance(prisma, storeId, fund);
+        if (amount > avail) return res.status(400).json({ error: `Không đủ tiền: ${fund === "SAFE" ? "két" : "ngân hàng"} chỉ còn ${avail.toLocaleString("vi-VN")}đ theo sổ.` });
+      }
+      entryPlan = { status: needsApproval ? "PENDING" : "APPROVED", sessionId: session?.id ?? null };
+    }
+
+    let entryCode: string | null = null;
     const stock = await prisma.$transaction(async (tx) => {
       // Giá nhập bình quân (tính trước khi cộng tồn) → giá vốn món đổi theo
       await applyIncomingCost(tx, id, qty, price);
@@ -809,17 +859,29 @@ export function adminRouter(prisma: PrismaClient) {
         await createBill(tx, {
           storeId, supplierId: supplier.id, source: "MANUAL", amount, billDate: now,
           dueDate: new Date(now.getTime() + supplier.paymentTermDays * 86_400_000),
-          note: `Nhập tay lô #${receipt.id}: ${roundQty(qty)} ${item.unit ?? ""} ${item.name}`.replace(/s+/g, " ").slice(0, 500),
+          note: `Nhập tay lô #${receipt.id}: ${roundQty(qty)} ${item.unit ?? ""} ${item.name}`.replace(/\s+/g, " ").slice(0, 500),
+          photoUrl: attachmentUrl,
           createdById: staff.id,
         });
+      }
+      if (fund && entryPlan) {
+        const entry = await createEntry(tx, {
+          storeId, kind: "OUT", fromFund: fund, safeSessionId: entryPlan.sessionId, category: "INGREDIENT_PURCHASE", amount,
+          description: `Mua ${roundQty(qty)} ${item.unit ?? ""} ${item.name} — nhập kho lô #${receipt.id}${note?.trim() ? ` · ${note.trim()}` : ""}`.replace(/\s+/g, " ").slice(0, 500),
+          attachmentUrl,
+          status: entryPlan.status,
+          createdById: staff.id,
+          ...(entryPlan.status === "APPROVED" ? { approvedById: staff.id, approvedAt: new Date() } : {}),
+        });
+        entryCode = entry.code;
       }
       return row;
     });
     const fresh = await prisma.inventoryItem.findUniqueOrThrow({ where: { id } });
     const updated = { ...fresh, stockQty: stock.stockQty, minLevel: stock.minLevel };
 
-    audit(staff.id, "INVENTORY_RECEIVE", `Nhập kho thủ công: ${item.name}`, `+${qty} ${item.unit ?? ""} × ${price}đ${supplier ? ` · công nợ ${supplier.name}` : ` · ${note?.trim()}`}`);
-    res.json(updated);
+    audit(staff.id, "INVENTORY_RECEIVE", `Nhập kho thủ công: ${item.name}`, `+${qty} ${item.unit ?? ""} × ${price}đ${supplier ? ` · công nợ ${supplier.name}` : entryCode ? ` · phiếu chi ${entryCode}` : ` · ${note?.trim()}`}`);
+    res.json({ ...updated, cashEntry: entryCode ? { code: entryCode, status: entryPlan!.status } : null });
   });
 
   r.get("/inventory/expiring", ...stock, async (req, res) => {
@@ -950,7 +1012,14 @@ export function adminRouter(prisma: PrismaClient) {
       pettyCashLimit: number;
       cancelWindowMinutes: number;
       supplierReturnDays: number;
+      searchMinCustomers: number;
+      searchMinPercent: number;
+      searchWindowDays: number;
     }>;
+    const intIn = (v: unknown, lo: number, hi: number) => (v == null ? undefined : Math.min(hi, Math.max(lo, Math.floor(Number(v)) || lo)));
+    const searchMinCustomers = intIn(b.searchMinCustomers, 1, 1000);
+    const searchWindowDays = intIn(b.searchWindowDays, 1, 365);
+    const searchMinPercent = b.searchMinPercent == null ? undefined : Math.min(100, Math.max(0, Number(b.searchMinPercent) || 0));
     const supplierReturnDays = b.supplierReturnDays == null ? undefined : Math.min(90, Math.max(1, Math.floor(Number(b.supplierReturnDays)) || 7));
     const cancelWindowMinutes = b.cancelWindowMinutes == null ? undefined : Math.min(120, Math.max(0, Math.floor(Number(b.cancelWindowMinutes)) || 0));
     res.json(
@@ -968,6 +1037,9 @@ export function adminRouter(prisma: PrismaClient) {
           pettyCashLimit: b.pettyCashLimit ?? 200000,
           cancelWindowMinutes: cancelWindowMinutes ?? 5,
           supplierReturnDays: supplierReturnDays ?? 7,
+          searchMinCustomers: searchMinCustomers ?? 3,
+          searchMinPercent: searchMinPercent ?? 2,
+          searchWindowDays: searchWindowDays ?? 30,
         },
         update: {
           vatRatePercent: b.vatRatePercent,
@@ -980,6 +1052,9 @@ export function adminRouter(prisma: PrismaClient) {
           pettyCashLimit: b.pettyCashLimit,
           cancelWindowMinutes,
           supplierReturnDays,
+          searchMinCustomers,
+          searchMinPercent,
+          searchWindowDays,
         },
       }),
     );

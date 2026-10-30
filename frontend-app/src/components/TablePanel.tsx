@@ -23,6 +23,8 @@ export type PanelProduct = {
   priceSizeS?: number | null;
   priceSizeL?: number | null;
   discountPercent?: number | null;
+  /** false = món 1 loại (bánh…): không chọn size */
+  hasSizes?: boolean;
 };
 
 type Size = "S" | "M" | "L";
@@ -32,8 +34,6 @@ function priceFor(p: PanelProduct, size: Size) {
   const base = size === "S" ? p.priceSizeS ?? Math.max(0, p.sellPrice - 3000) : size === "L" ? p.priceSizeL ?? p.sellPrice + 5000 : p.sellPrice;
   return p.discountPercent && p.discountPercent > 0 ? Math.round(base * (1 - p.discountPercent / 100)) : base;
 }
-/** Đồ ăn (bánh…) không chọn size — cùng cách nhận biết với trang đặt món của khách */
-const isFoodCategory = (name?: string) => !!name && /đồ ăn|bánh/i.test(name);
 export type PanelCategory = { id: number; name: string };
 export type PanelTable = { id: number; name: string; status: string; location: string | null };
 export type PanelDetail = {
@@ -355,8 +355,8 @@ function OrderView({
   /** Size đang chọn cho từng món (mặc định M) */
   const [sizeOf, setSizeOf] = useState<Record<number, Size>>({});
   const [phone, setPhone] = useState(initialPhone);
-  const catName = (id: number) => categories.find((c) => c.id === id)?.name;
-  const hasSizes = (p: PanelProduct) => !isFoodCategory(catName(p.categoryId));
+  // Món 1 loại (bánh…) không chọn size — theo cờ hasSizes của món (máy chủ cũng ép size M)
+  const hasSizes = (p: PanelProduct) => p.hasSizes !== false;
 
   const list = useMemo(() => {
     const term = q.trim().toLowerCase();

@@ -28,7 +28,7 @@ export function formulaRouter(prisma: PrismaClient) {
   r.get("/admin/product-costs", ...adminOnly, async (_req, res) => {
     const [products, costs] = await Promise.all([
       prisma.product.findMany({
-        select: { id: true, name: true, imageUrl: true, sellPrice: true, priceSizeS: true, priceSizeL: true, costPrice: true, isActive: true, category: { select: { name: true } } },
+        select: { id: true, name: true, imageUrl: true, sellPrice: true, priceSizeS: true, priceSizeL: true, costPrice: true, isActive: true, hasSizes: true, category: { select: { name: true } } },
         orderBy: [{ categoryId: "asc" }, { id: "asc" }],
       }),
       productCosts(prisma),
@@ -65,9 +65,11 @@ export function formulaRouter(prisma: PrismaClient) {
         await tx.productFormula.createMany({
           data: lines.map((l) => {
             const it = items.find((i) => i.id === l.itemId)!;
+            // Món 1 loại (bánh…): 1 mức duy nhất, không định mức theo size
+            const sized = product.hasSizes;
             return {
               productId, itemId: l.itemId,
-              qtyPerUnit: l.qtyM, qtySizeM: l.qtyM, qtySizeS: l.qtyS ?? null, qtySizeL: l.qtyL ?? null,
+              qtyPerUnit: l.qtyM, qtySizeM: sized ? l.qtyM : null, qtySizeS: sized ? l.qtyS ?? null : null, qtySizeL: sized ? l.qtyL ?? null : null,
               recipeUnit: it.recipeUnit ?? it.unit, conversionFactor: it.recipePerUnit > 0 ? it.recipePerUnit : 1,
               note: l.note?.trim() || null,
             };

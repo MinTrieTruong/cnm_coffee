@@ -137,8 +137,21 @@ function VoucherCard({ v }: { v: Voucher }) {
   );
 }
 
+/** Ưu đãi số lượng đang chạy — GET /api/promotions/active (tự áp khi đặt đủ số ly, không cần mã) */
+type BulkPromo = {
+  id: number; name: string; description: string | null; endAt: string;
+  dineIn: boolean; takeaway: boolean; delivery: boolean; allowVoucher: boolean;
+  startMin: number | null; endMin: number | null;
+  tiers: { minQty: number; text: string }[];
+};
+const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
 export function Promotions() {
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
+  const [bulk, setBulk] = useState<BulkPromo[]>([]);
+  useEffect(() => {
+    api<BulkPromo[]>("/api/promotions/active").then(setBulk).catch(() => setBulk([]));
+  }, []);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -178,6 +191,29 @@ export function Promotions() {
       </div>
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 1.5rem 4rem" }}>
+        {bulk.length > 0 && (
+          <section style={{ marginBottom: "3rem" }}>
+            <h2 style={{ fontFamily: "var(--font-display)", color: "var(--text)", display: "flex", alignItems: "center", gap: 8 }}><Gift size={22} color="var(--accent)" /> Mua càng nhiều càng ưu đãi</h2>
+            <p className="subtle" style={{ marginTop: 0 }}>Tự động áp dụng khi đặt đủ số ly — không cần nhập mã.</p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 320px), 1fr))", gap: "1rem" }}>
+              {bulk.map((p) => (
+                <div key={p.id} style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 16, padding: "1.25rem" }}>
+                  <div style={{ fontWeight: 700, fontSize: "1.1rem", color: "var(--text)" }}>{p.name}</div>
+                  {p.description && <div className="subtle" style={{ marginTop: 4 }}>{p.description}</div>}
+                  <ul style={{ margin: "0.75rem 0", paddingLeft: "1.1rem", color: "var(--text)" }}>
+                    {p.tiers.map((t) => <li key={t.minQty}>Từ <b>{t.minQty} ly</b>: {t.text}</li>)}
+                  </ul>
+                  <div className="subtle" style={{ fontSize: "0.85rem", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <Clock size={14} /> Đến {new Date(p.endAt).toLocaleDateString("vi-VN")}
+                    {p.startMin != null && p.endMin != null && <> · {hhmm(p.startMin)}–{hhmm(p.endMin)}</>}
+                    {" · "}{[p.dineIn && "Tại quán", p.takeaway && "Mang về", p.delivery && "Giao hàng"].filter(Boolean).join(", ")}
+                    {!p.allowVoucher && " · không dùng chung voucher"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         {loading && (
           <div style={{ textAlign: "center", padding: "4rem 0" }}>
             <div className="hp-loader" />

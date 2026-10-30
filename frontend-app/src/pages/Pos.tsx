@@ -5,6 +5,8 @@ import { Socket } from "socket.io-client";
 import { getStaffInfo, staffApi, staffSocket as openStaffSocket, isAdminRole } from "../lib/staffApi";
 import { PosDeliveryPanel } from "../components/PosDeliveryPanel";
 import { useHideBottomNav } from "../components/BottomNav";
+import { PosBillHistory, type BillRecord } from "../components/PosBillHistory";
+import { PosPendingList } from "../components/PosPendingList";
 import { EntryDialog, SafeCloseDialog, SafeOpenDialog, ShiftCloseDialog, useSafe } from "../modules/finance/shared";
 
 /** Âm thanh nhỏ nhẹ khi nhận yêu cầu thanh toán từ phục vụ. */
@@ -65,23 +67,6 @@ type PendingOrder = {
   details: PendingDetail[];
   status?: string;
   payments?: { method: string, shiftId: number | null }[];
-};
-
-type BillItem = { id: number; name: string; quantity: number; unitPrice: number; lineTotal: number; customNotes: string | null };
-type BillRecord = {
-  id: number;
-  createdAt: string;
-  orderType: string;
-  tableName: string | null;
-  customerName: string | null;
-  customerPhone: string | null;
-  subTotal: number;
-  discountAmt: number;
-  vatAmount: number;
-  totalAmount: number;
-  payMethod: string | null;
-  paidAt: string | null;
-  items: BillItem[];
 };
 
 type StoreSettings = {
@@ -199,18 +184,14 @@ export function Pos() {
   const [openShiftAfterSafe, setOpenShiftAfterSafe] = useState(false);
   const [payOrder, setPayOrder] = useState<PendingOrder | null>(null);
   const [billModal, setBillModal] = useState<PendingOrder | null>(null);
-  // Màn bill / thu tiền có thanh thao tác riêng → ẩn thanh điều hướng đáy
-  useHideBottomNav(!!billModal || !!payOrder);
   const [billStep, setBillStep] = useState<"bill" | "pay">("bill");
   const [payMethod, setPayMethod] = useState("Cash");
   const [cashGiven, setCashGiven] = useState("");
   const [pointsToUse, setPointsToUse] = useState(0);
   // --- Lịch sử bill ---
   const [showBillHistory, setShowBillHistory] = useState(false);
-  const [billDate, setBillDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [billHistory, setBillHistory] = useState<BillRecord[]>([]);
-  const [billHistoryLoading, setBillHistoryLoading] = useState(false);
-  const [billHistoryErr, setBillHistoryErr] = useState<string | null>(null);
+  // Màn bill / thu tiền / lịch sử có thanh thao tác riêng → ẩn thanh điều hướng đáy
+  useHideBottomNav(!!billModal || !!payOrder || showBillHistory);
   const [billDetailModal, setBillDetailModal] = useState<BillRecord | null>(null);
 
   const [, setMenuTableId] = useState<number | null>(null);
@@ -515,18 +496,22 @@ export function Pos() {
     }
   }, [payOrder, settings]);
 
-  const loadBills = async (date: string) => {
-    setBillHistoryLoading(true);
-    setBillHistoryErr(null);
+  async function cancelOrder(o: PendingOrder) {
+    const reason = window.prompt(`Lý do hủy đơn #${o.id} (ví dụ: Hết nguyên liệu, Khách đổi ý,...):`);
+    if (reason === null) return;
     try {
-      const data = await staffApi<BillRecord[]>(`/api/pos/bills?date=${date}`);
-      setBillHistory(data);
+      await staffApi(`/api/orders/${o.id}/cancel`, {
+        method: "POST",
+        body: JSON.stringify({ cancelReason: reason.trim() || "Nhân viên hủy đơn" }),
+      });
+      showToast("Đã hủy đơn thành công.");
+      void refreshAll();
     } catch (e) {
-      setBillHistoryErr(e instanceof Error ? e.message : "Lỗi tải lịch sử");
-    } finally {
-      setBillHistoryLoading(false);
+      showToast(e instanceof Error ? e.message : "Lỗi hủy đơn");
     }
-  };
+  }
+
+  const closeBillHistory = useCallback(() => setShowBillHistory(false), []);
 
   const payMethodLabel = (m: string | null) => {
     if (!m) return "?";
@@ -593,11 +578,7 @@ export function Pos() {
           <Link to="/staff/inventory" className="btn btn-ghost staff-btn-light">Kiểm kho</Link>
           <button type="button" className="btn btn-ghost staff-btn-light"
             style={showBillHistory ? { background: "rgba(146,64,14,0.15)", borderColor: "#92400e" } : undefined}
-            onClick={() => {
-              const next = !showBillHistory;
-              setShowBillHistory(next);
-              if (next) void loadBills(billDate);
-            }}>
+            onClick={() => setShowBillHistory((v) => !v)}>
             Lịch sử bill
           </button>
           <button type="button" className="btn btn-ghost staff-btn-light" onClick={() => void refreshAll()}>
@@ -732,86 +713,22 @@ export function Pos() {
       <PosDeliveryPanel onToast={showToast} />
 
       <section style={{ marginBottom: "1rem" }}>
-        <h2 style={{ fontSize: "1.05rem", margin: "0 0 0.65rem" }}>Đơn chờ thanh toán</h2>
+        <h2 style={{ fontSize: "1.05rem", margin: "0 0 0.65rem" }}>
+          Đơn chờ thanh toán{pending.length > 0 && <span className="bh-count" style={{ marginLeft: "0.4rem", fontSize: "0.8rem" }}>{pending.length}</span>}
+        </h2>
         {shift === undefined && <p className="subtle">Đang kiểm tra ca…</p>}
         {shift === null && <p className="subtle">Mở ca trước khi thanh toán.</p>}
         {pending.length === 0 && shift != null ? <p className="subtle">Không có đơn Confirmed chưa thu tiền.</p> : null}
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-          {pending.map((o) => (
-            <div key={o.id} className="card" style={{ padding: "0.85rem 1rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
-                <div>
-                  <strong>Đơn #{o.id}</strong>
-                  {o.table && (
-                    <span style={{ color: "var(--muted)", marginLeft: "0.5rem" }}>
-                      {o.table.name}
-                    </span>
-                  )}
-                  {!o.table && (
-                    <span style={{ color: "var(--muted)", marginLeft: "0.5rem" }}>Mang về</span>
-                  )}
-                  {o.status === "Paid" && o.payments && o.payments.length > 0 && o.payments[0].shiftId === null && (
-                    <span style={{ marginLeft: "0.5rem", fontSize: "0.75rem", padding: "0.2rem 0.5rem", background: "#16a34a", color: "#fff", borderRadius: "12px", fontWeight: "bold" }}>
-                      Đã thanh toán {o.payments[0].method}
-                    </span>
-                  )}
-                  <div style={{ fontSize: "0.88rem", marginTop: "0.25rem" }}>
-                    {o.customer ? (
-                      <>
-                        {o.customer.fullName} — {o.customer.points} điểm
-                      </>
-                    ) : (
-                      "Khách vãng lai"
-                    )}
-                  </div>
-                  <div style={{ fontSize: "0.82rem", color: "var(--muted)", marginTop: "0.2rem" }}>
-                    Giờ vào: {new Date(o.createdAt).toLocaleString("vi-VN")}
-                  </div>
-                  <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "0.2rem" }}>
-                    Tạm tính: {formatVnd(o.subTotal)} (chưa gồm VAT / điểm)
-                  </div>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={shift == null}
-                    onClick={() => {
-                      setBillModal(o);
-                      setBillStep("bill");
-                      setPayOrder(null);
-                    }}
-                  >
-                    Xem bill / Thu tiền
-                  </button>
-                  {o.status !== "Paid" && (
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      style={{ border: "1px solid var(--danger)", color: "var(--danger)", padding: "0.5rem 0.75rem", fontSize: "0.85rem", whiteSpace: "nowrap" }}
-                      onClick={async () => {
-                        const reason = window.prompt("Lý do hủy đơn (ví dụ: Hết nguyên liệu, Khách đổi ý,...):");
-                        if (reason === null) return;
-                        try {
-                           await staffApi(`/api/orders/${o.id}/cancel`, {
-                             method: "POST",
-                             body: JSON.stringify({ cancelReason: reason.trim() || "Nhân viên hủy đơn" })
-                           });
-                           showToast("Đã hủy đơn thành công.");
-                           void refreshAll();
-                        } catch(e) {
-                           showToast(e instanceof Error ? e.message : "Lỗi hủy đơn");
-                        }
-                      }}
-                    >
-                      Hủy đơn
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <PosPendingList
+          orders={pending}
+          disabled={shift == null}
+          onOpen={(o) => {
+            setBillModal(o);
+            setBillStep("bill");
+            setPayOrder(null);
+          }}
+          onCancel={(o) => void cancelOrder(o)}
+        />
       </section>
 
       {tables && (
@@ -896,106 +813,7 @@ export function Pos() {
 
       {/* ===== LỊCH SỬ BILL ===== */}
       {showBillHistory && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: "1rem" }}
-          role="presentation" onClick={(e) => e.target === e.currentTarget && setShowBillHistory(false)}>
-          <section className="card" style={{ padding: "1rem 1.15rem", width: "100%", maxWidth: 600, maxHeight: "90vh", overflowY: "auto", margin: 0 }}
-            onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.65rem", marginBottom: "0.85rem" }}>
-              <h2 style={{ fontSize: "1.1rem", margin: 0 }}>Lịch sử bill</h2>
-              <button type="button" className="btn btn-ghost" style={{ padding: "0.3rem 0.6rem", fontSize: "0.85rem" }} onClick={() => setShowBillHistory(false)} aria-label="Đóng"><X size={16} /></button>
-            </div>
-            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", marginBottom: "1rem" }}>
-              <input
-                type="date"
-                className="input"
-                style={{ maxWidth: 165, padding: "0.45rem 0.75rem", fontSize: "0.9rem" }}
-                value={billDate}
-                min={(() => { const d = new Date(); d.setDate(d.getDate() - 19); return d.toISOString().slice(0, 10); })()}
-                max={new Date().toISOString().slice(0, 10)}
-                onChange={(e) => {
-                  setBillDate(e.target.value);
-                  void loadBills(e.target.value);
-                }}
-              />
-              <button type="button" className="btn btn-ghost staff-btn-light"
-                style={{ padding: "0.45rem 0.85rem", fontSize: "0.88rem" }}
-                onClick={() => void loadBills(billDate)}>
-                Tải lại
-              </button>
-            </div>
-
-          {billHistoryLoading && <p className="subtle">Đang tải…</p>}
-          {billHistoryErr && <p style={{ color: "var(--danger)", fontSize: "0.88rem" }}>{billHistoryErr}</p>}
-
-          {!billHistoryLoading && (
-            <>
-              {/* Tổng kết ngày */}
-              {billHistory.length > 0 && (
-                <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", marginBottom: "0.85rem", padding: "0.65rem 0.85rem", background: "rgba(146,64,14,0.08)", borderRadius: 10, border: "1px solid rgba(146,64,14,0.2)" }}>
-                  <div>
-                    <div style={{ fontSize: "0.75rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Số đơn</div>
-                    <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{billHistory.length}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: "0.75rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Doanh thu</div>
-                    <div style={{ fontWeight: 700, fontSize: "1.1rem", color: "var(--accent)" }}>
-                      {formatVnd(billHistory.reduce((s, b) => s + b.totalAmount, 0))}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: "0.75rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Tiền mặt</div>
-                    <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>
-                      {formatVnd(billHistory.filter(b => b.payMethod === "Cash").reduce((s, b) => s + b.totalAmount, 0))}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: "0.75rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Chuyển khoản</div>
-                    <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>
-                      {formatVnd(billHistory.filter(b => ["Transfer_QR", "VNPay", "SePay"].includes(b.payMethod || "")).reduce((s, b) => s + b.totalAmount, 0))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {billHistory.length === 0 && !billHistoryErr && (
-                <p className="subtle">Không có đơn nào trong ngày này.</p>
-              )}
-
-              {/* Danh sách bill */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem", maxHeight: 420, overflowY: "auto" }}>
-                {billHistory.map((b) => (
-                  <div key={b.id}
-                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem", padding: "0.6rem 0.85rem", background: "#fff", borderRadius: 10, border: "1px solid #e5ddd5", cursor: "pointer", transition: "box-shadow 0.15s" }}
-                    onClick={() => setBillDetailModal(b)}
-                    role="button" tabIndex={0}
-                    onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setBillDetailModal(b)}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, color: "var(--text)", fontSize: "0.92rem" }}>
-                        Bill #{b.id}
-                        {b.tableName && <span style={{ fontWeight: 400, color: "#6b5e55", marginLeft: "0.4rem" }}>· {b.tableName}</span>}
-                        {!b.tableName && <span style={{ fontWeight: 400, color: "#6b5e55", marginLeft: "0.4rem" }}>· Mang về</span>}
-                      </div>
-                      <div style={{ fontSize: "0.8rem", color: "#6b5e55", marginTop: "0.15rem" }}>
-                        {new Date(b.createdAt).toLocaleTimeString("vi-VN")}
-                        {b.customerName && ` · ${b.customerName}`}
-                        {` · ${b.items.length} món`}
-                        <div style={{ marginTop: "0.15rem", color: "#8a7e75", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: "0.78rem" }}>
-                          {b.items.map(i => `${i.name}${i.quantity > 1 ? ` (x${i.quantity})` : ''}`).join(", ")}
-                        </div>
-                      </div>
-                    </div>
-                    <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontWeight: 700, color: "var(--text)" }}>{formatVnd(b.totalAmount)}</div>
-                      <div style={{ fontSize: "0.75rem", color: "#6b5e55", marginTop: "0.1rem" }}>{payMethodLabel(b.payMethod)}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-          </section>
-        </div>
+        <PosBillHistory onClose={closeBillHistory} onSelect={setBillDetailModal} payMethodLabel={payMethodLabel} />
       )}
 
       {/* Modal chi tiết bill lịch sử */}

@@ -50,6 +50,9 @@ import {
   Warehouse,
   type LucideIcon,
   Send,
+  Search,
+  BadgePercent,
+  MessageSquareWarning,
 } from "lucide-react";
 import { APPS, appPath, canSee, isLeaf, listed, type AppDef, type MenuLeaf } from "./registry";
 import type { BadgeKey } from "../lib/navConfig";
@@ -85,6 +88,7 @@ const LEAF_ICONS: Record<string, LucideIcon> = {
   "overview/profit": PieChart,
   "overview/compare": Scale,
   "overview/branch-proposals": Send,
+  "overview/complaints": MessageSquareWarning,
   "pos/pos": Monitor,
   "tables/floor": LayoutGrid,
   "tables/zones": Building2,
@@ -97,7 +101,9 @@ const LEAF_ICONS: Record<string, LucideIcon> = {
   "sales/categories": ListTree,
   "sales/combos": Package,
   "sales/vouchers": Ticket,
+  "sales/bulk-promotions": BadgePercent,
   "sales/proposals": Lightbulb,
+  "sales/search": Search,
   "sales/customers": UserRound,
   "sales/reviews": MessageSquareQuote,
   "kitchen/kds": ChefHat,

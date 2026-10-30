@@ -19,6 +19,7 @@ import {
   type LucideIcon,
   Send,
   ClipboardList,
+  MessageSquareWarning,
 } from "lucide-react";
 import { timeAgo, useNotifications, type AppNotification } from "../../lib/notifications";
 
@@ -31,6 +32,7 @@ const TYPE_META: Record<string, { icon: LucideIcon; tone: string }> = {
   DELIVERY_REFUND: { icon: Bike, tone: "orange" },
   SUPPLIER_RETURN: { icon: Package, tone: "orange" },
   PO_BACKORDER: { icon: Package, tone: "red" },
+  COMPLAINT: { icon: MessageSquareWarning, tone: "red" },
   HR_REQUEST: { icon: FileText, tone: "orange" },
   HR_REVIEWED: { icon: FileCheck, tone: "green" },
   LOW_STOCK: { icon: AlertTriangle, tone: "orange" },

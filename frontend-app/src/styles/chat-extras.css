@@ -1,0 +1,77 @@
+/* ── Chat: icon, ảnh đính kèm, thả cảm xúc, khiếu nại (components/chat/ChatParts) ── */
+.cx-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; flex: none; border: 0; border-radius: 999px;
+  background: transparent; color: var(--muted, #78716c); cursor: pointer;
+}
+.cx-icon-btn:hover:not(:disabled) { background: var(--surface2, #f5f5f4); color: var(--accent, #92400e); }
+.cx-icon-btn:disabled { opacity: 0.5; cursor: default; }
+
+.cx-emoji { position: relative; flex: none; }
+.cx-emoji-pop {
+  position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 20;
+  display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px;
+  width: 288px; max-width: calc(100vw - 48px); padding: 8px;
+  background: var(--surface, #fff); border: 1px solid var(--border, #e7e5e4); border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+}
+.cx-emoji-pop button { border: 0; background: none; font-size: 1.25rem; line-height: 1; padding: 5px 0; border-radius: 8px; cursor: pointer; }
+.cx-emoji-pop button:hover { background: var(--surface2, #f5f5f4); }
+
+.cx-pending { position: relative; display: inline-block; margin: 6px 12px 0; }
+.cx-pending img { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border, #e7e5e4); display: block; }
+.cx-pending button {
+  position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border: 0; border-radius: 999px;
+  background: #1c1917; color: #fff; display: grid; place-items: center; cursor: pointer;
+}
+
+.cx-msg-img { display: block; margin-top: 4px; }
+.cx-msg-img img { display: block; max-width: 220px; max-height: 220px; width: auto; border-radius: 12px; object-fit: cover; border: 1px solid var(--border, #e7e5e4); }
+
+.cx-react { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 3px; }
+.cx-react-end { justify-content: flex-end; }
+.cx-react-chip {
+  display: inline-flex; align-items: center; gap: 2px; padding: 1px 7px; border-radius: 999px;
+  border: 1px solid var(--border, #e7e5e4); background: var(--surface, #fff); font-size: 0.85rem; line-height: 1.5; cursor: pointer;
+}
+.cx-react-chip span { font-size: 0.72rem; color: var(--muted, #78716c); }
+.cx-react-chip.mine { border-color: var(--accent, #92400e); background: rgba(146, 64, 14, 0.08); }
+.cx-react-add { position: relative; display: inline-flex; }
+.cx-react-toggle {
+  width: 22px; height: 22px; border: 0; border-radius: 999px; background: transparent;
+  color: var(--muted, #78716c); font-size: 0.85rem; cursor: pointer; opacity: 0.55;
+}
+.cx-react-toggle:hover, .cx-react-toggle:focus-visible { opacity: 1; background: var(--surface2, #f5f5f4); }
+.cx-react-bar {
+  position: absolute; bottom: calc(100% + 4px); z-index: 20; display: flex; gap: 2px; padding: 4px 6px;
+  background: var(--surface, #fff); border: 1px solid var(--border, #e7e5e4); border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15); white-space: nowrap;
+}
+.cx-react-start .cx-react-bar { left: 0; }
+.cx-react-end .cx-react-bar { right: 0; }
+.cx-react-bar button { border: 0; background: none; font-size: 1.2rem; padding: 2px 3px; cursor: pointer; border-radius: 8px; transition: transform 0.1s; }
+.cx-react-bar button:hover { transform: scale(1.25); }
+
+/* Widget khách: tab Chat / Khiếu nại + form khiếu nại */
+.cx-tabs { display: flex; background: var(--surface, #fff); border-bottom: 1px solid var(--border, #e7e5e4); }
+.cx-tabs button {
+  flex: 1; padding: 9px 8px; border: 0; background: none; font-weight: 600; font-size: 0.88rem;
+  color: var(--muted, #78716c); border-bottom: 2px solid transparent; cursor: pointer;
+}
+.cx-tabs button.active { color: var(--accent, #92400e); border-bottom-color: var(--accent, #92400e); }
+.cx-complaint-form { padding: 12px; display: grid; gap: 8px; overflow-y: auto; background: var(--bg, #fafaf9); flex: 1; }
+.cx-complaint-form p { margin: 0; font-size: 0.85rem; color: var(--muted, #78716c); }
+.cx-cats { display: flex; flex-wrap: wrap; gap: 6px; }
+.cx-cats button {
+  padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border, #e7e5e4); background: var(--surface, #fff);
+  font-size: 0.82rem; cursor: pointer; color: var(--text, #1c1917);
+}
+.cx-cats button.active { border-color: var(--accent, #92400e); background: rgba(146, 64, 14, 0.1); color: var(--accent, #92400e); font-weight: 600; }
+.cx-complaint-form textarea {
+  width: 100%; min-height: 80px; resize: vertical; padding: 8px 10px; border-radius: 10px;
+  border: 1px solid var(--border, #e7e5e4); font: inherit; font-size: 0.9rem; background: var(--surface, #fff); color: var(--text, #1c1917);
+}
+.cx-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px; font-size: 0.8rem; background: var(--surface2, #f5f5f4); }
+.cx-status b { font-weight: 600; }
+.cx-link { border: 0; background: none; color: var(--accent, #92400e); font-weight: 600; cursor: pointer; font-size: 0.8rem; padding: 0; }
+.cx-closed { padding: 10px 12px; font-size: 0.85rem; text-align: center; color: var(--muted, #78716c); background: var(--surface, #fff); }

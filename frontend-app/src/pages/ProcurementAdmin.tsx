@@ -52,6 +52,8 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
    */
   const [recv, setRecv] = useState<Record<number, RecvLine>>({});
   const [recvNote, setRecvNote] = useState("");
+  /** Ảnh hoá đơn / phiếu giao hàng của NCC — chứng từ công nợ của đợt nhận */
+  const [recvInvoice, setRecvInvoice] = useState<string | null>(null);
   const [recvReorder, setRecvReorder] = useState(false);
   const [recvBusy, setRecvBusy] = useState(false);
 
@@ -138,6 +140,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
       { qty: String(l.remaining), rejected: "", expiry: "", note: "", reason: "", photo: null, action: "BACKORDER", backorder },
     ])));
     setRecvNote("");
+    setRecvInvoice(null);
     setRecvReorder(false);
     setReceivingPo(po);
   }
@@ -171,6 +174,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
     if (bad) return alert(`Số lượng của ${bad.name} không hợp lệ: thực nhận + trả lại tối đa ${bad.remaining}.`);
     const noProof = lines.find((l: any) => l.rejectedQty > 0 && (!l.rejectReason || !l.rejectPhoto));
     if (noProof) return alert(`${noProof.name}: chọn lý do và chụp ảnh hàng bị trả lại.`);
+    if (lines.some((l: any) => l.receivedQty > 0) && !recvInvoice) return alert("Chụp ảnh hoá đơn / phiếu giao hàng của nhà cung cấp làm chứng từ công nợ.");
     const short = lines.filter((l: any) => l.receivedQty < l.remaining);
     if (!lines.some((l: any) => l.receivedQty > 0 || l.rejectedQty > 0) && !short.some((l: any) => l.shortAction === "CANCEL")) return alert("Nhập số thực nhận cho ít nhất 1 mặt hàng.");
     const noExpiry = lines.filter((l: any) => l.receivedQty > 0 && !l.expiryDate).map((l: any) => l.name);
@@ -190,6 +194,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
         body: JSON.stringify({
           note: recvNote,
           reorder: recvReorder,
+          invoicePhoto: recvInvoice ?? undefined,
           lines: lines.map((l: any) => ({
             itemId: l.itemId, receivedQty: l.receivedQty, rejectedQty: l.rejectedQty, expiryDate: l.expiryDate, note: l.note,
             rejectReason: l.rejectReason, rejectPhoto: l.rejectPhoto, shortAction: l.shortAction, backorderDate: l.backorderDate,
@@ -199,6 +204,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
       if (r.reorderCode) alert(`Đã tạo đề xuất mua ${r.reorderCode} cho phần bị hủy (chờ duyệt).`);
       setReceivingPo(null);
       setRecv({});
+      setRecvInvoice(null);
       loadData();
     } catch (e: any) {
       alert(e.message);
@@ -488,6 +494,16 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                   {po.receipts.map((g: any) => `${g.code} · ${new Date(g.createdAt).toLocaleDateString("vi-VN")} · ${g.receivedBy?.fullName ?? ""}${g.items.some((x: any) => x.rejectedQty > 0) ? ` · trả lại ${g.items.reduce((s: number, x: any) => s + x.rejectedQty, 0)}` : ""}${g.note ? ` · ${g.note}` : ""}`).join(" | ")}
                 </div>
               )}
+              {po.receipts.some((g: any) => g.invoicePhoto) && (
+                <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.85rem" }}>
+                  {po.receipts.filter((g: any) => g.invoicePhoto).map((g: any) => (
+                    <a key={g.id} href={mediaUrl(g.invoicePhoto)} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", color: "var(--accent)" }}>
+                      <img src={mediaUrl(g.invoicePhoto)} alt="" style={{ width: 32, height: 32, objectFit: "cover", borderRadius: 4, border: "1px solid var(--border)" }} />
+                      Hoá đơn {g.code}
+                    </a>
+                  ))}
+                </div>
+              )}
               {po.receipts.some((g: any) => g.items.some((x: any) => x.rejectPhoto)) && (
                 <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.85rem" }}>
                   {po.receipts.flatMap((g: any) => g.items.filter((x: any) => x.rejectPhoto).map((x: any) => {
@@ -572,6 +588,10 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                 {Object.values(recv).some((r) => r.action === "CANCEL") && (
                   <label style={{ fontSize: "0.85rem" }}><input type="checkbox" checked={recvReorder} onChange={(e) => setRecvReorder(e.target.checked)} /> Tạo đề xuất mua mới cho phần bị hủy (lấy báo giá NCC khác)</label>
                 )}
+                <div style={{ padding: "0.75rem", border: `1px dashed ${recvInvoice ? "var(--success)" : "var(--danger)"}`, borderRadius: 10 }}>
+                  <PhotoPicker value={recvInvoice} onChange={setRecvInvoice} label="Ảnh hoá đơn / phiếu giao hàng của NCC (bắt buộc)" />
+                  <div style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: "0.3rem" }}>Chứng từ để đối chiếu công nợ với nhà cung cấp.</div>
+                </div>
                 <label style={{ fontSize: "0.85rem" }}>Ghi chú đợt nhận<br /><input className="input-field" style={{ padding: "0.4rem", width: "100%" }} value={recvNote} onChange={(e) => setRecvNote(e.target.value)} placeholder="VD: tài xế NCC ký biên bản trả hàng" /></label>
               </div>
 

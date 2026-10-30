@@ -31,3 +31,11 @@ export function bizRange(fromStr: unknown, toStr: unknown, defaultBack: number) 
   const fromYmd = typeof fromStr === "string" && YMD.test(fromStr.slice(0, 10)) ? fromStr.slice(0, 10) : addDaysYmd(toYmd, -defaultBack);
   return { from: bizDayStart(fromYmd), to: bizDayEnd(toYmd), fromYmd, toYmd };
 }
+
+/** Phút từ 00:00 theo giờ quán (0–1439) */
+export const bizMinute = (d: Date) => {
+  const t = new Date(d.getTime() + OFF);
+  return t.getUTCHours() * 60 + t.getUTCMinutes();
+};
+/** Thứ trong tuần theo giờ quán (0 = Chủ nhật … 6 = Thứ bảy) */
+export const bizWeekday = (d: Date) => new Date(d.getTime() + OFF).getUTCDay();

@@ -15,6 +15,9 @@ type Settings = {
   pettyCashLimit?: number;
   cancelWindowMinutes?: number;
   supplierReturnDays?: number;
+  searchMinCustomers?: number;
+  searchMinPercent?: number;
+  searchWindowDays?: number;
 };
 
 /** Cấu hình › Cài đặt chung (cả chuỗi — chỉ Chủ chuỗi sửa) */
@@ -37,6 +40,9 @@ export function StoreSettings() {
               pettyCashLimit: data.pettyCashLimit ?? 200000,
               cancelWindowMinutes: data.cancelWindowMinutes ?? 5,
               supplierReturnDays: data.supplierReturnDays ?? 7,
+              searchMinCustomers: data.searchMinCustomers ?? 3,
+              searchMinPercent: data.searchMinPercent ?? 2,
+              searchWindowDays: data.searchWindowDays ?? 30,
             }}
             onSaved={reload}
             onErr={setMsg}

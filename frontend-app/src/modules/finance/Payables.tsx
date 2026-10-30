@@ -3,7 +3,8 @@ import { HandCoins } from "lucide-react";
 import { activeStoreId, getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
 import { Alert, Badge, Button, EmptyState, Field, Kpi, ListView, Modal, RecordList, errMsg, fmtDate, fmtDateTime, formatVnd, type Tone, ymd } from "../../components/erp";
 import { useResource } from "../shared";
-import { PhotoInput, SafeOpenDialog, useSafe, type CashEntry } from "./shared";
+import { mediaUrl } from "../../lib/api";
+import { Attachment, PhotoInput, SafeOpenDialog, useSafe, type CashEntry } from "./shared";
 
 type Bill = {
   id: number;
@@ -19,6 +20,8 @@ type Bill = {
   status: "UNPAID" | "PARTIAL" | "PAID" | "CANCELLED";
   overdue: boolean;
   note: string | null;
+  /** Ảnh hoá đơn của NCC (chứng từ công nợ) — công nợ cũ có thể chưa có */
+  photoUrl: string | null;
   supplier: { id: number; name: string; phone: string | null; paymentTermDays: number };
   store: { id: number; name: string };
   grn: { code: string; po: { code: string } } | null;
@@ -77,6 +80,7 @@ export function Payables() {
           { key: "supplier", label: "Nhà cung cấp", value: (b) => b.supplier.name },
           ...(allStores ? [{ key: "store", label: "Chi nhánh", value: (b: Bill) => b.store.name }] : []),
           { key: "src", label: "Chứng từ", value: (b) => (b.grn ? `${b.grn.code} · ${b.grn.po.code}` : "Hoá đơn nhập tay"), optional: true },
+          { key: "photo", label: "Ảnh HĐ", value: (b) => (b.photoUrl ? "Có" : "Chưa có"), render: (b) => (b.photoUrl ? <Badge tone="success">Có</Badge> : <Badge tone="neutral">Chưa có</Badge>), optional: true },
           { key: "date", label: "Ngày phát sinh", value: (b) => b.billDate, render: (b) => fmtDate(b.billDate) },
           { key: "due", label: "Hạn trả", value: (b) => b.dueDate, render: (b) => fmtDate(b.dueDate) },
           { key: "amt", label: "Số tiền", value: (b) => b.amount, numeric: true, sum: true, formatSum: formatVnd, render: (b) => formatVnd(b.amount) },
@@ -150,7 +154,7 @@ function BillDetail({ bill: b, onClose, onChanged }: { bill: Bill; onClose: () =
       footer={
         <>
           {b.paidAmount === 0 && b.creditApplied === 0 && b.status !== "CANCELLED" && <Button variant="danger" onClick={() => void cancel()}>Huỷ công nợ</Button>}
-          {canPay && <Button variant="primary" disabled={busy || safeClosed} onClick={() => void pay()}>Thanh toán</Button>}
+          {canPay && <Button variant="primary" disabled={busy || safeClosed || !photo} title={photo ? undefined : "Chụp ảnh biên nhận trước"} onClick={() => void pay()}>Thanh toán</Button>}
         </>
       }
     >
@@ -169,6 +173,11 @@ function BillDetail({ bill: b, onClose, onChanged }: { bill: Bill; onClose: () =
         </div>
 
         <div>
+          <div className="o-section-title" style={{ margin: "0 0 6px" }}>Ảnh hoá đơn nhà cung cấp</div>
+          <Attachment url={b.photoUrl} />
+        </div>
+
+        <div>
           <div className="o-section-title" style={{ margin: "0 0 6px" }}>Lịch sử thanh toán</div>
           <ListView
             rows={b.payments}
@@ -179,6 +188,12 @@ function BillDetail({ bill: b, onClose, onChanged }: { bill: Bill; onClose: () =
               { key: "time", label: "Thời gian", value: (p) => p.createdAt, render: (p) => fmtDateTime(p.createdAt) },
               { key: "fund", label: "Hình thức", value: (p) => (p.fromFund === "BANK" ? "Chuyển khoản" : "Tiền mặt (két)") },
               { key: "by", label: "Người trả", value: (p) => p.createdBy.fullName },
+              {
+                key: "proof", label: "Biên nhận", value: (p) => (p.attachmentUrl ? "Có" : ""),
+                render: (p) => p.attachmentUrl
+                  ? <a href={mediaUrl(p.attachmentUrl)} target="_blank" rel="noreferrer"><img src={mediaUrl(p.attachmentUrl)} alt="Biên nhận" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 4 }} /></a>
+                  : <span className="o-muted">Không có</span>,
+              },
               { key: "amt", label: "Số tiền", value: (p) => p.amount, numeric: true, sum: true, formatSum: formatVnd, render: (p) => formatVnd(p.amount) },
             ]}
           />
@@ -199,7 +214,10 @@ function BillDetail({ bill: b, onClose, onChanged }: { bill: Bill; onClose: () =
             <Field label="Ghi chú" full>
               <input className="o-input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="VD: CK Vietcombank, mã GD 123456" />
             </Field>
-            <Field label="Ảnh uỷ nhiệm chi / biên nhận" full><PhotoInput value={photo} onChange={setPhoto} /></Field>
+            <Field label={fund === "BANK" ? "Ảnh uỷ nhiệm chi / màn hình chuyển khoản thành công" : "Ảnh biên nhận NCC đã nhận tiền"} required full>
+              <PhotoInput value={photo} onChange={setPhoto} />
+              {!photo && <span className="o-muted"> Bắt buộc để làm chứng từ trả tiền.</span>}
+            </Field>
             {safeClosed && <Alert tone="warning">Két đang đóng. <Button size="sm" variant="primary" onClick={() => setOpeningSafe(true)}>Mở két</Button></Alert>}
           </div>
         )}
@@ -217,6 +235,7 @@ function BillCreate({ onClose, onDone }: { onClose: () => void; onDone: () => vo
   const [billDate, setBillDate] = useState(() => ymd(new Date()));
   const [dueDate, setDueDate] = useState("");
   const [note, setNote] = useState("");
+  const [photo, setPhoto] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const sup = suppliers.find((s) => String(s.id) === supplierId);
@@ -225,7 +244,7 @@ function BillCreate({ onClose, onDone }: { onClose: () => void; onDone: () => vo
     try {
       await staffApi("/api/cash/payables", {
         method: "POST",
-        body: JSON.stringify({ supplierId: Number(supplierId), amount: Number(amount.replace(/\D/g, "")), billDate, dueDate: dueDate || undefined, note }),
+        body: JSON.stringify({ supplierId: Number(supplierId), amount: Number(amount.replace(/\D/g, "")), billDate, dueDate: dueDate || undefined, note, photo }),
       });
       onDone();
     } catch (e) {
@@ -238,7 +257,7 @@ function BillCreate({ onClose, onDone }: { onClose: () => void; onDone: () => vo
     <Modal
       title="Ghi hoá đơn nhà cung cấp"
       onClose={onClose}
-      footer={<><Button onClick={onClose}>Huỷ</Button><Button variant="primary" disabled={busy || !supplierId || !amount} onClick={() => void submit()}>Ghi công nợ</Button></>}
+      footer={<><Button onClick={onClose}>Huỷ</Button><Button variant="primary" disabled={busy || !supplierId || !amount || !photo} onClick={() => void submit()}>Ghi công nợ</Button></>}
     >
       {err && <Alert>{err}</Alert>}
       <div className="o-stack" style={{ gap: 10 }}>
@@ -255,6 +274,7 @@ function BillCreate({ onClose, onDone }: { onClose: () => void; onDone: () => vo
           {!dueDate && sup && <span className="o-muted"> Mặc định: sau {sup.paymentTermDays} ngày</span>}
         </Field>
         <Field label="Ghi chú" full><input className="o-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Số hoá đơn, nội dung hàng…" /></Field>
+        <Field label="Ảnh hoá đơn của nhà cung cấp" required full><PhotoInput value={photo} onChange={setPhoto} /></Field>
       </div>
     </Modal>
   );

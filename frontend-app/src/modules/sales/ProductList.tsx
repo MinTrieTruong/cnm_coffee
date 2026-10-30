@@ -23,6 +23,8 @@ export type ProductRow = {
   tags?: unknown;
   category?: { name: string };
   discountPercent?: number | null;
+  /** false = món 1 loại (bánh…): không có giá S/L */
+  hasSizes?: boolean;
 };
 
 export const PRODUCTS_BASE = "/app/sales/products";
@@ -77,9 +79,9 @@ export function ProductList() {
     { key: "sku", label: "SKU", value: (p) => p.sku ?? "", optional: true },
     { key: "cost", label: "Giá vốn", value: (p) => p.costPrice, numeric: true, optional: true, render: (p) => formatVnd(p.costPrice) },
     // Giá theo size: S/L để trống → áp dụng mặc định (S = M − 3.000đ, L = M + 5.000đ), hiện mờ
-    { key: "sizeS", label: "Giá S", value: (p) => p.priceSizeS ?? Math.max(0, p.sellPrice - 3000), numeric: true, optional: true, render: (p) => sizeCell(p.priceSizeS, Math.max(0, p.sellPrice - 3000)) },
+    { key: "sizeS", label: "Giá S", value: (p) => p.priceSizeS ?? Math.max(0, p.sellPrice - 3000), numeric: true, optional: true, render: (p) => (p.hasSizes === false ? <span className="o-muted">—</span> : sizeCell(p.priceSizeS, Math.max(0, p.sellPrice - 3000))) },
     { key: "price", label: "Giá M", value: (p) => p.sellPrice, numeric: true, render: (p) => formatVnd(p.sellPrice) },
-    { key: "sizeL", label: "Giá L", value: (p) => p.priceSizeL ?? p.sellPrice + 5000, numeric: true, optional: true, render: (p) => sizeCell(p.priceSizeL, p.sellPrice + 5000) },
+    { key: "sizeL", label: "Giá L", value: (p) => p.priceSizeL ?? p.sellPrice + 5000, numeric: true, optional: true, render: (p) => (p.hasSizes === false ? <span className="o-muted">—</span> : sizeCell(p.priceSizeL, p.sellPrice + 5000)) },
     {
       key: "discount",
       label: "Giảm giá",

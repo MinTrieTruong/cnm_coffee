@@ -13,15 +13,16 @@
 import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
-import { attachStaff, isOwner, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
+import { attachStaff, isOwner, requireRoles, type StaffRequest } from "../middleware/staff.js";
 import { mustStoreId, storeWhere, toStore } from "../lib/storeScope.js";
 import { audit } from "../lib/audit.js";
 import { notify } from "../lib/notify.js";
+import { normalizeTerm } from "../lib/searchInsights.js";
 
 export function menuProposalsRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
   const anyStaff = [attachStaff(prisma)];
-  const proposer = [attachStaff(prisma), requireRoles("Kitchen", "Admin"), requireStore];
+  const proposer = [attachStaff(prisma), requireRoles("Kitchen", "Admin")];
   const owner = [attachStaff(prisma), requireRoles("Owner")];
 
   const include = {
@@ -49,10 +50,20 @@ export function menuProposalsRouter(prisma: PrismaClient, io: Server) {
 
   r.post("/menu-proposals", ...proposer, async (req, res) => {
     const me = (req as StaffRequest).staffRow!;
-    const storeId = mustStoreId(req);
-    const b = req.body as { name?: string; description?: string; recipe?: string; suggestedPrice?: number; categoryId?: number; imageUrl?: string };
+    const b = req.body as {
+      name?: string; description?: string; recipe?: string; suggestedPrice?: number; categoryId?: number; imageUrl?: string;
+      /** Tạo từ gợi ý "khách tìm nhưng chưa có": nguồn SEARCH + từ khóa; Chủ chuỗi xem toàn chuỗi gửi kèm chi nhánh có nhiều khách tìm nhất */
+      searchTerm?: string; storeId?: number;
+    };
+    const fromSearch = !!b.searchTerm?.trim();
+    const ownerStore = isOwner(me.role) && (req as StaffRequest).storeId == null && fromSearch ? Number(b.storeId) : null;
+    if ((req as StaffRequest).storeId == null && !(ownerStore && (await prisma.store.findUnique({ where: { id: ownerStore } })))) {
+      return res.status(400).json({ error: "Hãy chọn chi nhánh trước khi thao tác." });
+    }
+    const storeId = ownerStore ?? mustStoreId(req);
     if (!b.name?.trim()) return res.status(400).json({ error: "Đặt tên món." });
-    if (!b.recipe?.trim()) return res.status(400).json({ error: "Ghi nguyên liệu & cách làm." });
+    // Đề xuất từ tìm kiếm: chưa có công thức — pha chế nghiên cứu sau khi Chủ chuỗi duyệt ý tưởng
+    if (!b.recipe?.trim() && !fromSearch) return res.status(400).json({ error: "Ghi nguyên liệu & cách làm." });
     if (b.suggestedPrice != null && !(Number.isInteger(b.suggestedPrice) && b.suggestedPrice >= 0)) {
       return res.status(400).json({ error: "Giá đề xuất không hợp lệ." });
     }
@@ -64,7 +75,9 @@ export function menuProposalsRouter(prisma: PrismaClient, io: Server) {
         storeId, staffId: me.id,
         name: b.name.trim(),
         description: b.description?.trim() || null,
-        recipe: b.recipe.trim(),
+        recipe: b.recipe?.trim() || null,
+        source: fromSearch ? "SEARCH" : "STAFF",
+        searchTerm: fromSearch ? normalizeTerm(b.searchTerm!) : null,
         suggestedPrice: b.suggestedPrice ?? null,
         categoryId: b.categoryId ?? null,
         imageUrl: b.imageUrl?.trim() || null,

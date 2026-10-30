@@ -5,6 +5,7 @@ import { SePayPgClient } from "sepay-pg-node";
 import crypto from "crypto";
 import { deductInventoryForOrder } from "../lib/inventory.js";
 import { releaseOrderToKitchen } from "../lib/delivery.js";
+import { customerShipping, refreshOrderPromotion } from "../lib/promotions.js";
 import { resolveVoucher, voucherHold } from "../lib/vouchers.js";
 
 export function sepayRouter(prisma: PrismaClient, io: Server) {
@@ -46,6 +47,7 @@ export function sepayRouter(prisma: PrismaClient, io: Server) {
   r.post("/orders/:id/sepay/create", async (req, res) => {
     const orderId = Number(req.params.id);
     if (Number.isNaN(orderId)) return res.status(400).json({ error: "Id không hợp lệ" });
+    await refreshOrderPromotion(prisma, orderId);
 
     const order = await prisma.order.findUnique({ where: { id: orderId } });
     if (!order) return res.status(404).json({ error: "Đơn không tìm thấy" });
@@ -65,7 +67,7 @@ export function sepayRouter(prisma: PrismaClient, io: Server) {
       settings.pointValueVnd,
       settings.vatRatePercent,
     );
-    const chargeAmount = Math.max(1000, Math.round(computed.totalAmount + Number(order.shippingFee || 0)));
+    const chargeAmount = Math.max(1000, Math.round(computed.totalAmount + customerShipping(order)));
 
     // Save the voucherCode temporarily in cancelReason (format VOUCHER:code:discount)
     await prisma.order.update({
@@ -215,7 +217,7 @@ async function confirmOrderPaid(
     settings.pointValueVnd,
     settings.vatRatePercent,
   );
-  const finalTotal = computed.totalAmount + Number(order.shippingFee || 0);
+  const finalTotal = computed.totalAmount + customerShipping(order);
 
   await prisma.$transaction(async (tx) => {
     // Re-check order status within transaction to prevent race conditions

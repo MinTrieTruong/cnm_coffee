@@ -1470,3 +1470,17 @@ button.o-status-step { cursor: pointer; }
   .cash-print, .cash-print * { visibility: visible; }
   .cash-print { position: absolute; left: 0; top: 0; width: 100%; padding: 12px; color: #000; background: #fff; }
 }
+
+/* ── Ưu đãi số lượng (modules/sales/BulkPromotions) ── */
+.bp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 10px 12px; align-items: start; }
+.bp-tier { padding: 12px; display: grid; gap: 8px; }
+.bp-tier-head { display: flex; align-items: center; gap: 10px; }
+.bp-tier-sum { flex: 1; min-width: 0; font-size: var(--o-fs-sm); }
+.bp-group-label { font-size: var(--o-fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--o-text-2); margin-top: 4px; }
+/* Cặp ô nhỏ trên cùng 1 dòng: "Mua [X] tặng [Y]", giờ từ – đến */
+.bp-pair { display: flex; align-items: center; gap: 6px; }
+.bp-pair .o-input { width: 64px; flex: none; text-align: right; }
+.bp-pair-time .o-input { width: auto; flex: 1; min-width: 0; text-align: left; }
+.bp-gift { display: flex; gap: 6px; }
+.bp-gift select.o-input { flex: 1; min-width: 0; }
+.bp-gift input.o-input { width: 64px; flex: none; text-align: right; }

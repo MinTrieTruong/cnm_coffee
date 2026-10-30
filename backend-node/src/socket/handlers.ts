@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
 import { verifyToken, type StaffPayload } from "../lib/jwt.js";
-import { isOwner } from "../middleware/staff.js";
+import { isAdminLike, isOwner } from "../middleware/staff.js";
 import { storeRoom, type StoreRoom } from "../lib/storeScope.js";
 
 const STORE_ROOMS: StoreRoom[] = ["kds", "staff", "pos", "admin_room"];
@@ -44,6 +44,8 @@ export function registerSocketHandlers(io: Server, prisma: PrismaClient) {
       // Phòng nội bộ: client vẫn gửi "pos"/"kds"/..., server gán vào đúng chi nhánh
       if ((STORE_ROOMS as string[]).includes(room)) {
         if (!staff) return;
+        // Phòng quản lý (khiếu nại của khách, duyệt đề xuất…) — chỉ Quản lý chi nhánh / Chủ chuỗi
+        if (room === "admin_room" && !isAdminLike(staff.role)) return;
         for (const sid of staff.storeIds) void socket.join(storeRoom(room as StoreRoom, sid));
         return;
       }
@@ -56,7 +58,8 @@ export function registerSocketHandlers(io: Server, prisma: PrismaClient) {
 
       if (
         /^order:\d+$/.test(room) ||
-        /^chat:\d+$/.test(room) || // khách join phòng riêng để nhận reply
+        // Khách join phòng riêng để nhận tin: tên phòng kèm mã bí mật của phiên (không đoán được từ số phiên)
+        /^chat:\d+:[0-9a-f-]{36}$/.test(room) ||
         /^tracking:\d+$/.test(room) // khách join phòng tracking để xem Shipper
       ) {
         void socket.join(room);

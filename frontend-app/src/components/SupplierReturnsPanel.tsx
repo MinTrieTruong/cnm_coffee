@@ -30,7 +30,7 @@ export function SupplierReturnsPanel({ canCreate, canApprove }: { canCreate: boo
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   /** Form duyệt từng phiếu: returnId → lựa chọn */
-  const [decide, setDecide] = useState<Record<number, { resolution: string; fund: string; lateReason: string }>>({});
+  const [decide, setDecide] = useState<Record<number, { resolution: string; fund: string; lateReason: string; photo: string | null }>>({});
 
   async function load() {
     try {
@@ -89,10 +89,11 @@ export function SupplierReturnsPanel({ canCreate, canApprove }: { canCreate: boo
     const d = decide[t.id];
     if (!d?.resolution) return alert("Chọn cách xử lý.");
     if (d.resolution === "REFUND" && !d.fund) return alert("Chọn nhận tiền hoàn vào két hay ngân hàng.");
+    if (d.resolution === "REFUND" && t.amount > 0 && !d.photo) return alert("Chụp ảnh biên nhận / sao kê tiền nhà cung cấp hoàn lại.");
     if (t.overdue && !d.lateReason.trim()) return alert(`Phiếu có lô quá ${t.returnDays} ngày — ghi lý do duyệt vượt hạn.`);
     if (!window.confirm(`Duyệt ${t.code} (${vnd(t.amount)}) — ${RESOLUTION_LABEL[d.resolution]}? Hàng sẽ được trừ khỏi kho ngay.`)) return;
     try {
-      await staffApi(`/api/purchasing/returns/${t.id}/approve`, { method: "POST", body: JSON.stringify(d) });
+      await staffApi(`/api/purchasing/returns/${t.id}/approve`, { method: "POST", body: JSON.stringify({ ...d, photo: d.resolution === "REFUND" ? d.photo ?? undefined : undefined }) });
       await load();
     } catch (e: any) { alert(e.message); }
   }
@@ -166,7 +167,7 @@ export function SupplierReturnsPanel({ canCreate, canApprove }: { canCreate: boo
       )}
 
       {rows.length === 0 ? <p style={{ color: "var(--muted)" }}>Chưa có phiếu trả hàng nào.</p> : rows.map((t) => {
-        const d = decide[t.id] ?? { resolution: "", fund: "", lateReason: "" };
+        const d = decide[t.id] ?? { resolution: "", fund: "", lateReason: "", photo: null };
         const setD = (patch: Partial<typeof d>) => setDecide((prev) => ({ ...prev, [t.id]: { ...d, ...patch } }));
         return (
           <div key={t.id} style={card}>
@@ -217,6 +218,9 @@ export function SupplierReturnsPanel({ canCreate, canApprove }: { canCreate: boo
                       <option value="BANK">Ngân hàng</option>
                     </select>
                   </label>
+                )}
+                {d.resolution === "REFUND" && t.amount > 0 && (
+                  <PhotoPicker value={d.photo} onChange={(v) => setD({ photo: v })} label={d.fund === "BANK" ? "Ảnh sao kê / tin báo nhận tiền (bắt buộc)" : "Ảnh biên nhận tiền hoàn (bắt buộc)"} />
                 )}
                 {t.overdue && (
                   <label style={{ fontSize: "0.85rem", flex: 1, minWidth: 200 }}>Lý do duyệt vượt hạn {t.returnDays} ngày<br />

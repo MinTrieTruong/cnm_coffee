@@ -16,6 +16,7 @@ import {
   groupByMethod,
   isBankMethod,
   NON_MONEY_METHODS,
+  PURCHASE_CATEGORIES,
   openSafeSession,
   parseDenominations,
   type Fund,
@@ -539,15 +540,22 @@ export function cashRouter(prisma: PrismaClient) {
   r.post("/cash/payables", ...managerStore, async (req, res) => {
     const me = staffOf(req);
     const storeId = mustStoreId(req);
-    const { supplierId, amount, billDate, dueDate, note } = req.body as { supplierId?: number; amount?: number; billDate?: string; dueDate?: string; note?: string };
+    const { supplierId, amount, billDate, dueDate, note, photo } = req.body as { supplierId?: number; amount?: number; billDate?: string; dueDate?: string; note?: string; photo?: string };
     const supplier = Number.isInteger(supplierId) ? await prisma.supplier.findUnique({ where: { id: supplierId } }) : null;
     if (!supplier) return res.status(400).json({ error: "Chọn nhà cung cấp." });
     if (!Number.isInteger(amount) || (amount as number) <= 0) return res.status(400).json({ error: "Số tiền không hợp lệ." });
     const bd = billDate ? new Date(billDate) : new Date();
     const dd = dueDate ? new Date(dueDate) : new Date(bd.getTime() + supplier.paymentTermDays * 86400_000);
     if (Number.isNaN(bd.getTime()) || Number.isNaN(dd.getTime())) return res.status(400).json({ error: "Ngày không hợp lệ." });
+    if (!photo) return res.status(400).json({ error: "Chụp ảnh hoá đơn của nhà cung cấp làm chứng từ công nợ." });
+    let photoUrl: string;
+    try {
+      photoUrl = await saveDataUrlImage(photo);
+    } catch (e) {
+      return res.status(400).json({ error: e instanceof Error ? e.message : "Ảnh không hợp lệ" });
+    }
     const bill = await prisma.$transaction(async (tx) => {
-      const b = await createBill(tx, { storeId, supplierId: supplier.id, source: "MANUAL", amount: amount as number, billDate: bd, dueDate: dd, note: note?.trim() || null, createdById: me.id });
+      const b = await createBill(tx, { storeId, supplierId: supplier.id, source: "MANUAL", amount: amount as number, billDate: bd, dueDate: dd, note: note?.trim() || null, photoUrl, createdById: me.id });
       // NCC đang nợ quán (trả hàng) → bù trừ ngay
       await applySupplierCredits(tx, storeId, supplier.id, b.id);
       return tx.supplierBill.findUniqueOrThrow({ where: { id: b.id } });
@@ -571,13 +579,12 @@ export function cashRouter(prisma: PrismaClient) {
     if (fund === "SAFE" && !session) return res.status(400).json({ error: "Mở két trước khi trả bằng tiền mặt." });
     const avail = await fundBalance(prisma, bill.storeId, fund);
     if (amt > avail) return res.status(400).json({ error: `Không đủ tiền: quỹ chỉ còn ${vnd(avail)} theo sổ.` });
-    let attachmentUrl: string | null = null;
-    if (photo) {
-      try {
-        attachmentUrl = await saveDataUrlImage(photo);
-      } catch (e) {
-        return res.status(400).json({ error: e instanceof Error ? e.message : "Ảnh không hợp lệ" });
-      }
+    if (!photo) return res.status(400).json({ error: fund === "BANK" ? "Chụp ảnh uỷ nhiệm chi / màn hình chuyển khoản thành công." : "Chụp ảnh biên nhận nhà cung cấp đã nhận tiền." });
+    let attachmentUrl: string;
+    try {
+      attachmentUrl = await saveDataUrlImage(photo);
+    } catch (e) {
+      return res.status(400).json({ error: e instanceof Error ? e.message : "Ảnh không hợp lệ" });
     }
     const result = await prisma.$transaction(async (tx) => {
       const entry = await createEntry(tx, {
@@ -639,7 +646,7 @@ export function cashRouter(prisma: PrismaClient) {
       }),
       prisma.wasteLog.aggregate({ where: { ...sw, createdAt: { gte: start, lt: end } }, _sum: { costValue: true } }),
       prisma.cashEntry.findMany({
-        where: { ...sw, kind: "OUT", status: "APPROVED", category: { not: "SUPPLIER_PAYMENT" }, createdAt: { gte: start, lt: end } },
+        where: { ...sw, kind: "OUT", status: "APPROVED", category: { notIn: PURCHASE_CATEGORIES }, createdAt: { gte: start, lt: end } },
         select: { category: true, amount: true },
       }),
       prisma.payslip.findMany({ where: { staff: sw }, select: { month: true, year: true, netSalary: true, shippingIncome: true } }),

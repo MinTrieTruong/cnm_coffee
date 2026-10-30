@@ -7,6 +7,7 @@ import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../m
 import { inStore, storeWhere, toStore } from "../lib/storeScope.js";
 import { resolveCustomerStore } from "../lib/stores.js";
 import { resolveVoucher, voucherHold } from "../lib/vouchers.js";
+import { customerShipping, describeTier, refreshOrderPromotion } from "../lib/promotions.js";
 import { priceLines, type RawLine } from "../lib/menuPrice.js";
 import { optionalCustomerAuth } from "../middleware/customer.js";
 import { computeBill, computePointsEarned, getStoreSettings } from "../lib/pricing.js";
@@ -53,6 +54,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
   r.get("/orders/:id/bill", async (req, res) => {
     const id = Number(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ" });
+    await refreshOrderPromotion(prisma, id);
     const order = await prisma.order.findUnique({
       where: { id },
       include: {
@@ -64,6 +66,9 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       },
     });
     if (!order) return res.status(404).json({ error: "Không tìm thấy đơn" });
+    const promo = order.promoId
+      ? await prisma.bulkPromotion.findUnique({ where: { id: order.promoId }, include: { tiers: true } })
+      : null;
     const settings = await getStoreSettings(prisma);
     const computed = computeBill(
       order.subTotal,
@@ -77,8 +82,8 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     const vatAmount = order.vatAmount > 0 ? order.vatAmount : computed.vatAmount;
     // Tổng khách trả = tiền hàng (sau giảm, có VAT) + phí ship (thu hộ shipper)
     const totalAmount = isPaid
-      ? (order.totalAmount > 0 ? order.totalAmount : computed.totalAmount + order.shippingFee)
-      : computed.totalAmount + order.shippingFee;
+      ? (order.totalAmount > 0 ? order.totalAmount : computed.totalAmount + customerShipping(order))
+      : computed.totalAmount + customerShipping(order);
 
     // Điểm còn lại của khách (chưa dùng — để frontend hiển thị)
     const customerPoints = order.customer?.points ?? 0;
@@ -96,7 +101,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       : totalAmount;
     // Phí ship là tiền của shipper — không tích điểm
     const pointsEarnedPreview = order.customerId
-      ? computePointsEarned(Math.max(0, cashPaid - order.shippingFee), settings.pointEarnEveryVnd, settings.pointEarnEach)
+      ? computePointsEarned(Math.max(0, cashPaid - customerShipping(order)), settings.pointEarnEveryVnd, settings.pointEarnEach)
       : 0;
 
     res.json({
@@ -120,7 +125,14 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
         quantity: d.quantity,
         unitPrice: d.unitPrice,
         lineTotal: d.quantity * d.unitPrice,
+        isGift: d.isGift,
       })),
+      // Ưu đãi số lượng đang áp (giảm đã nằm trong discountAmt)
+      promotion: promo && {
+        id: promo.id, name: promo.name, discount: order.promoDiscount, qty: order.promoQty, allowVoucher: promo.allowVoucher,
+        shippingDiscount: order.shippingDiscount, giftValue: order.giftValue,
+      },
+      shippingDiscount: order.shippingDiscount,
       subTotal: order.subTotal,
       discountAmt: order.discountAmt,
       // Điểm đã áp dụng (sau khi gọi redeem-points hoặc khi đơn đã Paid)
@@ -157,6 +169,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
 
     const { pointsToUse: rawPts, remove } = req.body as { pointsToUse?: number; remove?: boolean };
 
+    await refreshOrderPromotion(prisma, id);
     const order = await prisma.order.findUnique({
       where: { id },
       include: { customer: true },
@@ -203,7 +216,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     );
 
     // Phí ship không chịu VAT / giảm giá — cộng nguyên vào tổng khách trả
-    const newTotal = totalAmount + order.shippingFee;
+    const newTotal = totalAmount + customerShipping(order);
     await prisma.order.update({
       where: { id },
       data: { pointsUsed: pointsToUse, pointsRedeemAmt, vatAmount, totalAmount: newTotal },
@@ -226,6 +239,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     const id = Number(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ" });
     const body = req.body as { sessionId?: string | null; tableId?: number | null; voucherCode?: string | null };
+    await refreshOrderPromotion(prisma, id);
     const order = await prisma.order.findUnique({
       where: { id },
       include: { payments: true, customer: true, table: true },
@@ -373,6 +387,8 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
               customNotes: merged || null,
               priority: isTakeaway,
               comboId: l.comboId,
+              comboRef: l.comboRef,
+              comboQty: l.comboQty,
               // immediatePay: giữ Hold — chỉ chuyển Waiting sau khi thanh toán xong
               // payLater: giữ Hold — graceWorker chuyển sang Waiting sau ân hạn
               kdsStatus: "Hold",
@@ -390,6 +406,12 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       });
     }
 
+    // Ưu đãi số lượng: đạt bậc → giảm giá / miễn ship / thêm món tặng
+    const applied = await refreshOrderPromotion(prisma, order.id);
+    const fresh = applied
+      ? await prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { details: { include: { product: true } }, table: true } })
+      : order;
+
     const pos = toStore(io, "pos", storeId);
     pos.emit("order:pending_grace", {
       orderId: order.id,
@@ -403,7 +425,8 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     }
 
     res.status(201).json({
-      ...order,
+      ...fresh,
+      promotion: applied && { name: applied.promoName, discount: applied.discount, freeShipping: applied.tier.freeShipping, text: describeTier(applied.tier) },
       graceSeconds: 15,
     });
   });

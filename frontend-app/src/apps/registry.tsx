@@ -30,6 +30,8 @@ const Schedule = L(() => import("../modules/hr/Schedule"), "Schedule");
 const ShiftConfig = L(() => import("../modules/hr/ShiftConfig"), "ShiftConfig");
 const StockRequests = L(() => import("../modules/inventory/StockRequests"), "StockRequests");
 const ProposalList = L(() => import("../modules/sales/Proposals"), "ProposalList");
+const SearchInsights = L(() => import("../modules/sales/SearchInsights"), "SearchInsights");
+const BulkPromotions = L(() => import("../modules/sales/BulkPromotions"), "BulkPromotions");
 const WasteList = L(() => import("../modules/inventory/Waste"), "WasteList");
 const InventoryCounts = L(() => import("../modules/inventory/Counts"), "InventoryCounts");
 const AttendanceWarnings = L(() => import("../modules/hr/AttendanceWarnings"), "AttendanceWarnings");
@@ -72,6 +74,7 @@ const MyTasks = L(() => import("../modules/hr/MyTasks"), "MyTasks");
 const OpenShifts = L(() => import("../modules/hr/OpenShifts"), "OpenShifts");
 const Broadcast = L(() => import("../modules/hr/Broadcast"), "Broadcast");
 const BranchProposals = L(() => import("../modules/overview/BranchProposals"), "BranchProposals");
+const Complaints = L(() => import("../modules/overview/Complaints"), "Complaints");
 const NotificationsPage = L(() => import("../modules/overview/Notifications"), "NotificationsPage");
 
 const StockList = L(() => import("../modules/inventory/Stock"), "StockList");
@@ -159,6 +162,7 @@ export const APPS: AppDef[] = [
       { id: "revenue", label: "Doanh thu", description: "Tiền thực thu theo ngày, món bán chạy và danh sách đơn", roles: CHAIN_AND_BRANCH, component: Revenue, layout: "erp" },
       { id: "profit", label: "Lợi nhuận", description: "Doanh thu, giá vốn và lợi nhuận gộp theo ngày, theo món", roles: CHAIN_AND_BRANCH, component: Profit, layout: "erp" },
       { id: "notifications", label: "Thông báo", roles: "all", component: NotificationsPage, layout: "erp", ownHeader: true },
+      { id: "complaints", label: "Khiếu nại khách", description: "Khách gửi khiếu nại kèm ảnh từ chatbot — quản lý nhận & xử lý", roles: CHAIN_AND_BRANCH, component: Complaints, layout: "erp" },
       { id: "branch-proposals", label: "Đề xuất chi nhánh", description: "Thiếu nhân sự, hư hỏng, cần cấp thêm — quản lý gửi, Chủ chuỗi duyệt", roles: CHAIN_AND_BRANCH, component: BranchProposals, layout: "erp" },
       { id: "compare", label: "So sánh chi nhánh", description: "Doanh thu, số đơn và lợi nhuận của từng chi nhánh", roles: OWNER, component: StoresCompare, layout: "erp" },
     ],
@@ -172,8 +176,10 @@ export const APPS: AppDef[] = [
       { id: "products", label: "Món & giá", description: "Món, giá theo size và trạng thái bán", labelFor: (r) => (r === "Admin" ? "Thực đơn chi nhánh" : "Món & giá"), roles: CHAIN_AND_BRANCH, component: ProductList, form: ProductForm, layout: "erp" },
       { id: "categories", label: "Danh mục", description: "Nhóm món hiển thị trên thực đơn", roles: OWNER, component: CategoryList, layout: "erp" },
       { id: "combos", label: "Combo", description: "Gói món bán kèm giá ưu đãi", roles: OWNER, component: AdminCombos, layout: "legacy" },
+      { id: "bulk-promotions", label: "Ưu đãi số lượng", description: "Mua nhiều giảm %, giảm tiền, miễn ship, mua X tặng Y — chương trình theo đợt sales", roles: OWNER, component: BulkPromotions, layout: "erp" },
       { id: "vouchers", label: "Voucher", description: "Mã giảm giá và điều kiện áp dụng", roles: CHAIN_AND_BRANCH, component: VoucherList, form: VoucherForm, layout: "erp" },
       { id: "proposals", label: "Đề xuất món", description: "Món mới do chi nhánh đề xuất chờ duyệt", roles: CHAIN_AND_BRANCH, component: ProposalList, layout: "erp" },
+      { id: "search", label: "Khách tìm kiếm", description: "Khách tìm món gì, bao nhiêu % tìm mà quán chưa có", roles: CHAIN_AND_BRANCH, component: SearchInsights, layout: "erp" },
       { id: "customers", label: "Khách hàng", description: "Khách thành viên, điểm tích lũy và lịch sử mua", roles: OWNER, component: CustomerList, form: CustomerForm, layout: "erp" },
       { id: "reviews", label: "Đánh giá", description: "Nhận xét của khách về món và chi nhánh", roles: CHAIN_AND_BRANCH, component: ReviewList, form: ReviewForm, layout: "erp" },
     ],

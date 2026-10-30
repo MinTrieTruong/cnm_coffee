@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { unsellableProductIds } from "./storeProducts.js";
 
@@ -6,6 +7,9 @@ type Db = PrismaClient | Prisma.TransactionClient;
 type PricedProduct = { sellPrice: number; priceSizeS: number | null; priceSizeL: number | null; discountPercent: number | null };
 
 export const normalizeSize = (s: unknown): Size => (s === "S" || s === "L" ? s : "M");
+
+/** Size thật của dòng: món chỉ 1 loại (bánh, đồ ăn — hasSizes = false) luôn là M, bỏ qua size trình duyệt gửi */
+export const sizeFor = (p: { hasSizes: boolean }, s: unknown): Size => (p.hasSizes ? normalizeSize(s) : "M");
 
 /**
  * Giá bán theo size — giống quy tắc trang đặt món & màn quản lý món:
@@ -24,7 +28,11 @@ export function unitPriceOf(p: PricedProduct, size: Size) {
 }
 
 export type RawLine = { productId?: number; quantity?: number; size?: unknown; customNotes?: string | null; comboId?: number | null };
-export type PricedLine = { productId: number; quantity: number; unitPrice: number; size: Size; customNotes: string | null; comboId: number | null };
+export type PricedLine = {
+  productId: number; quantity: number; unitPrice: number; size: Size; customNotes: string | null; comboId: number | null;
+  /** Các dòng của cùng 1 lần mua combo chung mã — đếm số combo đã bán */
+  comboRef: string | null; comboQty: number | null;
+};
 
 const MAX_QTY = 99;
 
@@ -56,7 +64,7 @@ export async function priceLines(db: Db, storeId: number, raw: RawLine[]): Promi
   if (productIds.some((id) => !Number.isInteger(id) || id <= 0)) return { error: "Món không hợp lệ." };
   const products = await db.product.findMany({
     where: { id: { in: productIds } },
-    select: { id: true, name: true, isActive: true, outOfStock: true, sellPrice: true, priceSizeS: true, priceSizeL: true, discountPercent: true },
+    select: { id: true, name: true, isActive: true, outOfStock: true, sellPrice: true, priceSizeS: true, priceSizeL: true, discountPercent: true, hasSizes: true },
   });
   if (products.length !== productIds.length) return { error: "Một số món không còn phục vụ tại chi nhánh này." };
   const unsellable = await unsellableProductIds(db as PrismaClient, storeId, products);
@@ -70,9 +78,9 @@ export async function priceLines(db: Db, storeId: number, raw: RawLine[]): Promi
   for (const l of raw) {
     const customNotes = l.customNotes?.trim() || null;
     if (!l.comboId) {
-      const size = normalizeSize(l.size);
       const p = byId.get(Number(l.productId))!;
-      lines.push({ productId: p.id, quantity: l.quantity!, unitPrice: unitPriceOf(p, size), size, customNotes, comboId: null });
+      const size = sizeFor(p, l.size);
+      lines.push({ productId: p.id, quantity: l.quantity!, unitPrice: unitPriceOf(p, size), size, customNotes, comboId: null, comboRef: null, comboQty: null });
       continue;
     }
     // Combo: chia giá combo theo tỷ lệ giá gốc (size M) của từng món
@@ -80,20 +88,24 @@ export async function priceLines(db: Db, storeId: number, raw: RawLine[]): Promi
     let weights = combo.items.map((i) => byId.get(i.productId)!.sellPrice * i.quantity);
     if (weights.every((w) => w === 0)) weights = combo.items.map((i) => i.quantity);
     const totalWeight = weights.reduce((s, w) => s + w, 0);
-    // Món có số lượng 1 trong combo nhận phần làm tròn để tổng khớp đúng giá combo
-    const remainderIdx = Math.max(0, combo.items.findIndex((i) => i.quantity === 1));
-    const unit = combo.items.map((i, idx) => Math.floor(Math.round((combo.comboPrice * weights[idx]) / totalWeight) / i.quantity));
-    const allocated = combo.items.reduce((s, i, idx) => (idx === remainderIdx ? s : s + unit[idx] * i.quantity), 0);
-    unit[remainderIdx] = Math.max(0, Math.round((combo.comboPrice - allocated) / combo.items[remainderIdx].quantity));
+    // Giá 1 đơn vị từng món (làm tròn xuống), phần lẻ dồn vào món cuối để tổng 1 suất = đúng giá combo.
+    // Phần lẻ không chia hết cho số lượng món đó → tách 1 đơn vị ra dòng riêng mang phần lẻ (đơn giá phải là số nguyên).
+    const unit = combo.items.map((i, idx) => Math.floor((combo.comboPrice * weights[idx]) / totalWeight / i.quantity));
+    const last = combo.items.length - 1;
+    const restOfLast = combo.comboPrice - combo.items.reduce((s, i, idx) => (idx === last ? s : s + unit[idx] * i.quantity), 0);
+    const lastQty = combo.items[last].quantity;
+    unit[last] = Math.floor(restOfLast / lastQty);
+    const extra = restOfLast - unit[last] * lastQty; // 0 ≤ extra < lastQty
+    const ref = randomUUID();
+    const notes = [`[Combo ${combo.name}]`, customNotes].filter(Boolean).join(" ");
+    const base = { size: "M" as Size, customNotes: notes, comboId: combo.id, comboRef: ref, comboQty: l.quantity! };
     combo.items.forEach((i, idx) => {
-      lines.push({
-        productId: i.productId,
-        quantity: i.quantity * l.quantity!,
-        unitPrice: unit[idx],
-        size: "M",
-        customNotes: [`[Combo ${combo.name}]`, customNotes].filter(Boolean).join(" "),
-        comboId: combo.id,
-      });
+      if (idx === last && extra > 0) {
+        if (lastQty > 1) lines.push({ ...base, productId: i.productId, quantity: (lastQty - 1) * l.quantity!, unitPrice: unit[idx] });
+        lines.push({ ...base, productId: i.productId, quantity: l.quantity!, unitPrice: unit[idx] + extra });
+        return;
+      }
+      lines.push({ ...base, productId: i.productId, quantity: i.quantity * l.quantity!, unitPrice: unit[idx] });
     });
   }
   return { lines };

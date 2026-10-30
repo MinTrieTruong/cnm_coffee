@@ -16,6 +16,8 @@ type ProductCost = {
   priceSizeS: number | null;
   priceSizeL: number | null;
   isActive: boolean;
+  /** false = món 1 loại (bánh…): công thức 1 mức, không theo size */
+  hasSizes: boolean;
   hasFormula: boolean;
   cost: SizeCost | null;
   category: { name: string };
@@ -130,11 +132,13 @@ export function IngredientFormula() {
       const r = await staffApi<{ cost: SizeCost }>(`/api/admin/formulas/product/${selected.id}`, {
         method: "PUT",
         body: JSON.stringify({
-          lines: lines.map((l) => ({ itemId: l.itemId, qtyS: l.S ? num(l.S) : null, qtyM: num(l.M), qtyL: l.L ? num(l.L) : null, note: l.note })),
+          lines: lines.map((l) => ({ itemId: l.itemId, qtyS: sizes.length > 1 && l.S ? num(l.S) : null, qtyM: num(l.M), qtyL: sizes.length > 1 && l.L ? num(l.L) : null, note: l.note })),
         }),
       });
       await load();
-      setMsg(`Đã lưu. Giá vốn ${selected.name}: S ${formatVnd(r.cost.S)} · M ${formatVnd(r.cost.M)} · L ${formatVnd(r.cost.L)}.`);
+      setMsg(selected.hasSizes === false
+        ? `Đã lưu. Giá vốn ${selected.name}: ${formatVnd(r.cost.M)}.`
+        : `Đã lưu. Giá vốn ${selected.name}: S ${formatVnd(r.cost.S)} · M ${formatVnd(r.cost.M)} · L ${formatVnd(r.cost.L)}.`);
     } catch (e) {
       setErr(errMsg(e));
     } finally {
@@ -147,6 +151,11 @@ export function IngredientFormula() {
     if (selId != null) setLines(toLines(formulas.filter((f) => f.productId === selId)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formulas]);
+
+  // Món 1 loại chỉ có 1 cột định mức (lưu ở cột M)
+  const sizes: Size[] = selected?.hasSizes === false ? ["M"] : SIZES;
+  const sizeLabel = (s: Size) => (sizes.length === 1 ? "Lượng / món" : s);
+  const costLabel = (s: Size) => (sizes.length === 1 ? "COST" : `COST ${s}`);
 
   const shown = products.filter((p) => !q.trim() || p.name.toLowerCase().includes(q.trim().toLowerCase()));
   const noPrice = lines.filter((l) => l.itemId !== "" && !itemById.get(l.itemId)?.unitCostPrice);
@@ -195,7 +204,7 @@ export function IngredientFormula() {
                   <h3>{selected.name}</h3>
                   {owner && (
                     <span className="o-inline">
-                      <Button size="sm" icon={Scaling} onClick={autoSizes} disabled={!lines.length} title="S = 75%, L = 130% lượng M; ly & ống hút giữ nguyên">Tự tính S / L từ M</Button>
+                      {sizes.length > 1 && <Button size="sm" icon={Scaling} onClick={autoSizes} disabled={!lines.length} title="S = 75%, L = 130% lượng M; ly & ống hút giữ nguyên">Tự tính S / L từ M</Button>}
                       <Button size="sm" icon={Undo2} onClick={() => setLines(saved)} disabled={!dirty || saving}>Huỷ thay đổi</Button>
                       <Button size="sm" variant="primary" icon={Save} onClick={() => void save()} disabled={!dirty || saving}>{saving ? "Đang lưu…" : "Lưu công thức"}</Button>
                     </span>
@@ -213,10 +222,10 @@ export function IngredientFormula() {
                     <thead>
                       <tr>
                         <th>Nguyên liệu</th>
-                        {SIZES.map((s) => <th key={s} className="num">{s}</th>)}
+                        {sizes.map((s) => <th key={s} className="num">{sizeLabel(s)}</th>)}
                         <th>Đơn vị</th>
                         <th className="num">Giá / đv</th>
-                        {SIZES.map((s) => <th key={`c${s}`} className="num">COST {s}</th>)}
+                        {sizes.map((s) => <th key={`c${s}`} className="num">{costLabel(s)}</th>)}
                         {owner && <th />}
                       </tr>
                     </thead>
@@ -239,7 +248,7 @@ export function IngredientFormula() {
                                 it?.name
                               )}
                             </td>
-                            {SIZES.map((s) => (
+                            {sizes.map((s) => (
                               <td key={s} className="num">
                                 {owner ? (
                                   <input
@@ -257,7 +266,7 @@ export function IngredientFormula() {
                             ))}
                             <td className="o-muted" title={it ? `1 ${it.unit} = ${it.recipePerUnit} ${unit}` : undefined}>{unit}</td>
                             <td className="num o-muted">{unitPrice ? `${formatVnd(Math.round(unitPrice * 100) / 100)}` : "—"}</td>
-                            {SIZES.map((s) => <td key={`c${s}`} className="num">{formatVnd(Math.round(lineCost(l, s)))}</td>)}
+                            {sizes.map((s) => <td key={`c${s}`} className="num">{formatVnd(Math.round(lineCost(l, s)))}</td>)}
                             {owner && (
                               <td>
                                 <Button size="sm" variant="link" icon={Trash2} aria-label="Bỏ nguyên liệu" onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} />
@@ -267,26 +276,26 @@ export function IngredientFormula() {
                         );
                       })}
                       {lines.length === 0 && (
-                        <tr><td colSpan={owner ? 10 : 9} className="o-muted">Chưa có nguyên liệu — món này bán ra sẽ không trừ kho.</td></tr>
+                        <tr><td colSpan={3 + 2 * sizes.length + (owner ? 1 : 0)} className="o-muted">Chưa có nguyên liệu — món này bán ra sẽ không trừ kho.</td></tr>
                       )}
                     </tbody>
                     <tfoot>
                       <tr className="o-total-row">
-                        <td colSpan={6}>COST mỗi ly</td>
-                        {SIZES.map((s) => <td key={s} className="num fm-cost">{formatVnd(Math.round(total[s]))}</td>)}
+                        <td colSpan={3 + sizes.length}>COST mỗi ly</td>
+                        {sizes.map((s) => <td key={s} className="num fm-cost">{formatVnd(Math.round(total[s]))}</td>)}
                         {owner && <td />}
                       </tr>
                       <tr>
-                        <td colSpan={6} className="o-muted">Giá bán</td>
-                        {SIZES.map((s) => {
+                        <td colSpan={3 + sizes.length} className="o-muted">Giá bán</td>
+                        {sizes.map((s) => {
                           const price = priceOf(selected, s);
                           return <td key={s} className="num">{formatVnd(price)}</td>;
                         })}
                         {owner && <td />}
                       </tr>
                       <tr>
-                        <td colSpan={6} className="o-muted">% giá vốn · lãi gộp</td>
-                        {SIZES.map((s) => {
+                        <td colSpan={3 + sizes.length} className="o-muted">% giá vốn · lãi gộp</td>
+                        {sizes.map((s) => {
                           const price = priceOf(selected, s);
                           if (!price || !total[s]) return <td key={s} className="num o-muted">—</td>;
                           const r = total[s] / price;

@@ -70,6 +70,34 @@ export function Cart() {
   const total = cartTotal(items);
   const currentTable = getTableId();
 
+  // Ưu đãi số lượng: máy chủ tính ưu đãi đang đạt + gợi ý bậc kế tiếp theo giỏ hàng hiện tại
+  type PromoPreview = {
+    applied: { name: string; qty: number; discount: number; freeShipping: boolean; text: string } | null;
+    next: { name: string; needQty: number; text: string } | null;
+  };
+  const [promo, setPromo] = useState<PromoPreview>({ applied: null, next: null });
+  useEffect(() => {
+    if (!storeId || !items.length) {
+      setPromo({ applied: null, next: null });
+      return;
+    }
+    const orderType = orderTypeSelection === "delivery" ? "Delivery" : orderTypeSelection === "takeaway" ? "Takeaway" : "Dine-in";
+    const t = window.setTimeout(() => {
+      api<PromoPreview>("/api/promotions/preview", {
+        method: "POST",
+        body: JSON.stringify({
+          store: storeId,
+          orderType,
+          lines: items.map((i) => ({ productId: i.productId, quantity: i.quantity, size: i.size, comboId: i.comboId ?? null })),
+        }),
+      })
+        .then(setPromo)
+        .catch(() => setPromo({ applied: null, next: null }));
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [items, orderTypeSelection, storeId]);
+  const promoShip = promo.applied?.freeShipping && orderTypeSelection === "delivery" ? shippingFee : 0;
+
   function refresh() {
     setItems(getCart());
   }
@@ -373,16 +401,33 @@ export function Cart() {
                 <span>Tạm tính</span>
                 <span>{formatVnd(total)}</span>
               </div>
+              {promo.applied && promo.applied.discount > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", color: "#15803d", fontSize: "0.95rem", gap: 8 }}>
+                  <span>Ưu đãi {promo.applied.name} ({promo.applied.text})</span>
+                  <span>−{formatVnd(promo.applied.discount)}</span>
+                </div>
+              )}
               {orderTypeSelection === "delivery" && (
                 <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text)", fontSize: "0.95rem" }}>
                   <span>Phí giao hàng</span>
-                  <span>{formatVnd(shippingFee)}</span>
+                  <span>
+                    {promoShip > 0 && <s style={{ color: "var(--muted)", marginRight: 6 }}>{formatVnd(shippingFee)}</s>}
+                    {shippingFee - promoShip > 0 ? formatVnd(shippingFee - promoShip) : "Miễn phí"}
+                  </span>
+                </div>
+              )}
+              {promo.applied && promo.applied.discount === 0 && (
+                <div style={{ color: "#15803d", fontSize: "0.9rem" }}>Ưu đãi {promo.applied.name}: {promo.applied.text}</div>
+              )}
+              {promo.next && (
+                <div style={{ background: "rgba(245,158,11,0.12)", color: "#b45309", borderRadius: 10, padding: "0.6rem 0.75rem", fontSize: "0.9rem" }}>
+                  Thêm <b>{promo.next.needQty}</b> ly nữa để được {promo.next.text} ({promo.next.name})
                 </div>
               )}
               <div style={{ height: 1, background: "var(--surface2)", margin: "0.5rem 0" }} />
               <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: "1.35rem", color: "var(--text)" }}>
                 <span>Tổng cộng</span>
-                <span style={{ color: "var(--accent)" }}>{formatVnd(total + (orderTypeSelection === "delivery" ? shippingFee : 0))}</span>
+                <span style={{ color: "var(--accent)" }}>{formatVnd(Math.max(0, total - (promo.applied?.discount ?? 0)) + (orderTypeSelection === "delivery" ? shippingFee - promoShip : 0))}</span>
               </div>
             </div>
 

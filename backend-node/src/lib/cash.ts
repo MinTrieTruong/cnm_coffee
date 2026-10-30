@@ -23,6 +23,7 @@ export const CATEGORIES: Record<string, { label: string; kind: EntryKind; system
   REFUND: { label: "Hoàn tiền khách", kind: "OUT" },
   OTHER_EXPENSE: { label: "Chi khác", kind: "OUT" },
   SUPPLIER_PAYMENT: { label: "Trả nhà cung cấp", kind: "OUT", system: true },
+  INGREDIENT_PURCHASE: { label: "Mua nguyên liệu (nhập kho tay)", kind: "OUT", system: true },
   // Thu
   OPENING_BALANCE: { label: "Số dư đầu kỳ", kind: "IN", managerOnly: true },
   CAPITAL: { label: "Bổ sung quỹ", kind: "IN", managerOnly: true },
@@ -74,6 +75,9 @@ export const METHOD_LABEL: Record<string, string> = {
 };
 
 type Db = PrismaClient | Prisma.TransactionClient;
+
+/** Chi mua hàng nhập kho — đã tính trong giá vốn (COGS) khi bán, báo cáo lãi lỗ không cộng thêm vào chi phí vận hành */
+export const PURCHASE_CATEGORIES = ["SUPPLIER_PAYMENT", "INGREDIENT_PURCHASE"];
 
 const CODE_PREFIX: Record<EntryKind, string> = { IN: "PT", OUT: "PC", TRANSFER: "CQ", ADJUST: "DC" };
 

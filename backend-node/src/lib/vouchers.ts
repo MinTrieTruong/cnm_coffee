@@ -9,9 +9,14 @@ import { voucherStoreError } from "./stores.js";
 export async function resolveVoucher(
   prisma: PrismaClient,
   code: string | null | undefined,
-  ctx: { subTotal: number; storeId: number | null; customerId: number | null },
+  ctx: { subTotal: number; storeId: number | null; customerId: number | null; promoId?: number | null },
 ): Promise<{ voucherCode: string | null; voucherDiscount: number; voucherId: number | null } | { error: string }> {
   if (!code?.trim()) return { voucherCode: null, voucherDiscount: 0, voucherId: null };
+  // Đơn đang hưởng ưu đãi số lượng không cho dùng chung voucher
+  if (ctx.promoId) {
+    const promo = await prisma.bulkPromotion.findUnique({ where: { id: ctx.promoId }, select: { name: true, allowVoucher: true } });
+    if (promo && !promo.allowVoucher) return { error: `Đơn đang hưởng ưu đãi "${promo.name}" — không dùng chung voucher.` };
+  }
   const voucher = await prisma.voucher.findUnique({ where: { code: code.trim().toUpperCase() } });
   if (!voucher) return { error: "Mã voucher không tồn tại." };
   if (!voucher.isActive) return { error: "Voucher đã bị khóa." };

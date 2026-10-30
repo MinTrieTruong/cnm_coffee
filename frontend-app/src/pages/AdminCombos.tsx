@@ -26,6 +26,16 @@ type SelectedProduct = {
   quantity: number;
 };
 
+/** Thống kê bán combo (đơn đã thanh toán) — GET /api/admin/combos/stats */
+type ComboStat = {
+  id: number; name: string; comboPrice: number; isActive: boolean;
+  units: number; orders: number; revenue: number; listValue: number; discountGiven: number;
+  items: { productId: number; name: string; perCombo: number; sold: number }[];
+  estimated: boolean;
+};
+
+const ymdOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
 const EMPTY_FORM = {
   name: "",
   description: "",
@@ -50,6 +60,17 @@ export function AdminCombos() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [statDays, setStatDays] = useState(30);
+  const [stats, setStats] = useState<ComboStat[]>([]);
+
+  useEffect(() => {
+    const to = new Date();
+    const from = new Date(to.getTime() - (statDays - 1) * 86400_000);
+    staffApi<{ combos: ComboStat[] }>(`/api/admin/combos/stats?from=${ymdOf(from)}&to=${ymdOf(to)}`)
+      .then((r) => setStats(r.combos))
+      .catch(() => setStats([]));
+  }, [statDays]);
+  const statOf = (id: number) => stats.find((x) => x.id === id);
 
   // Computed: originalPrice
   const originalPrice = selectedProducts.reduce(
@@ -256,6 +277,49 @@ export function AdminCombos() {
         )}
       </AnimatePresence>
 
+      {/* Thống kê bán combo */}
+      <section className="admin-combo-stats" style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 12, padding: "1rem", marginBottom: "1.25rem", overflowX: "auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+          <strong>Combo đã bán</strong>
+          <select value={statDays} onChange={(e) => setStatDays(Number(e.target.value))} aria-label="Khoảng thời gian" style={{ padding: "0.3rem 0.5rem", borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)" }}>
+            {[7, 30, 90].map((d) => <option key={d} value={d}>{d} ngày gần nhất</option>)}
+          </select>
+        </div>
+        {stats.every((x) => x.units === 0) ? (
+          <div style={{ color: "var(--muted)", fontSize: "0.9rem" }}>Chưa có combo nào được bán trong kỳ này (tính đơn đã thanh toán).</div>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.9rem", minWidth: 640 }}>
+            <thead>
+              <tr style={{ textAlign: "left", color: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
+                <th style={{ padding: "0.4rem" }}>Combo</th>
+                <th style={{ padding: "0.4rem", textAlign: "right" }}>Số suất</th>
+                <th style={{ padding: "0.4rem", textAlign: "right" }}>Số đơn</th>
+                <th style={{ padding: "0.4rem", textAlign: "right" }}>Doanh thu (giá combo)</th>
+                <th style={{ padding: "0.4rem", textAlign: "right" }}>Nếu bán lẻ</th>
+                <th style={{ padding: "0.4rem", textAlign: "right" }}>Đã giảm cho khách</th>
+                <th style={{ padding: "0.4rem" }}>Món đã xuất kho</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.filter((x) => x.units > 0).map((x) => (
+                <tr key={x.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                  <td style={{ padding: "0.4rem" }}>{x.name}{x.estimated && <span title="Có đơn cũ trước khi lưu mã combo — số suất ước tính theo cấu hình combo hiện tại" style={{ color: "var(--muted)" }}> *</span>}</td>
+                  <td style={{ padding: "0.4rem", textAlign: "right", fontWeight: 600 }}>{x.units}</td>
+                  <td style={{ padding: "0.4rem", textAlign: "right" }}>{x.orders}</td>
+                  <td style={{ padding: "0.4rem", textAlign: "right" }}>{formatVnd(x.revenue)}</td>
+                  <td style={{ padding: "0.4rem", textAlign: "right", color: "var(--muted)" }}>{formatVnd(x.listValue)}</td>
+                  <td style={{ padding: "0.4rem", textAlign: "right" }}>{formatVnd(x.discountGiven)}</td>
+                  <td style={{ padding: "0.4rem" }}>{x.items.map((i) => `${i.sold} ${i.name}`).join(", ")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <div style={{ color: "var(--muted)", fontSize: "0.8rem", marginTop: "0.5rem" }}>
+          Doanh thu ghi theo giá combo (chia cho từng món theo tỷ lệ giá lẻ, tổng đúng bằng giá combo). Kho trừ theo công thức của từng món trong combo.
+        </div>
+      </section>
+
       {/* Combo Grid */}
       {loading ? (
         <div className="admin-combo-loading">Đang tải...</div>
@@ -305,6 +369,11 @@ export function AdminCombos() {
                     </li>
                   ))}
                 </ul>
+                {(statOf(combo.id)?.units ?? 0) > 0 && (
+                  <div style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
+                    Đã bán <b style={{ color: "var(--text)" }}>{statOf(combo.id)!.units}</b> suất · {formatVnd(statOf(combo.id)!.revenue)} ({statDays} ngày)
+                  </div>
+                )}
                 <div className="admin-combo-card-pricing">
                   <span className="admin-combo-orig">{formatVnd(combo.originalPrice)}</span>
                   <span className="admin-combo-price">{formatVnd(combo.comboPrice)}</span>

@@ -5,7 +5,8 @@ import type { Server } from "socket.io";
 import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
 import { inStore, mustStoreId, storeWhere, toStore } from "../lib/storeScope.js";
 import { unsellableProductIds } from "../lib/storeProducts.js";
-import { normalizeSize, unitPriceOf } from "../lib/menuPrice.js";
+import { sizeFor, unitPriceOf } from "../lib/menuPrice.js";
+import { refreshOrderPromotion } from "../lib/promotions.js";
 import { computeBill, getStoreSettings } from "../lib/pricing.js";
 
 /**
@@ -76,7 +77,6 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
     if (!tableId || !Number.isInteger(productId) || !Number.isInteger(quantity) || (quantity as number) <= 0 || (quantity as number) > 99) {
       return res.status(400).json({ error: "Thiếu bàn, món hoặc số lượng." });
     }
-    const size = normalizeSize(rawSize);
     const [table, product] = await Promise.all([
       prisma.cafeTable.findUnique({ where: { id: tableId } }),
       prisma.product.findUnique({ where: { id: productId as number } }),
@@ -85,6 +85,8 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
     if (!product || (await unsellableProductIds(prisma, table.storeId, [product])).has(product.id)) {
       return res.status(400).json({ error: "Món không còn phục vụ." });
     }
+    // Món 1 loại (bánh…) luôn size M — không tin size gửi lên
+    const size = sizeFor(product, rawSize);
     let customerId: number | null = null;
     if (customerPhone?.trim()) {
       const c = await prisma.customer.findFirst({ where: { phone: customerPhone.trim() } });
@@ -132,6 +134,8 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
         data: { subTotal, totalAmount: subTotal, vatAmount: 0 },
       });
       await tx.cafeTable.update({ where: { id: tableId }, data: { status: "Occupied" } });
+      // Ưu đãi số lượng: thêm món có thể đạt bậc mới (giảm giá / quà tặng)
+      await refreshOrderPromotion(tx, active.id);
       return tx.order.findUnique({
         where: { id: active.id },
         include: {
@@ -180,6 +184,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
         }
       } else {
         await tx.order.update({ where: { id: orderId }, data: { subTotal, totalAmount: subTotal, vatAmount: 0 } });
+        await refreshOrderPromotion(tx, orderId);
       }
       return tx.order.findUnique({
         where: { id: orderId },
@@ -198,6 +203,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
     async (req, res) => {
       const { orderId, method } = req.body as { orderId?: number; method?: string };
       if (!orderId) return res.status(400).json({ error: "Thiếu orderId" });
+      await refreshOrderPromotion(prisma, orderId);
       const order = await prisma.order.findUnique({
         where: { id: orderId },
         include: {
@@ -311,6 +317,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
       data: { subTotal, totalAmount: subTotal, vatAmount: 0 },
     });
     await prisma.order.delete({ where: { id: fromOrderId } });
+    await refreshOrderPromotion(prisma, toOrderId);
     res.json({ ok: true, mergedInto: toOrderId, subTotal });
   });
 

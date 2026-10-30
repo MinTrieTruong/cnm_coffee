@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { apiBase } from "../lib/api";
 import { mapFetchError } from "../lib/net";
 import { getStaffInfo, getStaffToken } from "../lib/staffApi";
-import { Lock } from "lucide-react";
+import { ArrowRight, Lock, Truck } from "lucide-react";
 import { defaultRouteForRole } from "../apps/registry";
 import { PasswordInput } from "../components/PasswordInput";
 
@@ -107,6 +107,15 @@ export function StaffLogin() {
             </button>
           </form>
         </div>
+
+        <Link to="/supplier" className="supplier-entry">
+          <span className="supplier-entry-icon"><Truck size={18} /></span>
+          <span className="supplier-entry-text">
+            <strong>Bạn là nhà cung cấp?</strong>
+            <span>Báo giá, theo dõi đơn hàng và công nợ tại cổng riêng</span>
+          </span>
+          <ArrowRight size={18} className="supplier-entry-arrow" />
+        </Link>
       </div>
     </div>
   );

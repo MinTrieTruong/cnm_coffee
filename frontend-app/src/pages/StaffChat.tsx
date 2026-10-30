@@ -2,15 +2,10 @@ import { useState, useEffect, useRef, type FormEvent } from "react";
 import type { Socket } from "socket.io-client";
 import { apiBase } from "../lib/api";
 import { getStaffInfo, getStaffToken, staffSocket as openStaffSocket } from "../lib/staffApi";
-
-/* ── Types ─────────────────────────────────────────────────────────── */
-interface ChatMsg {
-  id: number;
-  sender: "customer" | "bot" | "staff";
-  senderName: string;
-  body: string;
-  createdAt: string;
-}
+import {
+  applyReaction, EmojiPicker, ImageAttachButton, MessageImage, MessageReactions, PendingImage,
+  type ChatMessage as ChatMsg, type ChatReaction,
+} from "../components/chat/ChatParts";
 
 interface ChatSession {
   id: number;
@@ -55,6 +50,7 @@ export function StaffChat() {
   const [selected, setSelected] = useState<number | null>(null);
   const [thread, setThread] = useState<ChatMsg[]>([]);
   const [replyText, setReplyText] = useState("");
+  const [replyImage, setReplyImage] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [unreadIds, setUnreadIds] = useState<Set<number>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -127,12 +123,18 @@ export function StaffChat() {
       );
     }
 
+    function onReaction(data: { sessionId: number; messageId: number; reactions: ChatReaction[] }) {
+      if (data.sessionId === selected) setThread((prev) => applyReaction(prev, data.messageId, data.reactions));
+    }
+
     sock.on("chat:escalate", onEscalate);
     sock.on("chat:reply", onReply);
+    sock.on("chat:reaction", onReaction);
     sock.on("chat:session_closed", onClosed);
     return () => {
       sock.off("chat:escalate", onEscalate);
       sock.off("chat:reply", onReply);
+      sock.off("chat:reaction", onReaction);
       sock.off("chat:session_closed", onClosed);
     };
   }, [selected]);
@@ -158,25 +160,39 @@ export function StaffChat() {
   /* ── Gửi reply ─────────────────────────────────────────────────── */
   async function sendReply(e: FormEvent) {
     e.preventDefault();
-    if (!selected || !replyText.trim() || sending) return;
+    if (!selected || (!replyText.trim() && !replyImage) || sending) return;
     setSending(true);
     const body = replyText.trim();
+    const image = replyImage;
     setReplyText("");
+    setReplyImage(null);
     try {
       const msg = await apiFetch<ChatMsg>(`/api/staff/chat/sessions/${selected}/reply`, {
         method: "POST",
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({ body, image }),
       });
       setThread((prev) => {
         if (prev.find((m) => m.id === msg.id)) return prev;
         return [...prev, msg];
       });
     } catch (e) {
+      setReplyText(body);
+      setReplyImage(image);
       alert(e instanceof Error ? e.message : "Gửi thất bại");
     } finally {
       setSending(false);
     }
   }
+
+  /* ── Thả cảm xúc ───────────────────────────────────────────────── */
+  async function react(messageId: number, emoji: string) {
+    try {
+      await apiFetch(`/api/staff/chat/messages/${messageId}/react`, { method: "POST", body: JSON.stringify({ emoji }) });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Lỗi");
+    }
+  }
+  const myKey = `staff:${staffInfo?.id ?? 0}`;
 
   /* ── Đóng phiên ────────────────────────────────────────────────── */
   async function closeSession(id: number) {
@@ -224,7 +240,7 @@ export function StaffChat() {
 
         <ul className="staff-chat-session-list">
           {sessions.map((s) => {
-            const preview = s.messages[0]?.body ?? "…";
+            const preview = s.messages[0]?.body || (s.messages[0]?.imageUrl ? "📷 Ảnh" : "…");
             const isUnread = unreadIds.has(s.id);
             const isActive = selected === s.id;
             return (
@@ -312,7 +328,11 @@ export function StaffChat() {
                       {msg.senderName}
                       {msg.sender === "staff" && !isMe && " (NV)"}
                     </div>
-                    <div className="staff-msg-bubble">{msg.body}</div>
+                    {msg.body && <div className="staff-msg-bubble">{msg.body}</div>}
+                    <MessageImage url={msg.imageUrl} />
+                    {msg.sender !== "bot" && (
+                      <MessageReactions reactions={msg.reactions} mine={myKey} onReact={(e) => void react(msg.id, e)} align={msg.sender === "customer" ? "start" : "end"} />
+                    )}
                     <div className="staff-msg-time">
                       {new Date(msg.createdAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
                     </div>
@@ -324,7 +344,11 @@ export function StaffChat() {
 
             {/* Reply input */}
             {selectedSession?.status === "open" ? (
+              <>
+              <PendingImage src={replyImage} onRemove={() => setReplyImage(null)} />
               <form className="staff-chat-reply-form" onSubmit={(e) => void sendReply(e)}>
+                <ImageAttachButton onPick={setReplyImage} disabled={sending} />
+                <EmojiPicker onPick={(e) => setReplyText((t) => t + e)} disabled={sending} />
                 <input
                   id="staff-chat-reply-input"
                   className="input"
@@ -338,11 +362,12 @@ export function StaffChat() {
                 <button
                   type="submit"
                   className="btn btn-primary"
-                  disabled={sending || !replyText.trim()}
+                  disabled={sending || (!replyText.trim() && !replyImage)}
                 >
                   {sending ? "…" : "Gửi"}
                 </button>
               </form>
+              </>
             ) : (
               <div className="staff-chat-closed-notice">
                 Phiên chat đã đóng — không thể gửi thêm tin nhắn.

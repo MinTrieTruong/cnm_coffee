@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, PackagePlus, Trash2, Warehouse } from "lucide-react";
 import { mediaUrl } from "../../lib/api";
-import { getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
+import { getStaffInfo, isAdminRole, isOwnerRole, staffApi } from "../../lib/staffApi";
+import { PhotoPicker } from "../../components/PhotoPicker";
 import {
   Alert, Badge, Button, EmptyState, Field, FormGroup, FormGroups, FormView, Kpi, Modal, RecordList, errMsg, fmtDate, fmtQty, formatVnd,
 } from "../../components/erp";
@@ -277,7 +278,10 @@ export function StockForm({ recordId }: { recordId?: string }) {
   );
 }
 
-/** Nhập kho tay (hàng mua ngoài đơn mua): có giá nhập → giá vốn bình quân; chọn NCC → ghi công nợ */
+/**
+ * Nhập kho tay (hàng mua ngoài đơn mua): có giá nhập → giá vốn bình quân.
+ * Chọn NCC → ghi công nợ. Không qua NCC (mua lẻ, trả ngay) → tự lập phiếu chi từ két / ngân hàng.
+ */
 function ReceiveDialog({ item, onClose, onDone }: { item: InvRow; onClose: () => void; onDone: () => Promise<void> }) {
   const suppliers = useResource<{ id: number; name: string; isActive: boolean; paymentTermDays: number }[]>("/api/admin/suppliers", []);
   const [qty, setQty] = useState("");
@@ -285,21 +289,34 @@ function ReceiveDialog({ item, onClose, onDone }: { item: InvRow; onClose: () =>
   const [price, setPrice] = useState(item.unitCostPrice ? String(item.unitCostPrice) : "");
   const [supplierId, setSupplierId] = useState("");
   const [note, setNote] = useState("");
+  const [payFund, setPayFund] = useState<"SAFE" | "BANK" | "NONE">("SAFE");
+  const [photo, setPhoto] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const n = Number(qty.replace(",", "."));
   const unitPrice = digits(price);
   const supplier = suppliers.data.find((s) => String(s.id) === supplierId);
+  const manager = isAdminRole(getStaffInfo()?.role);
+  const amount = Number.isFinite(n) && n > 0 ? Math.round(n * unitPrice) : 0;
+  // Mua lẻ có tiền → phải chọn chi từ đâu (tạo phiếu chi); hàng tặng (0đ) / có NCC thì không
+  const paying = !supplierId && amount > 0;
+  // Ghi công nợ NCC hoặc chi tiền ngay → bắt buộc ảnh hoá đơn (mọi vai trò)
+  const needsPhoto = (!!supplierId && amount > 0) || (paying && payFund !== "NONE");
   async function submit() {
     if (!Number.isFinite(n) || n <= 0) return setErr("Số lượng nhập không hợp lệ");
     if (price.trim() === "") return setErr("Nhập giá nhập / 1 đơn vị (0 nếu hàng tặng).");
-    if (!supplierId && !note.trim()) return setErr("Không chọn nhà cung cấp thì ghi rõ nguồn hàng (VD: mua lẻ ở chợ, đã trả tiền mặt).");
+    if (!supplierId && !note.trim()) return setErr("Không chọn nhà cung cấp thì ghi rõ nguồn hàng (VD: mua lẻ ở tiệm bánh ABC).");
+    if (needsPhoto && !photo) return setErr(supplierId ? "Chụp ảnh hoá đơn của nhà cung cấp làm chứng từ công nợ." : "Chụp ảnh hoá đơn mua hàng để lập phiếu chi.");
     setBusy(true);
     try {
-      await staffApi(`/api/admin/inventory/${item.id}/receive`, {
+      const r = await staffApi<{ cashEntry: { code: string; status: string } | null }>(`/api/admin/inventory/${item.id}/receive`, {
         method: "POST",
-        body: JSON.stringify({ qty: n, expiryDate: expiry || undefined, unitPrice, supplierId: supplierId ? Number(supplierId) : null, note }),
+        body: JSON.stringify({
+          qty: n, expiryDate: expiry || undefined, unitPrice, supplierId: supplierId ? Number(supplierId) : null, note,
+          payFund: paying ? payFund : undefined, photo: needsPhoto ? photo : undefined,
+        }),
       });
+      if (r.cashEntry) alert(r.cashEntry.status === "PENDING" ? `Đã nhập kho. Phiếu chi ${r.cashEntry.code} vượt hạn mức — chờ quản lý duyệt.` : `Đã nhập kho và lập phiếu chi ${r.cashEntry.code}.`);
       await onDone();
     } catch (e) {
       setErr(errMsg(e));
@@ -337,8 +354,29 @@ function ReceiveDialog({ item, onClose, onDone }: { item: InvRow; onClose: () =>
       </Field>
       {supplier && unitPrice > 0 && <div className="o-muted">Ghi công nợ phải trả {supplier.name}, hạn trả sau {supplier.paymentTermDays} ngày.</div>}
       <Field label={supplierId ? "Ghi chú" : "Nguồn hàng"} required={!supplierId}>
-        <input className="o-input" value={note} onChange={(e) => setNote(e.target.value)} maxLength={255} placeholder={supplierId ? "Số hoá đơn, ghi chú…" : "VD: mua lẻ ở chợ, đã trả tiền mặt từ két"} />
+        <input className="o-input" value={note} onChange={(e) => setNote(e.target.value)} maxLength={255} placeholder={supplierId ? "Số hoá đơn, ghi chú…" : "VD: mua lẻ ở tiệm bánh ABC"} />
       </Field>
+      {paying && (
+        <>
+          <Field label="Trả tiền từ" required>
+            <select className="o-input" value={payFund} onChange={(e) => setPayFund(e.target.value as "SAFE" | "BANK" | "NONE")}>
+              <option value="SAFE">Két (tiền mặt) — tự lập phiếu chi</option>
+              {manager && <option value="BANK">Ngân hàng (chuyển khoản) — tự lập phiếu chi</option>}
+              <option value="NONE">Không ghi chi (hàng tặng / đã lập phiếu chi riêng)</option>
+            </select>
+          </Field>
+          {payFund !== "NONE" && (
+            <>
+              <div className="o-muted">Phiếu chi "Mua nguyên liệu" {formatVnd(amount)} — sổ quỹ trừ tiền {payFund === "SAFE" ? "két" : "ngân hàng"}.{!manager && " Vượt hạn mức chi thì chờ quản lý duyệt."}</div>
+            </>
+          )}
+        </>
+      )}
+      {needsPhoto && (
+        <Field label={supplierId ? "Ảnh hoá đơn của nhà cung cấp" : "Ảnh hoá đơn mua hàng"} required>
+          <PhotoPicker value={photo} onChange={setPhoto} label="" />
+        </Field>
+      )}
     </Modal>
   );
 }

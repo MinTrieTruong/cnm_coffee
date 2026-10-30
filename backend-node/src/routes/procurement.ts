@@ -114,6 +114,12 @@ export function procurementRouter(prisma: PrismaClient) {
     res.json({ token, supplier: { id: supp.id, name: supp.name } });
   });
 
+  /** Thông tin NCC đang đăng nhập (lời chào, liên hệ trên portal) */
+  r.get("/supplier/me", authSupp, async (req, res) => {
+    const s = (req as SupplierRequest).supplierRow!;
+    res.json({ id: s.id, name: s.name, phone: s.phone, email: s.email, address: s.address, paymentTermDays: s.paymentTermDays });
+  });
+
   // Supplier fetches open RFQs
   r.get("/supplier/rfqs", authSupp, async (req, res) => {
     const supp = (req as SupplierRequest).supplier!;
@@ -121,7 +127,7 @@ export function procurementRouter(prisma: PrismaClient) {
       where: { status: "OPEN" },
       include: {
         requisition: { include: { store: { select: { id: true, name: true, address: true } }, items: { include: { item: { select: { name: true, unit: true } } } } } },
-        quotes: { where: { supplierId: supp.id } }
+        quotes: { where: { supplierId: supp.id }, include: { items: true } }
       },
       orderBy: { createdAt: "desc" }
     });
@@ -373,6 +379,8 @@ export function procurementRouter(prisma: PrismaClient) {
       expiries?: Record<number, string>;
       /** Phần bị hủy → tạo đề xuất mua mới */
       reorder?: boolean;
+      /** Ảnh hoá đơn / phiếu giao hàng của NCC (data URL) — bắt buộc khi đợt này có hàng nhập kho (sinh công nợ) */
+      invoicePhoto?: string;
     };
 
     const po = await prisma.purchaseOrder.findUnique({ where: { id: poId }, include: poLinesInclude });
@@ -399,6 +407,9 @@ export function procurementRouter(prisma: PrismaClient) {
     }
     const taking = lines.filter((l) => l.receivedQty > 0 || (l.rejectedQty ?? 0) > 0 || l.shortAction === "CANCEL");
     if (!taking.length) return res.status(400).json({ error: "Nhập số lượng thực nhận cho ít nhất 1 mặt hàng." });
+    if (taking.some((l) => l.receivedQty > 0) && !body.invoicePhoto) {
+      return res.status(400).json({ error: "Chụp ảnh hoá đơn / phiếu giao hàng của nhà cung cấp làm chứng từ công nợ." });
+    }
 
     // Ảnh hàng lỗi: lưu trước khi mở transaction
     const photos = new Map<number, string>();
@@ -411,6 +422,14 @@ export function procurementRouter(prisma: PrismaClient) {
         }
       }
     }
+    let invoicePhoto: string | null = null;
+    if (body.invoicePhoto) {
+      try {
+        invoicePhoto = await saveDataUrlImage(body.invoicePhoto);
+      } catch (e) {
+        return res.status(400).json({ error: e instanceof Error ? e.message : "Ảnh hoá đơn không hợp lệ" });
+      }
+    }
     // Mặc định hẹn giao bù sau 3 ngày nếu thủ kho không chọn ngày
     const defaultBackorder = new Date(Date.now() + 3 * 86400_000);
 
@@ -420,7 +439,7 @@ export function procurementRouter(prisma: PrismaClient) {
       const lock = await tx.purchaseOrder.updateMany({ where: { id: poId, status: po.status, updatedAt: po.updatedAt }, data: { status: "RECEIVING" } });
       if (!lock.count) return null;
       const g = await tx.goodsReceipt.create({
-        data: { code: `TMP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, storeId: po.storeId, poId, receivedById: staff.id, status: "COMPLETED", note: body.note?.trim().slice(0, 500) || null },
+        data: { code: `TMP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, storeId: po.storeId, poId, receivedById: staff.id, status: "COMPLETED", note: body.note?.trim().slice(0, 500) || null, invoicePhoto },
       });
       // Mã theo id: không trùng khi 2 chi nhánh nhận hàng cùng lúc
       const grnCode = `GRN-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}-${String(g.id).padStart(4, "0")}`;
@@ -465,7 +484,7 @@ export function procurementRouter(prisma: PrismaClient) {
         const bill = await createBill(tx, {
           storeId: po.storeId, supplierId: po.supplierId, source: "GRN", grnId: g.id, amount: billAmount,
           billDate: now, dueDate: new Date(now.getTime() + supplier.paymentTermDays * 86400_000),
-          note: `Nhận hàng ${grnCode} theo ${po.code}`, createdById: staff.id,
+          note: `Nhận hàng ${grnCode} theo ${po.code}`, photoUrl: invoicePhoto, createdById: staff.id,
         });
         // NCC đang nợ quán (trả hàng trước đó) → bù trừ ngay vào hoá đơn này
         await applySupplierCredits(tx, po.storeId, po.supplierId, bill.id);
@@ -512,7 +531,12 @@ export function procurementRouter(prisma: PrismaClient) {
     const supp = (req as SupplierRequest).supplier!;
     const bills = await prisma.supplierBill.findMany({
       where: { supplierId: supp.id, status: { not: "CANCELLED" } },
-      include: { store: { select: { name: true } }, grn: { select: { code: true, po: { select: { code: true } } } } },
+      include: {
+        store: { select: { name: true } },
+        grn: { select: { code: true, po: { select: { code: true } } } },
+        // Các lần quán trả tiền kèm ảnh biên nhận — NCC đối chiếu
+        payments: { where: { status: "APPROVED" }, select: { id: true, code: true, amount: true, fromFund: true, attachmentUrl: true, createdAt: true }, orderBy: { id: "asc" } },
+      },
       orderBy: { billDate: "desc" },
     });
     res.json(bills.map((b) => ({ ...b, remaining: billRemaining(b) })));
@@ -615,11 +639,11 @@ export function procurementRouter(prisma: PrismaClient) {
 
   /**
    * Quản lý duyệt phiếu trả: trừ kho đúng lô, gỡ giá nhập bình quân, rồi xử lý tiền theo `resolution`.
-   * body: { resolution, fund? (REFUND: SAFE | BANK), lateReason? (bắt buộc nếu quá hạn trả) }
+   * body: { resolution, fund? (REFUND: SAFE | BANK), photo? (REFUND: ảnh biên nhận / sao kê, bắt buộc), lateReason? (bắt buộc nếu quá hạn trả) }
    */
   r.post("/purchasing/returns/:id/approve", ...approver, async (req, res) => {
     const staff = (req as StaffRequest).staffRow!;
-    const { resolution, fund, lateReason } = req.body as { resolution?: ReturnResolution; fund?: string; lateReason?: string };
+    const { resolution, fund, lateReason, photo } = req.body as { resolution?: ReturnResolution; fund?: string; lateReason?: string; photo?: string };
     if (!resolution || !RETURN_RESOLUTIONS.includes(resolution)) return res.status(400).json({ error: "Chọn cách xử lý." });
     const ret = await prisma.supplierReturn.findUnique({ where: { id: Number(req.params.id) }, include: { items: { include: { lot: true, item: { select: { name: true } } } }, supplier: true } });
     if (!ret || !inStore(req, ret)) return res.status(404).json({ error: "Không tìm thấy phiếu trả hàng." });
@@ -631,6 +655,15 @@ export function procurementRouter(prisma: PrismaClient) {
     if (resolution === "REFUND" && fund !== "SAFE" && fund !== "BANK") return res.status(400).json({ error: "Chọn nhận tiền hoàn vào két hoặc ngân hàng." });
     const session = resolution === "REFUND" && fund === "SAFE" ? await openSafeSession(prisma, ret.storeId) : null;
     if (resolution === "REFUND" && fund === "SAFE" && !session) return res.status(400).json({ error: "Mở két trước khi nhận tiền mặt." });
+    let attachmentUrl: string | null = null;
+    if (resolution === "REFUND" && ret.amount > 0) {
+      if (!photo) return res.status(400).json({ error: "Chụp ảnh biên nhận / sao kê tiền nhà cung cấp hoàn lại." });
+      try {
+        attachmentUrl = await saveDataUrlImage(photo);
+      } catch (e) {
+        return res.status(400).json({ error: e instanceof Error ? e.message : "Ảnh không hợp lệ" });
+      }
+    }
 
     try {
       await prisma.$transaction(async (tx) => {
@@ -668,7 +701,7 @@ export function procurementRouter(prisma: PrismaClient) {
         if (resolution === "REFUND" && ret.amount > 0) {
           await createEntry(tx, {
             storeId: ret.storeId, kind: "IN", toFund: fund!, safeSessionId: session?.id ?? null, category: "SUPPLIER_REFUND",
-            amount: ret.amount, description: `${ret.supplier.name} hoàn tiền phiếu trả hàng ${ret.code}`,
+            amount: ret.amount, description: `${ret.supplier.name} hoàn tiền phiếu trả hàng ${ret.code}`, attachmentUrl,
             createdById: staff.id, approvedById: staff.id, approvedAt: new Date(),
           });
         }
