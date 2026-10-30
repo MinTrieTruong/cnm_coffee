@@ -1208,6 +1208,7 @@ model Store {
   giftStocks            GiftStock[]
   gamePlays             GamePlay[]
   giftClaims            GiftClaim[]
+  popups                PopupStore[]
 
   @@map("Stores")
 }
@@ -2220,4 +2221,52 @@ model GiftClaim {
 
   @@index([status, expiresAt])
   @@map("Gift_Claims")
+}
+
+/* ═══════════════════════ POP UP quảng bá trang khách ═══════════════════════
+ * Loại đích (targetType) khai báo MỘT chỗ: backend-node/src/lib/popupTargets.ts
+ */
+
+/// Pop up hiện khi khách vào web, bấm vào đi tới trang đích
+model Popup {
+  id          Int       @id @default(autoincrement()) @map("Popup_ID")
+  name        String    @map("Name") @db.VarChar(150)
+  /// HTML từ trình soạn thảo — lọc an toàn khi lưu và khi hiển thị
+  description String?   @map("Description") @db.Text
+  imageUrl    String    @map("Image_Url") @db.VarChar(1024)
+  /// Khoá trong POPUP_TARGETS (PROMOTIONS, VOUCHER, MINIGAME, …)
+  targetType  String    @map("Target_Type") @db.VarChar(20)
+  /// id voucher / chiến dịch / danh mục / món / bài tin, hoặc đường dẫn (URL)
+  targetRef   String?   @map("Target_Ref") @db.VarChar(500)
+  buttonText  String    @default("Xem ngay") @map("Button_Text") @db.VarChar(50)
+  sortOrder   Int       @default(0) @map("Sort_Order")
+  isActive    Boolean   @default(false) @map("Is_Active")
+  startAt     DateTime? @map("Start_At")
+  endAt       DateTime? @map("End_At")
+  /// true = cả chuỗi; false = chỉ các chi nhánh trong PopupStore
+  allStores   Boolean   @default(true) @map("All_Stores")
+  /// ALL · LOGGED_IN (đã đăng nhập) · NEW (chưa có đơn đã thanh toán)
+  audience    String    @default("ALL") @map("Audience") @db.VarChar(10)
+  /// EVERY_VISIT · DAILY (1 lần mỗi ngày) · ONCE (1 lần duy nhất)
+  frequency   String    @default("DAILY") @map("Frequency") @db.VarChar(12)
+  viewCount   Int       @default(0) @map("View_Count")
+  clickCount  Int       @default(0) @map("Click_Count")
+  createdById Int?      @map("Created_By")
+  createdAt   DateTime  @default(now()) @map("Created_At")
+  updatedAt   DateTime  @updatedAt @map("Updated_At")
+
+  stores PopupStore[]
+
+  @@index([isActive, sortOrder])
+  @@map("Popups")
+}
+
+model PopupStore {
+  popupId Int   @map("Popup_ID")
+  storeId Int   @map("Store_ID")
+  popup   Popup @relation(fields: [popupId], references: [id], onDelete: Cascade)
+  store   Store @relation(fields: [storeId], references: [id])
+
+  @@id([popupId, storeId])
+  @@map("Popup_Stores")
 }
