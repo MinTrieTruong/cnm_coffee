@@ -101,9 +101,10 @@ export function PopupHost() {
     }, 180);
   }, []);
 
-  // Esc để đóng + khoá cuộn trang khi đang mở
+  // Esc để đóng + khoá cuộn trang khi đang mở; body.pu-open ẩn cụm nút liên hệ nổi
   useEffect(() => {
     if (!cur) return;
+    document.body.classList.add("pu-open");
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") close();
       if (e.key === "ArrowRight") setIdx((i) => Math.min(i + 1, list.length - 1));
@@ -115,6 +116,7 @@ export function PopupHost() {
     return () => {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
+      document.body.classList.remove("pu-open");
     };
   }, [cur, close, list.length]);
 

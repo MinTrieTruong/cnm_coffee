@@ -1,0 +1,148 @@
+/* ═══════════════════════ CỤM NÚT LIÊN HỆ NỔI (trang khách) ═══════════════════════ */
+.fc {
+  --fc-size: 52px;
+  position: fixed;
+  right: calc(16px + env(safe-area-inset-right, 0px));
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  /* Dưới pop up (90) / modal; trên nội dung trang */
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  pointer-events: none;
+}
+.fc > * { pointer-events: auto; }
+.fc-item { position: relative; display: inline-flex; align-items: center; }
+
+.fc-btn {
+  --fc-color: #0068ff;
+  position: relative;
+  width: var(--fc-size);
+  height: var(--fc-size);
+  border-radius: 50%;
+  border: 3px solid #fff;
+  background: var(--fc-color);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: none;
+  box-shadow: 0 4px 14px rgba(28, 25, 23, 0.22), 0 1px 3px rgba(28, 25, 23, 0.18);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.fc-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(28, 25, 23, 0.26), 0 2px 4px rgba(28, 25, 23, 0.18); }
+.fc-btn:active { transform: translateY(0); }
+.fc-btn:focus-visible { outline: 3px solid var(--accent, #92400e); outline-offset: 3px; }
+.fc-img { width: 60%; height: 60%; object-fit: contain; border-radius: 6px; }
+
+/* Nút chat (ChatWidget gắn vào cuối cụm) mang màu thương hiệu quán */
+.fc-chat { --fc-color: var(--accent, #92400e); }
+.fc-badge { position: absolute; top: -2px; right: -2px; width: 14px; height: 14px; border-radius: 50%; background: #dc2626; border: 2px solid #fff; }
+
+/* Nút gọi: vòng sóng nhịp nhẹ */
+.fc-phone::before,
+.fc-phone::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid var(--fc-color);
+  opacity: 0;
+  animation: fc-ring 2.4s ease-out infinite;
+  pointer-events: none;
+}
+.fc-phone::after { animation-delay: 1.2s; }
+@keyframes fc-ring {
+  0% { transform: scale(1); opacity: 0.55; }
+  100% { transform: scale(1.55); opacity: 0; }
+}
+
+/* Nhãn bên trái (chỉ máy có chuột) */
+.fc-label {
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 50%;
+  transform: translate(6px, -50%);
+  white-space: nowrap;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #1c1917;
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s, transform 0.15s;
+}
+@media (hover: hover) {
+  .fc-item:hover .fc-label,
+  .fc-item:focus-within .fc-label { opacity: 1; transform: translate(0, -50%); }
+}
+
+/* Thu gọn */
+.fc-toggle {
+  width: 28px;
+  height: 28px;
+  margin-right: 12px;
+  border-radius: 50%;
+  border: 1px solid var(--border, #e7e5e4);
+  background: var(--surface, #fff);
+  color: var(--text-secondary, #44403c);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(28, 25, 23, 0.12);
+}
+.fc-toggle:focus-visible { outline: 3px solid var(--accent, #92400e); outline-offset: 2px; }
+
+/* Hộp số điện thoại (máy tính không gọi được) */
+.fc-dial {
+  position: fixed;
+  right: calc(16px + var(--fc-size, 52px) + 16px + env(safe-area-inset-right, 0px));
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  z-index: 61;
+  width: min(280px, calc(100vw - 32px));
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--surface, #fff);
+  color: var(--text, #1c1917);
+  border: 1px solid var(--border, #e7e5e4);
+  box-shadow: 0 12px 32px rgba(28, 25, 23, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fc-dial-x { position: absolute; top: 6px; right: 6px; width: 32px; height: 32px; border: 0; border-radius: 50%; background: none; color: var(--muted, #57534e); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.fc-dial-label { font-size: 0.8rem; color: var(--muted, #57534e); }
+.fc-dial-num { font-size: 1.35rem; font-weight: 800; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; user-select: all; }
+.fc-dial-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.fc-dial-btn {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; border-radius: 8px;
+  border: 0; background: var(--accent, #92400e); color: #fff; font: inherit; font-size: 0.85rem; font-weight: 600; text-decoration: none; cursor: pointer;
+}
+.fc-dial-btn.ghost { background: transparent; color: var(--accent, #92400e); border: 1px solid var(--border-strong, #d6d3d1); }
+
+/* Điện thoại: đứng trên thanh điều hướng đáy */
+@media (max-width: 768px) {
+  body.has-bottom-nav .fc { bottom: calc(var(--bn-h, 56px) + 16px + env(safe-area-inset-bottom, 0px)); }
+  body.has-bottom-nav .fc-dial { bottom: calc(var(--bn-h, 56px) + 16px + env(safe-area-inset-bottom, 0px)); }
+}
+@media (max-width: 380px) {
+  .fc { --fc-size: 44px; gap: 10px; }
+  .fc-btn svg { transform: scale(0.88); }
+}
+
+/* Đang mở pop up: ẩn cụm nút để không cản thao tác */
+body.pu-open .fc, body.pu-open .fc-dial { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-phone::before, .fc-phone::after { animation: none; }
+  .fc-btn, .fc-label { transition: none; }
+}
+
+/* Khung xem trước trong trang quản trị: vẽ tại chỗ */
+.fc.fc-preview { position: static; pointer-events: auto; }

@@ -7,7 +7,6 @@ import {
   getUser,
   isGuestMode,
 } from "../lib/session";
-import { ChatWidget } from "../components/ChatWidget";
 import { ReviewList } from "../components/ReviewList";
 import { motion } from "framer-motion";
 import { AdvancedFilter, type FilterState } from "../components/AdvancedFilter";
@@ -264,7 +263,6 @@ export function Menu() {
         </section>
       )}
 
-      <ChatWidget />
     </motion.div>
   );
 }

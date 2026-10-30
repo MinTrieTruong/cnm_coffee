@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, type FormEvent } from "react";
 import { io, type Socket } from "socket.io-client";
+import { MessageCircle, X } from "lucide-react";
 import { getTableId } from "../lib/session";
 import { getStoreId } from "../lib/customerStore";
 import { apiBase, apiOrigin } from "../lib/api";
@@ -67,7 +68,11 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return data;
 }
 
-export function ChatWidget() {
+/**
+ * `embedded`: nút mở chat nằm cuối cụm nút liên hệ nổi (FloatingContact) thay vì nút nổi riêng.
+ * `onOpenChange`: báo cụm nút ẩn các nút khác khi khung chat đang mở.
+ */
+export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: boolean; onOpenChange?: (open: boolean) => void } = {}) {
   // Phiên cũ (trước khi có mã truy cập) không dùng tiếp được
   useEffect(() => localStorage.removeItem("cmn_chat_session"), []);
 
@@ -157,6 +162,7 @@ export function ChatWidget() {
     setOpen((v) => !v);
     setHasNew(false);
   }
+  useEffect(() => onOpenChange?.(open), [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Gửi tin (chat, khiếu nại mới, hoặc bổ sung cho khiếu nại đang mở) */
   async function send(e?: FormEvent) {
@@ -214,10 +220,20 @@ export function ChatWidget() {
   /* ── Render ─────────────────────────────────────────────────────── */
   return (
     <>
-      <button id="chat-fab-btn" type="button" className="chat-fab" onClick={handleToggle} aria-label="Chat hỗ trợ">
-        {open ? "✕" : "💬"}
-        {!open && hasNew && <span className="chat-fab-badge" />}
-      </button>
+      {embedded ? (
+        <span className="fc-item">
+          <span className="fc-label" aria-hidden>{open ? "Đóng chat" : "Chat với quán"}</span>
+          <button id="chat-fab-btn" type="button" className="fc-btn fc-chat" onClick={handleToggle} aria-label={open ? "Đóng chat" : "Chat với quán"} aria-expanded={open}>
+            {open ? <X size={22} aria-hidden /> : <MessageCircle size={24} aria-hidden />}
+            {!open && hasNew && <span className="fc-badge" />}
+          </button>
+        </span>
+      ) : (
+        <button id="chat-fab-btn" type="button" className="chat-fab" onClick={handleToggle} aria-label="Chat hỗ trợ">
+          {open ? "✕" : "💬"}
+          {!open && hasNew && <span className="chat-fab-badge" />}
+        </button>
+      )}
 
       {open && (
         <div className="chat-panel card" id="chat-panel">

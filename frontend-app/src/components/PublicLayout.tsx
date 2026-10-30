@@ -7,6 +7,7 @@ import { BottomNav } from "./BottomNav";
 import { customerNav } from "../lib/navConfig";
 import { canGoBackInApp } from "../lib/appHistory";
 import { PopupHost } from "./popup/PopupHost";
+import { FloatingContact } from "./contact/FloatingContact";
 
 const CONTACT = {
   phone: "0389730362",
@@ -149,6 +150,8 @@ export function PublicLayout() {
       <main className="site-main">
         <Outlet />
         <PopupHost />
+        {/* Nút liên hệ nổi: ẩn ở trang thanh toán và trang đăng nhập nhân sự */}
+        {!/^\/order\/[^/]+\/checkout/.test(p) && !p.startsWith("/staff") && <FloatingContact />}
       </main>
 
       <BottomNav items={customerNav(loggedIn)} badges={{ cart: cartCount }} hidden={!showTabBar} />
