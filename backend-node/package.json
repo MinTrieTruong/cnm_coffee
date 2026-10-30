@@ -17,6 +17,7 @@
     "games:sim": "tsx prisma/game-sim.ts",
     "db:popups": "tsx prisma/popup-seed.ts",
     "db:contacts": "tsx prisma/contact-seed.ts",
+    "db:site": "tsx prisma/site-seed.ts",
     "db:seed-store2": "tsx prisma/seed-store2.ts",
     "db:seed-staff": "tsx prisma/seed-staff.ts",
     "db:seed-formulas": "tsx prisma/seed-formulas.ts"

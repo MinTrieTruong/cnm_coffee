@@ -32,6 +32,15 @@ model StoreSettings {
   searchMinPercent    Float @default(2) @map("Search_Min_Percent")
   searchWindowDays    Int   @default(30) @map("Search_Window_Days")
 
+  /// Thông tin công ty hiện ở header / footer / trang Liên hệ của web khách
+  companyName    String  @default("TD Coffee") @map("Company_Name") @db.VarChar(150)
+  companyIntro   String  @default("Cà phê pha phin, bánh nướng mỗi sáng. Ngồi lại quán hoặc đặt mang về.") @map("Company_Intro") @db.VarChar(500)
+  companyAddress String  @default("114 Dương Quảng Hàm, Phường 5, Gò Vấp, TP.HCM") @map("Company_Address") @db.VarChar(255)
+  companyEmail   String  @default("hello@tdcoffee.vn") @map("Company_Email") @db.VarChar(150)
+  /// Hotline chung (khi chi nhánh / nút liên hệ chưa có số)
+  companyPhone   String  @default("0389730362") @map("Company_Phone") @db.VarChar(20)
+  companyHours   String  @default("7:00 – 22:00 hằng ngày") @map("Company_Hours") @db.VarChar(100)
+
   @@map("Store_Settings")
 }
 
@@ -1210,6 +1219,8 @@ model Store {
   giftClaims            GiftClaim[]
   popups                PopupStore[]
   contactButtons        ContactButton[]
+  banners               Banner[]
+  contactMessages       ContactMessage[]
 
   @@map("Stores")
 }
@@ -2316,4 +2327,51 @@ model ContactClick {
   @@index([buttonId, createdAt])
   @@index([type, createdAt])
   @@map("Contact_Clicks")
+}
+
+/* ═══════════════════════ WEBSITE KHÁCH: BANNER & LIÊN HỆ ═══════════════════════ */
+
+/// Banner carousel trang chủ (ảnh do quản lý tải lên)
+model Banner {
+  id          Int      @id @default(autoincrement()) @map("Banner_ID")
+  imageUrl    String   @map("Image_Url") @db.VarChar(1024)
+  /// Tiêu đề poster đặt trên ảnh (để trống nếu ảnh đã có chữ)
+  title       String?  @map("Title") @db.VarChar(120)
+  /// Dòng phụ dưới tiêu đề
+  subtitle    String?  @map("Subtitle") @db.VarChar(200)
+  /// Đường dẫn khi bấm: nội bộ "/…" hoặc https://
+  link        String?  @map("Link") @db.VarChar(500)
+  sortOrder   Int      @default(0) @map("Sort_Order")
+  isActive    Boolean  @default(true) @map("Is_Active")
+  /// null = cả chuỗi
+  storeId     Int?     @map("Store_ID")
+  createdById Int?     @map("Created_By")
+  createdAt   DateTime @default(now()) @map("Created_At")
+  updatedAt   DateTime @updatedAt @map("Updated_At")
+  store       Store?   @relation(fields: [storeId], references: [id])
+
+  @@index([isActive, sortOrder])
+  @@map("Banners")
+}
+
+/// Tin khách gửi từ trang Liên hệ / ô đăng ký nhận tin ở footer
+model ContactMessage {
+  id          Int       @id @default(autoincrement()) @map("Message_ID")
+  /// CONTACT (form liên hệ) · NEWSLETTER (đăng ký nhận tin)
+  kind        String    @default("CONTACT") @map("Kind") @db.VarChar(12)
+  name        String?   @map("Name") @db.VarChar(120)
+  email       String?   @map("Email") @db.VarChar(150)
+  phone       String?   @map("Phone") @db.VarChar(20)
+  message     String?   @map("Message") @db.Text
+  /// Chi nhánh khách đang chọn khi gửi
+  storeId     Int?      @map("Store_ID")
+  /// NEW · HANDLED
+  status      String    @default("NEW") @map("Status") @db.VarChar(10)
+  handledById Int?      @map("Handled_By")
+  handledAt   DateTime? @map("Handled_At")
+  createdAt   DateTime  @default(now()) @map("Created_At")
+  store       Store?    @relation(fields: [storeId], references: [id])
+
+  @@index([kind, status, createdAt])
+  @@map("Contact_Messages")
 }

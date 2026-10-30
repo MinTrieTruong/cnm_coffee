@@ -1,0 +1,76 @@
+/* ═══════════════════════════════════════════════════════════════════
+   TD COFFEE — NHẬN DIỆN TRANG KHÁCH: "Quán cà phê Sài Gòn — poster & menu giấy"
+   Chỉ dùng cho khu vực khách (PublicLayout gắn class .c-site). Khu nhân sự dùng token --o-* riêng.
+   Bố cục: header 2 tầng (giấy kem + thanh đỏ gạch), nội dung trên nền giấy, footer nâu mực.
+   ═══════════════════════════════════════════════════════════════════ */
+:root {
+  /* Màu */
+  --c-paper: #f6f0e6;        /* nền giấy kem */
+  --c-paper-2: #efe6d6;      /* khối nền ảnh món, ô xen kẽ */
+  --c-surface: #fffcf7;      /* bề mặt trắng ngà */
+  --c-ink: #2a1b12;          /* chữ mực nâu đen — 15:1 trên giấy */
+  --c-ink-2: #5b4636;        /* chữ phụ — 7:1 trên giấy */
+  --c-muted: #6f5b4b;        /* chữ mờ — 5.3:1 trên giấy */
+  --c-brick: #b23a1e;        /* đỏ gạch / đất nung — chủ đạo; chữ trắng trên nền này 5.6:1 */
+  --c-brick-dark: #8f2d16;
+  --c-coffee: #6f4e37;       /* nâu cà phê */
+  --c-butter: #e2a93b;       /* vàng bơ — tem giảm giá */
+  --c-rule: #d9c8b0;         /* đường kẻ menu giấy */
+  --c-rule-strong: #b9a184;
+  --c-on-brick: #fffcf7;
+  --c-footer: #2a1b12;
+  --c-on-footer: #f1e6d4;
+
+  /* Chữ */
+  --c-font-display: "Oswald", "Arial Narrow", "Roboto Condensed", Impact, sans-serif;
+  --c-font-serif: "Playfair Display", Georgia, "Times New Roman", serif;
+  --c-font-body: "Be Vietnam Pro", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* Hình khối */
+  --c-radius: 4px;
+  --c-radius-md: 6px;
+  --c-wrap: 1240px;
+}
+
+/*
+ * Trang khách cũ dùng inline style với --accent / --surface / --text…
+ * Đổi giá trị các biến đó trong .c-site để mọi trang khách nhận màu & font mới
+ * mà khu nhân sự (không nằm trong .c-site) không đổi.
+ */
+.c-site {
+  --bg: var(--c-paper);
+  --bg-soft: var(--c-paper-2);
+  --bg-soft-2: var(--c-surface);
+  --surface: var(--c-surface);
+  --surface2: var(--c-paper-2);
+  --panel-bg: var(--c-surface);
+  --text: var(--c-ink);
+  --text-strong: var(--c-ink);
+  --text-dark: var(--c-ink);
+  --text-secondary: var(--c-ink-2);
+  --muted: var(--c-muted);
+  --muted-2: var(--c-muted);
+  --accent: var(--c-brick);
+  --accent-hover: var(--c-brick-dark);
+  --accent-dim: var(--c-coffee);
+  --accent-rgb: 178, 58, 30;
+  --accent-soft: #f6e3d9;
+  --accent-soft-2: #f0d2c3;
+  --on-accent: var(--c-on-brick);
+  --border: var(--c-rule);
+  --border-strong: var(--c-rule-strong);
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: 0 1px 0 var(--c-rule);
+  --shadow-lg: 0 2px 0 var(--c-rule);
+  --radius: var(--c-radius-md);
+  --radius-sm: var(--c-radius);
+  --radius-lg: var(--c-radius-md);
+  --font-display: var(--c-font-display);
+  --font-body: var(--c-font-body);
+
+  min-height: 100vh;
+  background: var(--c-paper);
+  color: var(--c-ink);
+  font-family: var(--c-font-body);
+}

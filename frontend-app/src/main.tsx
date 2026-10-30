@@ -4,6 +4,7 @@ import App from "./App";
 import "leaflet/dist/leaflet.css";
 import "./index.css";
 import "./styles/tokens.css";
+import "./styles/customer-tokens.css";
 import "./styles/base.css";
 import "./styles/bottomnav.css";
 import "./styles/tasks.css";
