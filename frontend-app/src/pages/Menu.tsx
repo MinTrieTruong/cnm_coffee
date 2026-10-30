@@ -32,8 +32,10 @@ export function Menu() {
   // ?category=<id> (pop up / liên kết ngoài) → lọc sẵn danh mục
   const [params] = useSearchParams();
   const catParam = params.get("category");
+  // ?q= từ ô tìm kiếm trên header
+  const qParam = params.get("q") ?? "";
   const [filters, setFilters] = useState<FilterState>({
-    search: "",
+    search: qParam,
     categoryId: catParam && /^\d+$/.test(catParam) ? Number(catParam) : "all",
     minPrice: "",
     maxPrice: "",
@@ -44,6 +46,9 @@ export function Menu() {
   useEffect(() => {
     if (catParam && /^\d+$/.test(catParam)) setFilters((f) => ({ ...f, categoryId: Number(catParam) }));
   }, [catParam]);
+  useEffect(() => {
+    if (qParam) setFilters((f) => ({ ...f, search: qParam }));
+  }, [qParam]);
 
   const user = getUser();
   const guest = isGuestMode();
