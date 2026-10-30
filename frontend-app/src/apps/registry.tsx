@@ -104,6 +104,8 @@ const GamesHub = L(() => import("../modules/games/GamesHub"), "GamesHub");
 const GameCampaignDetail = L(() => import("../modules/games/GameCampaignDetail"), "GameCampaignDetail");
 const WinnersPage = L(() => import("../modules/games/WinnerList"), "WinnersPage");
 const GiftItems = L(() => import("../modules/games/GiftItems"), "GiftItems");
+const PopupList = L(() => import("../modules/popups/PopupList"), "PopupList");
+const PopupForm = L(() => import("../modules/popups/PopupForm"), "PopupForm");
 
 export type Layout = "erp" | "legacy" | "full";
 
@@ -321,6 +323,7 @@ export const APPS: AppDef[] = [
     menus: [
       { id: "games", label: "Mini game", description: "Vòng quay may mắn và các mini game tặng quà cho khách", roles: CHAIN_AND_BRANCH, component: GamesHub, form: GameCampaignDetail, layout: "erp" },
       { id: "winners", label: "Trúng thưởng", description: "Khách đã chơi và phần thưởng nhận được, xuất Excel", roles: CHAIN_AND_BRANCH, component: WinnersPage, layout: "erp" },
+      { id: "popups", label: "Pop up", description: "Hộp quảng bá hiện khi khách vào web — tối đa 3 pop up cùng lúc", roles: CHAIN_AND_BRANCH, component: PopupList, form: PopupForm, layout: "erp", ownHeader: true },
       { id: "gifts", label: "Quà tặng hiện vật", description: "Quà tặng vòng quay và tồn theo chi nhánh", roles: CHAIN_AND_BRANCH, component: GiftItems, layout: "erp" },
     ],
   },

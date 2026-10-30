@@ -9,7 +9,7 @@ import ImageExt from "@tiptap/extension-image";
 import LinkExt from "@tiptap/extension-link";
 import TextAlign from "@tiptap/extension-text-align";
 import Underline from "@tiptap/extension-underline";
-import { TextStyle } from "@tiptap/extension-text-style";
+import { BackgroundColor, Color, FontFamily, FontSize, TextStyle } from "@tiptap/extension-text-style";
 import Highlight from "@tiptap/extension-highlight";
 import { staffUploadImage } from "../lib/staffApi";
 
@@ -60,7 +60,7 @@ function TBDiv({ light }: { light?: boolean }) {
 }
 
 /* ── Toolbar ── */
-function Toolbar({ editor, light }: { editor: Editor | null; light?: boolean }) {
+function Toolbar({ editor, light, rich }: { editor: Editor | null; light?: boolean; rich?: boolean }) {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const insertLink = useCallback(() => {
@@ -209,7 +209,50 @@ function Toolbar({ editor, light }: { editor: Editor | null; light?: boolean }) 
         onClick={() => editor.chain().focus().undo().run()} inactiveColor={ic}>↩</TB>
       <TB title="Làm lại (Ctrl+Y)" active={false}
         onClick={() => editor.chain().focus().redo().run()} inactiveColor={ic}>↪</TB>
+
+      {rich && <RichRow editor={editor} light={light} ic={ic} ac={ac} />}
     </div>
+  );
+}
+
+const FONTS = [
+  { label: "Kiểu chữ", value: "" },
+  { label: "Be Vietnam Pro", value: "Be Vietnam Pro" },
+  { label: "Lora", value: "Lora" },
+  { label: "Arial", value: "Arial" },
+  { label: "Georgia", value: "Georgia" },
+  { label: "Courier New", value: "Courier New" },
+];
+const SIZES = ["", "12px", "14px", "16px", "18px", "20px", "24px", "28px", "32px"];
+
+/** Hàng công cụ mở rộng (prop `rich`): kiểu chữ, cỡ chữ, màu chữ, màu nền, thụt lề, xóa định dạng */
+function RichRow({ editor, light, ic, ac }: { editor: Editor; light?: boolean; ic: string; ac: string }) {
+  const sel = { height: 28, fontSize: 12, borderRadius: 6, border: light ? "1px solid #cbd5e1" : "1px solid rgba(255,255,255,0.2)", background: light ? "#fff" : "transparent", color: ic } as const;
+  const attrs = editor.getAttributes("textStyle") as { fontFamily?: string; fontSize?: string; color?: string; backgroundColor?: string };
+  return (
+    <>
+      <div style={{ flexBasis: "100%", height: 0 }} />
+      <select title="Kiểu chữ" style={sel} value={attrs.fontFamily ?? ""}
+        onChange={(e) => (e.target.value ? editor.chain().focus().setFontFamily(e.target.value).run() : editor.chain().focus().unsetFontFamily().run())}>
+        {FONTS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+      </select>
+      <select title="Cỡ chữ" style={sel} value={attrs.fontSize ?? ""}
+        onChange={(e) => (e.target.value ? editor.chain().focus().setFontSize(e.target.value).run() : editor.chain().focus().unsetFontSize().run())}>
+        {SIZES.map((x) => <option key={x} value={x}>{x || "Cỡ chữ"}</option>)}
+      </select>
+      <label title="Màu chữ" style={{ display: "inline-flex", alignItems: "center", gap: 2, color: ic, fontSize: 12, padding: "0 4px" }}>
+        A<input type="color" value={attrs.color ?? "#000000"} onChange={(e) => editor.chain().focus().setColor(e.target.value).run()} style={{ width: 22, height: 22, border: 0, padding: 0, background: "none" }} />
+      </label>
+      <label title="Màu nền chữ" style={{ display: "inline-flex", alignItems: "center", gap: 2, color: ic, fontSize: 12, padding: "0 4px" }}>
+        <span style={{ background: "#fde68a", padding: "0 3px" }}>A</span>
+        <input type="color" value={attrs.backgroundColor ?? "#ffffff"} onChange={(e) => editor.chain().focus().setBackgroundColor(e.target.value).run()} style={{ width: 22, height: 22, border: 0, padding: 0, background: "none" }} />
+      </label>
+      <TBDiv light={light} />
+      <TB title="Thụt lề (trong danh sách)" active={false} onClick={() => editor.chain().focus().sinkListItem("listItem").run()} activeColor={ac} inactiveColor={ic}>⇥</TB>
+      <TB title="Giảm thụt lề" active={false} onClick={() => editor.chain().focus().liftListItem("listItem").run()} activeColor={ac} inactiveColor={ic}>⇤</TB>
+      <TB title="Code trong dòng" active={editor.isActive("code")} onClick={() => editor.chain().focus().toggleCode().run()} activeColor={ac} inactiveColor={ic}>{"`c`"}</TB>
+      <TB title="Xóa định dạng" active={false} onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()} activeColor={ac} inactiveColor={ic}>⌫</TB>
+    </>
   );
 }
 
@@ -226,11 +269,14 @@ export function PostEditor({
   onChange,
   height = "420px",
   theme = "dark",
+  rich = false,
 }: {
   content?: string;
   onChange: (html: string) => void;
   height?: string;
   theme?: "dark" | "light";
+  /** Thêm kiểu chữ, cỡ chữ, màu chữ, màu nền, thụt lề, xóa định dạng */
+  rich?: boolean;
 }) {
   const light = theme === "light";
 
@@ -243,6 +289,7 @@ export function PostEditor({
       Underline,
       TextStyle,
       Highlight.configure({ multicolor: false }),
+      ...(rich ? [Color, BackgroundColor, FontFamily, FontSize] : []),
     ],
     content,
     onUpdate: ({ editor: ed }) => onChange(ed.getHTML()),
@@ -269,7 +316,7 @@ export function PostEditor({
         boxShadow: light ? "0 1px 4px rgba(0,0,0,0.06)" : "none",
       }}
     >
-      <Toolbar editor={editor} light={light} />
+      <Toolbar editor={editor} light={light} rich={rich} />
       <EditorContent editor={editor} />
     </div>
   );
