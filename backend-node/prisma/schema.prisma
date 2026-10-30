@@ -1209,6 +1209,7 @@ model Store {
   gamePlays             GamePlay[]
   giftClaims            GiftClaim[]
   popups                PopupStore[]
+  contactButtons        ContactButton[]
 
   @@map("Stores")
 }
@@ -2269,4 +2270,50 @@ model PopupStore {
 
   @@id([popupId, storeId])
   @@map("Popup_Stores")
+}
+
+/* ═══════════════════════ NÚT LIÊN HỆ NỔI (trang khách) ═══════════════════════
+ * Link / SĐT do quản lý dán trên trang quản trị — không ghi cứng trong code.
+ * Chuẩn hoá & loại nút: backend-node/src/lib/contactLinks.ts
+ */
+
+/// Nút liên hệ: storeId null = mặc định cả chuỗi; chi nhánh khai báo loại nào thì dùng nút chi nhánh cho loại đó
+model ContactButton {
+  id          Int      @id @default(autoincrement()) @map("Button_ID")
+  storeId     Int?     @map("Store_ID")
+  /// PHONE · ZALO · MESSENGER · CUSTOM
+  type        String   @map("Type") @db.VarChar(10)
+  label       String   @map("Label") @db.VarChar(60)
+  /// Giá trị đã chuẩn hoá: SĐT (PHONE) hoặc link https (ZALO / MESSENGER / CUSTOM); rỗng = chưa khai báo
+  value       String   @default("") @map("Value") @db.VarChar(500)
+  /// Màu nền; null = màu mặc định theo loại / icon
+  color       String?  @map("Color") @db.VarChar(9)
+  /// CUSTOM: khoá icon có sẵn (tiktok, facebook…) hoặc đường dẫn ảnh icon đã tải lên
+  icon        String?  @map("Icon") @db.VarChar(500)
+  sortOrder   Int      @default(0) @map("Sort_Order")
+  isActive    Boolean  @default(true) @map("Is_Active")
+  updatedById Int?     @map("Updated_By")
+  createdAt   DateTime @default(now()) @map("Created_At")
+  updatedAt   DateTime @updatedAt @map("Updated_At")
+
+  store  Store?         @relation(fields: [storeId], references: [id])
+  clicks ContactClick[]
+
+  @@index([storeId, isActive])
+  @@map("Contact_Buttons")
+}
+
+/// Lượt khách bấm nút liên hệ — báo cáo kênh nào được dùng nhiều
+model ContactClick {
+  id        Int            @id @default(autoincrement()) @map("Click_ID")
+  buttonId  Int?           @map("Button_ID")
+  type      String         @map("Type") @db.VarChar(10)
+  /// Chi nhánh khách đang chọn lúc bấm
+  storeId   Int?           @map("Store_ID")
+  createdAt DateTime       @default(now()) @map("Created_At")
+  button    ContactButton? @relation(fields: [buttonId], references: [id], onDelete: SetNull)
+
+  @@index([buttonId, createdAt])
+  @@index([type, createdAt])
+  @@map("Contact_Clicks")
 }
