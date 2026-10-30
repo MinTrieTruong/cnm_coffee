@@ -107,8 +107,10 @@ model Product {
   comboItems      ComboItem[]
   storeProducts   StoreProduct[]
 
-  wasteLogs WasteLog[]
-  proposals MenuProposal[]
+  wasteLogs  WasteLog[]
+  proposals  MenuProposal[]
+  gamePrizes GamePrize[]
+  giftClaims GiftClaim[]
 
   @@map("Products")
 }
@@ -195,6 +197,9 @@ model Customer {
   pointTransactions PointTransaction[]
   userVouchers      UserVoucher[]
   addresses         CustomerAddress[]
+  gameTickets       GameTicket[]
+  gamePlays         GamePlay[]
+  giftClaims        GiftClaim[]
 
   @@map("Customers")
 }
@@ -460,7 +465,7 @@ model PointTransaction {
   orderId    Int?     @map("Order_ID")
   /// Số điểm +/-
   delta      Int      @map("Delta")
-  /// EARN · REDEEM · CANCEL_REFUND (tiền đơn hủy → điểm) · REDEEM_RETURN (trả lại điểm đã dùng) · EARN_REVERSAL (thu hồi điểm thưởng)
+  /// EARN · REDEEM · CANCEL_REFUND (tiền đơn hủy → điểm) · REDEEM_RETURN (trả lại điểm đã dùng) · EARN_REVERSAL (thu hồi điểm thưởng) · GAME_REWARD (trúng mini game) · GAME_EXCHANGE (đổi điểm lấy lượt chơi)
   type       String   @map("Type") @db.VarChar(20)
   note       String?  @map("Note") @db.VarChar(255)
   createdAt  DateTime @default(now()) @map("Created_At")
@@ -629,6 +634,7 @@ model Voucher {
   goldHourEnd   Int?           @map("Gold_Hour_End")
   userVouchers  UserVoucher[]
   stores        VoucherStore[]
+  gamePrizes    GamePrize[]
   createdAt     DateTime       @default(now()) @map("Created_At")
 
   @@map("Vouchers")
@@ -1198,6 +1204,10 @@ model Store {
   inventoryCounts       InventoryCount[]
   supplierReturns       SupplierReturn[]
   supplierCredits       SupplierCredit[]
+  gameCampaigns         GameCampaignStore[]
+  giftStocks            GiftStock[]
+  gamePlays             GamePlay[]
+  giftClaims            GiftClaim[]
 
   @@map("Stores")
 }
@@ -1994,4 +2004,220 @@ model ChatReaction {
 
   @@unique([messageId, actorKey])
   @@map("Chat_Reactions")
+}
+
+/* ═══════════════════════ MINI GAME (tầng chung) ═══════════════════════
+ * Mọi mini game (vòng quay, thẻ cào, hộp quà…) dùng chung các bảng dưới.
+ * Phần riêng của từng game nằm trong GameCampaign.config (Json) và GamePlay.data (Json).
+ * Xem docs/minigame-architecture.md trước khi thêm game mới.
+ */
+
+/// Loại mini game — hiện mới cài WHEEL
+enum GameType {
+  WHEEL
+  SCRATCH
+  MYSTERY_BOX
+  STAMP
+  MISSION
+  QUIZ
+  SEASONAL
+}
+
+/// PRODUCT = món thực đơn / quà hiện vật (nhận tại quầy) · VOUCHER = vào ví voucher · POINTS = cộng điểm · NONE = chúc may mắn lần sau
+enum GamePrizeKind {
+  PRODUCT
+  VOUCHER
+  POINTS
+  NONE
+}
+
+/// Chiến dịch mini game
+model GameCampaign {
+  id                 Int      @id @default(autoincrement()) @map("Campaign_ID")
+  gameType           GameType @map("Game_Type")
+  name               String   @map("Name") @db.VarChar(150)
+  description        String?  @map("Description") @db.VarChar(1000)
+  startAt            DateTime @map("Start_At")
+  endAt              DateTime @map("End_At")
+  isActive           Boolean  @default(false) @map("Is_Active")
+  /// true = cả chuỗi; false = chỉ các chi nhánh trong GameCampaignStore
+  allStores          Boolean  @default(true) @map("All_Stores")
+  /// Cấu hình riêng của từng game (WHEEL: backgroundUrl, wheelColor, borderColor)
+  config             Json?    @map("Config")
+  /// Đơn đã thanh toán từ mức này trở lên được tặng 1 lượt (0 = mọi đơn)
+  minOrderValue      Int      @default(0) @map("Min_Order_Value")
+  /// Số lượt chơi tối đa / khách / ngày
+  maxPlaysPerDay     Int      @default(3) @map("Max_Plays_Per_Day")
+  allowPointExchange Boolean  @default(false) @map("Allow_Point_Exchange")
+  pointsPerTicket    Int      @default(0) @map("Points_Per_Ticket")
+  /// Số ngày khách được nhận quà hiện vật tại quầy kể từ lúc trúng
+  claimDays          Int      @default(7) @map("Claim_Days")
+  createdById        Int?     @map("Created_By")
+  createdAt          DateTime @default(now()) @map("Created_At")
+  updatedAt          DateTime @updatedAt @map("Updated_At")
+
+  stores  GameCampaignStore[]
+  prizes  GamePrize[]
+  tickets GameTicket[]
+  plays   GamePlay[]
+
+  @@index([gameType, isActive])
+  @@map("Game_Campaigns")
+}
+
+model GameCampaignStore {
+  campaignId Int          @map("Campaign_ID")
+  storeId    Int          @map("Store_ID")
+  campaign   GameCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  store      Store        @relation(fields: [storeId], references: [id])
+
+  @@id([campaignId, storeId])
+  @@map("Game_Campaign_Stores")
+}
+
+/// Giải thưởng của chiến dịch
+model GamePrize {
+  id         Int           @id @default(autoincrement()) @map("Prize_ID")
+  campaignId Int           @map("Campaign_ID")
+  kind       GamePrizeKind @map("Kind")
+  productId  Int?          @map("Product_ID")
+  giftItemId Int?          @map("Gift_Item_ID")
+  voucherId  Int?          @map("Voucher_ID")
+  points     Int?          @map("Points")
+  /// Nội dung hiển thị trên ô / popup
+  label      String        @map("Label") @db.VarChar(255)
+  imageUrl   String?       @map("Image_Url") @db.VarChar(1024)
+  /// Tỉ lệ trúng (%), tổng các giải đang dùng = 100
+  weight     Float         @map("Weight")
+  /// Tổng số lượng; null = không giới hạn
+  quantity   Int?          @map("Quantity")
+  wonCount   Int           @default(0) @map("Won_Count")
+  /// Tối đa số lần trúng mỗi ngày; null = không giới hạn
+  dailyLimit Int?          @map("Daily_Limit")
+  sortOrder  Int           @default(0) @map("Sort_Order")
+  color      String?       @map("Color") @db.VarChar(20)
+  /// false = đã xóa khỏi vòng (giữ lại vì có lượt chơi tham chiếu)
+  isActive   Boolean       @default(true) @map("Is_Active")
+
+  campaign GameCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  product  Product?     @relation(fields: [productId], references: [id])
+  giftItem GiftItem?    @relation(fields: [giftItemId], references: [id])
+  voucher  Voucher?     @relation(fields: [voucherId], references: [id])
+  plays    GamePlay[]
+
+  @@index([campaignId])
+  @@map("Game_Prizes")
+}
+
+/// Quà tặng hiện vật quán tự thêm (nón, ly giữ nhiệt…)
+model GiftItem {
+  id        Int      @id @default(autoincrement()) @map("Gift_Item_ID")
+  name      String   @map("Name") @db.VarChar(150)
+  imageUrl  String?  @map("Image_Url") @db.VarChar(1024)
+  /// Giá trị ước tính (đ) — dùng ước tính chi phí chiến dịch
+  value     Int      @default(0) @map("Value")
+  note      String?  @map("Note") @db.VarChar(500)
+  isActive  Boolean  @default(true) @map("Is_Active")
+  createdAt DateTime @default(now()) @map("Created_At")
+
+  stocks GiftStock[]
+  prizes GamePrize[]
+  claims GiftClaim[]
+
+  @@map("Gift_Items")
+}
+
+/// Tồn quà hiện vật theo chi nhánh — `reserved` = đã có người trúng, chờ nhận
+model GiftStock {
+  giftItemId Int      @map("Gift_Item_ID")
+  storeId    Int      @map("Store_ID")
+  qty        Int      @default(0) @map("Qty")
+  reserved   Int      @default(0) @map("Reserved")
+  giftItem   GiftItem @relation(fields: [giftItemId], references: [id], onDelete: Cascade)
+  store      Store    @relation(fields: [storeId], references: [id])
+
+  @@id([giftItemId, storeId])
+  @@map("Gift_Stocks")
+}
+
+/// Lượt chơi của khách
+model GameTicket {
+  id         Int          @id @default(autoincrement()) @map("Ticket_ID")
+  customerId Int          @map("Customer_ID")
+  campaignId Int          @map("Campaign_ID")
+  /// ORDER (đơn đạt mức) · POINTS (đổi điểm) · ADMIN (quản lý tặng)
+  source     String       @map("Source") @db.VarChar(10)
+  orderId    Int?         @map("Order_ID")
+  /// UNUSED · USED · REVOKED
+  status     String       @default("UNUSED") @map("Status") @db.VarChar(10)
+  expiresAt  DateTime     @map("Expires_At")
+  createdAt  DateTime     @default(now()) @map("Created_At")
+  usedAt     DateTime?    @map("Used_At")
+  customer   Customer     @relation(fields: [customerId], references: [id])
+  campaign   GameCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  play       GamePlay?
+
+  @@index([customerId, campaignId, status])
+  @@index([orderId])
+  @@map("Game_Tickets")
+}
+
+/// Kết quả một lượt chơi (snapshot giải lúc trúng để báo cáo không đổi khi sửa giải)
+model GamePlay {
+  id                 Int           @id @default(autoincrement()) @map("Play_ID")
+  ticketId           Int           @unique @map("Ticket_ID")
+  customerId         Int           @map("Customer_ID")
+  campaignId         Int           @map("Campaign_ID")
+  prizeId            Int?          @map("Prize_ID")
+  storeId            Int?          @map("Store_ID")
+  playedAt           DateTime      @default(now()) @map("Played_At")
+  /// Dữ liệu riêng của game (WHEEL: { segmentIndex })
+  data               Json?         @map("Data")
+  prizeLabel         String        @map("Prize_Label") @db.VarChar(255)
+  prizeKind          GamePrizeKind @map("Prize_Kind")
+  prizeImage         String?       @map("Prize_Image") @db.VarChar(1024)
+  prizeWeight        Float         @default(0) @map("Prize_Weight")
+  userVoucherId      Int?          @map("User_Voucher_ID")
+  pointTransactionId Int?          @map("Point_Transaction_ID")
+
+  ticket    GameTicket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  customer  Customer     @relation(fields: [customerId], references: [id])
+  campaign  GameCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  prize     GamePrize?   @relation(fields: [prizeId], references: [id])
+  store     Store?       @relation(fields: [storeId], references: [id])
+  giftClaim GiftClaim?
+
+  @@index([campaignId, playedAt])
+  @@index([customerId, campaignId, playedAt])
+  @@index([prizeId, playedAt])
+  @@map("Game_Plays")
+}
+
+/// Mã nhận quà hiện vật tại quầy
+model GiftClaim {
+  id               Int       @id @default(autoincrement()) @map("Claim_ID")
+  code             String    @unique @map("Code") @db.VarChar(12)
+  customerId       Int       @map("Customer_ID")
+  playId           Int       @unique @map("Play_ID")
+  productId        Int?      @map("Product_ID")
+  giftItemId       Int?      @map("Gift_Item_ID")
+  /// Chi nhánh giữ quà (null = nhận ở chi nhánh bất kỳ còn quà)
+  storeId          Int?      @map("Store_ID")
+  expiresAt        DateTime  @map("Expires_At")
+  /// WAITING · DELIVERED · EXPIRED · CANCELLED
+  status           String    @default("WAITING") @map("Status") @db.VarChar(10)
+  deliveredById    Int?      @map("Delivered_By")
+  deliveredAt      DateTime? @map("Delivered_At")
+  /// Chi nhánh thực tế trao quà
+  deliveredStoreId Int?      @map("Delivered_Store_ID")
+  createdAt        DateTime  @default(now()) @map("Created_At")
+
+  customer Customer  @relation(fields: [customerId], references: [id])
+  play     GamePlay  @relation(fields: [playId], references: [id], onDelete: Cascade)
+  product  Product?  @relation(fields: [productId], references: [id])
+  giftItem GiftItem? @relation(fields: [giftItemId], references: [id])
+  store    Store?    @relation(fields: [storeId], references: [id])
+
+  @@index([status, expiresAt])
+  @@map("Gift_Claims")
 }

@@ -13,6 +13,7 @@
     "db:owner": "tsx prisma/store-migration.ts",
     "db:lots": "tsx prisma/lot-migration.ts",
     "db:cakes": "tsx prisma/cake-migration.ts",
+    "db:games": "tsx prisma/game-seed.ts",
     "db:seed-store2": "tsx prisma/seed-store2.ts",
     "db:seed-staff": "tsx prisma/seed-staff.ts",
     "db:seed-formulas": "tsx prisma/seed-formulas.ts"

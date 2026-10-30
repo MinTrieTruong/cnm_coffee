@@ -5,10 +5,11 @@ import { adjustStoreStock, restoreLots } from "./inventory.js";
 import { computePointsEarned, getStoreSettings } from "./pricing.js";
 import { rankTierFromLifetimeSpend } from "./rank.js";
 import { toStore } from "./storeScope.js";
+import { issueOrderTickets, revokeOrderTickets } from "../games/service.js";
 
 type Tx = Prisma.TransactionClient;
 
-export type PointTxType = "EARN" | "REDEEM" | "CANCEL_REFUND" | "REDEEM_RETURN" | "EARN_REVERSAL";
+export type PointTxType = "EARN" | "REDEEM" | "CANCEL_REFUND" | "REDEEM_RETURN" | "EARN_REVERSAL" | "GAME_REWARD" | "GAME_EXCHANGE";
 
 /** Cộng/trừ điểm khách và ghi lịch sử. delta = 0 thì bỏ qua. */
 export async function addPoints(
@@ -37,6 +38,8 @@ export async function settlePaidPoints(
     data: { rankTier: rankTierFromLifetimeSpend(paid._sum.totalAmount ?? 0) },
   });
   await tx.order.update({ where: { id: orderId }, data: { pointsEarned: args.pointsEarned } });
+  // Mini game: đơn đạt mức tối thiểu của chiến dịch đang chạy → tặng lượt chơi
+  await issueOrderTickets(tx, orderId);
 }
 
 /* ─────────────── Hoàn tiền đơn giao hàng ra điểm ─────────────── */
@@ -188,6 +191,8 @@ export async function refundOrderToPoints(
         }
       }
       await tx.orderDetail.updateMany({ where: { orderId, kdsStatus: { in: ["Hold", "Waiting", "Cooking"] } }, data: { kdsStatus: "Cancelled" } });
+      // Đơn hoàn toàn bộ → thu hồi lượt mini game chưa dùng
+      await revokeOrderTickets(tx, orderId);
     }
 
     // Hạng tính theo tổng chi tiêu đơn Paid — đơn hủy / giảm tổng thì tính lại
