@@ -3,6 +3,7 @@ import {
   Bike,
   ChefHat,
   Cog,
+  Gamepad2,
   Globe,
   LayoutDashboard,
   Monitor,
@@ -99,6 +100,10 @@ const StoreSettings = L(() => import("../modules/settings/StoreSettings"), "Stor
 const AuditLog = L(() => import("../modules/settings/AuditLog"), "AuditLog");
 const StoreList = L(() => import("../modules/settings/Stores"), "StoreList");
 const StoreForm = L(() => import("../modules/settings/Stores"), "StoreForm");
+const GamesHub = L(() => import("../modules/games/GamesHub"), "GamesHub");
+const GameCampaignDetail = L(() => import("../modules/games/GameCampaignDetail"), "GameCampaignDetail");
+const WinnersPage = L(() => import("../modules/games/WinnerList"), "WinnersPage");
+const GiftItems = L(() => import("../modules/games/GiftItems"), "GiftItems");
 
 export type Layout = "erp" | "legacy" | "full";
 
@@ -307,6 +312,16 @@ export const APPS: AppDef[] = [
           { id: "requests", label: "Đơn từ của tôi", description: "Gửi và theo dõi đơn nghỉ, đổi ca, giải trình", roles: STAFF, component: HrRequests, layout: "erp" },
         ],
       },
+    ],
+  },
+  {
+    id: "crm",
+    label: "CRM",
+    icon: Gamepad2,
+    menus: [
+      { id: "games", label: "Mini game", description: "Vòng quay may mắn và các mini game tặng quà cho khách", roles: CHAIN_AND_BRANCH, component: GamesHub, form: GameCampaignDetail, layout: "erp" },
+      { id: "winners", label: "Trúng thưởng", description: "Khách đã chơi và phần thưởng nhận được, xuất Excel", roles: CHAIN_AND_BRANCH, component: WinnersPage, layout: "erp" },
+      { id: "gifts", label: "Quà tặng hiện vật", description: "Quà tặng vòng quay và tồn theo chi nhánh", roles: CHAIN_AND_BRANCH, component: GiftItems, layout: "erp" },
     ],
   },
   {
