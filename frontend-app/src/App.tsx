@@ -20,6 +20,7 @@ import { BlogDetail } from "./pages/BlogDetail";
 import { AppShell } from "./components/erp/AppShell";
 import { LEGACY_ADMIN_TABS, LEGACY_PATHS } from "./apps/registry";
 import { SupplierPortal } from "./pages/SupplierPortal";
+import { GamePlay } from "./pages/GamePlay";
 import { useTrackAppHistory } from "./lib/appHistory";
 
 function HistoryTracker() {
@@ -56,6 +57,7 @@ export default function App() {
           <Route path="/order/:id/tracking" element={<OrderTracking />} />
           <Route path="/order/:id/success" element={<OrderSuccess />} />
           <Route path="/vnpay-return" element={<VnpayReturn />} />
+          <Route path="/game/:campaignId" element={<GamePlay />} />
         </Route>
 
         <Route path="/welcome" element={<Navigate to="/login" replace />} />

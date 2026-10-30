@@ -21,6 +21,11 @@ export type SessionUser = {
   avatarUrl?: string | null;
 };
 
+/** Trang quay lại sau khi đăng nhập/đăng ký (?next=/game/1) — chỉ nhận đường dẫn nội bộ */
+export function safeNext(raw: string | null, fallback = "/menu") {
+  return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : fallback;
+}
+
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }

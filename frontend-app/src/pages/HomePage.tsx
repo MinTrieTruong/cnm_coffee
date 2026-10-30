@@ -7,6 +7,7 @@ import { StorePicker } from "../components/StorePicker";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { motion } from "framer-motion";
+import { GameBanner } from "../modules/games/MyGifts";
 import {
   ShoppingCart,
   ChevronDown,
@@ -341,6 +342,11 @@ export function HomePage() {
           </div>
         </motion.div>
       </section>
+
+      {/* ═══ MINI GAME ═══ */}
+      <div className="hp-game-banner">
+        <GameBanner />
+      </div>
 
       {/* ═══ MEGA MENU ═══ */}
       <MegaMenu categoryTree={data.categoryTree} />

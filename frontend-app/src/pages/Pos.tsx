@@ -7,6 +7,7 @@ import { PosDeliveryPanel } from "../components/PosDeliveryPanel";
 import { useHideBottomNav } from "../components/BottomNav";
 import { PosBillHistory, type BillRecord } from "../components/PosBillHistory";
 import { PosPendingList } from "../components/PosPendingList";
+import { PosGiftClaim } from "../components/PosGiftClaim";
 import { EntryDialog, SafeCloseDialog, SafeOpenDialog, ShiftCloseDialog, useSafe } from "../modules/finance/shared";
 
 /** Âm thanh nhỏ nhẹ khi nhận yêu cầu thanh toán từ phục vụ. */
@@ -190,6 +191,7 @@ export function Pos() {
   const [pointsToUse, setPointsToUse] = useState(0);
   // --- Lịch sử bill ---
   const [showBillHistory, setShowBillHistory] = useState(false);
+  const [showGiftClaim, setShowGiftClaim] = useState(false);
   // Màn bill / thu tiền / lịch sử có thanh thao tác riêng → ẩn thanh điều hướng đáy
   useHideBottomNav(!!billModal || !!payOrder || showBillHistory);
   const [billDetailModal, setBillDetailModal] = useState<BillRecord | null>(null);
@@ -581,6 +583,9 @@ export function Pos() {
             onClick={() => setShowBillHistory((v) => !v)}>
             Lịch sử bill
           </button>
+          <button type="button" className="btn btn-ghost staff-btn-light" onClick={() => setShowGiftClaim(true)}>
+            Nhận quà
+          </button>
           <button type="button" className="btn btn-ghost staff-btn-light" onClick={() => void refreshAll()}>
             Làm mới
           </button>
@@ -812,6 +817,8 @@ export function Pos() {
       )}
 
       {/* ===== LỊCH SỬ BILL ===== */}
+      {showGiftClaim && <PosGiftClaim onClose={() => setShowGiftClaim(false)} onDone={showToast} />}
+
       {showBillHistory && (
         <PosBillHistory onClose={closeBillHistory} onSelect={setBillDetailModal} payMethodLabel={payMethodLabel} />
       )}

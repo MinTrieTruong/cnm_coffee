@@ -3,7 +3,8 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { clearSession, getUser, isGuestMode, mergeSessionUser, type SessionUser } from "../lib/session";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, User, Star, Award, Ticket, MessageSquare, ImagePlus, X, Lock, Package, XCircle, Coins } from "lucide-react";
+import { ArrowLeft, User, Star, Award, Ticket, MessageSquare, ImagePlus, X, Lock, Package, XCircle, Coins, Gift } from "lucide-react";
+import { MyGifts } from "../modules/games/MyGifts";
 import { deliveryLabel } from "../lib/delivery";
 import { PasswordInput } from "../components/PasswordInput";
 
@@ -152,8 +153,8 @@ export function Account() {
   const [pwdNew, setPwdNew] = useState("");
 
   // Dashboard Tabs
-  type MainTab = "profile" | "orders" | "points" | "vouchers" | "reviews_write" | "reviews_public";
-  const MAIN_TABS: MainTab[] = ["profile", "orders", "points", "vouchers", "reviews_write", "reviews_public"];
+  type MainTab = "profile" | "orders" | "points" | "vouchers" | "gifts" | "reviews_write" | "reviews_public";
+  const MAIN_TABS: MainTab[] = ["profile", "orders", "points", "vouchers", "gifts", "reviews_write", "reviews_public"];
   const [params, setParams] = useSearchParams();
   const navTo = useNavigate();
   const tabParam = params.get("tab") as MainTab | null;
@@ -395,6 +396,7 @@ export function Account() {
           { id: "orders", label: "Lịch sử đơn hàng", icon: Package },
           { id: "points", label: "Lịch sử điểm", icon: Coins },
           { id: "vouchers", label: "Ví Voucher", icon: Ticket },
+          { id: "gifts", label: "Quà của tôi", icon: Gift },
           { id: "reviews_write", label: "Đánh giá đơn hàng", icon: Star },
           { id: "reviews_public", label: "Xem nhận xét chung", icon: MessageSquare },
         ].map(t => (
@@ -700,6 +702,13 @@ export function Account() {
                 <button type="submit" className="btn btn-primary" style={{ padding: "1rem 2.5rem", borderRadius: 999, background: "var(--accent)", fontSize: "1.05rem" }}>Gửi đánh giá</button>
               </form>
             )}
+          </motion.div>
+        )}
+
+        {/* TAB: QUÀ CỦA TÔI (mini game) */}
+        {mainTab === "gifts" && (
+          <motion.div key="gifts" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+            <MyGifts />
           </motion.div>
         )}
 

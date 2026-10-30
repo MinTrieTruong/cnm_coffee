@@ -213,3 +213,7 @@
   .gb { flex-wrap: wrap; }
   .gb-cta { margin-left: 60px; }
 }
+
+/* Banner trên trang chủ: canh theo bề rộng nội dung trang */
+.hp-game-banner { max-width: 1200px; margin: 1.5rem auto 0; padding: 0 16px; }
+.hp-game-banner:empty { display: none; }

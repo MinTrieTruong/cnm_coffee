@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router-dom";
 import { CheckCircle } from "lucide-react";
 import { motion } from "framer-motion";
+import { GameBanner } from "../modules/games/MyGifts";
 
 export function OrderSuccess() {
   const { id } = useParams();
@@ -20,6 +21,7 @@ export function OrderSuccess() {
       </p>
       
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+        <GameBanner compact />
         <Link to={`/order/${id}/checkout`} className="btn btn-primary" style={{ padding: "1rem", borderRadius: 999, fontSize: "1.05rem", background: "var(--accent)", boxShadow: "0 8px 20px rgba(146,64,14,0.3)", color: "#fff" }}>
           Xem hóa đơn & Thanh toán
         </Link>

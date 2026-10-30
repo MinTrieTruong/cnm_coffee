@@ -1,12 +1,14 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
-import { setSession, type SessionUser } from "../lib/session";
+import { safeNext, setSession, type SessionUser } from "../lib/session";
 import { ArrowLeft } from "lucide-react";
 import { PasswordInput } from "../components/PasswordInput";
 
 export function Register() {
   const nav = useNavigate();
+  const [params] = useSearchParams();
+  const next = safeNext(params.get("next"));
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -24,7 +26,7 @@ export function Register() {
         body: JSON.stringify({ phone, password, fullName, email: email || undefined }),
       });
       setSession(data.token, data.user);
-      nav("/menu", { replace: true });
+      nav(next, { replace: true });
     } catch (e2) {
       setErr(e2 instanceof Error ? e2.message : "Đăng ký thất bại");
     } finally {

@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
-import { setSession, setGuestMode } from "../lib/session";
+import { safeNext, setSession, setGuestMode } from "../lib/session";
 import { PasswordInput } from "../components/PasswordInput";
 
 export function Welcome() {
   const nav = useNavigate();
+  const [params] = useSearchParams();
+  const next = safeNext(params.get("next"));
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -21,7 +23,7 @@ export function Welcome() {
         { method: "POST", body: JSON.stringify({ login, password }) },
       );
       setSession(data.token, data.user);
-      nav("/menu", { replace: true });
+      nav(next, { replace: true });
     } catch (e2) {
       setErr(e2 instanceof Error ? e2.message : "Đăng nhập thất bại");
     } finally {
@@ -88,7 +90,7 @@ export function Welcome() {
 
           <p style={{ textAlign: "center", color: "var(--muted)", margin: "1.5rem 0 1rem", fontSize: "0.9rem" }}>
             Chưa có tài khoản?{" "}
-            <Link to="/register" style={{ color: "var(--accent)", fontWeight: 600 }}>Đăng ký</Link>
+            <Link to={params.get("next") ? `/register?next=${encodeURIComponent(next)}` : "/register"} style={{ color: "var(--accent)", fontWeight: 600 }}>Đăng ký</Link>
           </p>
 
           <div style={{ position: "relative", textAlign: "center", margin: "1.5rem 0" }}>
