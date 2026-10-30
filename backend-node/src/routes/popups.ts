@@ -295,7 +295,7 @@ export function popupsRouter(prisma: PrismaClient) {
       const def = POPUP_TARGETS[p.targetType];
       const href = def.href(p.targetRef);
       out.push({
-        id: p.id, name: p.name, description: p.description, imageUrl: p.imageUrl, buttonText: p.buttonText,
+        id: p.id, name: p.name, description: p.description, imageUrl: p.imageUrl, buttonText: p.buttonText, tag: def.tag,
         frequency: p.frequency, updatedAt: p.updatedAt,
         href, external: /^https:\/\//i.test(href), needsLogin: "needsLogin" in def && def.needsLogin === true,
       });

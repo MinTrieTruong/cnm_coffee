@@ -12,6 +12,8 @@ export type RefKind = "voucher" | "game" | "category" | "product" | "post" | "ur
 
 type TargetDef = {
   label: string;
+  /** Nhãn ngắn ở góc pop up phía khách */
+  tag: string;
   ref: RefKind | null;
   /** Đường dẫn khách được đưa tới */
   href: (ref: string | null) => string;
@@ -20,17 +22,17 @@ type TargetDef = {
 };
 
 export const POPUP_TARGETS = {
-  PROMOTIONS: { label: "Ưu đãi", ref: null, href: () => "/promotions" },
-  VOUCHER: { label: "Một voucher cụ thể", ref: "voucher", href: (r) => `/promotions?voucher=${r}` },
-  MINIGAME: { label: "Mini game", ref: "game", href: (r) => `/game/${r}`, needsLogin: true },
-  CATEGORY: { label: "Danh mục", ref: "category", href: (r) => `/menu?category=${r}` },
-  PRODUCT: { label: "Sản phẩm nổi bật / một món", ref: "product", href: (r) => `/product/${r}` },
-  CART: { label: "Giỏ hàng của bạn", ref: null, href: () => "/cart" },
-  ABOUT: { label: "Thông tin về chúng tôi", ref: null, href: () => "/about" },
-  NEWS: { label: "Tin tức", ref: null, href: () => "/blog" },
-  POST: { label: "Một bài tin cụ thể", ref: "post", href: (r) => `/blog/${r}` },
-  ACCOUNT: { label: "Tài khoản / Quà của tôi", ref: null, href: () => "/account" },
-  URL: { label: "Liên kết tùy chỉnh", ref: "url", href: (r) => r ?? "/" },
+  PROMOTIONS: { label: "Ưu đãi", tag: "Ưu đãi", ref: null, href: () => "/promotions" },
+  VOUCHER: { label: "Một voucher cụ thể", tag: "Voucher", ref: "voucher", href: (r) => `/promotions?voucher=${r}` },
+  MINIGAME: { label: "Mini game", tag: "Mini game", ref: "game", href: (r) => `/game/${r}`, needsLogin: true },
+  CATEGORY: { label: "Danh mục", tag: "Thực đơn", ref: "category", href: (r) => `/menu?category=${r}` },
+  PRODUCT: { label: "Sản phẩm nổi bật / một món", tag: "Món nổi bật", ref: "product", href: (r) => `/product/${r}` },
+  CART: { label: "Giỏ hàng của bạn", tag: "Giỏ hàng", ref: null, href: () => "/cart" },
+  ABOUT: { label: "Thông tin về chúng tôi", tag: "TD Coffee", ref: null, href: () => "/about" },
+  NEWS: { label: "Tin tức", tag: "Tin tức", ref: null, href: () => "/blog" },
+  POST: { label: "Một bài tin cụ thể", tag: "Tin tức", ref: "post", href: (r) => `/blog/${r}` },
+  ACCOUNT: { label: "Tài khoản / Quà của tôi", tag: "Tài khoản", ref: null, href: () => "/account" },
+  URL: { label: "Liên kết tùy chỉnh", tag: "TD Coffee", ref: "url", href: (r) => r ?? "/" },
 } satisfies Record<string, TargetDef>;
 
 export type PopupTargetType = keyof typeof POPUP_TARGETS;
@@ -145,5 +147,5 @@ export async function targetAlive(prisma: PrismaClient, type: string, ref: strin
 export const targetMeta = () =>
   POPUP_TARGET_TYPES.map((type) => {
     const d: TargetDef = POPUP_TARGETS[type];
-    return { type, label: d.label, ref: d.ref, refLabel: d.ref ? REF_LABEL[d.ref] : null, path: d.ref && d.ref !== "url" ? d.href(`<${d.ref}>`) : d.ref ? null : d.href(null) };
+    return { type, label: d.label, tag: d.tag, ref: d.ref, refLabel: d.ref ? REF_LABEL[d.ref] : null, path: d.ref && d.ref !== "url" ? d.href(`<${d.ref}>`) : d.ref ? null : d.href(null) };
   });

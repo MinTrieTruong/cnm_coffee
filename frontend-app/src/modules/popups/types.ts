@@ -2,7 +2,7 @@
 
 export type RefKind = "voucher" | "game" | "category" | "product" | "post" | "url";
 /** Loại đích lấy từ GET /api/admin/popups/meta — danh sách gốc ở backend-node/src/lib/popupTargets.ts */
-export type TargetMeta = { type: string; label: string; ref: RefKind | null; refLabel: string | null; path: string | null };
+export type TargetMeta = { type: string; label: string; tag: string; ref: RefKind | null; refLabel: string | null; path: string | null };
 export type PopupMeta = { targets: TargetMeta[]; maxActive: number; stores: { id: number; name: string }[] };
 export type RefOption = { value: string; label: string; sub?: string; image?: string | null };
 

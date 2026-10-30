@@ -301,7 +301,7 @@ export function PopupForm({ recordId }: { recordId?: string }) {
           <div className="pu-phone">
             <div className="pu-phone-screen">
               <div className="pu-overlay pu-overlay-preview">
-                <PopupCard p={{ id: 0, name: f.name, description: f.description, imageUrl: f.imageUrl, buttonText: f.buttonText }} onClose={() => undefined} />
+                <PopupCard p={{ id: 0, name: f.name, description: f.description, imageUrl: f.imageUrl, buttonText: f.buttonText, tag: target?.tag }} onClose={() => undefined} onSnooze={() => undefined} />
               </div>
             </div>
           </div>

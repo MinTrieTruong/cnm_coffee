@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { api, apiBase } from "../../lib/api";
 import { getStoreId } from "../../lib/customerStore";
 import { getTableId, getUser, isGuestMode } from "../../lib/session";
@@ -61,7 +60,8 @@ export function PopupHost() {
   const nav = useNavigate();
   const [list, setList] = useState<ActivePopup[]>([]);
   const [idx, setIdx] = useState(0);
-  const [snooze, setSnooze] = useState(false);
+  /** Đang chạy hiệu ứng đóng (trượt xuống / mờ dần) */
+  const [leaving, setLeaving] = useState(false);
   const viewed = useRef(new Set<number>());
   const touchX = useRef<number | null>(null);
 
@@ -87,10 +87,19 @@ export function PopupHost() {
     else if (cur.frequency === "DAILY") write(`pu.seen.${cur.id}`, today());
   }, [cur]);
 
-  const close = useCallback(() => {
+  const close = useCallback((snooze = false) => {
     if (snooze) write("pu.snooze", today());
-    setList([]);
-  }, [snooze]);
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) {
+      setList([]);
+      return;
+    }
+    setLeaving(true);
+    window.setTimeout(() => {
+      setList([]);
+      setLeaving(false);
+    }, 180);
+  }, []);
 
   // Esc để đóng + khoá cuộn trang khi đang mở
   useEffect(() => {
@@ -126,7 +135,7 @@ export function PopupHost() {
   const many = list.length > 1;
   return (
     <div
-      className="pu-overlay"
+      className={`pu-overlay${leaving ? " leaving" : ""}`}
       role="dialog"
       aria-modal="true"
       aria-label={cur.name}
@@ -144,25 +153,9 @@ export function PopupHost() {
         key={cur.id}
         p={cur}
         onGo={go}
-        onClose={close}
-        footer={
-          <>
-            {many && (
-              <div className="pu-nav">
-                <button type="button" onClick={() => setIdx((i) => Math.max(i - 1, 0))} disabled={idx === 0} aria-label="Pop up trước"><ChevronLeft size={18} /></button>
-                <span className="pu-dots" aria-label={`${idx + 1}/${list.length}`}>
-                  {list.map((p, i) => <span key={p.id} className={`pu-dot${i === idx ? " on" : ""}`} />)}
-                  <span>{idx + 1}/{list.length}</span>
-                </span>
-                <button type="button" onClick={() => setIdx((i) => Math.min(i + 1, list.length - 1))} disabled={idx === list.length - 1} aria-label="Pop up sau"><ChevronRight size={18} /></button>
-              </div>
-            )}
-            <label className="pu-snooze">
-              <input type="checkbox" checked={snooze} onChange={(e) => setSnooze(e.target.checked)} />
-              Không hiện lại hôm nay
-            </label>
-          </>
-        }
+        onClose={() => close()}
+        onSnooze={() => close(true)}
+        pager={many ? { index: idx, total: list.length, prev: () => setIdx((i) => Math.max(i - 1, 0)), next: () => setIdx((i) => Math.min(i + 1, list.length - 1)) } : undefined}
       />
     </div>
   );
