@@ -204,7 +204,7 @@ export function BottomNav({
                     more.onChangePassword!();
                   }}
                 >
-                  <KeyRound size={20} aria-hidden /> <span>Đổi mật khẩu</span>
+                  <KeyRound size={20} aria-hidden /> <span>Ảnh đại diện & mật khẩu</span>
                 </button>
               )}
               {more.onLogout && (

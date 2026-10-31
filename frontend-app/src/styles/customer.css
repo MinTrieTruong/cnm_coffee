@@ -883,3 +883,5 @@ label.c-pd-opt .c-pd-label { margin-bottom: 0; }
   .c-site .chat-panel .cx-react-add { visibility: hidden; }
   .c-site .chat-panel .chat-row:hover .cx-react-add, .c-site .chat-panel .cx-react-add:focus-within { visibility: visible; }
 }
+.c-check { display: flex; align-items: flex-start; gap: 10px; font-size: 0.92rem; line-height: 1.45; cursor: pointer; }
+.c-check input { width: 18px; height: 18px; margin-top: 1px; accent-color: var(--c-primary); flex: 0 0 auto; }

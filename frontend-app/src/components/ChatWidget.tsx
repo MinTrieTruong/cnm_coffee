@@ -146,7 +146,7 @@ export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: bool
       if (!m) return;
       setInfo((p) => (p[m] ? { ...p, [m]: { ...p[m]!, status: "closed", complaintStatus: m === "complaint" ? "RESOLVED" : p[m]!.complaintStatus } } : p));
       if (m === "chat") {
-        push("chat", [{ id: -Date.now(), sender: "bot", senderName: "TD Bot", body: "Phiên chat đã được đóng. Cảm ơn bạn đã liên hệ! ☕", createdAt: new Date().toISOString() }]);
+        push("chat", [{ id: -Date.now(), sender: "bot", senderName: "TD Bot", body: "Phiên chat đã được đóng. Cảm ơn bạn đã liên hệ!", createdAt: new Date().toISOString() }]);
         setRef("chat", null);
       }
     }
@@ -303,7 +303,7 @@ export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: bool
                     ) : msg.sender === "bot" ? (
                       <span className="chat-ava-bot"><LogoMark width={32} height={32} /></span>
                     ) : (
-                      <CustomerAvatar name={msg.senderName} size={32} />
+                      <CustomerAvatar src={msg.senderAvatarUrl} name={msg.senderName} size={32} />
                     )
                   ) : null;
                   return (

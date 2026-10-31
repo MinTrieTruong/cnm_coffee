@@ -440,4 +440,6 @@ export const EN: Record<string, string> = {
   "Hạng {r} · {n} điểm": "{r} tier · {n} points",
   "Khách hàng": "Guest",
   "TD Coffee phản hồi": "TD Coffee replied",
+  "Đánh giá ẩn danh": "Post anonymously",
+  "không hiện tên và ảnh của bạn trong danh sách đánh giá": "your name and photo won't be shown in reviews",
 };

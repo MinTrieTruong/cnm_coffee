@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { saveDataUrlImage } from "../lib/uploadImage.js";
 import type { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { signStaffToken } from "../lib/jwt.js";
@@ -31,6 +32,7 @@ export function staffAuthRouter(prisma: PrismaClient) {
         role: staff.role,
         storeId: staff.storeId,
         storeName: staff.store?.name ?? null,
+        avatarUrl: staff.avatarUrl,
       },
     });
   });
@@ -51,8 +53,16 @@ export function staffAuthRouter(prisma: PrismaClient) {
    */
   r.patch("/staff/me", auth, async (req, res) => {
     const staff = (req as StaffRequest).staffRow!;
-    const { fullName, phone } = req.body as { fullName?: string; phone?: string };
-    const data: { fullName?: string; phone?: string | null } = {};
+    const { fullName, phone, avatarDataUrl, removeAvatar } = req.body as { fullName?: string; phone?: string; avatarDataUrl?: string; removeAvatar?: boolean };
+    const data: { fullName?: string; phone?: string | null; avatarUrl?: string | null } = {};
+    // Ảnh đại diện (hiện cạnh tin nhắn nhân viên trong chat với khách)
+    if (avatarDataUrl?.startsWith("data:")) {
+      try {
+        data.avatarUrl = await saveDataUrlImage(avatarDataUrl);
+      } catch {
+        return res.status(400).json({ error: "Lỗi lưu ảnh đại diện." });
+      }
+    } else if (removeAvatar) data.avatarUrl = null;
     if (fullName !== undefined) {
       const clean = fullName.trim();
       if (!clean) return res.status(400).json({ error: "Họ tên không hợp lệ." });
@@ -72,6 +82,7 @@ export function staffAuthRouter(prisma: PrismaClient) {
         role: true,
         status: true,
         hireDate: true,
+        avatarUrl: true,
       },
     });
     audit(staff.id, "STAFF_PROFILE_UPDATE", `Staff #${staff.id}`, "Cập nhật thông tin cá nhân");

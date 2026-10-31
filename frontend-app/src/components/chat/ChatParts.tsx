@@ -20,6 +20,8 @@ export type ChatMessage = {
   id: number;
   sender: "customer" | "bot" | "staff";
   senderName: string;
+  /** Ảnh nhân viên (tin sender = "staff") */
+  senderAvatarUrl?: string | null;
   body: string;
   imageUrl?: string | null;
   createdAt: string;

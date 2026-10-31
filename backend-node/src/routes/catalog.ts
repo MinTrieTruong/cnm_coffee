@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
+import { publicReview } from "./reviews.js";
 
 export function catalogRouter(prisma: PrismaClient) {
   const r = Router();
@@ -64,10 +65,10 @@ export function catalogRouter(prisma: PrismaClient) {
           where: { hidden: false, orderId: { in: orderIds } },
           orderBy: { createdAt: "desc" },
           take: 10,
-          select: { id: true, rating: true, comment: true, imageUrl: true, adminReply: true, createdAt: true, customer: { select: { fullName: true, avatarUrl: true } } },
+          select: { id: true, rating: true, comment: true, imageUrl: true, adminReply: true, createdAt: true, anonymous: true, customer: { select: { fullName: true, avatarUrl: true } } },
         })
       : [];
-    res.json({ pairings, reviews });
+    res.json({ pairings, reviews: reviews.map(publicReview) });
   });
 
   r.get("/inventory", async (_req, res) => {

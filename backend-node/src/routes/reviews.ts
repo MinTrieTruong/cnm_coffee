@@ -4,16 +4,22 @@ import type { PrismaClient } from "@prisma/client";
 import { customerAuth } from "../middleware/customer.js";
 import { saveDataUrlImage } from "../lib/uploadImage.js";
 
+/** Đánh giá ẩn danh: bỏ tên + ảnh khỏi danh sách công khai (customer = null) */
+export function publicReview<T extends { anonymous: boolean; customer: unknown }>({ anonymous, customer, ...rest }: T) {
+  return { ...rest, customer: anonymous ? null : customer };
+}
+
 export function reviewsRouter(prisma: PrismaClient) {
   const r = Router();
 
   r.post("/reviews", customerAuth, async (req, res) => {
     const customerId = (req as Request & { customerId?: number }).customerId!;
-    const { orderId, rating, comment, imageUrl } = req.body as {
+    const { orderId, rating, comment, imageUrl, anonymous } = req.body as {
       orderId?: number;
       rating?: number;
       comment?: string;
       imageUrl?: string;
+      anonymous?: boolean;
     };
     if (!orderId || typeof rating !== "number" || rating < 1 || rating > 5) {
       return res.status(400).json({ error: "Thiếu orderId hoặc rating 1–5." });
@@ -32,6 +38,7 @@ export function reviewsRouter(prisma: PrismaClient) {
         rating,
         comment: comment?.trim() || null,
         imageUrl: imageUrl ?? null,
+        anonymous: anonymous === true,
       },
     });
     res.status(201).json(rev);
@@ -69,11 +76,11 @@ export function reviewsRouter(prisma: PrismaClient) {
       take: 50,
       // Danh sách công khai: chỉ trường hiển thị + tên, ảnh đại diện — không trả SĐT/email hay mã nội bộ của khách khác
       select: {
-        id: true, rating: true, comment: true, imageUrl: true, adminReply: true, createdAt: true,
+        id: true, rating: true, comment: true, imageUrl: true, adminReply: true, createdAt: true, anonymous: true,
         customer: { select: { fullName: true, avatarUrl: true } },
       },
     });
-    res.json(rows);
+    res.json(rows.map(publicReview));
   });
 
   r.post("/reviews/upload-image", customerAuth, async (req, res) => {

@@ -12,6 +12,7 @@ export type StaffInfo = {
   fullName?: string;
   storeId?: number | null;
   storeName?: string | null;
+  avatarUrl?: string | null;
 };
 
 export function getStaffToken(): string | null {

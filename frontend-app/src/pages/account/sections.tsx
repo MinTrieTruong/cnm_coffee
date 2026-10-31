@@ -309,6 +309,7 @@ export function ReviewsSection({ data }: { data: AccountData }) {
   const [orderId, setOrderId] = useState<number | "">("");
   const [stars, setStars] = useState(5);
   const [comment, setComment] = useState("");
+  const [anonymous, setAnonymous] = useState(false);
   const [image, setImage] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState<Msg>(null);
@@ -346,10 +347,11 @@ export function ReviewsSection({ data }: { data: AccountData }) {
     if (orderId === "") return setMsg({ text: t("Chọn đơn đã thanh toán để đánh giá."), ok: false });
     setSaving(true);
     try {
-      await api("/api/reviews", { method: "POST", body: JSON.stringify({ orderId, rating: stars, comment: comment.trim() || undefined, imageUrl: image || undefined }) });
+      await api("/api/reviews", { method: "POST", body: JSON.stringify({ orderId, rating: stars, comment: comment.trim() || undefined, imageUrl: image || undefined, anonymous }) });
       setMsg({ text: t("Cảm ơn bạn đã gửi đánh giá!"), ok: true });
       setComment("");
       setImage(null);
+      setAnonymous(false);
       await load();
       await data.refreshMe();
     } catch (ex) {
@@ -401,6 +403,10 @@ export function ReviewsSection({ data }: { data: AccountData }) {
             </label>
           )}
         </div>
+        <label className="c-check c-acc-full">
+          <input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />
+          <span>{t("Đánh giá ẩn danh")} <span className="c-muted-txt">— {t("không hiện tên và ảnh của bạn trong danh sách đánh giá")}</span></span>
+        </label>
       </div>
       <Note msg={msg} />
       <div className="c-acc-save">

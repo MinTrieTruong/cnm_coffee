@@ -8,6 +8,7 @@ import { resolveCustomerStore } from "../lib/stores.js";
 import { optionalCustomerAuth } from "../middleware/customer.js";
 import { saveDataUrlImage } from "../lib/uploadImage.js";
 import { notify } from "../lib/notify.js";
+import { getStoreSettings } from "../lib/pricing.js";
 import type { Request } from "express";
 
 type CustReq = Request & { customerId?: number };
@@ -26,19 +27,20 @@ export const COMPLAINT_CATEGORIES: Record<string, string> = {
 /** Cảm xúc được phép thả (khớp bảng chọn ở frontend) */
 const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏", "😡", "👏"];
 
-/* ─── Trả lời tự động của bot ───────────────────────────────────────── */
-function botReply(text: string): string | null {
+/* ─── Trả lời tự động của bot (không dùng emoji — quy tắc giao diện trang khách) ─── */
+type BotInfo = { hours: string; address: string };
+function botReply(text: string, info: BotInfo): string | null {
   const t = text.toLowerCase();
   if (t.includes("wifi") || t.includes("wi-fi") || t.includes("pass wifi") || t.includes("mật khẩu wifi"))
-    return "📶 Pass WiFi: **caphe1234**";
+    return "Mật khẩu WiFi: caphe1234";
   if (t.includes("wc") || t.includes("nhà vệ sinh") || t.includes("toilet") || t.includes("vệ sinh"))
-    return "🚻 Nhà vệ sinh ở cuối hành lang bên phải quầy bar.";
+    return "Nhà vệ sinh ở cuối hành lang bên phải quầy bar.";
   if (t.includes("giờ mở cửa") || t.includes("mấy giờ") || t.includes("mở cửa"))
-    return "⏰ TD Coffee mở cửa từ 7:00 – 22:00, tất cả các ngày trong tuần.";
+    return `TD Coffee mở cửa ${info.hours}.`;
   if (t.includes("địa chỉ") || t.includes("ở đâu") || t.includes("chỗ nào"))
-    return "📍 Địa chỉ quán: 123 Đường Cà Phê, Quận 1, TP.HCM.";
+    return `Địa chỉ quán: ${info.address}.`;
   if (t.includes("gửi xe") || t.includes("đậu xe") || t.includes("bãi xe"))
-    return "🅿️ Quán có bãi xe miễn phí phía sau, vào cổng phụ đường Bạch Mai.";
+    return "Quán có chỗ gửi xe miễn phí, nhân viên sẽ hướng dẫn khi bạn tới.";
   return null; // Không khớp → escalate lên nhân viên
 }
 
@@ -53,6 +55,14 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
 
   const msgInclude = { reactions: { select: { actorKey: true, actorName: true, emoji: true } } } as const;
   const withMessages = { messages: { orderBy: { createdAt: "asc" as const }, include: msgInclude } };
+
+  /** Gắn ảnh đại diện nhân viên vào tin sender = "staff" (senderAvatarUrl) */
+  async function withStaffAvatars<M extends { sender: string; staffId: number | null }>(msgs: M[]) {
+    const ids = [...new Set(msgs.filter((m) => m.sender === "staff" && m.staffId).map((m) => m.staffId!))];
+    const rows = ids.length ? await prisma.staff.findMany({ where: { id: { in: ids } }, select: { id: true, avatarUrl: true } }) : [];
+    const map = new Map(rows.map((r) => [r.id, r.avatarUrl]));
+    return msgs.map((m) => ({ ...m, senderAvatarUrl: m.staffId ? map.get(m.staffId) ?? null : null }));
+  }
 
   /** Tin nhắn mới tới khách + nhân viên đúng nơi: khiếu nại → quản lý, chat → nhân viên chi nhánh */
   function broadcast(session: ChatSession, event: string, payload: unknown) {
@@ -146,7 +156,7 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
       const ack = await prisma.chatMessage.create({
         data: {
           sessionId: session.id, sender: "bot", senderName: "TD Bot",
-          body: `Đã ghi nhận khiếu nại #${session.id} (${COMPLAINT_CATEGORIES[session.category ?? "OTHER"]}). Quản lý chi nhánh sẽ phản hồi bạn sớm nhất. Xin lỗi vì trải nghiệm chưa tốt 🙏`,
+          body: `Đã ghi nhận khiếu nại #${session.id} (${COMPLAINT_CATEGORIES[session.category ?? "OTHER"]}). Quản lý chi nhánh sẽ phản hồi bạn sớm nhất. Xin lỗi vì trải nghiệm chưa tốt.`,
         },
         include: msgInclude,
       });
@@ -154,16 +164,28 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
     }
 
     // Chat: bot trả lời câu hỏi thường gặp (chỉ khi có chữ)
-    const auto = text ? botReply(text) : null;
+    let auto: string | null = null;
+    if (text) {
+      // Giờ mở cửa / địa chỉ: theo chi nhánh của phiên, thiếu thì lấy thông tin công ty (Website › Thông tin công ty)
+      const [store, settings] = await Promise.all([
+        prisma.store.findUnique({ where: { id: session.storeId }, select: { address: true, openTime: true, closeTime: true } }),
+        getStoreSettings(prisma),
+      ]);
+      const hm = (v: string | null | undefined) => (v ? v.slice(0, 5) : null);
+      auto = botReply(text, {
+        hours: hm(store?.openTime) && hm(store?.closeTime) ? `từ ${hm(store?.openTime)} đến ${hm(store?.closeTime)} hằng ngày` : settings.companyHours,
+        address: store?.address || settings.companyAddress,
+      });
+    }
     if (auto) {
       const bot = await prisma.chatMessage.create({ data: { sessionId: session.id, sender: "bot", senderName: "TD Bot", body: auto }, include: msgInclude });
       return res.json({ ...out, reply: bot, bot: true });
     }
     toStore(io, "staff", session.storeId).emit("chat:escalate", {
-      sessionId: session.id, guestName: session.guestName, tableId: session.tableId, message: text || "📷 Ảnh", at: new Date().toISOString(),
+      sessionId: session.id, guestName: session.guestName, tableId: session.tableId, message: text || "[Ảnh]", at: new Date().toISOString(),
     });
     const wait = await prisma.chatMessage.create({
-      data: { sessionId: session.id, sender: "bot", senderName: "TD Bot", body: "Đã chuyển yêu cầu tới nhân viên. Vui lòng chờ trong giây lát ☕" },
+      data: { sessionId: session.id, sender: "bot", senderName: "TD Bot", body: "Đã chuyển yêu cầu tới nhân viên. Vui lòng chờ trong giây lát." },
       include: msgInclude,
     });
     return res.json({ ...out, reply: wait, bot: false });
@@ -173,7 +195,8 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
   r.get("/chat/session/:id", async (req, res) => {
     const s = await ownSession(req.params.id, req.query.key);
     if (!s) return res.status(404).json({ error: "Không tìm thấy phiên chat" });
-    const session = await prisma.chatSession.findUnique({ where: { id: s.id }, include: withMessages });
+    const found = await prisma.chatSession.findUnique({ where: { id: s.id }, include: withMessages });
+    const session = found && { ...found, messages: await withStaffAvatars(found.messages) };
     // Ảnh đại diện của chính chủ phiên (người giữ mã) — hiện cạnh tin của khách
     const owner = session?.customerId ? await prisma.customer.findUnique({ where: { id: session.customerId }, select: { avatarUrl: true } }) : null;
     res.json({ ...session, accessKey: undefined, customerAvatarUrl: owner?.avatarUrl ?? null });
@@ -253,7 +276,7 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
       return res.status(400).json({ error: e instanceof Error ? e.message : "Ảnh không hợp lệ" });
     }
     const msg = await prisma.chatMessage.create({
-      data: { sessionId: session.id, sender: "staff", senderName: staff.fullName || staff.username || "Nhân viên", body: text, imageUrl },
+      data: { sessionId: session.id, sender: "staff", senderName: staff.fullName || staff.username || "Nhân viên", staffId: staff.id, body: text, imageUrl },
       include: msgInclude,
     });
     // Quản lý trả lời khiếu nại mới → chuyển sang "Đang xử lý"
@@ -264,8 +287,9 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
         ...(session.kind === "COMPLAINT" && session.complaintStatus === "NEW" ? { complaintStatus: "IN_PROGRESS", handledById: staff.id } : {}),
       },
     });
-    broadcast(touched, "chat:reply", { sessionId: session.id, message: msg });
-    res.status(201).json(msg);
+    const [out] = await withStaffAvatars([msg]);
+    broadcast(touched, "chat:reply", { sessionId: session.id, message: out });
+    res.status(201).json(out);
   });
 
   r.post("/staff/chat/messages/:id/react", attachStaff(prisma), requireRoles("Admin", "Cashier", "Waiter", "Kitchen"), async (req, res) => {
@@ -335,10 +359,11 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
     });
     if (status === "RESOLVED") {
       const msg = await prisma.chatMessage.create({
-        data: { sessionId: cur.id, sender: "staff", senderName: staff.fullName || "Quản lý", body: `✅ Khiếu nại đã được xử lý: ${note!.trim()}` },
+        data: { sessionId: cur.id, sender: "staff", senderName: staff.fullName || "Quản lý", staffId: staff.id, body: `Khiếu nại đã được xử lý: ${note!.trim()}` },
         include: msgInclude,
       });
-      broadcast(updated, "chat:reply", { sessionId: cur.id, message: msg });
+      const [out] = await withStaffAvatars([msg]);
+      broadcast(updated, "chat:reply", { sessionId: cur.id, message: out });
     }
     toStore(io, "admin_room", updated.storeId).emit("complaint:update", { sessionId: cur.id });
     res.json(updated);
