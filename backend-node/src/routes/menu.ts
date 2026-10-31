@@ -102,7 +102,8 @@ export function menuRouter(prisma: PrismaClient) {
       where.name = { contains: search }; // note: MySQL handles case-insensitivity by default
     }
     if (categoryId && !Number.isNaN(categoryId)) {
-      where.categoryId = categoryId;
+      // Chọn danh mục cha → gồm cả món của danh mục con
+      where.categoryId = { in: [categoryId, ...categories.filter((c) => c.parentId === categoryId).map((c) => c.id)] };
     }
     if (minPrice !== undefined || maxPrice !== undefined) {
       where.sellPrice = {};

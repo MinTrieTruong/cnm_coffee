@@ -99,12 +99,12 @@ export function HomePage() {
   }, []);
 
   const catName = useMemo(() => new Map((menu?.categories ?? []).map((c) => [c.id, c.name])), [menu]);
-  // Danh mục gốc + ảnh 1 món tiêu biểu
-  const cats = (menu?.categories ?? []).filter((c) => !c.parentId).map((c) => ({
-    ...c,
-    image: menu?.products.find((p) => p.categoryId === c.id && p.imageUrl)?.imageUrl ?? null,
-    count: menu?.products.filter((p) => p.categoryId === c.id).length ?? 0,
-  }));
+  // Danh mục gốc + ảnh 1 món tiêu biểu — tính cả món nằm trong danh mục con
+  const cats = (menu?.categories ?? []).filter((c) => !c.parentId).map((c) => {
+    const ids = new Set([c.id, ...(menu?.categories ?? []).filter((x) => x.parentId === c.id).map((x) => x.id)]);
+    const list = (menu?.products ?? []).filter((p) => ids.has(p.categoryId));
+    return { ...c, image: list.find((p) => p.imageUrl)?.imageUrl ?? null, count: list.length };
+  });
   const newest = useMemo(() => [...(menu?.products ?? [])].sort((a, b) => b.id - a.id).slice(0, 8), [menu]);
   const line = (p: Product) => catName.get(p.categoryId) ?? null;
   const game = games[0];

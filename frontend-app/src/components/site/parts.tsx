@@ -35,8 +35,9 @@ export function Crumbs({ items }: { items: { to?: string; label: string }[] }) {
 /** Ảnh món; thiếu ảnh → khối kem có tên món chữ poster */
 export function ProductImage({ p, className }: { p: Pick<Product, "name" | "imageUrl">; className?: string }) {
   const src = mediaUrl(p.imageUrl);
-  return src ? (
-    <img className={className} src={src} alt={p.name} loading="lazy" decoding="async" />
+  const [broken, setBroken] = useState(false);
+  return src && !broken ? (
+    <img className={className} src={src} alt={p.name} loading="lazy" decoding="async" onError={() => setBroken(true)} />
   ) : (
     <span className={`${className ?? ""} c-noimg`} role="img" aria-label={p.name}>{p.name}</span>
   );
