@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, mediaUrl } from "../lib/api";
 import { SectionHead } from "./site/parts";
+import { useLang } from "../lib/i18n";
 
 export type PublicReview = {
   id: number;
@@ -16,6 +17,7 @@ type Sort = "newest" | "oldest" | "high" | "low";
 
 /** Đánh giá chung của quán (trang Thực đơn, Cửa hàng) */
 export function ReviewList({ title = "Khách nói gì về quán" }: { title?: string }) {
+  const { t, date } = useLang();
   const [reviews, setReviews] = useState<PublicReview[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [sort, setSort] = useState<Sort>("newest");
@@ -40,14 +42,14 @@ export function ReviewList({ title = "Khách nói gì về quán" }: { title?: s
 
   return (
     <div>
-      <SectionHead title={title} sub={`${avg}/5 từ ${reviews.length} đánh giá`} />
+      <SectionHead title={title} sub={t("{avg}/5 từ {n} đánh giá", { avg, n: reviews.length })} />
       <label className="c-review-sort">
-        Sắp xếp
+        {t("Sắp xếp")}
         <select className="c-input" value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
-          <option value="newest">Mới nhất</option>
-          <option value="oldest">Cũ nhất</option>
-          <option value="high">Điểm cao</option>
-          <option value="low">Điểm thấp</option>
+          <option value="newest">{t("Mới nhất")}</option>
+          <option value="oldest">{t("Cũ nhất")}</option>
+          <option value="high">{t("Điểm cao")}</option>
+          <option value="low">{t("Điểm thấp")}</option>
         </select>
       </label>
       <ul className="c-reviews">
@@ -55,17 +57,17 @@ export function ReviewList({ title = "Khách nói gì về quán" }: { title?: s
           <li key={r.id} className="c-review">
             <div className="c-review-head">
               <strong>{r.customer.fullName}</strong>
-              <span className="c-review-stars" aria-label={`${r.rating} trên 5 sao`}>{"★".repeat(r.rating)}<span aria-hidden className="is-dim">{"★".repeat(5 - r.rating)}</span></span>
-              <time dateTime={r.createdAt}>{new Date(r.createdAt).toLocaleDateString("vi-VN")}</time>
+              <span className="c-review-stars" aria-label={t("{n} trên 5 sao", { n: r.rating })}>{"★".repeat(r.rating)}<span aria-hidden className="is-dim">{"★".repeat(5 - r.rating)}</span></span>
+              <time dateTime={r.createdAt}>{date(r.createdAt)}</time>
             </div>
             {r.comment && <p>{r.comment}</p>}
-            {r.imageUrl && <img src={mediaUrl(r.imageUrl)} alt="Ảnh khách gửi" loading="lazy" className="c-review-img" />}
+            {r.imageUrl && <img src={mediaUrl(r.imageUrl)} alt={t("Ảnh khách gửi")} loading="lazy" className="c-review-img" />}
             {r.adminReply && <p className="c-review-reply"><strong>TD Coffee:</strong> {r.adminReply}</p>}
           </li>
         ))}
       </ul>
       {!showAll && reviews.length > 4 && (
-        <button type="button" className="c-btn is-outline c-review-more" onClick={() => setShowAll(true)}>Xem thêm đánh giá</button>
+        <button type="button" className="c-btn is-outline c-review-more" onClick={() => setShowAll(true)}>{t("Xem thêm đánh giá")}</button>
       )}
     </div>
   );

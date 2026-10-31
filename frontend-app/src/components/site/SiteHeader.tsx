@@ -4,6 +4,9 @@ import { ChevronLeft, Search, ShoppingBag, User, X } from "lucide-react";
 import { useSiteInfo } from "../../lib/site";
 import { LogoMark } from "../LogoMark";
 import { StorePicker } from "../StorePicker";
+import { useLang } from "../../lib/i18n";
+import type { ColorMode } from "../../lib/siteTheme";
+import { Toggles } from "./Toggles";
 
 export const SITE_LINKS = [
   { to: "/menu", label: "Thực đơn", match: (p: string) => p.startsWith("/menu") || p.startsWith("/product") },
@@ -25,6 +28,7 @@ export function SiteHeader({
   onLogout,
   mobileTitle,
   onBack,
+  color,
 }: {
   loggedIn: boolean;
   userName: string | null;
@@ -33,7 +37,9 @@ export function SiteHeader({
   mobileTitle: string;
   /** Trang con: nút quay lại trên điện thoại */
   onBack: (() => void) | null;
+  color: { mode: ColorMode; setMode: (m: ColorMode) => void; canToggle: boolean };
 }) {
+  const { t } = useLang();
   const loc = useLocation();
   const nav = useNavigate();
   const info = useSiteInfo();
@@ -62,8 +68,8 @@ export function SiteHeader({
 
   const searchForm = (
     <form className="c-search" role="search" onSubmit={search}>
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Hôm nay bạn muốn uống gì?" aria-label="Tìm món" />
-      <button type="submit" aria-label="Tìm"><Search size={18} aria-hidden /></button>
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Hôm nay bạn muốn uống gì?")} aria-label={t("Tìm món")} />
+      <button type="submit" aria-label={t("Tìm")}><Search size={18} aria-hidden /></button>
     </form>
   );
 
@@ -72,15 +78,15 @@ export function SiteHeader({
       {/* Điện thoại: logo/quay lại · tiêu đề · tìm · giỏ */}
       <div className="c-head-mobile">
         {onBack ? (
-          <button type="button" className="c-icon-btn" onClick={onBack} aria-label="Quay lại"><ChevronLeft size={22} aria-hidden /></button>
+          <button type="button" className="c-icon-btn" onClick={onBack} aria-label={t("Quay lại")}><ChevronLeft size={22} aria-hidden /></button>
         ) : (
-          <Link to="/" aria-label="Trang chủ"><LogoMark width={34} height={34} /></Link>
+          <Link to="/" aria-label={t("Trang chủ")}><LogoMark width={34} height={34} /></Link>
         )}
         <span className="c-head-mobile-title">{mobileTitle}</span>
-        <button type="button" className="c-icon-btn" onClick={() => setSearchOpen((v) => !v)} aria-label="Tìm món" aria-expanded={searchOpen}>
+        <button type="button" className="c-icon-btn" onClick={() => setSearchOpen((v) => !v)} aria-label={t("Tìm món")} aria-expanded={searchOpen}>
           {searchOpen ? <X size={20} aria-hidden /> : <Search size={20} aria-hidden />}
         </button>
-        <Link to="/cart" className="c-icon-btn c-cart" aria-label={cartCount ? `Giỏ hàng, ${cartCount} món` : "Giỏ hàng"}>
+        <Link to="/cart" className="c-icon-btn c-cart" aria-label={cartCount ? t("Giỏ hàng, {n} món", { n: cartCount }) : t("Giỏ hàng")}>
           <ShoppingBag size={21} aria-hidden />
           {cartCount > 0 && <span className="c-cart-count">{cartCount > 99 ? "99+" : cartCount}</span>}
         </Link>
@@ -91,11 +97,11 @@ export function SiteHeader({
       <div className="c-head-top" ref={topRef}>
         <div className="c-wrap c-head-top-in">
           <div className="c-brand-col">
-            <Link to="/" className="c-brand" aria-label="TD Coffee — trang chủ">
+            <Link to="/" className="c-brand" aria-label={t("TD Coffee — trang chủ")}>
               <LogoMark width={52} height={52} />
               <span className="c-brand-text">
                 <span className="c-brand-name">{info?.company.name ?? "TD Coffee"}</span>
-                <span className="c-brand-tag">cà phê Sài Gòn</span>
+                <span className="c-brand-tag">{t("cà phê Sài Gòn")}</span>
               </span>
             </Link>
             <div className="c-head-store"><StorePicker compact /></div>
@@ -104,7 +110,7 @@ export function SiteHeader({
           <div className="c-head-actions">
             {info && (
               <a className="c-hotline" href={info.hotline.href}>
-                <span className="c-hotline-k">Đặt hàng</span>
+                <span className="c-hotline-k">{t("Đặt hàng")}</span>
                 <span className="c-hotline-v">{info.hotline.display}</span>
               </a>
             )}
@@ -112,17 +118,17 @@ export function SiteHeader({
               <User size={20} aria-hidden />
               {loggedIn ? (
                 <span className="c-account-txt">
-                  <Link to="/account" className="c-account-name">{userName ?? "Tài khoản"}</Link>
-                  <button type="button" className="c-linkish" onClick={onLogout}>Đăng xuất</button>
+                  <Link to="/account" className="c-account-name">{userName ?? t("Tài khoản")}</Link>
+                  <button type="button" className="c-linkish" onClick={onLogout}>{t("Đăng xuất")}</button>
                 </span>
               ) : (
                 <span className="c-account-txt">
-                  <Link to="/login">Đăng nhập</Link>
-                  <Link to="/register" className="c-muted-link">Đăng ký</Link>
+                  <Link to="/login">{t("Đăng nhập")}</Link>
+                  <Link to="/register" className="c-muted-link">{t("Đăng ký")}</Link>
                 </span>
               )}
             </div>
-            <Link to="/cart" className="c-icon-btn c-cart" aria-label={cartCount ? `Giỏ hàng, ${cartCount} món` : "Giỏ hàng"}>
+            <Link to="/cart" className="c-icon-btn c-cart" aria-label={cartCount ? t("Giỏ hàng, {n} món", { n: cartCount }) : t("Giỏ hàng")}>
               <ShoppingBag size={24} aria-hidden />
               {cartCount > 0 && <span className="c-cart-count">{cartCount > 99 ? "99+" : cartCount}</span>}
             </Link>
@@ -131,14 +137,15 @@ export function SiteHeader({
       </div>
 
       {/* Máy tính — hàng 2: thanh màu chủ đạo, dính đầu trang */}
-      <nav className={`c-head-bar${stuck ? " is-stuck" : ""}`} aria-label="Chính">
+      <nav className={`c-head-bar${stuck ? " is-stuck" : ""}`} aria-label={t("Chính")}>
         <div className="c-wrap c-head-bar-in">
-          <Link to="/" className="c-bar-logo" aria-label="Trang chủ"><LogoMark width={30} height={30} /></Link>
+          <Link to="/" className="c-bar-logo" aria-label={t("Trang chủ")}><LogoMark width={30} height={30} /></Link>
           {SITE_LINKS.map((l) => (
-            <Link key={l.to} to={l.to} className={`c-bar-link${l.match(loc.pathname) ? " is-on" : ""}`}>{l.label}</Link>
+            <Link key={l.to} to={l.to} className={`c-bar-link${l.match(loc.pathname) ? " is-on" : ""}`}>{t(l.label)}</Link>
           ))}
           <span className="c-bar-spacer" />
-          <Link to="/cart" className="c-bar-cart" aria-label={cartCount ? `Giỏ hàng, ${cartCount} món` : "Giỏ hàng"}>
+          <Toggles {...color} />
+          <Link to="/cart" className="c-bar-cart" aria-label={cartCount ? t("Giỏ hàng, {n} món", { n: cartCount }) : t("Giỏ hàng")}>
             <ShoppingBag size={18} aria-hidden />
             {cartCount > 0 && <span className="c-cart-count">{cartCount > 99 ? "99+" : cartCount}</span>}
           </Link>

@@ -20,6 +20,20 @@ const cleanLink = (v: unknown) => {
   return undefined;
 };
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const HEX = /^#[0-9a-f]{6}$/i;
+type SiteTheme = { preset: string; primary: string; accent: string; defaultMode: "light" | "dark" | "auto"; allowToggle: boolean };
+/** Màu mặc định "gạch bông Sài Gòn" — trùng customer-tokens.css */
+const DEFAULT_THEME: SiteTheme = { preset: "gach-bong", primary: "#1e5a5f", accent: "#e0a531", defaultMode: "light", allowToggle: true };
+function readTheme(raw: unknown): SiteTheme {
+  const t = (raw && typeof raw === "object" ? raw : {}) as Partial<SiteTheme>;
+  return {
+    preset: typeof t.preset === "string" ? t.preset.slice(0, 30) : DEFAULT_THEME.preset,
+    primary: typeof t.primary === "string" && HEX.test(t.primary) ? t.primary.toLowerCase() : DEFAULT_THEME.primary,
+    accent: typeof t.accent === "string" && HEX.test(t.accent) ? t.accent.toLowerCase() : DEFAULT_THEME.accent,
+    defaultMode: t.defaultMode === "dark" || t.defaultMode === "auto" ? t.defaultMode : "light",
+    allowToggle: t.allowToggle !== false,
+  };
+}
 
 /** Website khách: thông tin công ty, banner trang chủ, tin liên hệ / đăng ký nhận tin */
 export function siteRouter(prisma: PrismaClient) {
@@ -47,6 +61,7 @@ export function siteRouter(prisma: PrismaClient) {
     res.set("Cache-Control", "no-store");
     res.json({
       company: { name: s.companyName, intro: s.companyIntro, address: s.companyAddress, email: s.companyEmail, phone: s.companyPhone, hours: s.companyHours },
+      theme: readTheme(s.siteTheme),
       hotline: { value: hotline, display: formatVnPhone(hotline), href: `tel:${hotline}` },
       stores,
       // Mạng xã hội ở footer = nút liên hệ đang bật (Zalo, Messenger, TikTok…) — không ghi cứng link
@@ -82,6 +97,21 @@ export function siteRouter(prisma: PrismaClient) {
     const s = await prisma.storeSettings.update({ where: { id: 1 }, data });
     audit((req as StaffRequest).staffRow!.id, "SITE_INFO_UPDATE", "Thông tin công ty", Object.keys(data).join(", "));
     res.json(s);
+  });
+
+  /** Website › Giao diện: màu chủ đạo, màu nhấn, chế độ sáng/tối mặc định */
+  r.patch("/admin/site-theme", auth, requireRoles("Owner"), async (req, res) => {
+    const b = (req.body ?? {}) as Partial<SiteTheme>;
+    const errors: Record<string, string> = {};
+    if (!b.primary || !HEX.test(b.primary)) errors.primary = "Màu chủ đạo dạng #rrggbb.";
+    if (!b.accent || !HEX.test(b.accent)) errors.accent = "Màu nhấn dạng #rrggbb.";
+    if (b.defaultMode && !["light", "dark", "auto"].includes(b.defaultMode)) errors.defaultMode = "Chế độ không hợp lệ.";
+    if (Object.keys(errors).length) return res.status(400).json({ error: Object.values(errors)[0], fields: errors });
+    const theme = readTheme(b);
+    await getStoreSettings(prisma);
+    await prisma.storeSettings.update({ where: { id: 1 }, data: { siteTheme: theme } });
+    audit((req as StaffRequest).staffRow!.id, "SITE_THEME_UPDATE", "Giao diện trang khách", `${theme.primary} · ${theme.accent} · ${theme.defaultMode}`);
+    res.json(theme);
   });
 
   /* ═══════════ Banner trang chủ ═══════════ */

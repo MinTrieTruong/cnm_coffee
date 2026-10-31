@@ -10,12 +10,14 @@ import { formatKm, haversineKm, shippingFeeForDistance, type LatLng } from "../l
 import { useCustomerStore, withStore } from "../lib/customerStore";
 import { StorePicker } from "../components/StorePicker";
 import { formatVnd } from "../lib/site";
+import { useLang } from "../lib/i18n";
 
 
 export function Cart() {
   const loc = useLocation();
   const [items, setItems] = useState(() => getCart());
   const nav = useNavigate();
+  const { t } = useLang();
   const user = getUser();
   const { storeId, tableName } = useCustomerStore();
   const [payOpen, setPayOpen] = useState(false);
@@ -118,15 +120,15 @@ export function Cart() {
         setTakeawaySessionId(sessionId);
       } else if (orderTypeSelection === "delivery") {
         if (!user) {
-          setMsg("Vui lòng đăng nhập để đặt giao hàng.");
+          setMsg(t("Vui lòng đăng nhập để đặt giao hàng."));
           setSubmitting(false); return;
         }
         if (!deliveryAddress.trim()) {
-           setMsg("Vui lòng nhập địa chỉ giao hàng.");
+           setMsg(t("Vui lòng nhập địa chỉ giao hàng."));
            setSubmitting(false); return;
         }
         if (!customerLocation) {
-           setMsg("Vui lòng ghim vị trí giao hàng trên bản đồ để tài xế tìm đúng nhà bạn.");
+           setMsg(t("Vui lòng ghim vị trí giao hàng trên bản đồ để tài xế tìm đúng nhà bạn."));
            setSubmitting(false); return;
         }
         finalOrderType = "Delivery";
@@ -148,7 +150,7 @@ export function Cart() {
         }
       } else {
         if (!tableId) {
-          setMsg("Không xác định được bàn. Hãy quét mã QR trên bàn hoặc chọn Mang về.");
+          setMsg(t("Không xác định được bàn. Hãy quét mã QR trên bàn hoặc chọn Mang về."));
           setSubmitting(false); return;
         }
       }
@@ -189,7 +191,7 @@ export function Cart() {
         nav(`/order/${created.id}/checkout`, { replace: true });
       }
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Không gửi được đơn");
+      setMsg(e instanceof Error ? e.message : t("Không gửi được đơn"));
     } finally {
       setSubmitting(false);
     }
@@ -205,29 +207,29 @@ export function Cart() {
   return (
     <div className="c-wrap c-cartpage">
       <Crumbs items={[{ label: "Giỏ hàng" }]} />
-      <SectionHead as="h1" title="Giỏ hàng" sub={`${items.reduce((a, it) => a + it.quantity, 0)} món đang chọn`} more={{ to: "/menu", label: "Chọn thêm món" }} />
+      <SectionHead as="h1" title="Giỏ hàng" sub={t("{n} món đang chọn", { n: items.reduce((a, it) => a + it.quantity, 0) })} more={{ to: "/menu", label: "Chọn thêm món" }} />
 
-      <div className="c-seg c-cart-types" role="group" aria-label="Hình thức nhận món">
-        {TYPES.map((t) => (
-          <button key={t.id} type="button" className={orderTypeSelection === t.id ? "is-on" : undefined} aria-pressed={orderTypeSelection === t.id} onClick={t.pick}>{t.label}</button>
+      <div className="c-seg c-cart-types" role="group" aria-label={t("Hình thức nhận món")}>
+        {TYPES.map((ty) => (
+          <button key={ty.id} type="button" className={orderTypeSelection === ty.id ? "is-on" : undefined} aria-pressed={orderTypeSelection === ty.id} onClick={ty.pick}>{t(ty.label)}</button>
         ))}
       </div>
       {orderTypeSelection !== "dine-in" && <div className="c-cart-store"><StorePicker /></div>}
       <p className="c-muted-txt c-cart-type-note">
-        {orderTypeSelection === "takeaway" ? "Đơn mang về — ghé quầy nhận khi quán báo xong." : orderTypeSelection === "delivery" ? "Giao tận nơi — phí giao tính theo khoảng cách từ chi nhánh." : `Bàn hiện tại: ${currentTable ? tableName ?? `#${currentTable}` : "chưa xác định"}`}
+        {orderTypeSelection === "takeaway" ? t("Đơn mang về — ghé quầy nhận khi quán báo xong.") : orderTypeSelection === "delivery" ? t("Giao tận nơi — phí giao tính theo khoảng cách từ chi nhánh.") : t("Bàn hiện tại: {table}", { table: currentTable ? tableName ?? `#${currentTable}` : t("chưa xác định") })}
       </p>
 
       {orderTypeSelection === "delivery" && (
         <div className="c-box">
           {!user ? (
             <div className="c-box-row">
-              <p>Đăng nhập để dùng giao hàng tận nơi.</p>
-              <Link to="/login" className="c-btn">Đăng nhập</Link>
+              <p>{t("Đăng nhập để dùng giao hàng tận nơi.")}</p>
+              <Link to="/login" className="c-btn">{t("Đăng nhập")}</Link>
             </div>
           ) : (
             <>
               <label className="c-field">
-                <span className="c-field-label">Địa chỉ giao hàng</span>
+                <span className="c-field-label">{t("Địa chỉ giao hàng")}</span>
                 {savedAddresses.length > 0 && (
                   <select
                     className="c-input"
@@ -256,14 +258,14 @@ export function Cart() {
                     {savedAddresses.map(a => (
                       <option key={a.id} value={a.id}>{a.address}</option>
                     ))}
-                    <option value="new">Thêm địa chỉ mới</option>
+                    <option value="new">{t("Thêm địa chỉ mới")}</option>
                   </select>
                 )}
                 {selectedAddressId === "new" && (
-                  <input className="c-input" placeholder="Số nhà, đường, phường, quận" value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} />
+                  <input className="c-input" placeholder={t("Số nhà, đường, phường, quận")} value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} />
                 )}
               </label>
-              <span className="c-field-label">Ghim vị trí giao hàng</span>
+              <span className="c-field-label">{t("Ghim vị trí giao hàng")}</span>
               <LocationPicker
                 value={customerLocation}
                 onChange={setCustomerLocation}
@@ -273,7 +275,7 @@ export function Cart() {
               />
               {distanceKm != null && (
                 <p className="c-muted-txt">
-                  Cách quán {formatKm(distanceKm)} · {shippingFee === 0 ? "Miễn phí giao hàng (≤ 3 km)" : `Phí giao ${formatVnd(shippingFee)}`}
+                  {t("Cách quán {km}", { km: formatKm(distanceKm) })} · {shippingFee === 0 ? t("Miễn phí giao hàng (≤ 3 km)") : t("Phí giao {n}", { n: formatVnd(shippingFee) })}
                 </p>
               )}
             </>
@@ -283,22 +285,22 @@ export function Cart() {
 
       {orderTypeSelection === "takeaway" && !user && (
         <div className="c-box c-box-row">
-          <p>Đặt mang về không cần tài khoản. Đăng nhập để tích điểm và xem lại đơn.</p>
-          <Link to="/login" className="c-btn is-outline">Đăng nhập</Link>
+          <p>{t("Đặt mang về không cần tài khoản. Đăng nhập để tích điểm và xem lại đơn.")}</p>
+          <Link to="/login" className="c-btn is-outline">{t("Đăng nhập")}</Link>
         </div>
       )}
 
       {orderTypeSelection === "dine-in" && !currentTable && (
         <div className="c-box">
-          <p>Quét <strong>mã QR trên bàn</strong> để gọi món tại quán, hoặc chọn <strong>Mang về</strong>.</p>
+          <p>{t("Quét mã QR trên bàn để gọi món tại quán, hoặc chọn Mang về.")}</p>
         </div>
       )}
 
       {items.length === 0 ? (
         <div className="c-empty">
-          <p className="c-empty-title">Giỏ hàng đang trống</p>
-          <p className="c-muted-txt">Chọn vài món rồi quay lại đây chốt đơn.</p>
-          <Link to="/menu" className="c-btn">Xem thực đơn</Link>
+          <p className="c-empty-title">{t("Giỏ hàng đang trống")}</p>
+          <p className="c-muted-txt">{t("Chọn vài món rồi quay lại đây chốt đơn.")}</p>
+          <Link to="/menu" className="c-btn">{t("Xem thực đơn")}</Link>
         </div>
       ) : (
         <div className="c-cart-grid">
@@ -312,38 +314,38 @@ export function Cart() {
                   <span className="c-price">{formatVnd(item.unitPrice * item.quantity)}</span>
                 </div>
                 <div className="c-qty">
-                  <button type="button" aria-label={item.quantity <= 1 ? `Bỏ ${item.name}` : "Bớt 1"} onClick={() => { updateQty(idx, item.quantity - 1); refresh(); }}>
+                  <button type="button" aria-label={item.quantity <= 1 ? t("Bỏ {name}", { name: item.name }) : t("Bớt 1")} onClick={() => { updateQty(idx, item.quantity - 1); refresh(); }}>
                     {item.quantity <= 1 ? <Trash2 size={16} aria-hidden /> : <Minus size={16} aria-hidden />}
                   </button>
                   <output>{item.quantity}</output>
-                  <button type="button" aria-label="Thêm 1" onClick={() => { updateQty(idx, item.quantity + 1); refresh(); }}><Plus size={16} aria-hidden /></button>
+                  <button type="button" aria-label={t("Thêm 1")} onClick={() => { updateQty(idx, item.quantity + 1); refresh(); }}><Plus size={16} aria-hidden /></button>
                 </div>
               </li>
             ))}
           </ul>
 
           <aside className="c-bill">
-            <h2 className="c-pd-h">Hoá đơn tạm</h2>
+            <h2 className="c-pd-h">{t("Hoá đơn tạm")}</h2>
             <dl className="c-bill-rows">
-              <div><dt>Tổng món</dt><dd>{items.reduce((acc, it) => acc + it.quantity, 0)}</dd></div>
-              <div><dt>Tạm tính</dt><dd>{formatVnd(total)}</dd></div>
+              <div><dt>{t("Tổng món")}</dt><dd>{items.reduce((acc, it) => acc + it.quantity, 0)}</dd></div>
+              <div><dt>{t("Tạm tính")}</dt><dd>{formatVnd(total)}</dd></div>
               {promo.applied && promo.applied.discount > 0 && (
-                <div className="is-good"><dt>Ưu đãi {promo.applied.name} ({promo.applied.text})</dt><dd>−{formatVnd(promo.applied.discount)}</dd></div>
+                <div className="is-good"><dt>{t("Ưu đãi")} {promo.applied.name} ({promo.applied.text})</dt><dd>−{formatVnd(promo.applied.discount)}</dd></div>
               )}
               {orderTypeSelection === "delivery" && (
                 <div>
-                  <dt>Phí giao hàng</dt>
+                  <dt>{t("Phí giao hàng")}</dt>
                   <dd>
                     {promoShip > 0 && <s className="c-price-old">{formatVnd(shippingFee)}</s>}{" "}
-                    {shippingFee - promoShip > 0 ? formatVnd(shippingFee - promoShip) : "Miễn phí"}
+                    {shippingFee - promoShip > 0 ? formatVnd(shippingFee - promoShip) : t("Miễn phí")}
                   </dd>
                 </div>
               )}
             </dl>
-            {promo.applied && promo.applied.discount === 0 && <p className="c-bill-good">Ưu đãi {promo.applied.name}: {promo.applied.text}</p>}
-            {promo.next && <p className="c-bill-next">Thêm <b>{promo.next.needQty}</b> ly nữa để được {promo.next.text} ({promo.next.name})</p>}
-            <div className="c-bill-total"><span>Tổng cộng</span><span className="c-price">{formatVnd(grand)}</span></div>
-            <button type="button" className="c-btn c-btn-block" onClick={() => setPayOpen(true)}>Chốt đơn</button>
+            {promo.applied && promo.applied.discount === 0 && <p className="c-bill-good">{t("Ưu đãi")} {promo.applied.name}: {promo.applied.text}</p>}
+            {promo.next && <p className="c-bill-next">{t("Thêm {n} ly nữa để được {gift}", { n: promo.next.needQty, gift: promo.next.text })} ({promo.next.name})</p>}
+            <div className="c-bill-total"><span>{t("Tổng cộng")}</span><span className="c-price">{formatVnd(grand)}</span></div>
+            <button type="button" className="c-btn c-btn-block" onClick={() => setPayOpen(true)}>{t("Chốt đơn")}</button>
           </aside>
         </div>
       )}
@@ -351,22 +353,22 @@ export function Cart() {
       {payOpen && (
         <div className="c-modal-back" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && setPayOpen(false)}>
           <div className="c-modal" role="dialog" aria-modal="true" aria-labelledby="pay-title">
-            <h2 id="pay-title" className="c-pd-h">Xác nhận đặt đơn</h2>
+            <h2 id="pay-title" className="c-pd-h">{t("Xác nhận đặt đơn")}</h2>
             <p>
               {orderTypeSelection === "delivery"
-                ? "Đơn giao hàng cần thanh toán online (gồm cả phí giao) ở bước tiếp theo. Quán chỉ nhận đơn sau khi bạn thanh toán."
+                ? t("Đơn giao hàng cần thanh toán online (gồm cả phí giao) ở bước tiếp theo. Quán chỉ nhận đơn sau khi bạn thanh toán.")
                 : orderTypeSelection === "takeaway"
-                  ? "Đơn sẽ được gửi đi, bạn có thể thanh toán trực tuyến hoặc chờ quán xác nhận."
-                  : "Thanh toán ngay → trang hoá đơn chờ thu ngân. Thanh toán sau → có ít phút chỉnh sửa rồi mới xuống bếp."}
+                  ? t("Đơn sẽ được gửi đi, bạn có thể thanh toán trực tuyến hoặc chờ quán xác nhận.")
+                  : t("Thanh toán ngay → trang hoá đơn chờ thu ngân. Thanh toán sau → có ít phút chỉnh sửa rồi mới xuống bếp.")}
             </p>
             <div className="c-modal-actions">
               <button type="button" className="c-btn" disabled={submitting} onClick={() => void submitOrder("now")}>
-                {orderTypeSelection !== "dine-in" ? "Gửi đơn & xem hoá đơn" : "Thanh toán ngay"}
+                {orderTypeSelection !== "dine-in" ? t("Gửi đơn & xem hoá đơn") : t("Thanh toán ngay")}
               </button>
               {orderTypeSelection === "dine-in" && (
-                <button type="button" className="c-btn is-outline" disabled={submitting} onClick={() => void submitOrder("later")}>Thanh toán sau</button>
+                <button type="button" className="c-btn is-outline" disabled={submitting} onClick={() => void submitOrder("later")}>{t("Thanh toán sau")}</button>
               )}
-              <button type="button" className="c-linkish" onClick={() => setPayOpen(false)}>Huỷ</button>
+              <button type="button" className="c-linkish" onClick={() => setPayOpen(false)}>{t("Huỷ")}</button>
             </div>
           </div>
         </div>

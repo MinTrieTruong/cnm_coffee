@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#f6f0e6" />
+    <script>
+      // Chế độ sáng/tối khách đã chọn — đặt trước khi vẽ trang để không chớp màu (xem lib/siteTheme.ts)
+      try { var m = localStorage.getItem("c-mode") || localStorage.getItem("c-mode-site"); if (m === "dark" || m === "light") document.documentElement.dataset.cMode = m; } catch (e) {}
+    </script>
     <meta name="color-scheme" content="light" />
     <title>TD Coffee — Đặt món & mang về</title>
     <link rel="icon" type="image/png" href="/logo-td-coffee.png" />

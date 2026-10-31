@@ -1487,3 +1487,4 @@ button.o-status-step { cursor: pointer; }
 .bp-gift { display: flex; gap: 6px; }
 .bp-gift select.o-input { flex: 1; min-width: 0; }
 .bp-gift input.o-input { width: 64px; flex: none; text-align: right; }
+@media (max-width: 900px) { .o-theme-grid { grid-template-columns: minmax(0, 1fr) !important; } }

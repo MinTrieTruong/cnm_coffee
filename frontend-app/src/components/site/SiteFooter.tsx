@@ -6,6 +6,9 @@ import { getStoreId } from "../../lib/customerStore";
 import { useSiteInfo } from "../../lib/site";
 import { ContactIcon } from "../contact/ContactStack";
 import { LogoMark } from "../LogoMark";
+import { useLang } from "../../lib/i18n";
+import type { ColorMode } from "../../lib/siteTheme";
+import { Toggles } from "./Toggles";
 
 export const POLICIES = [
   { slug: "dat-hang", label: "Chính sách đặt hàng" },
@@ -16,9 +19,10 @@ export const POLICIES = [
 
 const SOCIAL_COLOR: Record<string, string> = { ZALO: "#0068FF", MESSENGER: "#0084FF", CUSTOM: "#6F4E37" };
 
-/** Footer nâu mực 4 cột: công ty · chính sách · hỗ trợ · đăng ký nhận tin */
-export function SiteFooter() {
+/** Footer 4 cột (màu theo Website › Giao diện): công ty · chính sách · hỗ trợ · đăng ký nhận tin */
+export function SiteFooter({ color }: { color: { mode: ColorMode; setMode: (m: ColorMode) => void; canToggle: boolean } }) {
   const info = useSiteInfo();
+  const { t } = useLang();
   const [email, setEmail] = useState("");
   const [state, setState] = useState<"idle" | "busy" | "ok" | "err">("idle");
   const [msg, setMsg] = useState("");
@@ -29,11 +33,11 @@ export function SiteFooter() {
     try {
       const r = await api<{ already?: boolean }>("/api/contact-messages", { method: "POST", body: JSON.stringify({ kind: "NEWSLETTER", email, storeId: getStoreId() }) });
       setState("ok");
-      setMsg(r.already ? "Email này đã đăng ký rồi." : "Đã đăng ký. Quán sẽ gửi ưu đãi mới vào email của bạn.");
+      setMsg(r.already ? t("Email này đã đăng ký rồi.") : t("Đã đăng ký. Quán sẽ gửi ưu đãi mới vào email của bạn."));
       setEmail("");
     } catch (ex) {
       setState("err");
-      setMsg(ex instanceof Error ? ex.message : "Chưa gửi được, thử lại sau.");
+      setMsg(ex instanceof Error ? ex.message : t("Chưa gửi được, thử lại sau."));
     }
   }
 
@@ -66,39 +70,40 @@ export function SiteFooter() {
         </div>
 
         <div className="c-footer-col">
-          <h2 className="c-footer-h">Chính sách</h2>
+          <h2 className="c-footer-h">{t("Chính sách")}</h2>
           <ul className="c-footer-links">
-            {POLICIES.map((p) => <li key={p.slug}><Link to={`/policy/${p.slug}`}>{p.label}</Link></li>)}
+            {POLICIES.map((p) => <li key={p.slug}><Link to={`/policy/${p.slug}`}>{t(p.label)}</Link></li>)}
           </ul>
         </div>
 
         <div className="c-footer-col">
-          <h2 className="c-footer-h">Hỗ trợ</h2>
+          <h2 className="c-footer-h">{t("Hỗ trợ")}</h2>
           <ul className="c-footer-links">
-            <li><Link to="/menu">Tìm kiếm món</Link></li>
-            <li><Link to="/login">Đăng nhập</Link></li>
-            <li><Link to="/register">Đăng ký</Link></li>
-            <li><Link to="/cart">Giỏ hàng</Link></li>
-            <li><Link to="/contact">Liên hệ</Link></li>
+            <li><Link to="/menu">{t("Tìm kiếm món")}</Link></li>
+            <li><Link to="/login">{t("Đăng nhập")}</Link></li>
+            <li><Link to="/register">{t("Đăng ký")}</Link></li>
+            <li><Link to="/cart">{t("Giỏ hàng")}</Link></li>
+            <li><Link to="/contact">{t("Liên hệ")}</Link></li>
           </ul>
         </div>
 
         <div className="c-footer-col">
-          <h2 className="c-footer-h">Đăng ký nhận tin</h2>
-          <p className="c-footer-intro">Nhận mã giảm giá và món mới mỗi tháng. Không gửi quá 2 email một tháng.</p>
+          <h2 className="c-footer-h">{t("Đăng ký nhận tin")}</h2>
+          <p className="c-footer-intro">{t("Nhận mã giảm giá và món mới mỗi tháng. Không gửi quá 2 email một tháng.")}</p>
           <form className="c-news" onSubmit={subscribe}>
             <label htmlFor="c-news-email" className="c-sr">Email</label>
-            <input id="c-news-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email của bạn" />
-            <button type="submit" disabled={state === "busy"}>{state === "busy" ? "Đang gửi…" : "Đăng ký"}</button>
+            <input id="c-news-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("Email của bạn")} />
+            <button type="submit" disabled={state === "busy"}>{state === "busy" ? t("Đang gửi…") : t("Đăng ký")}</button>
           </form>
           {msg && <p className={`c-news-msg${state === "err" ? " is-err" : ""}`} role="status">{msg}</p>}
-          {c && <p className="c-footer-hours">Mở cửa {c.hours}</p>}
+          {c && <p className="c-footer-hours">{t("Mở cửa")} {c.hours}</p>}
         </div>
       </div>
       <div className="c-footer-bottom">
         <div className="c-wrap c-footer-bottom-in">
-          <span>© {new Date().getFullYear()} {c?.name ?? "TD Coffee"}. Bảo lưu mọi quyền.</span>
-          <Link to="/staff/login">Khu vực nhân sự</Link>
+          <span>© {new Date().getFullYear()} {c?.name ?? "TD Coffee"}. {t("Bảo lưu mọi quyền.")}</span>
+          <Toggles {...color} />
+          <Link to="/staff/login">{t("Khu vực nhân sự")}</Link>
         </div>
       </div>
     </footer>

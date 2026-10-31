@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { getUser, isGuestMode } from "../lib/session";
 import { formatVnd } from "../lib/site";
 import { Crumbs, SectionHead, VoucherTicket } from "../components/site/parts";
+import { useLang } from "../lib/i18n";
 
 type Voucher = {
   id: number;
@@ -30,12 +31,12 @@ function getRemainingDays(endDate: string): number {
 }
 
 /** Dòng phụ trên vé: giờ vàng, số lượt còn, sắp hết hạn */
-function ticketNote(v: Voucher) {
+function ticketNote(v: Voucher, t: (s: string, vars?: Record<string, string | number>) => string) {
   const parts: string[] = [];
-  if (v.goldHourStart != null && v.goldHourEnd != null) parts.push(`Giờ vàng ${v.goldHourStart}:00–${v.goldHourEnd}:00`);
-  parts.push(`Còn ${Math.max(0, v.quantity - v.usedCount)} lượt`);
+  if (v.goldHourStart != null && v.goldHourEnd != null) parts.push(t("Giờ vàng {a}:00–{b}:00", { a: v.goldHourStart, b: v.goldHourEnd }));
+  parts.push(t("Còn {n} lượt", { n: Math.max(0, v.quantity - v.usedCount) }));
   const d = getRemainingDays(v.endDate);
-  if (d > 0 && d <= 7) parts.push(`hết hạn sau ${d} ngày`);
+  if (d > 0 && d <= 7) parts.push(t("hết hạn sau {n} ngày", { n: d }));
   return parts.join(" · ");
 }
 
@@ -43,6 +44,7 @@ function ticketNote(v: Voucher) {
 function VoucherSpotlight({ id }: { id: string }) {
   const nav = useNavigate();
   const loc = useLocation();
+  const { t } = useLang();
   const [v, setV] = useState<Voucher | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
@@ -51,7 +53,7 @@ function VoucherSpotlight({ id }: { id: string }) {
     if (v) box.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [v]);
   useEffect(() => {
-    api<Voucher>(`/api/popups/voucher/${id}`).then(setV).catch((e) => setErr(e instanceof Error ? e.message : "Voucher không còn hiệu lực."));
+    api<Voucher>(`/api/popups/voucher/${id}`).then(setV).catch((e) => setErr(e instanceof Error ? e.message : t("Voucher không còn hiệu lực.")));
   }, [id]);
   if (err) return <p className="c-spot c-muted-txt">{err}</p>;
   if (!v) return null;
@@ -66,7 +68,7 @@ function VoucherSpotlight({ id }: { id: string }) {
       await api("/api/vouchers/claim", { method: "POST", body: JSON.stringify({ voucherId: v!.id }) });
       setState("saved");
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Không lưu được voucher.";
+      const msg = e instanceof Error ? e.message : t("Không lưu được voucher.");
       if (/đã lưu/i.test(msg)) setState("saved");
       else {
         setErr(msg);
@@ -77,17 +79,17 @@ function VoucherSpotlight({ id }: { id: string }) {
   return (
     <section ref={box} className="c-spot">
       <div>
-        <span className="c-stamp">Dành cho bạn</span>
-        <p className="c-spot-val">Giảm {formatVnd(v.discountValue)}</p>
-        <p className="c-muted-txt">{v.description ?? `Mã ${v.code}`} · đơn từ {formatVnd(v.minBillValue)} · đến {formatDate(v.endDate)}</p>
+        <span className="c-stamp">{t("Dành cho bạn")}</span>
+        <p className="c-spot-val">{t("Giảm {n}", { n: formatVnd(v.discountValue) })}</p>
+        <p className="c-muted-txt">{v.description ?? t("Mã {code}", { code: v.code })} · {t("đơn từ {n}", { n: formatVnd(v.minBillValue) })} · {t("đến {d}", { d: formatDate(v.endDate) })}</p>
         <p className="c-spot-code">{v.code}</p>
       </div>
       {personal ? (
         <button type="button" className="c-btn" disabled={state !== "idle"} onClick={() => void save()}>
-          {state === "saved" ? "Đã lưu vào ví" : state === "saving" ? "Đang lưu…" : "Lưu vào ví"}
+          {state === "saved" ? t("Đã lưu vào ví") : state === "saving" ? t("Đang lưu…") : t("Lưu vào ví")}
         </button>
       ) : (
-        <span className="c-muted-txt">Nhập mã khi thanh toán</span>
+        <span className="c-muted-txt">{t("Nhập mã khi thanh toán")}</span>
       )}
     </section>
   );
@@ -105,6 +107,7 @@ const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${St
 export function Promotions() {
   const [params] = useSearchParams();
   const spotlight = params.get("voucher");
+  const { t, date } = useLang();
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [bulk, setBulk] = useState<BulkPromo[]>([]);
   useEffect(() => {
@@ -116,7 +119,7 @@ export function Promotions() {
   useEffect(() => {
     api<Voucher[]>("/api/vouchers/public")
       .then((data) => setVouchers(data.filter((v) => v.isActive && new Date(v.endDate) > new Date())))
-      .catch((e) => setErr(e instanceof Error ? e.message : "Không tải được khuyến mãi"))
+      .catch((e) => setErr(e instanceof Error ? e.message : t("Không tải được khuyến mãi")))
       .finally(() => setLoading(false));
   }, []);
 
@@ -136,20 +139,20 @@ export function Promotions() {
                 {p.description && <p className="c-muted-txt">{p.description}</p>}
                 <table className="c-bulk-tiers">
                   <tbody>
-                    {p.tiers.map((t) => (
-                      <tr key={t.minQty}>
-                        <th scope="row">Từ {t.minQty} ly</th>
+                    {p.tiers.map((tier) => (
+                      <tr key={tier.minQty}>
+                        <th scope="row">{t("Từ {n} ly", { n: tier.minQty })}</th>
                         <td className="c-leader" aria-hidden />
-                        <td>{t.text}</td>
+                        <td>{tier.text}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
                 <p className="c-bulk-meta">
-                  Đến {new Date(p.endAt).toLocaleDateString("vi-VN")}
+                  {t("Đến {d}", { d: date(p.endAt) })}
                   {p.startMin != null && p.endMin != null && <> · {hhmm(p.startMin)}–{hhmm(p.endMin)}</>}
-                  {" · "}{[p.dineIn && "Tại quán", p.takeaway && "Mang về", p.delivery && "Giao hàng"].filter(Boolean).join(", ")}
-                  {!p.allowVoucher && " · không dùng chung voucher"}
+                  {" · "}{[p.dineIn && t("Tại quán"), p.takeaway && t("Mang về"), p.delivery && t("Giao hàng")].filter(Boolean).join(", ")}
+                  {!p.allowVoucher && ` · ${t("không dùng chung voucher")}`}
                 </p>
               </article>
             ))}
@@ -158,18 +161,18 @@ export function Promotions() {
       )}
 
       <section className="c-sec c-sec-tight">
-        <SectionHead title="Mã giảm giá" sub={vouchers.length ? `${vouchers.length} mã đang dùng được` : "chép mã, dán khi thanh toán"} />
-        {loading && <p className="c-muted-txt">Đang tải khuyến mãi…</p>}
+        <SectionHead title="Mã giảm giá" sub={vouchers.length ? t("{n} mã đang dùng được", { n: vouchers.length }) : "chép mã, dán khi thanh toán"} />
+        {loading && <p className="c-muted-txt">{t("Đang tải khuyến mãi…")}</p>}
         {err && <p className="c-err">{err}</p>}
         {!loading && !err && vouchers.length === 0 && (
-          <p className="c-muted-txt">Hiện chưa có mã giảm giá nào. <Link to="/menu" className="c-sec-more">Xem thực đơn →</Link></p>
+          <p className="c-muted-txt">{t("Hiện chưa có mã giảm giá nào.")} <Link to="/menu" className="c-sec-more">{t("Xem thực đơn →")}</Link></p>
         )}
-        {vouchers.length > 0 && <div className="c-tickets c-tickets-wrap">{vouchers.map((v) => <VoucherTicket key={v.id} v={v} note={ticketNote(v)} />)}</div>}
+        {vouchers.length > 0 && <div className="c-tickets c-tickets-wrap">{vouchers.map((v) => <VoucherTicket key={v.id} v={v} note={ticketNote(v, t)} />)}</div>}
       </section>
 
       <p className="c-promo-foot">
-        Nhập mã ở bước <strong>xác nhận đơn hàng</strong>. Mỗi tài khoản dùng 1 lần cho mỗi mã.
-        <Link to="/menu" className="c-btn">Đặt món</Link>
+        <span>{t("Nhập mã ở bước xác nhận đơn hàng. Mỗi tài khoản dùng 1 lần cho mỗi mã.")}</span>
+        <Link to="/menu" className="c-btn">{t("Đặt món")}</Link>
       </p>
     </div>
   );

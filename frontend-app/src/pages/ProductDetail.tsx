@@ -4,6 +4,7 @@ import { Check, Minus, Plus } from "lucide-react";
 import { api, mediaUrl, type Product } from "../lib/api";
 import { addToCart } from "../lib/cart";
 import { formatVnd } from "../lib/site";
+import { useLang } from "../lib/i18n";
 import { Crumbs, ProductImage, listPrice, quickAdd } from "../components/site/parts";
 
 type Detail = Product & { sku?: string | null; outOfStock?: boolean; tags?: unknown };
@@ -34,9 +35,10 @@ const tagList = (t: unknown): string[] => {
 
 /** Ô chọn dạng vuông (size, đá, đường) */
 function Choice<T extends string | number>({ label, value, options, onChange, fmt }: { label: string; value: T; options: readonly T[]; onChange: (v: T) => void; fmt?: (v: T) => string }) {
+  const { t } = useLang();
   return (
     <fieldset className="c-pd-opt">
-      <legend>{label}</legend>
+      <legend>{t(label)}</legend>
       <div className="c-pd-choices">
         {options.map((o) => (
           <button key={o} type="button" className={o === value ? "is-on" : undefined} aria-pressed={o === value} onClick={() => onChange(o)}>
@@ -49,6 +51,7 @@ function Choice<T extends string | number>({ label, value, options, onChange, fm
 }
 
 function PairRow({ p }: { p: Product }) {
+  const { t } = useLang();
   const [done, setDone] = useState(false);
   const off = p.discountPercent && p.discountPercent > 0;
   return (
@@ -68,7 +71,7 @@ function PairRow({ p }: { p: Product }) {
           setDone(true);
           window.setTimeout(() => setDone(false), 1400);
         }}
-        aria-label={done ? `Đã thêm ${p.name}` : `Thêm ${p.name} vào giỏ`}
+        aria-label={done ? t("Đã thêm {name}", { name: p.name }) : t("Thêm {name} vào giỏ", { name: p.name })}
       >
         {done ? <Check size={18} aria-hidden /> : <Plus size={18} aria-hidden />}
       </button>
@@ -79,6 +82,7 @@ function PairRow({ p }: { p: Product }) {
 export function ProductDetail() {
   const { id } = useParams();
   const nav = useNavigate();
+  const { t, date } = useLang();
   const [p, setP] = useState<Detail | null>(null);
   const [extras, setExtras] = useState<Extras | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -98,7 +102,7 @@ export function ProductDetail() {
     setQty(1);
     api<Detail>(`/api/products/${id}`)
       .then((d) => !cancelled && setP(d))
-      .catch((e) => !cancelled && setErr(e instanceof Error ? e.message : "Lỗi"));
+      .catch((e) => !cancelled && setErr(e instanceof Error ? e.message : t("Lỗi")));
     api<Extras>(`/api/products/${id}/extras`)
       .then((d) => !cancelled && setExtras(d))
       .catch(() => undefined);
@@ -111,8 +115,8 @@ export function ProductDetail() {
     return (
       <div className="c-wrap c-pd">
         <Crumbs items={[{ to: "/menu", label: "Thực đơn" }, { label: err ? "Không tìm thấy" : "Đang tải…" }]} />
-        <p className="c-muted-txt">{err ?? "Đang tải…"}</p>
-        {err && <Link to="/menu" className="c-btn is-outline">Về thực đơn</Link>}
+        <p className="c-muted-txt">{err ?? t("Đang tải…")}</p>
+        {err && <Link to="/menu" className="c-btn is-outline">{t("Về thực đơn")}</Link>}
       </div>
     );
   }
@@ -152,17 +156,17 @@ export function ProductDetail() {
         <div className="c-pd-gallery">
           <div className="c-pd-main">
             <ProductImage p={p} className="c-pd-img" />
-            {hasDiscount && <span className="c-stamp c-pd-stamp">Giảm {p.discountPercent}%</span>}
+            {hasDiscount && <span className="c-stamp c-pd-stamp">{t("Giảm {n}%", { n: p.discountPercent ?? 0 })}</span>}
           </div>
         </div>
 
         <div className="c-pd-info">
           <h1 className="c-pd-name">{p.name}</h1>
           <dl className="c-pd-meta">
-            {p.sku && (<><dt>Mã</dt><dd>{p.sku}</dd></>)}
-            <dt>Tình trạng</dt>
-            <dd className={soldOut ? "is-out" : "is-in"}>{soldOut ? "Tạm hết" : "Còn hàng"}</dd>
-            {p.category && (<><dt>Nhóm</dt><dd>{p.category.name}</dd></>)}
+            {p.sku && (<><dt>{t("Mã")}</dt><dd>{p.sku}</dd></>)}
+            <dt>{t("Tình trạng")}</dt>
+            <dd className={soldOut ? "is-out" : "is-in"}>{soldOut ? t("Tạm hết") : t("Còn hàng")}</dd>
+            {p.category && (<><dt>{t("Nhóm")}</dt><dd>{p.category.name}</dd></>)}
           </dl>
           <div className="c-pd-price">
             <span className="c-price">{formatVnd(unitPrice)}</span>
@@ -178,22 +182,22 @@ export function ProductDetail() {
           )}
 
           <label className="c-pd-opt">
-            <span className="c-pd-label">Ghi chú</span>
-            <input className="c-input" placeholder="Ít đá, thêm kem, không ống hút…" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={120} />
+            <span className="c-pd-label">{t("Ghi chú")}</span>
+            <input className="c-input" placeholder={t("Ít đá, thêm kem, không ống hút…")} value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={120} />
           </label>
 
           <div className="c-pd-qty-row">
-            <span className="c-pd-label">Số lượng</span>
+            <span className="c-pd-label">{t("Số lượng")}</span>
             <div className="c-qty">
-              <button type="button" onClick={() => setQty((q) => Math.max(1, q - 1))} disabled={qty <= 1} aria-label="Bớt 1"><Minus size={16} aria-hidden /></button>
+              <button type="button" onClick={() => setQty((q) => Math.max(1, q - 1))} disabled={qty <= 1} aria-label={t("Bớt 1")}><Minus size={16} aria-hidden /></button>
               <output aria-live="polite">{qty}</output>
-              <button type="button" onClick={() => setQty((q) => Math.min(20, q + 1))} disabled={qty >= 20} aria-label="Thêm 1"><Plus size={16} aria-hidden /></button>
+              <button type="button" onClick={() => setQty((q) => Math.min(20, q + 1))} disabled={qty >= 20} aria-label={t("Thêm 1")}><Plus size={16} aria-hidden /></button>
             </div>
             {qty > 1 && <span className="c-muted-txt">= {formatVnd(unitPrice * qty)}</span>}
           </div>
 
           <div className="c-pd-cta">
-            <button type="button" className="c-btn" disabled={soldOut} onClick={() => { add(); nav("/cart"); }}>Mua ngay</button>
+            <button type="button" className="c-btn" disabled={soldOut} onClick={() => { add(); nav("/cart"); }}>{t("Mua ngay")}</button>
             <button
               type="button"
               className="c-btn is-outline"
@@ -204,7 +208,7 @@ export function ProductDetail() {
                 window.setTimeout(() => setAdded(false), 1800);
               }}
             >
-              {added ? "Đã thêm vào giỏ" : "Thêm vào giỏ"}
+              {added ? t("Đã thêm vào giỏ") : t("Thêm vào giỏ")}
             </button>
           </div>
         </div>
@@ -212,16 +216,15 @@ export function ProductDetail() {
 
       <div className="c-pd-bottom">
         <section>
-          <h2 className="c-pd-h">Mô tả sản phẩm</h2>
+          <h2 className="c-pd-h">{t("Mô tả sản phẩm")}</h2>
           <div className="c-pd-desc">
             <p>
-              {p.name}
-              {p.category ? ` thuộc nhóm ${p.category.name}` : ""}
-              {isFood ? ", bán theo phần." : ", pha theo ly — chọn size, lượng đá và đường theo khẩu vị."}
+              {p.category ? t("{name} thuộc nhóm {cat}", { name: p.name, cat: p.category.name }) : p.name}
+              {isFood ? t(", bán theo phần.") : t(", pha theo ly — chọn size, lượng đá và đường theo khẩu vị.")}
             </p>
             {!isFood && (
               <table className="c-pd-sizes">
-                <caption className="c-sr">Giá theo size</caption>
+                <caption className="c-sr">{t("Giá theo size")}</caption>
                 <tbody>
                   {SIZES.map((s) => (
                     <tr key={s}>
@@ -239,7 +242,7 @@ export function ProductDetail() {
 
         {!!extras?.pairings.length && (
           <aside className="c-pd-side">
-            <h2 className="c-pd-h">Ăn kèm ngon hơn</h2>
+            <h2 className="c-pd-h">{t("Ăn kèm ngon hơn")}</h2>
             <ul className="c-pairs">{extras.pairings.map((x) => <PairRow key={x.id} p={x} />)}</ul>
           </aside>
         )}
@@ -247,22 +250,22 @@ export function ProductDetail() {
 
       <section className="c-pd-reviews">
         <h2 className="c-pd-h">
-          Đánh giá của khách
+          {t("Đánh giá của khách")}
           {reviews.length > 0 && <span className="c-pd-avg"> · {avg.toFixed(1)}/5 ({reviews.length})</span>}
         </h2>
         {reviews.length === 0 ? (
-          <p className="c-muted-txt">Chưa có đánh giá cho món này.</p>
+          <p className="c-muted-txt">{t("Chưa có đánh giá cho món này.")}</p>
         ) : (
           <ul className="c-reviews">
             {reviews.map((r) => (
               <li key={r.id} className="c-review">
                 <div className="c-review-head">
-                  <strong>{r.customer?.fullName ?? "Khách"}</strong>
-                  <span className="c-review-stars" aria-label={`${r.rating} trên 5 sao`}>{"★".repeat(r.rating)}<span aria-hidden className="is-dim">{"★".repeat(5 - r.rating)}</span></span>
-                  <time dateTime={r.createdAt}>{new Date(r.createdAt).toLocaleDateString("vi-VN")}</time>
+                  <strong>{r.customer?.fullName ?? t("Khách")}</strong>
+                  <span className="c-review-stars" aria-label={t("{n} trên 5 sao", { n: r.rating })}>{"★".repeat(r.rating)}<span aria-hidden className="is-dim">{"★".repeat(5 - r.rating)}</span></span>
+                  <time dateTime={r.createdAt}>{date(r.createdAt)}</time>
                 </div>
                 {r.comment && <p>{r.comment}</p>}
-                {r.imageUrl && <img src={mediaUrl(r.imageUrl)} alt="Ảnh khách gửi" loading="lazy" className="c-review-img" />}
+                {r.imageUrl && <img src={mediaUrl(r.imageUrl)} alt={t("Ảnh khách gửi")} loading="lazy" className="c-review-img" />}
                 {r.adminReply && <p className="c-review-reply"><strong>TD Coffee:</strong> {r.adminReply}</p>}
               </li>
             ))}

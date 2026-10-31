@@ -40,6 +40,8 @@ model StoreSettings {
   /// Hotline chung (khi chi nhánh / nút liên hệ chưa có số)
   companyPhone   String  @default("0389730362") @map("Company_Phone") @db.VarChar(20)
   companyHours   String  @default("7:00 – 22:00 hằng ngày") @map("Company_Hours") @db.VarChar(100)
+  /// Màu trang khách: { preset, primary, accent, defaultMode: light|dark|auto, allowToggle } — null = mặc định "gạch bông"
+  siteTheme      Json?   @map("Site_Theme")
 
   @@map("Store_Settings")
 }

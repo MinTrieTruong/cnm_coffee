@@ -9,6 +9,9 @@ import { PopupHost } from "./popup/PopupHost";
 import { FloatingContact } from "./contact/FloatingContact";
 import { SiteHeader } from "./site/SiteHeader";
 import { SiteFooter } from "./site/SiteFooter";
+import { useSiteInfo } from "../lib/site";
+import { paletteVars, useColorMode } from "../lib/siteTheme";
+import { useLang } from "../lib/i18n";
 import "../styles/customer.css";
 
 /** Tiêu đề trang trên header điện thoại */
@@ -68,6 +71,15 @@ export function PublicLayout() {
     };
   }, []);
   const cartCount = getCart().reduce((s, i) => s + i.quantity, 0);
+  // Màu do chủ chuỗi chọn (Website › Giao diện) + chế độ sáng/tối của khách
+  const info = useSiteInfo();
+  const color = useColorMode(info?.theme ?? null);
+  const themeStyle = info?.theme ? paletteVars(info.theme, color.mode) : undefined;
+  const { t, lang } = useLang();
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
+  const navItems = customerNav(loggedIn).map((it) => ({ ...it, label: t(it.label), short: t(it.short) }));
   function handleLogout() {
     clearSession();
     nav("/", { replace: true });
@@ -79,13 +91,14 @@ export function PublicLayout() {
   const goBack = () => (canGoBackInApp() ? nav(-1) : nav(parentOf(p), { replace: true }));
 
   return (
-    <div className="site-root c-site">
+    <div className="site-root c-site" style={themeStyle}>
       <SiteHeader
         loggedIn={loggedIn}
         userName={user?.fullName ?? null}
         cartCount={cartCount}
         onLogout={handleLogout}
-        mobileTitle={titleOf(p)}
+        mobileTitle={t(titleOf(p))}
+        color={color}
         onBack={isSubPage ? goBack : null}
       />
 
@@ -96,9 +109,9 @@ export function PublicLayout() {
         {!/^\/order\/[^/]+\/checkout/.test(p) && !p.startsWith("/staff") && <FloatingContact />}
       </main>
 
-      <BottomNav items={customerNav(loggedIn)} badges={{ cart: cartCount }} hidden={!showTabBar} />
+      <BottomNav items={navItems} badges={{ cart: cartCount }} hidden={!showTabBar} />
 
-      <SiteFooter />
+      <SiteFooter color={color} />
     </div>
   );
 }

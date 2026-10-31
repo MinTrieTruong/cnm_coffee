@@ -3,8 +3,9 @@ import { Link, useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { api, mediaUrl, type HomePageResponse, type Product } from "../lib/api";
 import { useCustomerStore, withStore } from "../lib/customerStore";
-import { useMenuData, useSiteInfo } from "../lib/site";
+import { formatVnd, useMenuData, useSiteInfo } from "../lib/site";
 import { ProductCard, SectionHead, VoucherTicket, type PublicVoucher } from "../components/site/parts";
+import { useLang } from "../lib/i18n";
 
 type Banner = { id: number; imageUrl: string; title: string | null; subtitle: string | null; link: string | null };
 type Post = { id: number; title: string; body: string; imageUrl: string | null; createdAt: string };
@@ -16,6 +17,7 @@ const reduceMotion = () => typeof window !== "undefined" && !!window.matchMedia?
 /** Banner lớn: ảnh do quản lý tải lên, tiêu đề poster đặt trên ảnh; tự chuyển 6 giây, dừng khi rê chuột */
 function BannerCarousel({ banners }: { banners: Banner[] }) {
   const nav = useNavigate();
+  const { t } = useLang();
   const [i, setI] = useState(0);
   const paused = useRef(false);
   const n = banners.length;
@@ -31,7 +33,7 @@ function BannerCarousel({ banners }: { banners: Banner[] }) {
     else nav(b.link);
   };
   return (
-    <div className="c-banner" onMouseEnter={() => (paused.current = true)} onMouseLeave={() => (paused.current = false)} aria-roledescription="carousel" aria-label="Chương trình nổi bật">
+    <div className="c-banner" onMouseEnter={() => (paused.current = true)} onMouseLeave={() => (paused.current = false)} aria-roledescription="carousel" aria-label={t("Chương trình nổi bật")}>
       <div className="c-banner-track" style={{ transform: `translateX(-${i * 100}%)` }}>
         {banners.map((b, k) => (
           <div key={b.id} className="c-banner-slide" role="group" aria-roledescription="slide" aria-label={`${k + 1} / ${n}`} aria-hidden={k !== i}>
@@ -40,7 +42,7 @@ function BannerCarousel({ banners }: { banners: Banner[] }) {
               <div className="c-banner-copy">
                 {b.title && <h2 className="c-banner-title">{b.title}</h2>}
                 {b.subtitle && <p className="c-banner-sub">{b.subtitle}</p>}
-                {b.link && <button type="button" className="c-btn" tabIndex={k === i ? 0 : -1} onClick={() => go(b)}>Xem ngay</button>}
+                {b.link && <button type="button" className="c-btn" tabIndex={k === i ? 0 : -1} onClick={() => go(b)}>{t("Xem ngay")}</button>}
               </div>
             )}
           </div>
@@ -48,11 +50,11 @@ function BannerCarousel({ banners }: { banners: Banner[] }) {
       </div>
       {n > 1 && (
         <>
-          <button type="button" className="c-banner-arrow is-prev" onClick={() => setI((x) => (x - 1 + n) % n)} aria-label="Banner trước"><ChevronLeft size={22} aria-hidden /></button>
-          <button type="button" className="c-banner-arrow is-next" onClick={() => setI((x) => (x + 1) % n)} aria-label="Banner sau"><ChevronRight size={22} aria-hidden /></button>
+          <button type="button" className="c-banner-arrow is-prev" onClick={() => setI((x) => (x - 1 + n) % n)} aria-label={t("Banner trước")}><ChevronLeft size={22} aria-hidden /></button>
+          <button type="button" className="c-banner-arrow is-next" onClick={() => setI((x) => (x + 1) % n)} aria-label={t("Banner sau")}><ChevronRight size={22} aria-hidden /></button>
           <div className="c-banner-dots">
             {banners.map((b, k) => (
-              <button key={b.id} type="button" className={k === i ? "is-on" : undefined} onClick={() => setI(k)} aria-label={`Banner ${k + 1}`} aria-current={k === i} />
+              <button key={b.id} type="button" className={k === i ? "is-on" : undefined} onClick={() => setI(k)} aria-label={t("Banner {n}", { n: k + 1 })} aria-current={k === i} />
             ))}
           </div>
         </>
@@ -63,8 +65,9 @@ function BannerCarousel({ banners }: { banners: Banner[] }) {
 
 /** Chữ ký tay của chủ quán (SVG nét bút) */
 function Signature() {
+  const { t } = useLang();
   return (
-    <svg className="c-sign" viewBox="0 0 220 70" role="img" aria-label="Chữ ký chủ quán">
+    <svg className="c-sign" viewBox="0 0 220 70" role="img" aria-label={t("Chữ ký chủ quán")}>
       <path
         d="M8 46c10-2 22-14 30-26 4-6 3-10-1-6-6 7-10 24-9 34 0 5 4 4 8-2 7-11 14-26 21-27 5-1 2 12-2 22-3 8 4 6 9 0 4-5 8-11 12-11 4 0 0 9 3 10 4 1 9-6 13-9 3-2 4 1 2 4-3 5-1 7 4 5 9-4 18-16 27-18 6-1 3 6 1 10-2 6 3 7 9 3 10-7 22-17 35-19 8-1 14 2 20 6"
         fill="none"
@@ -82,6 +85,7 @@ export function HomePage() {
   const { storeId } = useCustomerStore();
   const menu = useMenuData();
   const info = useSiteInfo();
+  const { t, date } = useLang();
   const [home, setHome] = useState<HomePageResponse | null>(null);
   const [banners, setBanners] = useState<Banner[]>([]);
   const [vouchers, setVouchers] = useState<PublicVoucher[]>([]);
@@ -114,8 +118,8 @@ export function HomePage() {
     <div className="c-home">
       {/* Khối đầu: danh mục trái + banner phải */}
       <section className="c-wrap c-hero">
-        <nav className="c-hero-cats" aria-label="Danh mục sản phẩm">
-          <div className="c-hero-cats-h">Danh mục</div>
+        <nav className="c-hero-cats" aria-label={t("Danh mục sản phẩm")}>
+          <div className="c-hero-cats-h">{t("Danh mục")}</div>
           {cats.map((c) => (
             <Link key={c.id} to={`/menu?category=${c.id}`} className="c-hero-cat">
               {c.image ? <img src={mediaUrl(c.image)} alt="" loading="lazy" /> : <span className="c-hero-cat-ph" aria-hidden />}
@@ -123,7 +127,7 @@ export function HomePage() {
               <span className="c-hero-cat-n">{c.count}</span>
             </Link>
           ))}
-          {!cats.length && <span className="c-hero-cat c-muted-txt">Đang tải…</span>}
+          {!cats.length && <span className="c-hero-cat c-muted-txt">{t("Đang tải…")}</span>}
         </nav>
         <BannerCarousel banners={banners} />
       </section>
@@ -145,10 +149,10 @@ export function HomePage() {
             <div>
               <h2 className="c-game-title">{game.name}</h2>
               <p className="c-game-desc">
-                {game.me?.tickets ? `Bạn đang có ${game.me.tickets} lượt chơi.` : game.description ?? `Mỗi đơn từ ${game.minOrderValue.toLocaleString("vi-VN")}đ được 1 lượt chơi.`}
+                {game.me?.tickets ? t("Bạn đang có {n} lượt chơi.", { n: game.me.tickets }) : game.description ?? t("Mỗi đơn từ {n} được 1 lượt chơi.", { n: formatVnd(game.minOrderValue) })}
               </p>
             </div>
-            <Link to={`/game/${game.id}${storeId ? `?store=${storeId}` : ""}`} className="c-btn is-paper">Chơi ngay</Link>
+            <Link to={`/game/${game.id}${storeId ? `?store=${storeId}` : ""}`} className="c-btn is-paper">{t("Chơi ngay")}</Link>
           </div>
         </section>
       )}
@@ -178,21 +182,21 @@ export function HomePage() {
       <section className="c-story">
         <div className="c-wrap c-story-in">
           <div className="c-story-img">
-            {storyImg ? <img src={mediaUrl(storyImg)} alt="Quầy pha chế TD Coffee" loading="lazy" /> : <span className="c-noimg">TD Coffee</span>}
+            {storyImg ? <img src={mediaUrl(storyImg)} alt={t("Quầy pha chế TD Coffee")} loading="lazy" /> : <span className="c-noimg">TD Coffee</span>}
           </div>
           <div className="c-story-copy">
             <h2 className="c-sec-title">
-              Câu chuyện TD Coffee
-              <span className="c-sec-sub">— pha phin mỗi sáng</span>
+              {t("Câu chuyện TD Coffee")}
+              <span className="c-sec-sub">— {t("pha phin mỗi sáng")}</span>
             </h2>
             {/* Nội dung lấy từ "Giới thiệu ngắn" trong Website › Thông tin công ty — chủ chuỗi tự viết */}
             <p>{info?.company.intro ?? ""}</p>
-            {info && <p>Mở cửa {info.company.hours} · {info.stores.length} chi nhánh.</p>}
+            {info && <p>{t("Mở cửa {h} · {n} chi nhánh.", { h: info.company.hours, n: info.stores.length })}</p>}
             <div className="c-story-sign">
               <Signature />
-              <span>Chủ quán {info?.company.name ?? "TD Coffee"}</span>
+              <span>{t("Chủ quán {name}", { name: info?.company.name ?? "TD Coffee" })}</span>
             </div>
-            <Link to="/about" className="c-btn is-outline">Ghé cửa hàng</Link>
+            <Link to="/about" className="c-btn is-outline">{t("Ghé cửa hàng")}</Link>
           </div>
         </div>
       </section>
@@ -206,7 +210,7 @@ export function HomePage() {
                 <span className="c-news-img">
                   {p.imageUrl ? <img src={mediaUrl(p.imageUrl)} alt="" loading="lazy" /> : <span className="c-noimg">{p.title}</span>}
                 </span>
-                <time className="c-news-date" dateTime={p.createdAt}>{new Date(p.createdAt).toLocaleDateString("vi-VN")}</time>
+                <time className="c-news-date" dateTime={p.createdAt}>{date(p.createdAt)}</time>
                 <span className="c-news-title">{p.title}</span>
                 <span className="c-news-ex">{plain(p.body).slice(0, 120)}…</span>
               </Link>

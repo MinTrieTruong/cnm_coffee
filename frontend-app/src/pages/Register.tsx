@@ -4,8 +4,10 @@ import { api } from "../lib/api";
 import { safeNext, setSession, type SessionUser } from "../lib/session";
 import { Crumbs } from "../components/site/parts";
 import { PasswordInput } from "../components/PasswordInput";
+import { useLang } from "../lib/i18n";
 
 export function Register() {
+  const { t } = useLang();
   const nav = useNavigate();
   const [params] = useSearchParams();
   const next = safeNext(params.get("next"));
@@ -28,7 +30,7 @@ export function Register() {
       setSession(data.token, data.user);
       nav(next, { replace: true });
     } catch (e2) {
-      setErr(e2 instanceof Error ? e2.message : "Đăng ký thất bại");
+      setErr(e2 instanceof Error ? e2.message : t("Đăng ký thất bại"));
     } finally {
       setLoading(false);
     }
@@ -39,14 +41,14 @@ export function Register() {
       <div className="auth-content">
         <Crumbs items={[{ to: "/login", label: "Đăng nhập" }, { label: "Đăng ký" }]} />
         <div style={{ marginBottom: "1.5rem", textAlign: "center" }}>
-          <h1 className="c-auth-title">Đăng ký thành viên</h1>
-          <p style={{ color: "var(--text)", margin: 0, fontSize: "0.9rem" }}>Tích điểm mỗi đơn và nhận voucher riêng</p>
+          <h1 className="c-auth-title">{t("Đăng ký thành viên")}</h1>
+          <p style={{ color: "var(--text)", margin: 0, fontSize: "0.9rem" }}>{t("Tích điểm mỗi đơn và nhận voucher riêng")}</p>
         </div>
 
         <div className="glass-box">
           <form onSubmit={onSubmit}>
             <div className="field">
-              <label className="label" style={{ color: "var(--muted)" }} htmlFor="phone">Số điện thoại *</label>
+              <label className="label" style={{ color: "var(--muted)" }} htmlFor="phone">{t("Số điện thoại *")}</label>
               <input
                 id="phone"
                 className="input"
@@ -58,7 +60,7 @@ export function Register() {
               />
             </div>
             <div className="field">
-              <label className="label" style={{ color: "var(--muted)" }} htmlFor="fn">Họ tên</label>
+              <label className="label" style={{ color: "var(--muted)" }} htmlFor="fn">{t("Họ tên")}</label>
               <input
                 id="fn"
                 className="input"
@@ -68,7 +70,7 @@ export function Register() {
               />
             </div>
             <div className="field">
-              <label className="label" style={{ color: "var(--muted)" }} htmlFor="em">Email (tuỳ chọn)</label>
+              <label className="label" style={{ color: "var(--muted)" }} htmlFor="em">{t("Email (tuỳ chọn)")}</label>
               <input
                 id="em"
                 className="input"
@@ -78,7 +80,7 @@ export function Register() {
               />
             </div>
             <div className="field" style={{ marginBottom: "1.5rem" }}>
-              <label className="label" style={{ color: "var(--muted)" }} htmlFor="pw">Mật khẩu (≥ 6 ký tự)</label>
+              <label className="label" style={{ color: "var(--muted)" }} htmlFor="pw">{t("Mật khẩu (≥ 6 ký tự)")}</label>
               <PasswordInput
                 id="pw"
                 className="input"
@@ -90,11 +92,11 @@ export function Register() {
             </div>
             {err && <p style={{ color: "#b91c1c", fontSize: "0.9rem", margin: "0 0 1rem" }}>{err}</p>}
             <button type="submit" className="auth-btn" disabled={loading}>
-              {loading ? "Đang tạo…" : "Tạo tài khoản"}
+              {loading ? t("Đang tạo…") : t("Tạo tài khoản")}
             </button>
           </form>
           <p style={{ textAlign: "center", color: "var(--muted)", margin: "1.5rem 0 0", fontSize: "0.9rem" }}>
-            Đã có tài khoản? <Link to="/" style={{ color: "var(--accent)", fontWeight: 600 }}>Đăng nhập</Link>
+            {t("Đã có tài khoản?")} <Link to="/" style={{ color: "var(--accent)", fontWeight: 600 }}>{t("Đăng nhập")}</Link>
           </p>
         </div>
       </div>

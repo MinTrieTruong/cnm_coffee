@@ -4,28 +4,31 @@ import { Check, Plus } from "lucide-react";
 import { calculateFinalPrice, mediaUrl, type Product } from "../../lib/api";
 import { addToCart } from "../../lib/cart";
 import { formatVnd } from "../../lib/site";
+import { useLang } from "../../lib/i18n";
 
 /** Tiêu đề mục: chữ poster + dòng serif nghiêng + gạch đôi; "Xem tất cả →" bên phải */
 export function SectionHead({ title, sub, more, as: Tag = "h2" }: { title: string; sub?: string; more?: { to: string; label?: string }; as?: "h1" | "h2" }) {
+  const { t } = useLang();
   return (
     <div className="c-sec-head">
       <Tag className="c-sec-title">
-        {title}
-        {sub && <span className="c-sec-sub">— {sub}</span>}
+        {t(title)}
+        {sub && <span className="c-sec-sub">— {t(sub)}</span>}
       </Tag>
-      {more && <Link to={more.to} className="c-sec-more">{more.label ?? "Xem tất cả"} →</Link>}
+      {more && <Link to={more.to} className="c-sec-more">{t(more.label ?? "Xem tất cả")} →</Link>}
     </div>
   );
 }
 
 export function Crumbs({ items }: { items: { to?: string; label: string }[] }) {
+  const { t } = useLang();
   return (
-    <nav className="c-crumbs" aria-label="Vị trí">
-      <Link to="/">Trang chủ</Link>
+    <nav className="c-crumbs" aria-label={t("Vị trí")}>
+      <Link to="/">{t("Trang chủ")}</Link>
       {items.map((it, i) => (
         <span key={i} style={{ display: "contents" }}>
           <span aria-hidden>/</span>
-          {it.to && i < items.length - 1 ? <Link to={it.to}>{it.label}</Link> : <span aria-current={i === items.length - 1 ? "page" : undefined}>{it.label}</span>}
+          {it.to && i < items.length - 1 ? <Link to={it.to}>{t(it.label)}</Link> : <span aria-current={i === items.length - 1 ? "page" : undefined}>{t(it.label)}</span>}
         </span>
       ))}
     </nav>
@@ -61,13 +64,14 @@ export function quickAdd(p: Product) {
 
 /** Thẻ món: ảnh trên nền kem, tem giảm giá, tên, 1 dòng mô tả, giá gốc gạch + giá bán, nút "+" vuông */
 export function ProductCard({ p, line }: { p: Product; line?: ReactNode }) {
+  const { t } = useLang();
   const [added, setAdded] = useState(false);
   const off = p.discountPercent && p.discountPercent > 0 ? p.discountPercent : 0;
   return (
     <article className="c-pcard">
       <Link to={`/product/${p.id}`} className="c-pcard-media" aria-label={p.name}>
         <ProductImage p={p} className="c-pcard-img" />
-        {off > 0 && <span className="c-stamp c-pcard-stamp">Giảm {off}%</span>}
+        {off > 0 && <span className="c-stamp c-pcard-stamp">{t("Giảm {n}%", { n: off })}</span>}
       </Link>
       <div className="c-pcard-body">
         <Link to={`/product/${p.id}`} className="c-pcard-name">{p.name}</Link>
@@ -85,7 +89,7 @@ export function ProductCard({ p, line }: { p: Product; line?: ReactNode }) {
               setAdded(true);
               window.setTimeout(() => setAdded(false), 1400);
             }}
-            aria-label={added ? `Đã thêm ${p.name}` : `Thêm ${p.name} vào giỏ`}
+            aria-label={added ? t("Đã thêm {name}", { name: p.name }) : t("Thêm {name} vào giỏ", { name: p.name })}
           >
             {added ? <Check size={18} aria-hidden /> : <Plus size={18} aria-hidden />}
           </button>
@@ -99,6 +103,7 @@ export type PublicVoucher = { id: number; code: string; description: string | nu
 
 /** Vé voucher xé: mã + điều kiện, mép răng cưa hai bên */
 export function VoucherTicket({ v, note }: { v: PublicVoucher; note?: ReactNode }) {
+  const { t, date } = useLang();
   const [copied, setCopied] = useState(false);
   async function copy() {
     try {
@@ -106,21 +111,21 @@ export function VoucherTicket({ v, note }: { v: PublicVoucher; note?: ReactNode 
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
     } catch {
-      window.prompt("Chép mã voucher:", v.code);
+      window.prompt(t("Chép mã voucher:"), v.code);
     }
   }
   return (
     <div className="c-ticket">
       <div className="c-ticket-main">
-        <span className="c-ticket-val">Giảm {formatVnd(v.discountValue)}</span>
-        <span className="c-ticket-cond">{v.description ?? (v.minBillValue ? `Đơn từ ${formatVnd(v.minBillValue)}` : "Mọi đơn")}</span>
+        <span className="c-ticket-val">{t("Giảm {n}", { n: formatVnd(v.discountValue) })}</span>
+        <span className="c-ticket-cond">{v.description ?? (v.minBillValue ? t("Đơn từ {n}", { n: formatVnd(v.minBillValue) }) : t("Mọi đơn"))}</span>
         {note && <span className="c-ticket-note">{note}</span>}
-        <span className="c-ticket-exp">HSD {new Date(v.endDate).toLocaleDateString("vi-VN")}</span>
+        <span className="c-ticket-exp">{t("HSD")} {date(v.endDate)}</span>
       </div>
       <div className="c-ticket-stub">
-        <span className="c-ticket-k">Nhập mã</span>
+        <span className="c-ticket-k">{t("Nhập mã")}</span>
         <span className="c-ticket-code">{v.code}</span>
-        <button type="button" className="c-ticket-btn" onClick={() => void copy()}>{copied ? "Đã chép" : "Chép mã"}</button>
+        <button type="button" className="c-ticket-btn" onClick={() => void copy()}>{copied ? t("Đã chép") : t("Chép mã")}</button>
       </div>
     </div>
   );

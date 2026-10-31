@@ -1,3 +1,4 @@
+import { useLang } from "../lib/i18n";
 import { useState } from "react";
 import { MapPin, Store } from "lucide-react";
 import { api } from "../lib/api";
@@ -5,6 +6,7 @@ import { useCustomerStore, type PublicStore } from "../lib/customerStore";
 
 /** Chọn chi nhánh cho khách (ẩn khi chuỗi chỉ có 1 chi nhánh). Đang ngồi bàn thì chỉ hiển thị. */
 export function StorePicker({ compact }: { compact?: boolean }) {
+  const { t } = useLang();
   const { store, stores, storeId, locked, setStore } = useCustomerStore();
   const [nearby, setNearby] = useState<PublicStore[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -13,7 +15,7 @@ export function StorePicker({ compact }: { compact?: boolean }) {
   if (stores.length <= 1 && !locked) return null;
 
   function findNearest() {
-    if (!navigator.geolocation) return setMsg("Trình duyệt không hỗ trợ định vị.");
+    if (!navigator.geolocation) return setMsg(t("Trình duyệt không hỗ trợ định vị."));
     setBusy(true);
     setMsg(null);
     navigator.geolocation.getCurrentPosition(
@@ -23,13 +25,13 @@ export function StorePicker({ compact }: { compact?: boolean }) {
           setNearby(list);
           if (list[0]) setStore(list[0].id);
         } catch {
-          setMsg("Không tải được danh sách chi nhánh.");
+          setMsg(t("Không tải được danh sách chi nhánh."));
         } finally {
           setBusy(false);
         }
       },
       () => {
-        setMsg("Không lấy được vị trí. Hãy chọn chi nhánh trong danh sách.");
+        setMsg(t("Không lấy được vị trí. Hãy chọn chi nhánh trong danh sách."));
         setBusy(false);
       },
       { enableHighAccuracy: false, timeout: 8000 },
@@ -41,7 +43,7 @@ export function StorePicker({ compact }: { compact?: boolean }) {
   if (locked && store) {
     return (
       <div className="store-picker" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.9rem", color: "var(--muted)" }}>
-        <Store size={16} aria-hidden /> Đang phục vụ tại <strong style={{ color: "var(--text)" }}>{store.name}</strong>
+        <Store size={16} aria-hidden /> {t("Đang phục vụ tại")} <strong style={{ color: "var(--text)" }}>{store.name}</strong>
       </div>
     );
   }
@@ -49,7 +51,7 @@ export function StorePicker({ compact }: { compact?: boolean }) {
   return (
     <div className="store-picker" style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: compact ? 0 : "1rem" }}>
       <label className="label" htmlFor="store-picker" style={{ display: "flex", alignItems: "center", gap: 6, margin: 0 }}>
-        <Store size={16} aria-hidden /> Chi nhánh đặt món
+        <Store size={16} aria-hidden /> {t("Chi nhánh đặt món")}
       </label>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <select
@@ -59,7 +61,7 @@ export function StorePicker({ compact }: { compact?: boolean }) {
           value={storeId ?? ""}
           onChange={(e) => e.target.value && setStore(Number(e.target.value))}
         >
-          <option value="">Chọn chi nhánh…</option>
+          <option value="">{t("Chọn chi nhánh…")}</option>
           {stores.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
@@ -68,7 +70,7 @@ export function StorePicker({ compact }: { compact?: boolean }) {
           ))}
         </select>
         <button type="button" className="btn btn-ghost" onClick={findNearest} disabled={busy} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-          <MapPin size={16} aria-hidden /> {busy ? "Đang tìm…" : "Gần tôi"}
+          <MapPin size={16} aria-hidden /> {busy ? t("Đang tìm…") : t("Gần tôi")}
         </button>
       </div>
       {store?.address && <span className="subtle" style={{ fontSize: "0.8rem" }}>{store.address}{store.openTime && store.closeTime ? ` · ${store.openTime}–${store.closeTime}` : ""}</span>}

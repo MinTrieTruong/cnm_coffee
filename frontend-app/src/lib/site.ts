@@ -8,6 +8,7 @@ export type SiteInfo = {
   hotline: { value: string; display: string; href: string };
   stores: SiteStore[];
   socials: { id: number; type: "ZALO" | "MESSENGER" | "CUSTOM"; label: string; icon: string | null; href: string }[];
+  theme: import("./siteTheme").SiteTheme;
 };
 
 /* Bộ nhớ đệm theo chi nhánh: header, footer, trang chủ dùng chung 1 lần gọi */

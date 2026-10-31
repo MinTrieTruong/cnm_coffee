@@ -14,3 +14,9 @@ Theo `md/prompt-giao-dien-khach.md`. Nhánh `feat/chain-stores`.
 - "Mô tả sản phẩm": bảng `Product` chưa có cột mô tả — đang ghép từ nhóm, bảng giá theo size và nhãn.
 - OrderGrace, GamePlay, PopupHost, BottomNav mới chỉ nhận màu/font qua token, chưa viết lại bố cục.
 - Một số ảnh món trong dữ liệu mẫu bị lỗi đường dẫn → hiện khối kem tên món (đúng thiết kế, nhưng nên sửa dữ liệu).
+
+## Sáng/tối, màu tuỳ chỉnh, song ngữ
+- Màu: `StoreSettings.siteTheme` (JSON) + `PATCH /api/admin/site-theme`; màn **Website › Giao diện** (5 bộ màu gợi ý, tự chọn màu chủ đạo/nhấn, xem trước sáng + tối, mặc định sáng/tối/theo máy, bật/tắt nút cho khách). `lib/siteTheme.ts` tính toàn bộ biến màu từ 2 màu và tự chỉnh để chữ ≥ 4.5:1 ở cả hai chế độ.
+- Tối: nền trung tính trong `customer-tokens.css` (`:root[data-c-mode="dark"] .c-site`), script đầu `index.html` đặt chế độ trước khi vẽ (không chớp).
+- Song ngữ: `lib/i18n.ts` + `lib/i18n-en.ts` (khoá = câu tiếng Việt, thiếu bản dịch thì hiện tiếng Việt). Đã dịch: header, footer, thanh đáy, trang chủ, thực đơn, chi tiết món, giỏ hàng, khuyến mãi, tin tức, cửa hàng, liên hệ, đăng nhập/đăng ký, chọn chi nhánh.
+- Chưa dịch: Tài khoản, Thanh toán, Theo dõi đơn, Ân hạn, Mini game, pop up, nội dung trang chính sách. Dữ liệu từ CSDL (tên món, danh mục, banner, bài viết, mô tả voucher) vẫn tiếng Việt — muốn dịch cần thêm cột tiếng Anh.

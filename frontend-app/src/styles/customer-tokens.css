@@ -20,6 +20,9 @@
   --c-rule-strong: #b3a690;
   --c-on-primary: #fffdf8;
   --c-danger: #a8321c;       /* lỗi / hết hàng — 6:1 trên giấy */
+  --c-ok: #2f6b2f;           /* còn hàng / ưu đãi đạt */
+  --c-on-accent: #1d2423;    /* chữ trên nền màu nhấn (tem) */
+  --c-strip: #6b4e33;        /* nền dải mini game — chữ trắng 7:1, giữ nguyên ở chế độ tối */
   --c-footer: #14363b;       /* xanh đêm */
   --c-on-footer: #efe7d8;
 
@@ -32,6 +35,27 @@
   --c-radius: 4px;
   --c-radius-md: 6px;
   --c-wrap: 1240px;
+}
+
+/*
+ * CHẾ ĐỘ TỐI: chỉ nền trung tính ở đây; màu chủ đạo / nhấn / footer do lib/siteTheme.ts
+ * tính từ màu chủ chuỗi chọn (đảm bảo tương phản ≥ 4.5:1) và gắn lên .c-site.
+ * Thuộc tính data-c-mode đặt trên <html> (script đầu index.html → không chớp màu khi tải).
+ */
+:root[data-c-mode="dark"] .c-site {
+  color-scheme: dark;
+  --c-paper: #141a1a;
+  --c-paper-2: #212b2b;
+  --c-surface: #1b2323;
+  --c-ink: #ece6da;          /* 14:1 trên nền */
+  --c-ink-2: #c9c2b5;
+  --c-muted: #a8a194;        /* 7:1 */
+  --c-coffee: #d2b48c;       /* tông nâu sữa cho chữ phụ nghiêng */
+  --c-rule: #2f3b3b;
+  --c-rule-strong: #4a5959;
+  --c-danger: #f2957d;
+  --c-ok: #8fd19a;
+  --c-on-footer: #e6dfd2;
 }
 
 /*

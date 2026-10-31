@@ -7,6 +7,7 @@ import { ReviewList } from "../components/ReviewList";
 import { useCustomerStore } from "../lib/customerStore";
 import { logMenuSearch } from "../lib/searchLog";
 import { formatVnd } from "../lib/site";
+import { useLang } from "../lib/i18n";
 import { Crumbs, ProductCard, SectionHead, listPrice } from "../components/site/parts";
 
 type FilterState = { search: string; categoryId: number | "all"; minPrice: string; maxPrice: string; tags: string[] };
@@ -73,6 +74,7 @@ function PaperGroup({ name, list, query }: { name: string; list: Product[]; quer
 }
 
 export function Menu() {
+  const { t } = useLang();
   const [data, setData] = useState<MenuResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [view, setView] = useState<View>(readView);
@@ -128,7 +130,7 @@ export function Menu() {
           setErr(null);
         }
       })
-      .catch((e) => !cancelled && setErr(e instanceof Error ? e.message : "Lỗi tải menu"));
+      .catch((e) => !cancelled && setErr(e instanceof Error ? e.message : t("Lỗi tải menu")));
     return () => {
       cancelled = true;
     };
@@ -175,15 +177,15 @@ export function Menu() {
       <Crumbs items={[{ to: "/menu", label: "Thực đơn" }, ...(current ? [{ label: current.name }] : [])]} />
       <div className="c-menu-head">
         <h1 className="c-sec-title">
-          {current?.name ?? "Thực đơn"}
-          <span className="c-sec-sub">— {takeawaySid ? "đơn mang về" : tableId ? `bạn đang ngồi ${tableName ?? `bàn #${tableId}`}` : "chọn món, quán pha liền tay"}</span>
+          {current?.name ?? t("Thực đơn")}
+          <span className="c-sec-sub">— {takeawaySid ? t("đơn mang về") : tableId ? t("bạn đang ngồi {table}", { table: tableName ?? `#${tableId}` }) : t("chọn món, quán pha liền tay")}</span>
         </h1>
       </div>
 
       {/* Bộ lọc ngang, dính dưới thanh điều hướng */}
-      <div className="c-filter" role="search" aria-label="Lọc thực đơn">
+      <div className="c-filter" role="search" aria-label={t("Lọc thực đơn")}>
         <div className="c-filter-cats">
-          <button type="button" className={filters.categoryId === "all" ? "is-on" : undefined} aria-pressed={filters.categoryId === "all"} onClick={() => pickCategory("all")}>Tất cả</button>
+          <button type="button" className={filters.categoryId === "all" ? "is-on" : undefined} aria-pressed={filters.categoryId === "all"} onClick={() => pickCategory("all")}>{t("Tất cả")}</button>
           {roots.map((c) => (
             <button key={c.id} type="button" className={activeRoot?.id === c.id ? "is-on" : undefined} aria-pressed={activeRoot?.id === c.id} onClick={() => pickCategory(c.id)}>
               {c.name}
@@ -192,7 +194,7 @@ export function Menu() {
         </div>
         {children.length > 0 && (
           <div className="c-filter-subs">
-            <button type="button" className={current?.id === activeRoot?.id ? "is-on" : undefined} onClick={() => activeRoot && pickCategory(activeRoot.id)}>Tất cả {activeRoot?.name.toLowerCase()}</button>
+            <button type="button" className={current?.id === activeRoot?.id ? "is-on" : undefined} onClick={() => activeRoot && pickCategory(activeRoot.id)}>{t("Tất cả {name}", { name: activeRoot?.name.toLowerCase() ?? "" })}</button>
             {children.map((c) => (
               <button key={c.id} type="button" className={current?.id === c.id ? "is-on" : undefined} aria-pressed={current?.id === c.id} onClick={() => pickCategory(c.id)}>{c.name}</button>
             ))}
@@ -201,14 +203,14 @@ export function Menu() {
         <div className="c-filter-row">
           <label className="c-menu-search">
             <Search size={18} aria-hidden />
-            <span className="c-sr">Tìm món</span>
-            <input value={filters.search} onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))} placeholder="Tìm theo tên món" />
+            <span className="c-sr">{t("Tìm món")}</span>
+            <input value={filters.search} onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))} placeholder={t("Tìm theo tên món")} />
             {filters.search && (
-              <button type="button" onClick={() => setFilters((f) => ({ ...f, search: "" }))} aria-label="Xóa từ khóa"><X size={16} aria-hidden /></button>
+              <button type="button" onClick={() => setFilters((f) => ({ ...f, search: "" }))} aria-label={t("Xóa từ khóa")}><X size={16} aria-hidden /></button>
             )}
           </label>
           <label className="c-filter-sel">
-            <span className="c-sr">Mức giá</span>
+            <span className="c-sr">{t("Mức giá")}</span>
             <select
               className="c-input"
               value={priceKey}
@@ -217,28 +219,28 @@ export function Menu() {
                 setFilters((f) => ({ ...f, minPrice: r?.min ?? "", maxPrice: r?.max ?? "" }));
               }}
             >
-              <option value={-1}>Mọi mức giá</option>
-              {PRICES.map((r, i) => <option key={r.label} value={i}>{r.label}</option>)}
+              <option value={-1}>{t("Mọi mức giá")}</option>
+              {PRICES.map((r, i) => <option key={r.label} value={i}>{t(r.label)}</option>)}
             </select>
           </label>
           <label className="c-filter-sel">
-            <span className="c-sr">Kiểu món</span>
+            <span className="c-sr">{t("Kiểu món")}</span>
             <select className="c-input" value={filters.tags[0] ?? ""} onChange={(e) => setFilters((f) => ({ ...f, tags: e.target.value ? [e.target.value] : [] }))}>
-              <option value="">Mọi kiểu món</option>
-              {TAGS.map((t) => <option key={t} value={t}>{TAG_LABEL[t]}</option>)}
+              <option value="">{t("Mọi kiểu món")}</option>
+              {TAGS.map((tag) => <option key={tag} value={tag}>{t(TAG_LABEL[tag])}</option>)}
             </select>
           </label>
-          {hasFilter && <button type="button" className="c-linkish c-filter-clear" onClick={clearAll}>Bỏ lọc</button>}
-          <div className="c-seg" role="group" aria-label="Kiểu xem">
-            <button type="button" className={view === "grid" ? "is-on" : undefined} aria-pressed={view === "grid"} onClick={() => changeView("grid")}>Lưới ảnh</button>
-            <button type="button" className={view === "paper" ? "is-on" : undefined} aria-pressed={view === "paper"} onClick={() => changeView("paper")}>Menu giấy</button>
+          {hasFilter && <button type="button" className="c-linkish c-filter-clear" onClick={clearAll}>{t("Bỏ lọc")}</button>}
+          <div className="c-seg" role="group" aria-label={t("Kiểu xem")}>
+            <button type="button" className={view === "grid" ? "is-on" : undefined} aria-pressed={view === "grid"} onClick={() => changeView("grid")}>{t("Lưới ảnh")}</button>
+            <button type="button" className={view === "paper" ? "is-on" : undefined} aria-pressed={view === "paper"} onClick={() => changeView("paper")}>{t("Menu giấy")}</button>
           </div>
         </div>
       </div>
 
       {err && <p className="c-err">{err}</p>}
-      {!data && !err && <p className="c-muted-txt">Đang tải thực đơn…</p>}
-      {data && hasFilter && <p className="c-muted-txt c-menu-count">{total === 0 ? "Không có món nào khớp bộ lọc." : `${total} món`}</p>}
+      {!data && !err && <p className="c-muted-txt">{t("Đang tải thực đơn…")}</p>}
+      {data && hasFilter && <p className="c-muted-txt c-menu-count">{total === 0 ? t("Không có món nào khớp bộ lọc.") : t("{n} món", { n: total })}</p>}
 
       {data && !hasFilter && data.favorites.length > 0 && view === "grid" && (
         <section className="c-menu-group">
@@ -250,7 +252,7 @@ export function Menu() {
       {data && view === "grid" &&
         groups.map((c) => (
           <section key={c.id} className="c-menu-group" id={`cat-${c.id}`}>
-            <SectionHead title={c.name} sub={`${c.list.length} món`} />
+            <SectionHead title={c.name} sub={t("{n} món", { n: c.list.length })} />
             <div className="c-grid">
               {c.list.map((p) => <ProductCard key={p.id} p={p} line={catName.get(p.categoryId)} />)}
             </div>
@@ -259,9 +261,9 @@ export function Menu() {
 
       {data && view === "paper" && groups.length > 0 && (
         <div className="c-paper">
-          <p className="c-paper-title">TD Coffee<span>— thực đơn treo tường</span></p>
+          <p className="c-paper-title">TD Coffee<span>— {t("thực đơn treo tường")}</span></p>
           <div className="c-paper-cols">{groups.map((c) => <PaperGroup key={c.id} name={c.name} list={c.list} query={query} />)}</div>
-          <p className="c-paper-note">Giá size M. Size S/L và tuỳ chọn đá, đường chọn ở trang món.</p>
+          <p className="c-paper-note">{t("Giá size M. Size S/L và tuỳ chọn đá, đường chọn ở trang món.")}</p>
         </div>
       )}
 
