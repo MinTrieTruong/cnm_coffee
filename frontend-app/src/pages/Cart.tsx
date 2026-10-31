@@ -203,7 +203,7 @@ export function Cart() {
   ];
 
   return (
-    <div className="c-wrap c-cart">
+    <div className="c-wrap c-cartpage">
       <Crumbs items={[{ label: "Giỏ hàng" }]} />
       <SectionHead as="h1" title="Giỏ hàng" sub={`${items.reduce((a, it) => a + it.quantity, 0)} món đang chọn`} more={{ to: "/menu", label: "Chọn thêm món" }} />
 
