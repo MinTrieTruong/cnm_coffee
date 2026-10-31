@@ -123,7 +123,8 @@ export function ProductDetail() {
   const unitPrice = off(p, basePrice);
   const hasDiscount = unitPrice < basePrice;
   const soldOut = !!p.outOfStock || !p.isActive;
-  const tags = tagList(p.tags);
+  // Nhãn lưu kèm emoji ("🔥 Best Seller") — chỉ hiện phần chữ
+  const tags = tagList(p.tags).map((t) => t.replace(/^[^\p{L}\p{N}]+/u, "").trim()).filter(Boolean);
 
   function add() {
     if (!p) return;
