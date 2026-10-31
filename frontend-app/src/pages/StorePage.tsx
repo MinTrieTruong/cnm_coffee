@@ -1,296 +1,79 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../lib/api";
+import { api, mediaUrl } from "../lib/api";
 import { ReviewList } from "../components/ReviewList";
-import { motion } from "framer-motion";
-import { Swiper, SwiperSlide } from "swiper/react";
-import { Autoplay } from "swiper/modules";
-import "swiper/css";
-import { Coffee, Leaf, MapPin, CalendarDays, ArrowRight, Clock, Phone } from "lucide-react";
-import type { PublicStore } from "../lib/customerStore";
+import { useSiteInfo, type SiteStore } from "../lib/site";
+import { Crumbs, SectionHead } from "../components/site/parts";
 
-const STORE = {
-  name: "TD Coffee",
-  tagline: "Cà phê tươi, phục vụ tận tâm",
-  description:
-    "TD Coffee là không gian cà phê ấm cúng tại trung tâm thành phố — nơi mỗi tách cà phê được pha chế tỉ mỉ từ hạt Robusta và Arabica chọn lọc. Chúng tôi tin rằng một buổi sáng tốt lành bắt đầu từ một tách cà phê ngon.",
-  address: "123 Đường Cà Phê, Quận 1, TP.HCM",
-  phone: "0389 730 361",
-  email: "hello@tdcoffee.vn",
-};
+const hm = (t: string | null) => (t ? t.slice(0, 5) : null);
 
+/** Về chúng tôi / Cửa hàng: giới thiệu (Website › Thông tin công ty), ảnh không gian quán, danh sách chi nhánh, đánh giá */
 export function StorePage() {
+  const info = useSiteInfo();
   const [gallery, setGallery] = useState<string[]>([]);
-  const [posts, setPosts] = useState<any[]>([]);
-  const [stores, setStores] = useState<PublicStore[]>([]);
-
   useEffect(() => {
-    api<string[]>("/api/posts/gallery")
-      .then((data) => setGallery(data))
-      .catch(() => {});
-    api<any[]>("/api/posts")
-      .then((data) => setPosts(data))
-      .catch(() => {});
-    api<PublicStore[]>("/api/stores")
-      .then(setStores)
-      .catch(() => {});
+    api<string[]>("/api/posts/gallery").then(setGallery).catch(() => setGallery([]));
   }, []);
+  const stores: SiteStore[] = info?.stores ?? [];
 
   return (
-    <div style={{ background: "var(--bg)", color: "var(--text)", minHeight: "100vh", overflowX: "hidden" }}>
-      {/* HEADER COVER */}
-      <section style={{ position: "relative", height: "75vh", minHeight: "500px", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-        <div style={{ 
-          position: "absolute", inset: 0, 
-          backgroundImage: 'url("https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&q=80&w=1920")', 
-          backgroundSize: "cover", backgroundPosition: "center", 
-          filter: "none" 
-        }} />
-        <div style={{
-          position: "absolute", inset: 0,
-          background: "linear-gradient(180deg, rgba(28,25,23,0.55) 0%, rgba(28,25,23,0.75) 100%)"
-        }} />
-        <motion.div 
-          initial={{ opacity: 0, y: 30 }} 
-          animate={{ opacity: 1, y: 0 }} 
-          transition={{ duration: 1.2, ease: "easeOut" }}
-          style={{ position: "relative", zIndex: 1, textAlign: "center", padding: "0 1.5rem" }}
-        >
-          <h1 style={{ 
-            fontFamily: "var(--font-display)", fontSize: "clamp(2.5rem, 6vw, 5rem)", 
-            fontWeight: 800, margin: "0 0 1rem", color: "#fff", 
-            letterSpacing: "0.02em" 
-          }}>
-            Câu chuyện của TD Coffee
-          </h1>
-          <p style={{ 
-            fontSize: "clamp(1.1rem, 2vw, 1.3rem)", color: "rgba(255,255,255,0.92)", 
-            maxWidth: 600, margin: "0 auto 2.5rem", lineHeight: 1.6 
-          }}>
-            {STORE.tagline}
-          </p>
-          <Link to="/menu" className="btn btn-primary" style={{ 
-            padding: "0.9rem 2.5rem", fontSize: "1.05rem", borderRadius: "999px", 
-            textTransform: "uppercase", letterSpacing: "0.05em", 
-            boxShadow: "0 8px 24px rgba(146,64,14,0.25)" 
-          }}>
-            Khám phá thực đơn
-          </Link>
-        </motion.div>
-      </section>
-
-      {/* OUR STORY */}
-      <section style={{ padding: "6rem 1.5rem", maxWidth: 1100, margin: "0 auto" }}>
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "4rem" }}>
-          <motion.div 
-            initial={{ opacity: 0, x: -40 }} 
-            whileInView={{ opacity: 1, x: 0 }} 
-            viewport={{ once: true, margin: "-100px" }}
-            transition={{ duration: 0.8, ease: "easeOut" }}
-            style={{ flex: "1 1 400px" }}
-          >
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "2.4rem", color: "var(--accent)", marginBottom: "1.5rem", lineHeight: 1.2 }}>Hành trình của hương vị</h2>
-            <p style={{ fontSize: "1.05rem", lineHeight: 1.8, color: "var(--text)", marginBottom: "1.5rem" }}>
-              Bắt đầu từ một góc phố nhỏ, TD Coffee mang theo đam mê bất tận với hạt cà phê Việt. Chúng tôi lựa chọn kỹ lưỡng những hạt cà phê Arabica và Robusta hảo hạng nhất từ vùng cao nguyên Đắk Lắk.
-            </p>
-            <p style={{ fontSize: "1.05rem", lineHeight: 1.8, color: "var(--text)" }}>
-              {STORE.description}
-            </p>
-          </motion.div>
-          <motion.div 
-            initial={{ opacity: 0, x: 40 }} 
-            whileInView={{ opacity: 1, x: 0 }} 
-            viewport={{ once: true, margin: "-100px" }}
-            transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
-            style={{ flex: "1 1 400px", position: "relative" }}
-          >
-            <div style={{ position: "relative", borderRadius: "24px", overflow: "hidden", boxShadow: "var(--shadow-lg)", aspectRatio: "4/5" }}>
-              <img src="https://images.unsplash.com/photo-1497935586351-b67a49e012bf?auto=format&fit=crop&q=80&w=800" alt="Coffee brewing" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-              <div style={{ position: "absolute", inset: 0, border: "1px solid var(--border)", borderRadius: "24px", pointerEvents: "none" }} />
-            </div>
-            <div style={{ position: "absolute", bottom: "-2rem", left: "-2rem", width: "200px", height: "200px", background: "var(--accent)", borderRadius: "50%", filter: "blur(100px)", opacity: 0.15, zIndex: -1 }} />
-          </motion.div>
-        </div>
-      </section>
-
-      {/* CORE VALUES */}
-      <section style={{ padding: "6rem 1.5rem", background: "var(--surface2)", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-          <motion.div 
-            initial={{ opacity: 0, y: 30 }} 
-            whileInView={{ opacity: 1, y: 0 }} 
-            viewport={{ once: true }}
-            transition={{ duration: 0.8 }}
-            style={{ textAlign: "center", marginBottom: "4rem" }}
-          >
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "2.4rem", color: "var(--accent)", margin: 0 }}>Giá trị cốt lõi</h2>
-            <div style={{ width: 80, height: 2, background: "var(--accent)", margin: "1.5rem auto 0", opacity: 0.5 }} />
-          </motion.div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "3.5rem" }}>
-            {[
-              { icon: Coffee, title: "Cà phê đặc sản", desc: "Sử dụng 100% hạt cà phê nguyên chất, rang mộc, giữ trọn vẹn hương vị tinh túy nhất." },
-              { icon: Leaf, title: "Nguyên liệu tự nhiên", desc: "Nguồn nguyên liệu sạch, không chất bảo quản, an toàn tuyệt đối cho sức khỏe khách hàng." },
-              { icon: MapPin, title: "Không gian kết nối", desc: "Thiết kế mở, hiện đại mang lại cảm giác thoải mái cho những buổi hẹn hò hay làm việc." }
-            ].map((val, idx) => (
-              <motion.div 
-                key={val.title}
-                initial={{ opacity: 0, y: 30 }} 
-                whileInView={{ opacity: 1, y: 0 }} 
-                viewport={{ once: true }}
-                transition={{ duration: 0.6, delay: idx * 0.15 }}
-                style={{ textAlign: "center", padding: "1rem" }}
-              >
-                <div style={{ width: 72, height: 72, margin: "0 auto 1.5rem", borderRadius: "50%", background: "linear-gradient(135deg, rgba(146,64,14,0.15) 0%, rgba(146,64,14,0.05) 100%)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent)", border: "1px solid rgba(146,64,14,0.2)" }}>
-                  <val.icon size={32} strokeWidth={1.2} />
-                </div>
-                <h3 style={{ fontSize: "1.25rem", fontWeight: 600, color: "#fff", margin: "0 0 1rem", fontFamily: "var(--font-display)" }}>{val.title}</h3>
-                <p style={{ fontSize: "0.95rem", lineHeight: 1.6, color: "var(--muted)", margin: 0 }}>{val.desc}</p>
-              </motion.div>
-            ))}
+    <div className="c-wrap c-about">
+      <Crumbs items={[{ label: "Cửa hàng" }]} />
+      <section className="c-about-intro">
+        <div>
+          <SectionHead as="h1" title={info?.company.name ?? "TD Coffee"} sub="cà phê Sài Gòn, pha phin mỗi sáng" />
+          {info?.company.intro && <p className="c-about-lead">{info.company.intro}</p>}
+          {info && (
+            <dl className="c-about-facts">
+              <div><dt>Chi nhánh</dt><dd>{stores.length}</dd></div>
+              <div><dt>Mở cửa</dt><dd>{info.company.hours}</dd></div>
+              <div><dt>Hotline</dt><dd><a href={info.hotline.href}>{info.hotline.display}</a></dd></div>
+            </dl>
+          )}
+          <div className="c-about-cta">
+            <Link to="/menu" className="c-btn">Xem thực đơn</Link>
+            <Link to="/contact" className="c-btn is-outline">Bản đồ chi nhánh</Link>
           </div>
         </div>
+        {gallery[0] && (
+          <div className="c-about-img">
+            <img src={mediaUrl(gallery[0])} alt="Không gian quán TD Coffee" loading="lazy" />
+          </div>
+        )}
       </section>
 
-      {/* CHI NHÁNH */}
       {stores.length > 0 && (
-        <section style={{ padding: "6rem 1.5rem", maxWidth: 1100, margin: "0 auto" }}>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "2.4rem", color: "var(--accent)", margin: "0 0 2rem", textAlign: "center" }}>
-            {stores.length > 1 ? `${stores.length} chi nhánh` : "Địa chỉ quán"}
-          </h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))", gap: "1.25rem" }}>
+        <section className="c-sec">
+          <SectionHead title={stores.length > 1 ? "Hệ thống cửa hàng" : "Địa chỉ quán"} sub={`${stores.length} điểm, ghé là có chỗ`} more={{ to: "/contact", label: "Xem bản đồ" }} />
+          <div className="c-store-cards">
             {stores.map((s) => (
-              <div key={s.id} className="card" style={{ padding: "1.25rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                <strong style={{ fontSize: "1.1rem" }}>{s.name}</strong>
-                {s.address && (
-                  <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ display: "flex", gap: 6, color: "var(--muted)", textDecoration: "none" }}
-                  >
-                    <MapPin size={16} style={{ flexShrink: 0, marginTop: 2 }} aria-hidden /> {s.address}
-                  </a>
-                )}
-                {s.openTime && s.closeTime && (
-                  <span style={{ display: "flex", gap: 6, color: "var(--muted)" }}>
-                    <Clock size={16} aria-hidden /> {s.openTime} – {s.closeTime}
-                  </span>
-                )}
-                {s.phone && (
-                  <a href={`tel:${s.phone}`} style={{ display: "flex", gap: 6, color: "var(--muted)", textDecoration: "none" }}>
-                    <Phone size={16} aria-hidden /> {s.phone}
-                  </a>
-                )}
-              </div>
+              <article key={s.id} className="c-store-card">
+                <h3>{s.name}</h3>
+                {s.address && <p>{s.address}</p>}
+                {hm(s.openTime) && hm(s.closeTime) && <p className="c-muted-txt">Mở cửa {hm(s.openTime)} – {hm(s.closeTime)}</p>}
+                <p className="c-store-card-links">
+                  {s.phone && <a href={`tel:${s.phone}`}>{s.phone}</a>}
+                  <a href={`https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}`} target="_blank" rel="noopener noreferrer">Chỉ đường →</a>
+                </p>
+              </article>
             ))}
           </div>
         </section>
       )}
 
-      {/* GALLERY */}
-      {gallery.length > 0 && (
-        <section style={{ padding: "6rem 0", overflow: "hidden" }}>
-          <motion.div 
-            initial={{ opacity: 0 }} 
-            whileInView={{ opacity: 1 }} 
-            viewport={{ once: true }}
-            transition={{ duration: 0.8 }}
-            style={{ textAlign: "center", marginBottom: "3rem", padding: "0 1.5rem" }}
-          >
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "2.4rem", color: "var(--accent)", margin: 0 }}>Không gian quán</h2>
-            <p style={{ fontSize: "1.05rem", color: "var(--muted)", marginTop: "0.75rem" }}>Trải nghiệm góc nhỏ bình yên giữa lòng thành phố</p>
-          </motion.div>
-          <Swiper
-            modules={[Autoplay]}
-            spaceBetween={32}
-            slidesPerView={1.2}
-            centeredSlides={true}
-            loop={true}
-            autoplay={{ delay: 3500, disableOnInteraction: false }}
-            breakpoints={{
-              640: { slidesPerView: 2 },
-              1024: { slidesPerView: 3 },
-            }}
-            style={{ paddingBottom: "2rem" }}
-          >
-            {gallery.map((url, i) => (
-              <SwiperSlide key={i}>
-                <div style={{ borderRadius: "20px", overflow: "hidden", aspectRatio: "16/10", boxShadow: "var(--shadow-lg)" }}>
-                  <img src={url} alt={`Gallery ${i}`} style={{ width: "100%", height: "100%", objectFit: "cover", transition: "transform 0.5s" }} onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.05)"} onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"} />
-                </div>
-              </SwiperSlide>
+      {gallery.length > 1 && (
+        <section className="c-sec">
+          <SectionHead title="Không gian quán" sub="góc ngồi quen của khách" />
+          <div className="c-gallery">
+            {gallery.slice(0, 8).map((url, i) => (
+              <span key={url + i} className="c-gallery-item"><img src={mediaUrl(url)} alt={`Không gian quán ${i + 1}`} loading="lazy" /></span>
             ))}
-          </Swiper>
-        </section>
-      )}
-
-      {/* POSTS / NEWS */}
-      {posts.length > 0 && (
-        <section style={{ padding: "6rem 1.5rem", background: "var(--surface2)", borderTop: "1px solid var(--border)" }}>
-          <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-            <motion.div 
-              initial={{ opacity: 0, y: 30 }} 
-              whileInView={{ opacity: 1, y: 0 }} 
-              viewport={{ once: true }}
-              transition={{ duration: 0.8 }}
-              style={{ textAlign: "center", marginBottom: "4rem" }}
-            >
-              <h2 style={{ fontFamily: "var(--font-body)", fontWeight: 800, fontSize: "2.4rem", color: "var(--accent)", margin: 0 }}>Tin tức & Khuyến mãi</h2>
-              <div style={{ width: 80, height: 2, background: "var(--accent)", margin: "1.5rem auto 0", opacity: 0.5 }} />
-            </motion.div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "2.5rem" }}>
-              {posts.map((post, idx) => (
-                <motion.div
-                  key={post.id}
-                  initial={{ opacity: 0, y: 30 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.6, delay: idx * 0.1 }}
-                  style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "20px", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "var(--shadow-lg)" }}
-                >
-                  {post.imageUrl && (
-                    <div style={{ aspectRatio: "16/9", overflow: "hidden" }}>
-                      <img src={post.imageUrl} alt={post.title} style={{ width: "100%", height: "100%", objectFit: "cover", transition: "transform 0.5s ease" }} onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.05)"} onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"} />
-                    </div>
-                  )}
-                  <div style={{ padding: "1.75rem", flex: 1, display: "flex", flexDirection: "column" }}>
-                    {post.pinned && (
-                      <span style={{ display: "inline-block", padding: "0.25rem 0.75rem", background: "rgba(146,64,14,0.15)", color: "var(--accent)", borderRadius: "99px", fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "1rem", alignSelf: "flex-start" }}>Ghim</span>
-                    )}
-                    <h3 style={{ fontFamily: "var(--font-body)", fontWeight: 700, fontSize: "1.35rem", margin: "0 0 0.75rem", color: "#fff", lineHeight: 1.35 }}>{post.title}</h3>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: "var(--muted)", fontSize: "0.85rem", marginBottom: "1.25rem" }}>
-                      <CalendarDays size={14} />
-                      <span>{new Date(post.createdAt).toLocaleDateString("vi-VN")}</span>
-                    </div>
-                    <p style={{ color: "var(--text)", fontSize: "0.95rem", lineHeight: 1.6, margin: "0 0 1.5rem", flex: 1, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden", whiteSpace: "pre-wrap" }}>
-                      {post.body.replace(/<[^>]+>/g, '')}
-                    </p>
-                    <Link to={`/blog/${post.id}`} style={{ color: "var(--accent)", fontWeight: 600, fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", textDecoration: "none" }}>
-                      Xem thêm <ArrowRight size={16} />
-                    </Link>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
           </div>
         </section>
       )}
 
-      {/* TESTIMONIALS */}
-      <section style={{ padding: "5rem 1.5rem 8rem", background: "linear-gradient(180deg, var(--bg) 0%, #110d0a 100%)" }}>
-        <div style={{ maxWidth: 800, margin: "0 auto" }}>
-          <motion.div
-            initial={{ opacity: 0, y: 30 }} 
-            whileInView={{ opacity: 1, y: 0 }} 
-            viewport={{ once: true }}
-            transition={{ duration: 0.8 }}
-          >
-            {/* The ReviewList already has its own title logic, but we can wrap it or pass props */}
-            <ReviewList title="Khách hàng nói gì về chúng tôi?" titleSize="2rem" />
-          </motion.div>
-        </div>
+      <section className="c-sec">
+        <ReviewList title="Khách nói gì về quán" />
       </section>
     </div>
   );
