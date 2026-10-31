@@ -67,7 +67,11 @@ export function reviewsRouter(prisma: PrismaClient) {
       where: { hidden: false },
       orderBy: { createdAt: "desc" },
       take: 50,
-      include: { customer: { select: { fullName: true } } },
+      // Danh sách công khai: chỉ trường hiển thị + tên, ảnh đại diện — không trả SĐT/email hay mã nội bộ của khách khác
+      select: {
+        id: true, rating: true, comment: true, imageUrl: true, adminReply: true, createdAt: true,
+        customer: { select: { fullName: true, avatarUrl: true } },
+      },
     });
     res.json(rows);
   });

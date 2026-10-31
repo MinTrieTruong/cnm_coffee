@@ -116,7 +116,7 @@ export function BottomNav({
             return (
               <Link key={i.id} to={i.to} className={on ? "bn-item active" : "bn-item"} aria-current={on ? "page" : undefined}>
                 <span className="bn-icon">
-                  <Icon size={22} aria-hidden />
+                  {i.iconNode ?? <Icon size={22} aria-hidden />}
                   <Badge n={i.badge ? badges[i.badge] : undefined} />
                 </span>
                 <span className="bn-label">{i.short}</span>

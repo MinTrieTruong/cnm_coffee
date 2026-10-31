@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 const TOKEN_KEY = "cmn_token";
 const USER_KEY = "cmn_user";
 const GUEST_KEY = "cmn_guest";
@@ -30,10 +31,15 @@ export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
+/** Sự kiện báo phiên khách đổi (đăng nhập, đăng xuất, đổi tên / ảnh đại diện) → header, chat, đánh giá cập nhật ngay */
+export const SESSION_EVENT = "cmn:session";
+const emitSession = () => window.dispatchEvent(new Event(SESSION_EVENT));
+
 export function setSession(token: string, user: SessionUser) {
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
   localStorage.removeItem(GUEST_KEY);
+  emitSession();
 }
 
 /** Cập nhật điểm / hạng sau khi gọi API (ví dụ GET /api/auth/me). */
@@ -42,12 +48,14 @@ export function mergeSessionUser(updates: Partial<SessionUser>) {
   const u = getUser();
   if (!t || !u) return;
   localStorage.setItem(USER_KEY, JSON.stringify({ ...u, ...updates }));
+  emitSession();
 }
 
 export function clearSession() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
   localStorage.removeItem(GUEST_KEY);
+  emitSession();
 }
 
 export function getUser(): SessionUser | null {
@@ -64,6 +72,31 @@ export function setGuestMode() {
   localStorage.setItem(GUEST_KEY, "1");
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  emitSession();
+}
+
+/* Ảnh chụp phiên ổn định cho useSyncExternalStore: chỉ tạo object mới khi chuỗi lưu trữ đổi */
+let snapRaw: string | null | undefined;
+let snapUser: SessionUser | null = null;
+function sessionSnapshot(): SessionUser | null {
+  const raw = isGuestMode() ? null : localStorage.getItem(USER_KEY);
+  if (raw !== snapRaw) {
+    snapRaw = raw;
+    snapUser = raw ? getUser() : null;
+  }
+  return snapUser;
+}
+function subscribeSession(cb: () => void) {
+  window.addEventListener(SESSION_EVENT, cb);
+  window.addEventListener("storage", cb);
+  return () => {
+    window.removeEventListener(SESSION_EVENT, cb);
+    window.removeEventListener("storage", cb);
+  };
+}
+/** Khách đang đăng nhập (null = khách vãng lai), tự cập nhật khi phiên đổi */
+export function useSessionUser(): SessionUser | null {
+  return useSyncExternalStore(subscribeSession, sessionSnapshot, () => null);
 }
 
 export function isGuestMode(): boolean {

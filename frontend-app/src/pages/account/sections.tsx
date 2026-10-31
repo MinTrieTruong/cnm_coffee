@@ -7,6 +7,7 @@ import { formatVnd } from "../../lib/site";
 import { useLang } from "../../lib/i18n";
 import { PasswordInput } from "../../components/PasswordInput";
 import { MyGifts } from "../../modules/games/MyGifts";
+import { ReviewItem, type PublicReviewRow } from "../../components/site/ReviewItem";
 import { Pager, readImage, usePaged, voucherActive, type AccountData, type CustomerOrder, type MyVoucher, type PublicVoucher } from "./shared";
 
 type Msg = { text: string; ok: boolean } | null;
@@ -410,9 +411,9 @@ export function ReviewsSection({ data }: { data: AccountData }) {
 }
 
 /* ═══════════ Nhận xét chung ═══════════ */
-type ReviewRow = { id: number; rating: number; comment: string | null; imageUrl: string | null; adminReply: string | null; createdAt: string; customer: { fullName: string } };
+type ReviewRow = PublicReviewRow;
 export function FeedbackSection() {
-  const { t, date } = useLang();
+  const { t } = useLang();
   const [rows, setRows] = useState<ReviewRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
@@ -425,18 +426,7 @@ export function FeedbackSection() {
   return (
     <>
       <ul className="c-reviews c-acc-reviews">
-        {p.rows.map((r) => (
-          <li key={r.id} className="c-review">
-            <div className="c-review-head">
-              <strong>{r.customer.fullName}</strong>
-              <span className="c-review-stars" aria-label={t("{n} trên 5 sao", { n: r.rating })}>{"★".repeat(r.rating)}<span aria-hidden className="is-dim">{"★".repeat(5 - r.rating)}</span></span>
-              <time dateTime={r.createdAt}>{date(r.createdAt)}</time>
-            </div>
-            {r.comment && <p>{r.comment}</p>}
-            {r.imageUrl && <img src={mediaUrl(r.imageUrl)} alt={t("Ảnh khách gửi")} loading="lazy" className="c-review-img" />}
-            {r.adminReply && <p className="c-review-reply"><strong>TD Coffee:</strong> {r.adminReply}</p>}
-          </li>
-        ))}
+        {p.rows.map((r) => <ReviewItem key={r.id} r={r} />)}
       </ul>
       <Pager {...p} />
     </>

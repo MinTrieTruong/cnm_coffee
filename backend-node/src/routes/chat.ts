@@ -174,7 +174,9 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
     const s = await ownSession(req.params.id, req.query.key);
     if (!s) return res.status(404).json({ error: "Không tìm thấy phiên chat" });
     const session = await prisma.chatSession.findUnique({ where: { id: s.id }, include: withMessages });
-    res.json({ ...session, accessKey: undefined });
+    // Ảnh đại diện của chính chủ phiên (người giữ mã) — hiện cạnh tin của khách
+    const owner = session?.customerId ? await prisma.customer.findUnique({ where: { id: session.customerId }, select: { avatarUrl: true } }) : null;
+    res.json({ ...session, accessKey: undefined, customerAvatarUrl: owner?.avatarUrl ?? null });
   });
 
   /* POST /chat/messages/:id/react { key, emoji } — khách thả / đổi / bỏ cảm xúc */

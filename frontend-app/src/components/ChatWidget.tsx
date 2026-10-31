@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, type FormEvent } from "react";
 import { io, type Socket } from "socket.io-client";
-import { MessageCircle, X } from "lucide-react";
+import { AlertTriangle, MessageCircle, SendHorizontal, User, X } from "lucide-react";
 import { getTableId } from "../lib/session";
 import { getStoreId } from "../lib/customerStore";
 import { apiBase, apiOrigin } from "../lib/api";
-import { getToken } from "../lib/session";
+import { getToken, useSessionUser } from "../lib/session";
+import { CustomerAvatar } from "./CustomerAvatar";
+import { LogoMark } from "./LogoMark";
 import {
   applyReaction, EmojiPicker, ImageAttachButton, MessageImage, MessageReactions, PendingImage,
   type ChatMessage, type ChatReaction,
@@ -90,7 +92,10 @@ export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: bool
   const [category, setCategory] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const tableId = getTableId();
-  const guestName = getCustomerName();
+  const me = useSessionUser();
+  const guestName = me?.fullName ?? getCustomerName();
+  // Ảnh đại diện chủ phiên (API lịch sử) — dùng khi khách chưa đăng nhập trên máy này
+  const [ownerAvatar, setOwnerAvatar] = useState<Record<Mode, string | null>>({ chat: null, complaint: null });
 
   const setRef = (m: Mode, r: Ref | null) => {
     saveRef(m, r);
@@ -110,8 +115,9 @@ export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: bool
       }
       fetch(`${apiBase()}/api/chat/session/${r.id}?key=${encodeURIComponent(r.key)}`)
         .then((res) => (res.ok ? res.json() : Promise.reject()))
-        .then((data: SessionInfo & { messages: ChatMessage[] }) => {
+        .then((data: SessionInfo & { messages: ChatMessage[]; customerAvatarUrl?: string | null }) => {
           setThreads((p) => ({ ...p, [m]: data.messages }));
+          setOwnerAvatar((p) => ({ ...p, [m]: data.customerAvatarUrl ?? null }));
           setInfo((p) => ({ ...p, [m]: { status: data.status, kind: data.kind, category: data.category, complaintStatus: data.complaintStatus } }));
           getSocket().emit("join", roomOf(r));
         })
@@ -230,7 +236,7 @@ export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: bool
         </span>
       ) : (
         <button id="chat-fab-btn" type="button" className="chat-fab" onClick={handleToggle} aria-label="Chat hỗ trợ">
-          {open ? "✕" : "💬"}
+          {open ? <X size={22} aria-hidden /> : <MessageCircle size={24} aria-hidden />}
           {!open && hasNew && <span className="chat-fab-badge" />}
         </button>
       )}
@@ -238,12 +244,12 @@ export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: bool
       {open && (
         <div className="chat-panel card" id="chat-panel">
           <div className="chat-panel-header">
-            <span>💬 Hỗ trợ TD Coffee</span>
+            <span className="chat-panel-title"><MessageCircle size={18} aria-hidden /> Hỗ trợ TD Coffee</span>
             {tableId && <span className="chat-table-badge">Bàn {tableId}</span>}
           </div>
           <div className="cx-tabs" role="tablist">
-            <button type="button" role="tab" aria-selected={mode === "chat"} className={mode === "chat" ? "active" : ""} onClick={() => setMode("chat")}>💬 Chat</button>
-            <button type="button" role="tab" aria-selected={mode === "complaint"} className={mode === "complaint" ? "active" : ""} onClick={() => setMode("complaint")}>⚠️ Khiếu nại</button>
+            <button type="button" role="tab" aria-selected={mode === "chat"} className={mode === "chat" ? "active" : ""} onClick={() => setMode("chat")}><MessageCircle size={15} aria-hidden /> Chat</button>
+            <button type="button" role="tab" aria-selected={mode === "complaint"} className={mode === "complaint" ? "active" : ""} onClick={() => setMode("complaint")}><AlertTriangle size={15} aria-hidden /> Khiếu nại</button>
           </div>
 
           {mode === "complaint" && !showComplaintForm && complaintInfo && (
@@ -277,26 +283,55 @@ export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: bool
             <>
               <div className="chat-messages" id="chat-messages-list">
                 {thread.length === 0 && mode === "chat" && (
-                  <p className="chat-empty">Chào bạn! Cần hỗ trợ gì không? 😊<br />
+                  <p className="chat-empty">Chào bạn! Cần hỗ trợ gì không?<br />
                     <span className="subtle">Thử hỏi: pass wifi, nhà vệ sinh, giờ mở cửa…</span>
                   </p>
                 )}
-                {thread.map((msg) => (
-                  <div key={msg.id} className={`chat-msg chat-msg-${msg.sender}`}>
-                    {msg.sender !== "customer" && <div className="chat-msg-name">{msg.senderName}</div>}
-                    {msg.body && <div className="chat-msg-bubble">{msg.body}</div>}
-                    <MessageImage url={msg.imageUrl} />
-                    {msg.id > 0 && !closed && (
-                      <MessageReactions reactions={msg.reactions} mine="customer" onReact={(e) => void react(msg.id, e)} align={msg.sender === "customer" ? "end" : "start"} />
-                    )}
-                    <div className="chat-msg-time">
-                      {new Date(msg.createdAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
+                {thread.map((msg, i) => {
+                  const prev = thread[i - 1];
+                  const next = thread[i + 1];
+                  const same = (x?: ChatMessage) => !!x && x.sender === msg.sender && x.senderName === msg.senderName;
+                  const mine = msg.sender === "customer";
+                  // Như Messenger: avatar chỉ ở tin cuối của một nhóm tin liên tiếp; tên ở tin đầu nhóm
+                  const ava = !same(next) ? (
+                    mine ? (
+                      me || guestName !== "Khách" ? (
+                        <CustomerAvatar src={me?.avatarUrl ?? ownerAvatar[mode]} name={guestName} size={32} />
+                      ) : (
+                        <span className="chat-ava-guest" aria-label="Khách"><User size={16} aria-hidden /></span>
+                      )
+                    ) : msg.sender === "bot" ? (
+                      <span className="chat-ava-bot"><LogoMark width={32} height={32} /></span>
+                    ) : (
+                      <CustomerAvatar name={msg.senderName} size={32} />
+                    )
+                  ) : null;
+                  return (
+                    <div key={msg.id} className={`chat-row chat-row-${msg.sender}${same(next) ? " is-grouped" : ""}`}>
+                      {!mine && <span className="chat-ava">{ava}</span>}
+                      <div className={`chat-msg chat-msg-${msg.sender}`}>
+                        {!mine && !same(prev) && <div className="chat-msg-name">{msg.sender === "bot" ? "TD Bot" : msg.senderName}</div>}
+                        {msg.body && <div className="chat-msg-bubble">{msg.body}</div>}
+                        <MessageImage url={msg.imageUrl} />
+                        {msg.id > 0 && !closed && (
+                          <MessageReactions reactions={msg.reactions} mine="customer" onReact={(e) => void react(msg.id, e)} align={mine ? "end" : "start"} />
+                        )}
+                        {!same(next) && (
+                          <div className="chat-msg-time">
+                            {new Date(msg.createdAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
+                          </div>
+                        )}
+                      </div>
+                      {mine && <span className="chat-ava">{ava}</span>}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {loading && (
-                  <div className="chat-msg chat-msg-bot">
-                    <div className="chat-msg-bubble chat-typing"><span /><span /><span /></div>
+                  <div className="chat-row chat-row-bot">
+                    <span className="chat-ava"><span className="chat-ava-bot"><LogoMark width={32} height={32} /></span></span>
+                    <div className="chat-msg chat-msg-bot">
+                      <div className="chat-msg-bubble chat-typing"><span /><span /><span /></div>
+                    </div>
                   </div>
                 )}
                 <div ref={bottomRef} />
@@ -320,7 +355,7 @@ export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: bool
                       autoComplete="off"
                       disabled={loading}
                     />
-                    <button type="submit" className="btn btn-primary chat-send-btn" disabled={loading || (!text.trim() && !image)} aria-label="Gửi">➤</button>
+                    <button type="submit" className="btn btn-primary chat-send-btn" disabled={loading || (!text.trim() && !image)} aria-label="Gửi"><SendHorizontal size={18} aria-hidden /></button>
                   </form>
                 </>
               )}

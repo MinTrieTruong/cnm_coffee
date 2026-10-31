@@ -7,6 +7,8 @@ import { StorePicker } from "../StorePicker";
 import { useLang } from "../../lib/i18n";
 import type { ColorMode } from "../../lib/siteTheme";
 import { Toggles } from "./Toggles";
+import { AccountMenu } from "./AccountMenu";
+import type { SessionUser } from "../../lib/session";
 
 export const SITE_LINKS = [
   { to: "/menu", label: "Thực đơn", match: (p: string) => p.startsWith("/menu") || p.startsWith("/product") },
@@ -22,16 +24,15 @@ export const SITE_LINKS = [
  * (đổi chiều cao làm nội dung nhảy lên xuống, trang bị giật).
  */
 export function SiteHeader({
-  loggedIn,
-  userName,
+  user,
   cartCount,
   onLogout,
   mobileTitle,
   onBack,
   color,
 }: {
-  loggedIn: boolean;
-  userName: string | null;
+  /** Khách đang đăng nhập (null = chưa đăng nhập) */
+  user: SessionUser | null;
   cartCount: number;
   onLogout: () => void;
   mobileTitle: string;
@@ -114,20 +115,17 @@ export function SiteHeader({
                 <span className="c-hotline-v">{info.hotline.display}</span>
               </a>
             )}
-            <div className="c-account">
-              <User size={20} aria-hidden />
-              {loggedIn ? (
-                <span className="c-account-txt">
-                  <Link to="/account" className="c-account-name">{userName ?? t("Tài khoản")}</Link>
-                  <button type="button" className="c-linkish" onClick={onLogout}>{t("Đăng xuất")}</button>
-                </span>
-              ) : (
+            {user ? (
+              <AccountMenu user={user} onLogout={onLogout} />
+            ) : (
+              <div className="c-account">
+                <User size={20} aria-hidden />
                 <span className="c-account-txt">
                   <Link to="/login">{t("Đăng nhập")}</Link>
                   <Link to="/register" className="c-muted-link">{t("Đăng ký")}</Link>
                 </span>
-              )}
-            </div>
+              </div>
+            )}
             <Link to="/cart" className="c-icon-btn c-cart" aria-label={cartCount ? t("Giỏ hàng, {n} món", { n: cartCount }) : t("Giỏ hàng")}>
               <ShoppingBag size={24} aria-hidden />
               {cartCount > 0 && <span className="c-cart-count">{cartCount > 99 ? "99+" : cartCount}</span>}

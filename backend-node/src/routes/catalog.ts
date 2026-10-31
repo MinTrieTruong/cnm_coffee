@@ -64,7 +64,7 @@ export function catalogRouter(prisma: PrismaClient) {
           where: { hidden: false, orderId: { in: orderIds } },
           orderBy: { createdAt: "desc" },
           take: 10,
-          select: { id: true, rating: true, comment: true, imageUrl: true, adminReply: true, createdAt: true, customer: { select: { fullName: true } } },
+          select: { id: true, rating: true, comment: true, imageUrl: true, adminReply: true, createdAt: true, customer: { select: { fullName: true, avatarUrl: true } } },
         })
       : [];
     res.json({ pairings, reviews });

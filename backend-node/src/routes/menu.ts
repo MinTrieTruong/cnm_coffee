@@ -147,19 +147,15 @@ export function menuRouter(prisma: PrismaClient) {
           },
         },
       });
-      const freq = new Map<string, number>();
-      for (const d of details) {
-        const k = `${d.productId}||${d.customNotes ?? ""}`;
-        freq.set(k, (freq.get(k) ?? 0) + d.quantity);
-      }
-      const topKeys = [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+      // Đếm theo món (không tách theo ghi chú size/đá/đường) — tách ra thì cùng một món hiện nhiều lần
+      const freq = new Map<number, number>();
+      for (const d of details) freq.set(d.productId, (freq.get(d.productId) ?? 0) + d.quantity);
       const pmap = new Map(products.map((p) => [p.id, p]));
-      favorites = topKeys
-        .map(([k]) => {
-          const pid = Number(String(k).split("||")[0]);
-          return pmap.get(pid);
-        })
-        .filter(Boolean) as typeof products;
+      favorites = [...freq.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([pid]) => pmap.get(pid))
+        .filter(Boolean)
+        .slice(0, 3) as typeof products;
 
       if (favorites.length === 0) {
         try {

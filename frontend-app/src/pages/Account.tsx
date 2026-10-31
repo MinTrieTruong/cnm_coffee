@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import { Link, Navigate, NavLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ChevronRight, Gift, ReceiptText, Ticket } from "lucide-react";
-import { api, mediaUrl } from "../lib/api";
+import { api } from "../lib/api";
+import { CustomerAvatar } from "../components/CustomerAvatar";
 import { clearSession } from "../lib/session";
 import { useLang } from "../lib/i18n";
 import { Crumbs } from "../components/site/parts";
@@ -14,12 +15,11 @@ import {
 } from "./account/sections";
 
 /** Ảnh đại diện — bấm để đổi (tải lên ngay, không nằm trong form hồ sơ) */
-function Avatar({ data, size }: { data: AccountData; size: number }) {
+function Avatar({ data, size }: { data: AccountData; size: 48 | 64 }) {
   const { t } = useLang();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const u = data.user!;
-  const initials = u.fullName.trim().split(/\s+/).slice(-2).map((w) => w[0]).join("").toUpperCase();
   async function pick(file: File | undefined) {
     if (!file) return;
     setBusy(true);
@@ -34,7 +34,7 @@ function Avatar({ data, size }: { data: AccountData; size: number }) {
   }
   return (
     <button type="button" className="c-avatar" style={{ width: size, height: size }} onClick={() => input.current?.click()} aria-label={t("Đổi ảnh đại diện")} title={t("Đổi ảnh đại diện")} disabled={busy}>
-      {u.avatarUrl ? <img src={mediaUrl(u.avatarUrl)} alt="" /> : <span>{initials}</span>}
+      <CustomerAvatar src={u.avatarUrl} name={u.fullName} size={size} />
       <span className="c-avatar-edit" aria-hidden>{busy ? "…" : t("Đổi")}</span>
       <input ref={input} type="file" accept="image/*" hidden onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ""; }} />
     </button>

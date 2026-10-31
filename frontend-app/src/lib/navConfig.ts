@@ -77,6 +77,8 @@ export type NavItem = {
   /** Mặc định: khớp theo đường dẫn (không tính query) */
   match?: (pathname: string, search: string) => boolean;
   badge?: BadgeKey;
+  /** Thay icon bằng phần tử riêng (vd avatar khách ở tab Tài khoản) */
+  iconNode?: import("react").ReactNode;
 };
 
 export type RoleNav = {

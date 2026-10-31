@@ -387,14 +387,22 @@ label.c-pd-opt .c-pd-label { margin-bottom: 0; }
 .c-pd-reviews { margin-top: 48px; }
 .c-pd-avg { font-family: var(--c-font-body); font-weight: 500; font-size: 0.95rem; letter-spacing: 0; text-transform: none; color: var(--c-muted); }
 .c-reviews { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
-.c-review { padding-block: 14px; border-bottom: 1px solid var(--c-rule); }
+.c-review { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; padding-block: 14px; border-bottom: 1px solid var(--c-rule); }
+.c-review-main { min-width: 0; }
 .c-review-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; font-size: 0.92rem; }
 .c-review-head time { margin-left: auto; font-size: 0.8rem; color: var(--c-muted); }
 .c-review-stars { color: var(--c-accent); letter-spacing: 1px; -webkit-text-stroke: 0.5px #9a6c14; }
 .c-review-stars .is-dim { color: var(--c-rule); -webkit-text-stroke: 0; }
 .c-review p { margin: 6px 0 0; line-height: 1.55; color: var(--c-ink-2); }
 .c-review-img { margin-top: 8px; width: 120px; aspect-ratio: 1; object-fit: cover; border-radius: var(--c-radius); }
-.c-review-reply { padding-left: 12px; border-left: 3px solid var(--c-primary); font-size: 0.9rem; }
+.c-review-reply { margin-top: 10px; padding: 8px 12px; border-left: 3px solid var(--c-primary); background: var(--c-paper); font-size: 0.9rem; }
+.c-review-reply-h { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 0.85rem; color: var(--c-ink); }
+.c-review-reply-h svg, .c-review-reply-h img { border-radius: 50%; flex: 0 0 auto; }
+.c-review-reply p { margin: 4px 0 0; }
+@media (max-width: 767px) {
+  .c-review { gap: 10px; }
+  .c-review-ava { width: 32px !important; height: 32px !important; font-size: 13px !important; }
+}
 
 @media (max-width: 1024px) {
   .c-pd-bottom { grid-template-columns: minmax(0, 1fr) 300px; }
@@ -626,7 +634,7 @@ label.c-pd-opt .c-pd-label { margin-bottom: 0; }
 .c-acc-who span, .c-hub-who span { font-size: 0.88rem; color: var(--c-muted); }
 
 .c-avatar { position: relative; flex: 0 0 auto; padding: 0; border: 0; border-radius: 50%; overflow: hidden; background: var(--c-primary); color: var(--c-on-primary); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-family: var(--c-font-display); font-weight: 700; font-size: 1.2rem; }
-.c-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.c-avatar .c-cavatar { width: 100% !important; height: 100% !important; border: 0; }
 .c-avatar-edit { position: absolute; inset: auto 0 0; padding: 2px 0 3px; background: rgba(0, 0, 0, 0.55); color: #fff; font-family: var(--c-font-body); font-size: 0.62rem; font-weight: 600; text-align: center; opacity: 0; transition: opacity 0.15s; }
 .c-avatar:hover .c-avatar-edit, .c-avatar:focus-visible .c-avatar-edit, .c-avatar:disabled .c-avatar-edit { opacity: 1; }
 .c-avatar:disabled { cursor: progress; }
@@ -830,3 +838,48 @@ label.c-pd-opt .c-pd-label { margin-bottom: 0; }
 .c-head-bar .c-lang button[aria-pressed="true"], .c-head-bar .c-toggle[aria-pressed="true"] { background: var(--c-on-bar, var(--c-on-primary)); color: var(--c-bar, var(--c-primary)); }
 /* Trang tài khoản trên điện thoại / máy tính bảng: cụm nút liên hệ nổi che menu và nút Lưu → ẩn (các trang khác giữ nguyên) */
 @media (max-width: 1023px) { .c-site:has(.c-acc, .c-hub, .c-acc-sub) .fc:not(.fc-preview) { display: none; } }
+
+/* ═══════════ ẢNH ĐẠI DIỆN KHÁCH (components/CustomerAvatar) ═══════════ */
+.c-cavatar { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; object-fit: cover; border: 1px solid var(--c-rule); background: var(--c-paper-2); overflow: hidden; }
+.c-cavatar.is-text { border-color: transparent; color: #fff; font-family: var(--c-font-body); font-weight: 700; line-height: 1; letter-spacing: 0.02em; user-select: none; }
+
+/* Header: cụm avatar + tên + hạng → menu thả xuống (nằm trên thanh điều hướng dính) */
+.c-accmenu { position: relative; }
+.c-accmenu-btn { display: flex; align-items: center; gap: 10px; max-width: 260px; padding: 4px 6px 4px 4px; border: 1px solid transparent; border-radius: var(--c-radius); background: none; color: var(--c-ink); font: inherit; text-align: left; cursor: pointer; }
+.c-accmenu-btn:hover, .c-accmenu-btn[aria-expanded="true"] { border-color: var(--c-rule-strong); background: var(--c-surface); }
+.c-accmenu-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.c-accmenu-txt strong { font-size: 0.92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-accmenu-txt span { font-size: 0.76rem; color: var(--c-muted); white-space: nowrap; }
+.c-accmenu-btn > svg { flex: 0 0 auto; color: var(--c-muted); }
+.c-accmenu-pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 80; min-width: 210px; padding: 6px 0; background: var(--c-surface); border: 1px solid var(--c-rule-strong); box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18); }
+.c-accmenu-pop a, .c-accmenu-pop button { display: block; width: 100%; padding: 10px 16px; border: 0; background: none; color: var(--c-ink); font: inherit; font-size: 0.95rem; text-align: left; text-decoration: none; cursor: pointer; }
+.c-accmenu-pop a:hover, .c-accmenu-pop a:focus-visible, .c-accmenu-pop button:hover, .c-accmenu-pop button:focus-visible { background: var(--c-paper-2); outline: none; }
+.c-accmenu-pop .is-danger { margin-top: 4px; border-top: 1px solid var(--c-rule); color: var(--c-danger); }
+@media (max-width: 1024px) {
+  .c-accmenu-txt { display: none; }
+}
+/* Thanh đáy: avatar thay icon tab Tài khoản */
+.bn-icon .bn-ava { display: inline-flex; }
+.bn-item.active .bn-ava { box-shadow: 0 0 0 2px var(--c-primary); }
+
+/* ═══════════ KHUNG CHAT CỦA KHÁCH — avatar hai phía (như Messenger) ═══════════ */
+.c-site .chat-panel-title { display: inline-flex; align-items: center; gap: 8px; }
+.c-site .cx-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.c-site .chat-row { display: flex; align-items: flex-end; gap: 8px; max-width: 92%; }
+.c-site .chat-row.is-grouped { margin-bottom: -4px; }
+.c-site .chat-row-customer { align-self: flex-end; justify-content: flex-end; }
+.c-site .chat-row-bot, .c-site .chat-row-staff { align-self: flex-start; }
+.c-site .chat-row .chat-msg { max-width: none; min-width: 0; }
+/* Ô avatar giữ chỗ cố định để bong bóng trong nhóm thẳng hàng; avatar căn đáy bong bóng (giờ gửi nằm dưới) */
+.c-site .chat-ava { flex: 0 0 32px; width: 32px; display: flex; align-items: flex-end; align-self: stretch; padding-bottom: 18px; }
+.c-site .chat-row.is-grouped .chat-ava { padding-bottom: 0; }
+.c-site .chat-ava-bot { display: inline-flex; width: 32px; height: 32px; border-radius: 50%; overflow: hidden; background: #fff; border: 1px solid var(--c-rule); }
+.c-site .chat-ava-bot img { width: 100%; height: 100%; object-fit: cover; }
+.c-site .chat-ava-guest { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; background: var(--c-paper-2); color: var(--c-muted); border: 1px solid var(--c-rule); }
+.c-site .chat-msg-customer .chat-msg-bubble { background: var(--c-primary); color: var(--c-on-primary); }
+.c-site .chat-msg-customer .chat-msg-time { text-align: right; }
+/* Nút "＋" thả cảm xúc: chỉ hiện khi rê chuột / đang chọn tin (máy có chuột) */
+@media (hover: hover) {
+  .c-site .chat-panel .cx-react-add { visibility: hidden; }
+  .c-site .chat-panel .chat-row:hover .cx-react-add, .c-site .chat-panel .cx-react-add:focus-within { visibility: visible; }
+}

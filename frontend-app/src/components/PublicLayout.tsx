@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { clearSession, getUser, isGuestMode } from "../lib/session";
+import { clearSession, useSessionUser } from "../lib/session";
+import { CustomerAvatar } from "./CustomerAvatar";
 import { CART_EVENT, getCart } from "../lib/cart";
 import { BottomNav } from "./BottomNav";
 import { customerNav } from "../lib/navConfig";
@@ -66,9 +67,9 @@ const TABBAR_HIDDEN_PREFIXES = ["/order/", "/staff/login", "/vnpay-return"];
 export function PublicLayout() {
   const loc = useLocation();
   const nav = useNavigate();
-  const user = getUser();
-  const guest = isGuestMode();
-  const loggedIn = !guest && !!user;
+  // Tự cập nhật khi đăng nhập / đăng xuất / đổi ảnh đại diện (lib/session phát sự kiện)
+  const user = useSessionUser();
+  const loggedIn = !!user;
   const [, bump] = useState(0);
   useEffect(() => {
     const on = () => bump((n) => n + 1);
@@ -88,7 +89,13 @@ export function PublicLayout() {
   useEffect(() => {
     document.documentElement.lang = lang;
   }, [lang]);
-  const navItems = customerNav(loggedIn).map((it) => ({ ...it, label: t(it.label), short: t(it.short) }));
+  const navItems = customerNav(loggedIn).map((it) => ({
+    ...it,
+    label: t(it.label),
+    short: t(it.short),
+    // Tab Tài khoản: avatar khách thay icon khi đã đăng nhập
+    ...(it.id === "account" && user ? { iconNode: <CustomerAvatar src={user.avatarUrl} name={user.fullName} size={24} className="bn-ava" /> } : {}),
+  }));
   function handleLogout() {
     clearSession();
     nav("/", { replace: true });
@@ -102,8 +109,7 @@ export function PublicLayout() {
   return (
     <div className="site-root c-site" style={themeStyle}>
       <SiteHeader
-        loggedIn={loggedIn}
-        userName={user?.fullName ?? null}
+        user={user}
         cartCount={cartCount}
         onLogout={handleLogout}
         mobileTitle={t(titleOf(p))}

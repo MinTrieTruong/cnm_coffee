@@ -1,23 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, mediaUrl } from "../lib/api";
+import { api } from "../lib/api";
 import { SectionHead } from "./site/parts";
+import { ReviewItem, type PublicReviewRow } from "./site/ReviewItem";
 import { useLang } from "../lib/i18n";
 
-export type PublicReview = {
-  id: number;
-  rating: number;
-  comment: string | null;
-  imageUrl: string | null;
-  adminReply: string | null;
-  createdAt: string;
-  customer: { fullName: string };
-};
+export type PublicReview = PublicReviewRow;
 
 type Sort = "newest" | "oldest" | "high" | "low";
 
 /** Đánh giá chung của quán (trang Thực đơn, Cửa hàng) */
 export function ReviewList({ title = "Khách nói gì về quán" }: { title?: string }) {
-  const { t, date } = useLang();
+  const { t } = useLang();
   const [reviews, setReviews] = useState<PublicReview[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [sort, setSort] = useState<Sort>("newest");
@@ -53,18 +46,7 @@ export function ReviewList({ title = "Khách nói gì về quán" }: { title?: s
         </select>
       </label>
       <ul className="c-reviews">
-        {shown.map((r) => (
-          <li key={r.id} className="c-review">
-            <div className="c-review-head">
-              <strong>{r.customer.fullName}</strong>
-              <span className="c-review-stars" aria-label={t("{n} trên 5 sao", { n: r.rating })}>{"★".repeat(r.rating)}<span aria-hidden className="is-dim">{"★".repeat(5 - r.rating)}</span></span>
-              <time dateTime={r.createdAt}>{date(r.createdAt)}</time>
-            </div>
-            {r.comment && <p>{r.comment}</p>}
-            {r.imageUrl && <img src={mediaUrl(r.imageUrl)} alt={t("Ảnh khách gửi")} loading="lazy" className="c-review-img" />}
-            {r.adminReply && <p className="c-review-reply"><strong>TD Coffee:</strong> {r.adminReply}</p>}
-          </li>
-        ))}
+        {shown.map((r) => <ReviewItem key={r.id} r={r} />)}
       </ul>
       {!showAll && reviews.length > 4 && (
         <button type="button" className="c-btn is-outline c-review-more" onClick={() => setShowAll(true)}>{t("Xem thêm đánh giá")}</button>

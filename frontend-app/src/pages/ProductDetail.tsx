@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Check, Minus, Plus } from "lucide-react";
-import { api, mediaUrl, type Product } from "../lib/api";
+import { api, type Product } from "../lib/api";
 import { addToCart } from "../lib/cart";
 import { formatVnd } from "../lib/site";
 import { useLang } from "../lib/i18n";
 import { Crumbs, ProductImage, listPrice, quickAdd } from "../components/site/parts";
+import { ReviewItem, type PublicReviewRow } from "../components/site/ReviewItem";
 
 type Detail = Product & { sku?: string | null; outOfStock?: boolean; tags?: unknown };
-type Review = { id: number; rating: number; comment: string | null; imageUrl: string | null; adminReply: string | null; createdAt: string; customer: { fullName: string } | null };
+type Review = PublicReviewRow;
 type Extras = { pairings: Product[]; reviews: Review[] };
 
 const SIZES = ["S", "M", "L"] as const;
@@ -82,7 +83,7 @@ function PairRow({ p }: { p: Product }) {
 export function ProductDetail() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { t, date } = useLang();
+  const { t } = useLang();
   const [p, setP] = useState<Detail | null>(null);
   const [extras, setExtras] = useState<Extras | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -257,18 +258,7 @@ export function ProductDetail() {
           <p className="c-muted-txt">{t("Chưa có đánh giá cho món này.")}</p>
         ) : (
           <ul className="c-reviews">
-            {reviews.map((r) => (
-              <li key={r.id} className="c-review">
-                <div className="c-review-head">
-                  <strong>{r.customer?.fullName ?? t("Khách")}</strong>
-                  <span className="c-review-stars" aria-label={t("{n} trên 5 sao", { n: r.rating })}>{"★".repeat(r.rating)}<span aria-hidden className="is-dim">{"★".repeat(5 - r.rating)}</span></span>
-                  <time dateTime={r.createdAt}>{date(r.createdAt)}</time>
-                </div>
-                {r.comment && <p>{r.comment}</p>}
-                {r.imageUrl && <img src={mediaUrl(r.imageUrl)} alt={t("Ảnh khách gửi")} loading="lazy" className="c-review-img" />}
-                {r.adminReply && <p className="c-review-reply"><strong>TD Coffee:</strong> {r.adminReply}</p>}
-              </li>
-            ))}
+            {reviews.map((r) => <ReviewItem key={r.id} r={r} />)}
           </ul>
         )}
       </section>

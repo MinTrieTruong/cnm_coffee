@@ -436,4 +436,8 @@ export const EN: Record<string, string> = {
   "Trước": "Previous",
   "Sau": "Next",
   "Trang {a}/{b}": "Page {a}/{b}",
+  // Ảnh đại diện / menu tài khoản
+  "Hạng {r} · {n} điểm": "{r} tier · {n} points",
+  "Khách hàng": "Guest",
+  "TD Coffee phản hồi": "TD Coffee replied",
 };
