@@ -525,3 +525,52 @@ label.c-pd-opt .c-pd-label { margin-bottom: 0; }
 @media (max-width: 560px) {
   .c-form-row { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ═══════════ KHUYẾN MÃI ═══════════ */
+.c-promo { padding-bottom: 56px; }
+.c-ticket-note { font-size: 0.78rem; color: var(--c-coffee); font-weight: 500; }
+.c-tickets-wrap { grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
+.c-spot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; padding: 18px 20px; background: var(--c-surface); border: 2px solid var(--c-brick); }
+.c-spot p { margin: 4px 0 0; }
+.c-spot-val { font-family: var(--c-font-display); font-weight: 700; font-size: 1.8rem; text-transform: uppercase; color: var(--c-brick); line-height: 1.1; }
+.c-spot-code { font-family: var(--c-font-display); font-weight: 700; letter-spacing: 0.1em; font-size: 1.1rem; }
+.c-bulk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 16px; }
+.c-bulk { padding: 18px 20px; background: var(--c-surface); border: 1px solid var(--c-rule-strong); display: flex; flex-direction: column; gap: 8px; }
+.c-bulk p { margin: 0; }
+.c-bulk-name { margin: 0; font-family: var(--c-font-display); font-weight: 700; font-size: 1.3rem; text-transform: uppercase; letter-spacing: 0.02em; }
+.c-bulk-tiers { width: 100%; border-collapse: collapse; }
+.c-bulk-tiers th, .c-bulk-tiers td { padding: 4px 0; white-space: nowrap; }
+.c-bulk-tiers th { text-align: left; font-weight: 600; }
+.c-bulk-tiers td:last-child { text-align: right; font-weight: 600; color: var(--c-brick); white-space: normal; }
+.c-bulk-meta { font-size: 0.84rem; color: var(--c-muted); }
+.c-promo-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--c-rule); color: var(--c-ink-2); font-size: 0.92rem; }
+@media (max-width: 768px) {
+  .c-tickets-wrap { display: grid; overflow: visible; margin: 0; padding: 0; }
+}
+
+/* ═══════════ TIN TỨC ═══════════ */
+.c-blog { padding-bottom: 56px; }
+.c-blog-featured { display: flex; flex-direction: column; gap: 24px; margin-bottom: 32px; }
+.c-post { display: flex; flex-direction: column; gap: 10px; text-decoration: none; color: var(--c-ink); }
+.c-post-img { display: block; aspect-ratio: 16 / 10; overflow: hidden; border-radius: var(--c-radius-md); background: var(--c-paper-2); }
+.c-post-img img, .c-post-img .c-noimg { width: 100%; height: 100%; object-fit: cover; }
+.c-post-body { display: flex; flex-direction: column; gap: 6px; }
+.c-post-meta { display: flex; align-items: center; gap: 12px; font-size: 0.8rem; color: var(--c-muted); }
+.c-post-title { font-weight: 700; font-size: 1.08rem; line-height: 1.35; }
+.c-post:hover .c-post-title { color: var(--c-brick); }
+.c-post-ex { font-size: 0.9rem; line-height: 1.55; color: var(--c-ink-2); }
+.c-post.is-featured { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 28px; align-items: center; padding-bottom: 24px; border-bottom: 3px double var(--c-rule-strong); }
+.c-post.is-featured .c-post-title { font-family: var(--c-font-display); font-weight: 700; font-size: clamp(1.5rem, 1rem + 1.6vw, 2.2rem); text-transform: uppercase; line-height: 1.08; }
+.c-blog-grid { row-gap: 36px; }
+.c-article { max-width: 780px; padding-bottom: 64px; }
+.c-article-head { padding-bottom: 14px; margin-bottom: 24px; border-bottom: 3px double var(--c-rule-strong); }
+.c-article-head time { font-size: 0.85rem; color: var(--c-muted); }
+.c-article-head h1 { margin: 6px 0 0; font-family: var(--c-font-display); font-weight: 700; font-size: clamp(1.9rem, 1.2rem + 2.4vw, 3rem); line-height: 1.05; text-transform: uppercase; text-wrap: balance; }
+.c-article-img { width: 100%; height: auto; border-radius: var(--c-radius-md); margin-bottom: 28px; display: block; }
+.c-article-body { font-size: 1.05rem; line-height: 1.8; color: var(--c-ink); }
+.c-article-body img { max-width: 100%; height: auto; border-radius: var(--c-radius); }
+.c-article-body a { color: var(--c-brick); }
+.c-article-body h2, .c-article-body h3 { font-family: var(--c-font-display); font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; line-height: 1.2; }
+@media (max-width: 768px) {
+  .c-post.is-featured { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+}

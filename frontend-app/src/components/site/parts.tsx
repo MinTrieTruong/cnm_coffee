@@ -97,7 +97,7 @@ export function ProductCard({ p, line }: { p: Product; line?: ReactNode }) {
 export type PublicVoucher = { id: number; code: string; description: string | null; discountValue: number; minBillValue: number; endDate: string };
 
 /** Vé voucher xé: mã + điều kiện, mép răng cưa hai bên */
-export function VoucherTicket({ v }: { v: PublicVoucher }) {
+export function VoucherTicket({ v, note }: { v: PublicVoucher; note?: ReactNode }) {
   const [copied, setCopied] = useState(false);
   async function copy() {
     try {
@@ -113,6 +113,7 @@ export function VoucherTicket({ v }: { v: PublicVoucher }) {
       <div className="c-ticket-main">
         <span className="c-ticket-val">Giảm {formatVnd(v.discountValue)}</span>
         <span className="c-ticket-cond">{v.description ?? (v.minBillValue ? `Đơn từ ${formatVnd(v.minBillValue)}` : "Mọi đơn")}</span>
+        {note && <span className="c-ticket-note">{note}</span>}
         <span className="c-ticket-exp">HSD {new Date(v.endDate).toLocaleDateString("vi-VN")}</span>
       </div>
       <div className="c-ticket-stub">
