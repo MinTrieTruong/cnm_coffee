@@ -110,7 +110,7 @@ export function SiteHeader({
           <div className="c-head-actions">
             {info && (
               <a className="c-hotline" href={info.hotline.href}>
-                <span className="c-hotline-k">{t("Đặt hàng")}</span>
+                <span className="c-hotline-k">{t("Đường dây đặt hàng")}</span>
                 <span className="c-hotline-v">{info.hotline.display}</span>
               </a>
             )}

@@ -51,7 +51,7 @@ export function StorePicker({ compact }: { compact?: boolean }) {
   return (
     <div className="store-picker" style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: compact ? 0 : "1rem" }}>
       <label className="label" htmlFor="store-picker" style={{ display: "flex", alignItems: "center", gap: 6, margin: 0 }}>
-        <Store size={16} aria-hidden /> {t("Chi nhánh đặt món")}
+        <Store size={16} aria-hidden /> {t("Đặt tại")}
       </label>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <select

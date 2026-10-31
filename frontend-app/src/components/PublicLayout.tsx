@@ -26,6 +26,14 @@ function titleOf(p: string): string {
     ["/menu", "Thực đơn"],
     ["/product/", "Chi tiết món"],
     ["/cart", "Giỏ hàng"],
+    ["/account/profile", "Thông tin cá nhân"],
+    ["/account/security", "Bảo mật"],
+    ["/account/orders", "Đơn hàng"],
+    ["/account/reviews", "Đánh giá đơn"],
+    ["/account/points", "Lịch sử điểm"],
+    ["/account/vouchers", "Ví voucher"],
+    ["/account/gifts", "Quà của tôi"],
+    ["/account/feedback", "Nhận xét chung"],
     ["/account", "Tài khoản"],
     ["/promotions", "Khuyến mãi"],
     ["/blog", "Tin tức"],
@@ -44,7 +52,8 @@ function titleOf(p: string): string {
 function parentOf(p: string): string {
   if (p.startsWith("/product/")) return "/menu";
   if (p.startsWith("/blog/")) return "/blog";
-  if (p.startsWith("/order/")) return "/account?tab=orders";
+  if (p.startsWith("/order/")) return "/account/orders";
+  if (p.startsWith("/account/")) return "/account";
   return "/";
 }
 

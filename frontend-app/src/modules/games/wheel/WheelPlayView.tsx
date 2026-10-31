@@ -123,7 +123,7 @@ export function WheelPlayView({ campaign, storeId, onPlayed }: PlayViewProps) {
           </>
         )}
 
-        <Link className="gw-link" to="/account?tab=gifts"><Gift size={15} aria-hidden /> Quà của tôi</Link>
+        <Link className="gw-link" to="/account/gifts"><Gift size={15} aria-hidden /> Quà của tôi</Link>
       </div>
 
       {result && <ResultPopup r={result} onClose={() => setResult(null)} onUseVoucher={() => nav("/menu")} />}

@@ -193,7 +193,5 @@
 }
 
 /* Trang Tài khoản (khách): nút Đăng xuất chỉ hiện trên mobile */
-.account-mobile-logout { display: none !important; }
 @media (max-width: 768px) {
-  .account-mobile-logout { display: flex !important; width: 100%; margin: 0 0 1rem; color: var(--o-danger) !important; }
 }

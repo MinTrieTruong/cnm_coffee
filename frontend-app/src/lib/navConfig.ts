@@ -167,10 +167,10 @@ export function customerNav(loggedIn: boolean): NavItem[] {
       label: "Đơn của tôi",
       short: "Đơn hàng",
       icon: ReceiptText,
-      to: loggedIn ? "/account?tab=orders" : "/login?next=orders",
+      to: loggedIn ? "/account/orders" : "/login?next=%2Faccount%2Forders",
       match: (p, s) =>
-        (p === "/account" && new URLSearchParams(s).get("tab") === "orders") ||
-        (p === "/login" && new URLSearchParams(s).get("next") === "orders") ||
+        p === "/account/orders" ||
+        (p === "/login" && new URLSearchParams(s).get("next") === "/account/orders") ||
         p.startsWith("/order/"),
     },
     {
@@ -180,8 +180,8 @@ export function customerNav(loggedIn: boolean): NavItem[] {
       icon: User,
       to: loggedIn ? "/account" : "/login",
       match: (p, s) =>
-        (p === "/account" && new URLSearchParams(s).get("tab") !== "orders") ||
-        (p === "/login" && new URLSearchParams(s).get("next") !== "orders") ||
+        (p.startsWith("/account") && p !== "/account/orders") ||
+        (p === "/login" && new URLSearchParams(s).get("next") !== "/account/orders") ||
         p === "/register",
     },
   ];

@@ -4,7 +4,8 @@ import { EN } from "./i18n-en";
 /**
  * Song ngữ trang khách. Khoá = câu tiếng Việt gốc → thiếu bản dịch thì hiện tiếng Việt, không vỡ trang.
  * Tên món, danh mục, banner, bài viết… lấy từ CSDL nên vẫn là tiếng Việt.
- * Biến: t("{n} món", { n: 3 }).
+ * Biến: t("{n} món", { n: 3 }). Cùng một câu tiếng Việt mà nghĩa khác theo chỗ dùng → thêm ngữ cảnh sau dấu #
+ * ("Ưu đãi#account"): tiếng Việt hiện phần trước #, tiếng Anh tra cả khoá có ngữ cảnh.
  */
 export type Lang = "vi" | "en";
 const KEY = "c-lang";
@@ -33,7 +34,8 @@ export function setLang(l: Lang) {
 }
 
 export function translate(lang: Lang, s: string, vars?: Record<string, string | number>) {
-  let out = lang === "en" ? EN[s] ?? s : s;
+  const base = s.split("#")[0];
+  let out = lang === "en" ? EN[s] ?? EN[base] ?? base : base;
   if (vars) for (const [k, v] of Object.entries(vars)) out = out.split(`{${k}}`).join(String(v));
   return out;
 }
