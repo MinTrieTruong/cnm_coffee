@@ -40,6 +40,36 @@ export function catalogRouter(prisma: PrismaClient) {
     res.json(p);
   });
 
+  /** Trang chi tiết món: "Ăn kèm ngon hơn" (món đồ ăn hay mua chung đơn, thiếu thì lấy món không size) + đánh giá của đơn có món này */
+  r.get("/products/:id/extras", async (req, res) => {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ" });
+    const orderIds = (
+      await prisma.orderDetail.findMany({ where: { productId: id }, select: { orderId: true }, orderBy: { id: "desc" }, take: 500 })
+    ).map((d) => d.orderId);
+    const together = orderIds.length
+      ? await prisma.orderDetail.groupBy({
+          by: ["productId"],
+          where: { orderId: { in: orderIds }, productId: { not: id } },
+          _count: { productId: true },
+          orderBy: { _count: { productId: "desc" } },
+          take: 30,
+        })
+      : [];
+    const food = await prisma.product.findMany({ where: { isActive: true, outOfStock: false, hasSizes: false, id: { not: id } }, orderBy: { id: "asc" } });
+    const rank = new Map(together.map((t, i) => [t.productId, i]));
+    const pairings = [...food].sort((a, b) => (rank.get(a.id) ?? 999) - (rank.get(b.id) ?? 999)).slice(0, 5);
+    const reviews = orderIds.length
+      ? await prisma.review.findMany({
+          where: { hidden: false, orderId: { in: orderIds } },
+          orderBy: { createdAt: "desc" },
+          take: 10,
+          select: { id: true, rating: true, comment: true, imageUrl: true, adminReply: true, createdAt: true, customer: { select: { fullName: true } } },
+        })
+      : [];
+    res.json({ pairings, reviews });
+  });
+
   r.get("/inventory", async (_req, res) => {
     try {
       const rows = await prisma.inventoryItem.findMany({ orderBy: { id: "asc" } });
