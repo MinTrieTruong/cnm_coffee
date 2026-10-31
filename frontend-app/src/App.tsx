@@ -22,6 +22,7 @@ import { LEGACY_ADMIN_TABS, LEGACY_PATHS } from "./apps/registry";
 import { SupplierPortal } from "./pages/SupplierPortal";
 import { GamePlay } from "./pages/GamePlay";
 import { Policy } from "./pages/Policy";
+import { Contact } from "./pages/Contact";
 import { useTrackAppHistory } from "./lib/appHistory";
 
 function HistoryTracker() {
@@ -60,6 +61,7 @@ export default function App() {
           <Route path="/vnpay-return" element={<VnpayReturn />} />
           <Route path="/game/:campaignId" element={<GamePlay />} />
           <Route path="/policy/:slug" element={<Policy />} />
+          <Route path="/contact" element={<Contact />} />
         </Route>
 
         <Route path="/welcome" element={<Navigate to="/login" replace />} />

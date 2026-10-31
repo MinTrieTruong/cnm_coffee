@@ -701,6 +701,9 @@ button.o-status-step { cursor: pointer; }
 .o-alert-info { background: var(--o-info-bg); color: var(--o-info); border-color: #bfdbfe; }
 .o-alert-warning { background: var(--o-warning-bg); color: var(--o-warning); border-color: #fde68a; }
 .o-muted { color: var(--o-muted); }
+.o-hint { margin-top: 4px; color: var(--o-muted); font-size: var(--o-fs-sm); }
+.o-error { margin-top: 4px; color: var(--o-danger, #b91c1c); font-size: var(--o-fs-sm); }
+.o-h1 { font-size: 24px; font-weight: 600; line-height: 1.25; font-family: var(--o-font); }
 .o-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .o-stack { display: flex; flex-direction: column; gap: 12px; }
 .o-month-picker { display: inline-flex; gap: 4px; align-items: center; }
