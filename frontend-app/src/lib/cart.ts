@@ -28,8 +28,12 @@ function load(): CartItem[] {
   }
 }
 
+/** Sự kiện báo giỏ hàng đổi (header cập nhật số lượng) */
+export const CART_EVENT = "cmn:cart";
+
 function save(items: CartItem[]) {
   localStorage.setItem(CART_KEY, JSON.stringify(items));
+  window.dispatchEvent(new Event(CART_EVENT));
 }
 
 export function getCart(): CartItem[] {

@@ -1,510 +1,219 @@
-import { useEffect, useState, useRef } from "react";
-import { Link } from "react-router-dom";
-import { api, mediaUrl, calculateFinalPrice, type HomePageResponse, type Category, type Product, type Combo } from "../lib/api";
-import { addToCart, addComboToCart } from "../lib/cart";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { api, mediaUrl, type HomePageResponse, type Product } from "../lib/api";
 import { useCustomerStore, withStore } from "../lib/customerStore";
-import { StorePicker } from "../components/StorePicker";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import { motion } from "framer-motion";
-import { GameBanner } from "../modules/games/MyGifts";
-import {
-  ShoppingCart,
-  ChevronDown,
-  Flame,
-  Star,
-  MapPin,
-  Phone,
-  Clock,
-  ArrowRight,
-  Zap,
-  Coffee,
-  Package,
-} from "lucide-react";
+import { useMenuData, useSiteInfo } from "../lib/site";
+import { ProductCard, SectionHead, VoucherTicket, type PublicVoucher } from "../components/site/parts";
 
-/* ── helpers ─────────────────────────────────────────────────── */
-function formatVnd(n: number) {
-  return new Intl.NumberFormat("vi-VN").format(n) + " đ";
-}
+type Banner = { id: number; imageUrl: string; title: string | null; subtitle: string | null; link: string | null };
+type Post = { id: number; title: string; body: string; imageUrl: string | null; createdAt: string };
+type ActiveGame = { id: number; name: string; description: string | null; minOrderValue: number; me: { tickets: number } | null };
 
-// using calculateFinalPrice from api.ts instead
+const plain = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+const reduceMotion = () => typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
-// Mặc định khi chưa tải được chi nhánh
-const STORE_LAT = 10.8406;
-const STORE_LNG = 106.6588;
-
-const STORE_INFO = {
-  address: "114 Dương Quảng Hàm, Phường 5, Gò Vấp, TP.HCM",
-  phone: "0389730362",
-  hours: "7:00 – 22:00 hằng ngày",
-};
-
-/* ── Mega Menu ───────────────────────────────────────────────── */
-function MegaMenu({ categoryTree }: { categoryTree: Category[] }) {
-  const [open, setOpen] = useState<number | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function handleEnter(id: number) {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    setOpen(id);
-  }
-  function handleLeave() {
-    timeoutRef.current = setTimeout(() => setOpen(null), 200);
-  }
-
+/** Banner lớn: ảnh do quản lý tải lên, tiêu đề poster đặt trên ảnh; tự chuyển 6 giây, dừng khi rê chuột */
+function BannerCarousel({ banners }: { banners: Banner[] }) {
+  const nav = useNavigate();
+  const [i, setI] = useState(0);
+  const paused = useRef(false);
+  const n = banners.length;
+  useEffect(() => {
+    if (n < 2 || reduceMotion()) return;
+    const t = window.setInterval(() => !paused.current && setI((x) => (x + 1) % n), 6000);
+    return () => window.clearInterval(t);
+  }, [n]);
+  if (!n) return <div className="c-banner c-banner-empty" aria-hidden />;
+  const go = (b: Banner) => {
+    if (!b.link) return;
+    if (/^https:/i.test(b.link)) window.open(b.link, "_blank", "noopener,noreferrer");
+    else nav(b.link);
+  };
   return (
-    <nav className="hp-megamenu" aria-label="Danh mục">
-      <div className="hp-megamenu-inner">
-        {categoryTree.map((root) => (
-          <div
-            key={root.id}
-            className="hp-megamenu-item"
-            onMouseEnter={() => handleEnter(root.id)}
-            onMouseLeave={handleLeave}
-          >
-            <button type="button" className="hp-megamenu-trigger">
-              {root.name}
-              {root.children && root.children.length > 0 && <ChevronDown size={14} />}
-            </button>
-            {root.children && root.children.length > 0 && open === root.id && (
-              <motion.div
-                initial={{ opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.18 }}
-                className="hp-megamenu-dropdown"
-                onMouseEnter={() => handleEnter(root.id)}
-                onMouseLeave={handleLeave}
-              >
-                {root.children.map((child) => (
-                  <div key={child.id} className="hp-megamenu-group">
-                    <Link to={`/menu`} className="hp-megamenu-group-title">
-                      {child.name}
-                    </Link>
-                    {child.children && child.children.length > 0 && (
-                      <ul className="hp-megamenu-sublist">
-                        {child.children.map((sub) => (
-                          <li key={sub.id}>
-                            <Link to={`/menu`} className="hp-megamenu-sublink">
-                              {sub.name}
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                ))}
-              </motion.div>
+    <div className="c-banner" onMouseEnter={() => (paused.current = true)} onMouseLeave={() => (paused.current = false)} aria-roledescription="carousel" aria-label="Chương trình nổi bật">
+      <div className="c-banner-track" style={{ transform: `translateX(-${i * 100}%)` }}>
+        {banners.map((b, k) => (
+          <div key={b.id} className="c-banner-slide" role="group" aria-roledescription="slide" aria-label={`${k + 1} / ${n}`} aria-hidden={k !== i}>
+            <img src={mediaUrl(b.imageUrl)} alt={b.title ?? ""} loading={k === 0 ? "eager" : "lazy"} />
+            {(b.title || b.subtitle) && (
+              <div className="c-banner-copy">
+                {b.title && <h2 className="c-banner-title">{b.title}</h2>}
+                {b.subtitle && <p className="c-banner-sub">{b.subtitle}</p>}
+                {b.link && <button type="button" className="c-btn" tabIndex={k === i ? 0 : -1} onClick={() => go(b)}>Xem ngay</button>}
+              </div>
             )}
           </div>
         ))}
-        <Link to="/menu" className="hp-megamenu-trigger hp-megamenu-all">
-          Xem tất cả <ArrowRight size={14} />
-        </Link>
       </div>
-    </nav>
-  );
-}
-
-/* ── Product Card (shared) ───────────────────────────────────── */
-function ProductCard({
-  product,
-  showDiscount,
-  showAddToCart,
-}: {
-  product: Product;
-  showDiscount?: boolean;
-  showAddToCart?: boolean;
-}) {
-  const hasDiscount = showDiscount && product.discountPercent && product.discountPercent > 0;
-  const discountedPrice = hasDiscount
-    ? calculateFinalPrice(product.sellPrice, product.discountPercent!)
-    : product.sellPrice;
-
-  const [added, setAdded] = useState(false);
-
-  function handleAddToCart(e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    addToCart(product, { unitPrice: discountedPrice, quantity: 1, size: "M", icePct: 100, sugar: "100", notes: "" });
-    setAdded(true);
-    setTimeout(() => setAdded(false), 1200);
-  }
-
-  return (
-    <motion.div
-      whileHover={{ y: -6, transition: { duration: 0.25 } }}
-      className="hp-product-card"
-    >
-      <Link to={`/product/${product.id}`} className="hp-product-link">
-        {/* Image */}
-        <div className="hp-product-img-wrap">
-          <div
-            className="hp-product-img"
-            style={{
-              backgroundImage: mediaUrl(product.imageUrl)
-                ? `url(${mediaUrl(product.imageUrl)})`
-                : undefined,
-            }}
-          />
-          {/* Discount Badge */}
-          {hasDiscount && (
-            <span className="hp-discount-badge">-{product.discountPercent}%</span>
-          )}
-        </div>
-
-        {/* Info */}
-        <div className="hp-product-info">
-          <div className="hp-product-name">{product.name}</div>
-          {product.category && (
-            <div className="hp-product-cat">{product.category.name}</div>
-          )}
-          <div className="hp-product-price-row">
-            {hasDiscount ? (
-              <>
-                <span className="hp-product-price-old">{formatVnd(product.sellPrice)}</span>
-                <span className="hp-product-price-new">{formatVnd(discountedPrice)}</span>
-              </>
-            ) : (
-              <span className="hp-product-price">{formatVnd(product.sellPrice)}</span>
-            )}
+      {n > 1 && (
+        <>
+          <button type="button" className="c-banner-arrow is-prev" onClick={() => setI((x) => (x - 1 + n) % n)} aria-label="Banner trước"><ChevronLeft size={22} aria-hidden /></button>
+          <button type="button" className="c-banner-arrow is-next" onClick={() => setI((x) => (x + 1) % n)} aria-label="Banner sau"><ChevronRight size={22} aria-hidden /></button>
+          <div className="c-banner-dots">
+            {banners.map((b, k) => (
+              <button key={b.id} type="button" className={k === i ? "is-on" : undefined} onClick={() => setI(k)} aria-label={`Banner ${k + 1}`} aria-current={k === i} />
+            ))}
           </div>
-        </div>
-      </Link>
-
-      {/* CTA */}
-      {showAddToCart && (
-        <button
-          type="button"
-          className={`hp-add-cart-btn ${added ? "hp-add-cart-btn--added" : ""}`}
-          onClick={handleAddToCart}
-        >
-          <ShoppingCart size={16} />
-          {added ? "Đã thêm ✓" : "Thêm vào giỏ"}
-        </button>
+        </>
       )}
-    </motion.div>
+    </div>
   );
 }
 
-/* ── Combo Card ──────────────────────────────────────────────── */
-function ComboCard({ combo }: { combo: Combo }) {
-  const [added, setAdded] = useState(false);
-
-  function handleAdd(e: React.MouseEvent) {
-    e.stopPropagation();
-    addComboToCart(combo);
-    setAdded(true);
-    setTimeout(() => setAdded(false), 1200);
-  }
-
-  const savings = combo.originalPrice - combo.comboPrice;
-  const savingsPct = Math.round((savings / combo.originalPrice) * 100);
-
+/** Chữ ký tay của chủ quán (SVG nét bút) */
+function Signature() {
   return (
-    <motion.div
-      whileHover={{ y: -8, transition: { duration: 0.25 } }}
-      className="hp-combo-card"
-    >
-      {/* HOT badge */}
-      {combo.isHot && (
-        <div className="hp-combo-hot-badge">
-          <Flame size={12} /> HOT
-        </div>
-      )}
-
-      {/* Savings badge */}
-      <div className="hp-combo-save-badge">-{savingsPct}%</div>
-
-      {/* Image */}
-      <div className="hp-combo-img-wrap">
-        {combo.imageUrl ? (
-          <div
-            className="hp-combo-img"
-            style={{ backgroundImage: `url(${mediaUrl(combo.imageUrl)})` }}
-          />
-        ) : (
-          <div className="hp-combo-img hp-combo-img--placeholder">
-            <Package size={40} style={{ opacity: 0.3 }} />
-          </div>
-        )}
-      </div>
-
-      {/* Info */}
-      <div className="hp-combo-info">
-        <div className="hp-combo-name">{combo.name}</div>
-
-        {/* Items list */}
-        <ul className="hp-combo-items-list">
-          {combo.items.map((ci) => (
-            <li key={ci.id}>
-              {ci.quantity > 1 && <span className="hp-combo-qty">{ci.quantity}x </span>}
-              {ci.product.name}
-            </li>
-          ))}
-        </ul>
-
-        {/* Pricing */}
-        <div className="hp-combo-price-row">
-          <span className="hp-combo-price-orig">{formatVnd(combo.originalPrice)}</span>
-          <span className="hp-combo-price-combo">{formatVnd(combo.comboPrice)}</span>
-        </div>
-
-        <div className="hp-combo-save-tag">Tiết kiệm {formatVnd(savings)}</div>
-      </div>
-
-      {/* CTA */}
-      <button
-        type="button"
-        className={`hp-add-cart-btn hp-combo-cta ${added ? "hp-add-cart-btn--added" : ""}`}
-        onClick={handleAdd}
-      >
-        <ShoppingCart size={16} />
-        {added ? "Đã thêm ✓" : "Chọn Combo này"}
-      </button>
-    </motion.div>
+    <svg className="c-sign" viewBox="0 0 220 70" role="img" aria-label="Chữ ký chủ quán">
+      <path
+        d="M8 46c10-2 22-14 30-26 4-6 3-10-1-6-6 7-10 24-9 34 0 5 4 4 8-2 7-11 14-26 21-27 5-1 2 12-2 22-3 8 4 6 9 0 4-5 8-11 12-11 4 0 0 9 3 10 4 1 9-6 13-9 3-2 4 1 2 4-3 5-1 7 4 5 9-4 18-16 27-18 6-1 3 6 1 10-2 6 3 7 9 3 10-7 22-17 35-19 8-1 14 2 20 6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M40 58c40-6 90-8 150-4" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity="0.7" />
+    </svg>
   );
 }
 
-/* ── Main HomePage ───────────────────────────────────────────── */
 export function HomePage() {
-  const { storeId, store } = useCustomerStore();
-  const info = {
-    name: store?.name ?? "TD Coffee",
-    address: store?.address ?? STORE_INFO.address,
-    phone: store?.phone ?? STORE_INFO.phone,
-    hours: store?.openTime && store.closeTime ? `${store.openTime} – ${store.closeTime} hằng ngày` : STORE_INFO.hours,
-    lat: store?.lat ?? STORE_LAT,
-    lng: store?.lng ?? STORE_LNG,
-  };
-  const [data, setData] = useState<HomePageResponse | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const { storeId } = useCustomerStore();
+  const menu = useMenuData();
+  const info = useSiteInfo();
+  const [home, setHome] = useState<HomePageResponse | null>(null);
+  const [banners, setBanners] = useState<Banner[]>([]);
+  const [vouchers, setVouchers] = useState<PublicVoucher[]>([]);
+  const [games, setGames] = useState<ActiveGame[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const d = await api<HomePageResponse>(withStore("/api/homepage", storeId));
-        if (!cancelled) setData(d);
-      } catch (e) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : "Lỗi tải trang chủ");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    api<HomePageResponse>(withStore("/api/homepage", storeId)).then(setHome).catch(() => setHome(null));
+    api<Banner[]>(`/api/banners${storeId ? `?storeId=${storeId}` : ""}`).then(setBanners).catch(() => setBanners([]));
+    api<ActiveGame[]>(`/api/games/active${storeId ? `?store=${storeId}` : ""}`).then(setGames).catch(() => setGames([]));
   }, [storeId]);
+  useEffect(() => {
+    api<PublicVoucher[]>("/api/vouchers/public").then((v) => setVouchers(v.slice(0, 4))).catch(() => setVouchers([]));
+    api<Post[]>("/api/posts").then((p) => setPosts(p.slice(0, 3))).catch(() => setPosts([]));
+  }, []);
 
-  if (err) {
-    return (
-      <div className="site-page" style={{ textAlign: "center", padding: "4rem 1rem" }}>
-        <p style={{ color: "var(--danger)" }}>{err}</p>
-        <Link to="/menu">Đi tới thực đơn</Link>
-      </div>
-    );
-  }
-
-  if (!data) {
-    return (
-      <div className="site-page" style={{ textAlign: "center", padding: "6rem 1rem" }}>
-        <div className="hp-loader" />
-        <p className="subtle" style={{ marginTop: "1rem" }}>Đang tải...</p>
-      </div>
-    );
-  }
+  const catName = useMemo(() => new Map((menu?.categories ?? []).map((c) => [c.id, c.name])), [menu]);
+  // Danh mục gốc + ảnh 1 món tiêu biểu
+  const cats = (menu?.categories ?? []).filter((c) => !c.parentId).map((c) => ({
+    ...c,
+    image: menu?.products.find((p) => p.categoryId === c.id && p.imageUrl)?.imageUrl ?? null,
+    count: menu?.products.filter((p) => p.categoryId === c.id).length ?? 0,
+  }));
+  const newest = useMemo(() => [...(menu?.products ?? [])].sort((a, b) => b.id - a.id).slice(0, 8), [menu]);
+  const line = (p: Product) => catName.get(p.categoryId) ?? null;
+  const game = games[0];
+  const storyImg = menu?.products.find((p) => p.imageUrl)?.imageUrl;
 
   return (
-    <div className="hp-root">
-      {/* ═══ HERO ═══ */}
-      <section className="hp-hero">
-        <div className="hp-hero-bg" />
-        <div className="hp-hero-overlay" />
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7 }}
-          className="hp-hero-content"
-        >
-          <div className="hp-hero-badge">
-            <Coffee size={14} /> Pha tươi mỗi ngày
-          </div>
-          <h1 className="hp-hero-title">TD Coffee</h1>
-          <p className="hp-hero-sub">
-            Thưởng thức cà phê tươi pha chế tỉ mỉ — từ hạt chọn lọc đến tách thơm ngon.
-          </p>
-          <div className="hp-hero-actions">
-            <Link to="/menu" className="hp-hero-btn hp-hero-btn--primary">
-              Xem Thực Đơn <ArrowRight size={16} />
+    <div className="c-home">
+      {/* Khối đầu: danh mục trái + banner phải */}
+      <section className="c-wrap c-hero">
+        <nav className="c-hero-cats" aria-label="Danh mục sản phẩm">
+          <div className="c-hero-cats-h">Danh mục</div>
+          {cats.map((c) => (
+            <Link key={c.id} to={`/menu?category=${c.id}`} className="c-hero-cat">
+              {c.image ? <img src={mediaUrl(c.image)} alt="" loading="lazy" /> : <span className="c-hero-cat-ph" aria-hidden />}
+              <span className="c-hero-cat-name">{c.name}</span>
+              <span className="c-hero-cat-n">{c.count}</span>
             </Link>
-            <Link to="/login" className="hp-hero-btn hp-hero-btn--ghost">
-              Đăng nhập
-            </Link>
-          </div>
-        </motion.div>
+          ))}
+          {!cats.length && <span className="c-hero-cat c-muted-txt">Đang tải…</span>}
+        </nav>
+        <BannerCarousel banners={banners} />
       </section>
 
-      {/* ═══ MINI GAME ═══ */}
-      <div className="hp-game-banner">
-        <GameBanner />
-      </div>
-
-      {/* ═══ MEGA MENU ═══ */}
-      <MegaMenu categoryTree={data.categoryTree} />
-
-      {/* ═══ FLASH SALE ═══ */}
-      {data.flashSale.length > 0 && (
-        <section className="hp-section">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5 }}
-          >
-            <div className="hp-section-header">
-              <div className="hp-section-title-group">
-                <span className="hp-section-icon hp-section-icon--fire">
-                  <Zap size={20} />
-                </span>
-                <h2 className="hp-section-title">Flash Sale — Hot Deals</h2>
-              </div>
-              <Link to="/menu" className="hp-section-more">
-                Xem thêm <ArrowRight size={14} />
-              </Link>
-            </div>
-            <div className="hp-product-grid">
-              {data.flashSale.map((p) => (
-                <ProductCard key={p.id} product={p} showDiscount showAddToCart />
-              ))}
-            </div>
-          </motion.div>
+      {/* Dải voucher vé xé */}
+      {vouchers.length > 0 && (
+        <section className="c-wrap c-sec c-sec-tight">
+          <SectionHead title="Mã giảm giá" sub="chép mã, dán khi thanh toán" more={{ to: "/promotions", label: "Tất cả ưu đãi" }} />
+          <div className="c-tickets">
+            {vouchers.map((v) => <VoucherTicket key={v.id} v={v} />)}
+          </div>
         </section>
       )}
 
-      {/* ═══ HOT COMBOS ═══ */}
-      {data.hotCombos && data.hotCombos.length > 0 && (
-        <section className="hp-section hp-section--combo">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5, delay: 0.05 }}
-          >
-            <div className="hp-section-header">
-              <div className="hp-section-title-group">
-                <span className="hp-section-icon hp-section-icon--fire">
-                  <Flame size={20} />
-                </span>
-                <h2 className="hp-section-title">🔥 Combo Hot Hiện Tại</h2>
-              </div>
-              <span className="hp-combo-subtitle">Ưu đãi gói đặc biệt — tiết kiệm hơn mua lẻ!</span>
+      {/* Mini game đang chạy */}
+      {game && (
+        <section className="c-game-strip">
+          <div className="c-wrap c-game-strip-in">
+            <div>
+              <h2 className="c-game-title">{game.name}</h2>
+              <p className="c-game-desc">
+                {game.me?.tickets ? `Bạn đang có ${game.me.tickets} lượt chơi.` : game.description ?? `Mỗi đơn từ ${game.minOrderValue.toLocaleString("vi-VN")}đ được 1 lượt chơi.`}
+              </p>
             </div>
-            <div className="hp-combo-carousel">
-              {data.hotCombos.map((combo) => (
-                <ComboCard key={combo.id} combo={combo} />
-              ))}
-            </div>
-          </motion.div>
+            <Link to={`/game/${game.id}${storeId ? `?store=${storeId}` : ""}`} className="c-btn is-paper">Chơi ngay</Link>
+          </div>
         </section>
       )}
 
-      {/* ═══ BEST SELLERS ═══ */}
-      {data.bestSellers.length > 0 && (
-        <section className="hp-section hp-section--alt">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5, delay: 0.1 }}
-          >
-            <div className="hp-section-header">
-              <div className="hp-section-title-group">
-                <span className="hp-section-icon hp-section-icon--star">
-                  <Star size={20} />
-                </span>
-                <h2 className="hp-section-title">Món Bán Chạy</h2>
-              </div>
-              <Link to="/menu" className="hp-section-more">
-                Xem thêm <ArrowRight size={14} />
-              </Link>
-            </div>
-            <div className="hp-product-grid">
-              {data.bestSellers.map((p) => (
-                <ProductCard key={p.id} product={p} showDiscount showAddToCart />
-              ))}
-            </div>
-          </motion.div>
+      {!!home?.flashSale.length && (
+        <section className="c-wrap c-sec">
+          <SectionHead title="Ưu đãi hôm nay" sub="giá giảm đến hết ngày" more={{ to: "/menu" }} />
+          <div className="c-grid">{home.flashSale.slice(0, 8).map((p) => <ProductCard key={p.id} p={p} line={line(p)} />)}</div>
         </section>
       )}
 
-      {/* ═══ CONTACT & MAP ═══ */}
-      <section className="hp-contact-section">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5 }}
-          className="hp-contact-inner"
-        >
-          {/* Info Column */}
-          <div className="hp-contact-info">
-            <h2 className="hp-contact-title">
-              <Flame size={20} style={{ color: "var(--accent)" }} /> Ghé thăm chúng tôi
+      {!!home?.bestSellers.length && (
+        <section className="c-wrap c-sec">
+          <SectionHead title="Bán chạy" sub="ly quen của khách quán" more={{ to: "/menu" }} />
+          <div className="c-grid">{home.bestSellers.slice(0, 8).map((p) => <ProductCard key={p.id} p={p} line={line(p)} />)}</div>
+        </section>
+      )}
+
+      {newest.length > 0 && (
+        <section className="c-wrap c-sec">
+          <SectionHead title="Món mới" sub="vừa lên thực đơn" more={{ to: "/menu" }} />
+          <div className="c-grid">{newest.map((p) => <ProductCard key={p.id} p={p} line={line(p)} />)}</div>
+        </section>
+      )}
+
+      {/* Câu chuyện */}
+      <section className="c-story">
+        <div className="c-wrap c-story-in">
+          <div className="c-story-img">
+            {storyImg ? <img src={mediaUrl(storyImg)} alt="Quầy pha chế TD Coffee" loading="lazy" /> : <span className="c-noimg">TD Coffee</span>}
+          </div>
+          <div className="c-story-copy">
+            <h2 className="c-sec-title">
+              Câu chuyện TD Coffee
+              <span className="c-sec-sub">— pha phin mỗi sáng</span>
             </h2>
-            <StorePicker compact />
-            <div className="hp-contact-row">
-              <MapPin size={18} className="hp-contact-icon" />
-              <div>
-                <strong>Địa chỉ</strong>
-                <p>{info.address}</p>
-              </div>
+            {/* Nội dung lấy từ "Giới thiệu ngắn" trong Website › Thông tin công ty — chủ chuỗi tự viết */}
+            <p>{info?.company.intro ?? ""}</p>
+            {info && <p>Mở cửa {info.company.hours} · {info.stores.length} chi nhánh.</p>}
+            <div className="c-story-sign">
+              <Signature />
+              <span>Chủ quán {info?.company.name ?? "TD Coffee"}</span>
             </div>
-            <div className="hp-contact-row">
-              <Phone size={18} className="hp-contact-icon" />
-              <div>
-                <strong>Hotline</strong>
-                <p>
-                  <a href={`tel:${info.phone}`} className="hp-contact-phone">
-                    {info.phone}
-                  </a>
-                </p>
-              </div>
-            </div>
-            <div className="hp-contact-row">
-              <Clock size={18} className="hp-contact-icon" />
-              <div>
-                <strong>Giờ mở cửa</strong>
-                <p>{info.hours}</p>
-              </div>
-            </div>
-            <Link to="/menu" className="hp-contact-cta">
-              Đặt món ngay <ArrowRight size={16} />
-            </Link>
+            <Link to="/about" className="c-btn is-outline">Ghé cửa hàng</Link>
           </div>
-
-          {/* Map Column */}
-          <div className="hp-contact-map">
-            <MapContainer
-              key={`${info.lat},${info.lng}`}
-              center={[info.lat, info.lng]}
-              zoom={16}
-              scrollWheelZoom={false}
-              style={{ height: "100%", width: "100%", borderRadius: 16, zIndex: 0 }}
-            >
-              <TileLayer
-                attribution='&copy; Google Maps'
-                url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
-              />
-              <Marker position={[info.lat, info.lng]}>
-                <Popup>
-                  <strong>{info.name}</strong>
-                  <br />
-                  {info.address}
-                </Popup>
-              </Marker>
-            </MapContainer>
-          </div>
-        </motion.div>
+        </div>
       </section>
+
+      {posts.length > 0 && (
+        <section className="c-wrap c-sec">
+          <SectionHead title="Tin tức" sub="chuyện ở quán" more={{ to: "/blog" }} />
+          <div className="c-news-grid">
+            {posts.map((p) => (
+              <Link key={p.id} to={`/blog/${p.id}`} className="c-news-card">
+                <span className="c-news-img">
+                  {p.imageUrl ? <img src={mediaUrl(p.imageUrl)} alt="" loading="lazy" /> : <span className="c-noimg">{p.title}</span>}
+                </span>
+                <time className="c-news-date" dateTime={p.createdAt}>{new Date(p.createdAt).toLocaleDateString("vi-VN")}</time>
+                <span className="c-news-title">{p.title}</span>
+                <span className="c-news-ex">{plain(p.body).slice(0, 120)}…</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

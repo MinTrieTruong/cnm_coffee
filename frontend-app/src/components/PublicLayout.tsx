@@ -1,6 +1,7 @@
+import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { clearSession, getUser, isGuestMode } from "../lib/session";
-import { getCart } from "../lib/cart";
+import { CART_EVENT, getCart } from "../lib/cart";
 import { BottomNav } from "./BottomNav";
 import { customerNav } from "../lib/navConfig";
 import { canGoBackInApp } from "../lib/appHistory";
@@ -56,6 +57,16 @@ export function PublicLayout() {
   const user = getUser();
   const guest = isGuestMode();
   const loggedIn = !guest && !!user;
+  const [, bump] = useState(0);
+  useEffect(() => {
+    const on = () => bump((n) => n + 1);
+    window.addEventListener(CART_EVENT, on);
+    window.addEventListener("storage", on);
+    return () => {
+      window.removeEventListener(CART_EVENT, on);
+      window.removeEventListener("storage", on);
+    };
+  }, []);
   const cartCount = getCart().reduce((s, i) => s + i.quantity, 0);
   function handleLogout() {
     clearSession();
