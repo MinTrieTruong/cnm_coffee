@@ -270,7 +270,7 @@ export function OrderTracking() {
 
         {t.shipper && !["Rejected"].includes(t.deliveryStatus ?? "") && (
           <div className="tk-rider">
-            <div className="tk-rider-ava">🛵</div>
+            <div className="tk-rider-ava" aria-hidden>{t.shipper.fullName.trim().charAt(0).toUpperCase()}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <strong>{t.shipper.fullName}</strong>
               <div className="tk-sub">
@@ -320,7 +320,7 @@ export function OrderTracking() {
         )}
 
         {t.deliveryStatus === null && (
-          <Link to={`/order/${t.id}/checkout`} className="btn btn-primary btn-block" style={{ borderRadius: 999, marginTop: "0.75rem" }}>
+          <Link to={`/order/${t.id}/checkout`} className="btn btn-primary btn-block" style={{ borderRadius: 4, marginTop: "0.75rem" }}>
             Tiếp tục thanh toán
           </Link>
         )}

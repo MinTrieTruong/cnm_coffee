@@ -40,14 +40,9 @@ export function Welcome() {
     <div className="auth-page">
       <div className="auth-content">
         <div style={{ textAlign: "center", marginBottom: "2rem" }}>
-          <div className="badge" style={{ marginBottom: "1rem", background: "rgba(146,64,14,0.2)", border: "1px solid rgba(146,64,14,0.4)" }}>
-            Quét mã QR — Đặt món tại bàn
-          </div>
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "2.5rem", margin: "0 0 0.5rem", color: "var(--text)" }}>
-            TD Coffee
-          </h1>
+          <h1 className="c-auth-title">Đăng nhập</h1>
           <p style={{ color: "var(--text)", margin: 0, fontSize: "0.95rem" }}>
-            Đăng nhập để tích điểm & lưu món quen
+            Tích điểm mỗi đơn, lưu món quen, nhận voucher riêng
           </p>
         </div>
 

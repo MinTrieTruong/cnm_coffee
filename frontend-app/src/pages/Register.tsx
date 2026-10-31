@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { safeNext, setSession, type SessionUser } from "../lib/session";
-import { ArrowLeft } from "lucide-react";
+import { Crumbs } from "../components/site/parts";
 import { PasswordInput } from "../components/PasswordInput";
 
 export function Register() {
@@ -37,12 +37,10 @@ export function Register() {
   return (
     <div className="auth-page">
       <div className="auth-content">
-        <div style={{ marginBottom: "2rem", textAlign: "center", position: "relative" }}>
-          <Link to="/" style={{ position: "absolute", left: 0, top: "50%", transform: "translateY(-50%)", color: "var(--text)", display: "flex", alignItems: "center", textDecoration: "none" }}>
-            <ArrowLeft size={24} />
-          </Link>
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "2rem", margin: "0 0 0.5rem", color: "var(--text)" }}>Đăng ký Thành viên</h1>
-          <p style={{ color: "var(--text)", margin: 0, fontSize: "0.9rem" }}>Tích điểm và nhận nhiều ưu đãi</p>
+        <Crumbs items={[{ to: "/login", label: "Đăng nhập" }, { label: "Đăng ký" }]} />
+        <div style={{ marginBottom: "1.5rem", textAlign: "center" }}>
+          <h1 className="c-auth-title">Đăng ký thành viên</h1>
+          <p style={{ color: "var(--text)", margin: 0, fontSize: "0.9rem" }}>Tích điểm mỗi đơn và nhận voucher riêng</p>
         </div>
 
         <div className="glass-box">

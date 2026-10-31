@@ -3,8 +3,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { io, Socket } from "socket.io-client";
 import { api, apiOrigin } from "../lib/api";
 import { getTakeawaySessionId, getTableId, getUser, mergeSessionUser } from "../lib/session";
-import { motion } from "framer-motion";
-import { ArrowLeft, CheckCircle, Receipt, Ticket, Star, CreditCard, Banknote } from "lucide-react";
+import { ArrowLeft, CheckCircle, CreditCard, Banknote } from "lucide-react";
 
 type BillPayload = {
   storeName: string;
@@ -226,7 +225,7 @@ export function OrderCheckout() {
     try {
       const res = await api<{ ok: boolean; voucher: any }>("/api/vouchers/validate-public", { method: "POST", body: JSON.stringify({ code: voucherCode.trim(), subTotal: bill.subTotal, customerId: user?.customerId ?? null, storeId: bill.storeId ?? null, orderId: bill.orderId }) });
       setVoucherApplied(res.voucher);
-      setVoucherMsg({ text: `✅ Áp dụng thành công! Giảm ${formatVnd(res.voucher.discountValue)}`, ok: true });
+      setVoucherMsg({ text: `Áp dụng thành công! Giảm ${formatVnd(res.voucher.discountValue)}`, ok: true });
       setSepayResult(null);
     } catch (e) { setVoucherMsg({ text: e instanceof Error ? e.message : "Lỗi kiểm tra voucher", ok: false }); }
     finally { setVoucherLoading(false); }
@@ -246,7 +245,7 @@ export function OrderCheckout() {
     try {
       const res = await api<{ ok: boolean; pointsUsed: number; pointsRedeemAmt: number; newTotal: number }>(`/api/orders/${orderId}/redeem-points`, { method: "POST", body: JSON.stringify({ pointsToUse: toUse }) });
       setPointsApplied(true);
-      setPointsMsg({ text: `✅ Đã áp dụng ${res.pointsUsed} điểm = −${formatVnd(res.pointsRedeemAmt)}`, ok: true });
+      setPointsMsg({ text: `Đã áp dụng ${res.pointsUsed} điểm = −${formatVnd(res.pointsRedeemAmt)}`, ok: true });
       setSepayResult(null); await loadBill();
     } catch (e) { setPointsMsg({ text: e instanceof Error ? e.message : "Lỗi áp dụng điểm", ok: false }); }
     finally { setPointsLoading(false); }
@@ -276,12 +275,12 @@ export function OrderCheckout() {
   if (bill.status === "Paid") {
     const cashPaid = bill.payments.filter(p => p.method !== "Points").reduce((s, p) => s + p.amount, 0);
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="site-page" style={{ textAlign: "center", maxWidth: 440, margin: "0 auto", paddingTop: "2rem" }}>
+      <div className="site-page" style={{ textAlign: "center", maxWidth: 440, margin: "0 auto", paddingTop: "2rem" }}>
         <CheckCircle size={64} color="#15803d" style={{ margin: "0 auto 1rem" }} />
         <h1 className="page-title" style={{ color: "var(--text)" }}>Thanh toán thành công</h1>
         <p className="subtle" style={{ marginBottom: "2rem" }}>Cảm ơn bạn đã ghé {bill.storeName}.</p>
 
-        <div style={{ background: "var(--surface2)", border: "1px dashed var(--border)", borderRadius: 20, padding: "1.5rem", textAlign: "left", fontSize: "0.95rem" }}>
+        <div style={{ background: "var(--surface2)", border: "1px dashed var(--border)", borderRadius: 6, padding: "1.5rem", textAlign: "left", fontSize: "0.95rem" }}>
           <div style={{ textAlign: "center", fontWeight: 700, fontSize: "1.1rem", marginBottom: "1rem", color: "var(--text)" }}>
             Hóa đơn #{bill.orderId}
           </div>
@@ -323,17 +322,17 @@ export function OrderCheckout() {
         </div>
 
         {user && bill.pointsEarnedPreview > 0 && (
-          <div style={{ marginTop: "1.5rem", background: "rgba(245,158,11,0.1)", padding: "1rem", borderRadius: 12, border: "1px solid rgba(245,158,11,0.2)" }}>
-            <span style={{ color: "#b45309", fontWeight: 600 }}>⭐ Bạn được cộng thêm +{bill.pointsEarnedPreview} điểm</span>
+          <div style={{ marginTop: "1.5rem", background: "rgba(245,158,11,0.1)", padding: "1rem", borderRadius: 6, border: "1px solid rgba(245,158,11,0.2)" }}>
+            <span style={{ color: "#b45309", fontWeight: 600 }}>Bạn được cộng thêm +{bill.pointsEarnedPreview} điểm</span>
           </div>
         )}
         {bill.orderType === "Delivery" && (
-          <Link to={`/order/${orderId}/tracking`} className="btn btn-block" style={{ marginTop: "1rem", borderRadius: 999, background: "var(--surface2)", color: "#fff", textDecoration: "none", textAlign: "center", padding: "1rem" }}>
-            📍 Theo dõi giao hàng (Map)
+          <Link to={`/order/${orderId}/tracking`} className="btn btn-block" style={{ marginTop: "1rem", borderRadius: 4, background: "var(--surface2)", color: "#fff", textDecoration: "none", textAlign: "center", padding: "1rem" }}>
+            Theo dõi giao hàng trên bản đồ
           </Link>
         )}
-        <Link to="/menu" className="btn btn-primary btn-block" style={{ marginTop: "1rem", borderRadius: 999 }}>Tiếp tục khám phá</Link>
-      </motion.div>
+        <Link to="/menu" className="btn btn-primary btn-block" style={{ marginTop: "1rem", borderRadius: 4 }}>Tiếp tục khám phá</Link>
+      </div>
     );
   }
 
@@ -357,7 +356,7 @@ export function OrderCheckout() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="site-page" style={{ maxWidth: 800 }}>
+    <div className="site-page" style={{ maxWidth: 800 }}>
       <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.5rem" }}>
         <Link to="/cart" style={{ color: "var(--muted)", textDecoration: "none" }}><ArrowLeft size={20} /></Link>
         <h1 className="page-title" style={{ margin: 0, fontSize: "1.75rem", color: "var(--text)" }}>{isDineIn ? "Đơn hàng của bạn" : "Thanh toán"}</h1>
@@ -368,14 +367,14 @@ export function OrderCheckout() {
       </p>
       
       {bill.orderType === "Delivery" && (
-        <Link to={`/order/${orderId}/tracking`} className="btn btn-block" style={{ marginBottom: "2rem", borderRadius: 999, background: "var(--surface2)", color: "#fff", textDecoration: "none", textAlign: "center", padding: "1rem" }}>
-          📍 Xem hành trình giao hàng (Map)
+        <Link to={`/order/${orderId}/tracking`} className="btn btn-block" style={{ marginBottom: "2rem", borderRadius: 4, background: "var(--surface2)", color: "#fff", textDecoration: "none", textAlign: "center", padding: "1rem" }}>
+          Xem hành trình giao hàng
         </Link>
       )}
 
       {/* SECTION 1: ORDER SUMMARY */}
       <div className="checkout-section">
-        <h2 style={{ fontSize: "1.1rem", fontFamily: "var(--font-display)", color: "var(--accent)", display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}><Receipt size={18} /> Thông tin đơn hàng</h2>
+        <h2 className="c-pd-h">Thông tin đơn hàng</h2>
         <div style={{ padding: "0 0.5rem" }}>
           {bill.items.map((it) => (
             <div key={it.id} style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", color: "var(--text)" }}>
@@ -409,7 +408,7 @@ export function OrderCheckout() {
         </div>
       </div>
       {isDelivery && showRequestBtn && (
-        <p style={{ background: "rgba(37,99,235,0.08)", border: "1px solid rgba(37,99,235,0.25)", borderRadius: 12, padding: "0.75rem 1rem", fontSize: "0.9rem", color: "var(--text)" }}>
+        <p style={{ background: "rgba(37,99,235,0.08)", border: "1px solid rgba(37,99,235,0.25)", borderRadius: 6, padding: "0.75rem 1rem", fontSize: "0.9rem", color: "var(--text)" }}>
           Đơn giao hàng cần <strong>thanh toán online trước</strong>. Quán chỉ nhận và pha chế sau khi bạn thanh toán xong.
         </p>
       )}
@@ -419,7 +418,7 @@ export function OrderCheckout() {
           {/* SECTION 2: LOYALTY POINTS */}
           {user && (bill.customerPoints > 0 || bill.pointsRedeemAmt > 0) && (
             <div className="checkout-section">
-              <h2 style={{ fontSize: "1.1rem", fontFamily: "var(--font-display)", color: "#b45309", display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}><Star size={18} /> Điểm tích lũy</h2>
+              <h2 className="c-pd-h">Điểm tích lũy</h2>
               <div style={{ padding: "0 0.5rem" }}>
                 {bill.pointsRedeemAmt > 0 ? (
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -445,7 +444,7 @@ export function OrderCheckout() {
 
           {/* SECTION 3: VOUCHERS */}
           <div className="checkout-section">
-            <h2 style={{ fontSize: "1.1rem", fontFamily: "var(--font-display)", color: "#15803d", display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}><Ticket size={18} /> Mã giảm giá</h2>
+            <h2 className="c-pd-h">Mã giảm giá</h2>
             <div style={{ padding: "0 0.5rem" }}>
               {voucherApplied ? (
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -465,7 +464,7 @@ export function OrderCheckout() {
                     <button type="button" className="btn btn-primary" disabled={voucherLoading || !voucherCode.trim()} onClick={() => void applyVoucher()} style={{ borderRadius: 8, padding: "0 1.5rem" }}>Áp dụng</button>
                   </div>
                   {showVoucherDrop && availableVouchers.length > 0 && (
-                    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: "0.5rem", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden", zIndex: 10, boxShadow: "var(--shadow-lg)" }}>
+                    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: "0.5rem", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, overflow: "hidden", zIndex: 10, boxShadow: "var(--shadow-lg)" }}>
                       {availableVouchers.filter((v) => !voucherCode || v.code.includes(voucherCode)).map((v) => (
                         <button key={v.id} type="button" onMouseDown={() => { setVoucherCode(v.code); setShowVoucherDrop(false); }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "1rem", background: "transparent", border: "none", borderBottom: "1px solid var(--border)", cursor: "pointer", textAlign: "left", color: "var(--text)" }}>
                           <div>
@@ -485,14 +484,14 @@ export function OrderCheckout() {
 
           {/* SECTION 4: PAYMENT */}
           <div className="checkout-section">
-            <h2 style={{ fontSize: "1.1rem", fontFamily: "var(--font-display)", color: "var(--text)", display: "flex", alignItems: "center", gap: "0.5rem", margin: "1rem 0" }}><CreditCard size={18} /> {isDineIn ? "Thanh toán khi dùng xong" : "Chọn phương thức"}</h2>
+            <h2 className="c-pd-h">{isDineIn ? "Thanh toán khi dùng xong" : "Chọn phương thức"}</h2>
             
             <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", padding: "0 0.5rem", marginBottom: "2rem" }}>
               {payMethods.map((m) => (
                 <button
                   key={m} type="button" onClick={() => handleSelectMethod(m)}
                   style={{
-                    flex: 1, minWidth: 120, padding: "1.25rem", borderRadius: 16, display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem",
+                    flex: 1, minWidth: 120, padding: "1.25rem", borderRadius: 6, display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem",
                     background: activeMethod === m ? "rgba(146,64,14,0.15)" : "#f5f5f4",
                     border: `1px solid ${activeMethod === m ? "var(--accent)" : "#e7e5e4"}`,
                     color: activeMethod === m ? "var(--accent)" : "#57534e",
@@ -525,12 +524,12 @@ export function OrderCheckout() {
             {/* ACTION BUTTON */}
             <div style={{ padding: "0 0.5rem" }}>
               {activeMethod === "counter" && (
-                <button type="button" className="btn btn-primary btn-block" disabled={requesting} onClick={() => void requestPayment()} style={{ padding: "1rem", borderRadius: 999, fontSize: "1.1rem", background: "var(--accent)", color: "#fff", boxShadow: "0 8px 20px rgba(146,64,14,0.3)" }}>
+                <button type="button" className="btn btn-primary btn-block" disabled={requesting} onClick={() => void requestPayment()} style={{ padding: "1rem", borderRadius: 4, fontSize: "1.1rem", background: "var(--accent)", color: "#fff", boxShadow: "0 8px 20px rgba(146,64,14,0.3)" }}>
                   {requesting ? "Đang gửi…" : "Yêu cầu thanh toán tại quầy"}
                 </button>
               )}
               {activeMethod === "vnpay" && (
-                <button type="button" className="btn btn-block" disabled={sepayLoading} onClick={() => void createVnpay()} style={{ padding: "1rem", borderRadius: 999, fontSize: "1.1rem", background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)", color: "#fff", border: "none", boxShadow: "0 8px 20px rgba(37,99,235,0.3)" }}>
+                <button type="button" className="btn btn-block" disabled={sepayLoading} onClick={() => void createVnpay()} style={{ padding: "1rem", borderRadius: 4, fontSize: "1.1rem", background: "var(--c-ink)", color: "#fff", border: "none" }}>
                   {sepayLoading ? "Đang xử lý…" : "Thanh toán qua VNPay"}
                 </button>
               )}
@@ -539,13 +538,13 @@ export function OrderCheckout() {
                   {Object.entries(sepayForm.fields).map(([k, v]) => (
                     <input key={k} type="hidden" name={k} value={String(v)} />
                   ))}
-                  <button type="submit" className="btn btn-block" style={{ padding: "1rem", borderRadius: 999, fontSize: "1.1rem", background: "linear-gradient(135deg, #16a34a 0%, #15803d 100%)", color: "#fff", border: "none", boxShadow: "0 8px 20px rgba(22,163,74,0.3)" }}>
+                  <button type="submit" className="btn btn-block" style={{ padding: "1rem", borderRadius: 4, fontSize: "1.1rem", background: "var(--c-brick)", color: "#fff", border: "none" }}>
                     Quét QR chuyển khoản (SePay)
                   </button>
                 </form>
               )}
               {payMethod === "sepay" && !sepayForm && !sepayLoading && (
-                <button type="button" className="btn btn-block" style={{ padding: "1rem", borderRadius: 999, fontSize: "1.1rem", background: "var(--surface2)", color: "#fff", border: "none" }}>
+                <button type="button" className="btn btn-block" style={{ padding: "1rem", borderRadius: 4, fontSize: "1.1rem", background: "var(--surface2)", color: "#fff", border: "none" }}>
                   Đang tải SePay...
                 </button>
               )}
@@ -557,10 +556,10 @@ export function OrderCheckout() {
       )}
 
       {bill.status === "Pending_Grace" && (
-        <div style={{ background: "var(--surface2)", padding: "1.5rem", borderRadius: 16, textAlign: "center" }}>
+        <div style={{ background: "var(--surface2)", padding: "1.5rem", borderRadius: 6, textAlign: "center" }}>
           <p style={{ color: "var(--muted)", margin: 0 }}>Đơn đang chờ xác nhận từ bếp. Bạn có thể thanh toán sau khi bếp chốt đơn.</p>
         </div>
       )}
-    </motion.div>
+    </div>
   );
 }

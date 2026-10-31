@@ -652,3 +652,35 @@ label.c-pd-opt .c-pd-label { margin-bottom: 0; }
   .c-cart-img { width: 60px; height: 60px; }
   .c-cart-item .c-qty { grid-column: 2; justify-self: start; }
 }
+
+/* ═══════════ TÀI KHOẢN ═══════════ */
+.c-account { padding-bottom: 56px; }
+.c-member { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 20px; padding: 20px 22px; margin-bottom: 20px; background: var(--c-surface); border: 1px solid var(--c-rule-strong); border-left: 6px solid var(--c-brick); }
+.c-member p { margin: 4px 0 0; }
+.c-member-name { margin: 0; font-family: var(--c-font-display); font-weight: 700; font-size: clamp(1.6rem, 1.1rem + 1.6vw, 2.3rem); line-height: 1.05; text-transform: uppercase; }
+.c-member-facts { display: flex; gap: 32px; margin: 0; }
+.c-member-facts dt { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-muted); }
+.c-member-facts dd { margin: 2px 0 0; font-family: var(--c-font-display); font-weight: 700; font-size: 1.8rem; line-height: 1; color: var(--c-brick); font-variant-numeric: tabular-nums; }
+.c-member-facts .c-muted-txt { font-size: 0.78rem; }
+.c-tabs { display: flex; gap: 0; overflow-x: auto; margin-bottom: 24px; border-bottom: 2px solid var(--c-ink); scrollbar-width: none; }
+.c-tabs::-webkit-scrollbar { display: none; }
+.c-tabs button { flex: 0 0 auto; padding: 12px 16px; border: 0; background: none; font-family: var(--c-font-display); font-weight: 600; font-size: 0.98rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--c-ink-2); cursor: pointer; border-bottom: 4px solid transparent; margin-bottom: -2px; }
+.c-tabs button:hover { color: var(--c-brick); }
+.c-tabs button.is-on { color: var(--c-brick); border-bottom-color: var(--c-brick); }
+.c-account .card { padding: 18px 20px; }
+
+/* ═══════════ ĐĂNG NHẬP / ĐĂNG KÝ (trang cũ dùng .auth-page) ═══════════ */
+.c-site .auth-page { min-height: auto; justify-content: flex-start; padding: 24px 16px 56px; background: var(--c-paper); }
+.c-site .auth-content { animation: none; }
+.c-site .glass-box { border-radius: 0; box-shadow: none; border: 1px solid var(--c-rule-strong); border-top: 6px solid var(--c-brick); background: var(--c-surface); }
+.c-site .auth-btn, .c-site .ghost-btn { border-radius: var(--c-radius); box-shadow: none; font-family: var(--c-font-display); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
+.c-site .auth-btn { background: var(--c-brick); }
+.c-site .auth-btn:hover:not(:disabled) { background: var(--c-brick-dark); box-shadow: none; }
+.c-site .ghost-btn { border: 1.5px solid var(--c-ink); color: var(--c-ink); background: transparent; }
+.c-site .ghost-btn:hover { background: var(--c-ink); color: var(--c-paper); }
+.c-auth-title { margin: 0 0 6px; font-family: var(--c-font-display); font-weight: 700; font-size: clamp(2rem, 1.5rem + 1.6vw, 2.6rem); line-height: 1; text-transform: uppercase; color: var(--c-ink); }
+
+/* ═══════════ TRANG CŨ CÒN LẠI (thanh toán, ân hạn, theo dõi đơn) ═══════════ */
+.c-site .site-page { max-width: 820px; padding-top: 24px; }
+.c-site .badge { border-radius: 2px; }
+.c-site .tk-rider-ava { border-radius: var(--c-radius); background: var(--c-ink); color: var(--c-paper); font-family: var(--c-font-display); font-weight: 700; font-size: 1.3rem; }
