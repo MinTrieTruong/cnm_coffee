@@ -1,25 +1,27 @@
 /* ═══════════════════════════════════════════════════════════════════
    TD COFFEE — NHẬN DIỆN TRANG KHÁCH: "Quán cà phê Sài Gòn — poster & menu giấy"
    Chỉ dùng cho khu vực khách (PublicLayout gắn class .c-site). Khu nhân sự dùng token --o-* riêng.
-   Bố cục: header 2 tầng (giấy kem + thanh đỏ gạch), nội dung trên nền giấy, footer nâu mực.
+   Bố cục: header 2 tầng (giấy kem + thanh xanh gạch bông), nội dung trên nền giấy, footer xanh đêm.
    ═══════════════════════════════════════════════════════════════════ */
 :root {
-  /* Màu */
-  --c-paper: #f6f0e6;        /* nền giấy kem */
-  --c-paper-2: #efe6d6;      /* khối nền ảnh món, ô xen kẽ */
-  --c-surface: #fffcf7;      /* bề mặt trắng ngà */
-  --c-ink: #2a1b12;          /* chữ mực nâu đen — 15:1 trên giấy */
-  --c-ink-2: #5b4636;        /* chữ phụ — 7:1 trên giấy */
-  --c-muted: #6f5b4b;        /* chữ mờ — 5.3:1 trên giấy */
-  --c-brick: #b23a1e;        /* đỏ gạch / đất nung — chủ đạo; chữ trắng trên nền này 5.6:1 */
-  --c-brick-dark: #8f2d16;
-  --c-coffee: #6f4e37;       /* nâu cà phê */
-  --c-butter: #e2a93b;       /* vàng bơ — tem giảm giá */
-  --c-rule: #d9c8b0;         /* đường kẻ menu giấy */
-  --c-rule-strong: #b9a184;
-  --c-on-brick: #fffcf7;
-  --c-footer: #2a1b12;
-  --c-on-footer: #f1e6d4;
+  /* Màu — "gạch bông Sài Gòn": xanh men gạch bông / cửa sắt quán cũ, vàng nghệ, giấy kem.
+     Tránh đỏ + kem (Highlands), xanh lá (Phúc Long, Cộng, Starbucks), navy (Katinat), cam (The Coffee House). */
+  --c-paper: #f4efe6;        /* nền giấy kem */
+  --c-paper-2: #e9e1d3;      /* khối nền ảnh món, ô xen kẽ */
+  --c-surface: #fffdf8;      /* bề mặt trắng ngà */
+  --c-ink: #1d2423;          /* chữ mực — 13.8:1 trên giấy */
+  --c-ink-2: #3f4a48;        /* chữ phụ — 8:1 */
+  --c-muted: #5e6662;        /* chữ mờ — 5.2:1 */
+  --c-primary: #1e5a5f;      /* xanh gạch bông — chủ đạo; chữ trên giấy 6.8:1, chữ trắng trên nền này 7.7:1 */
+  --c-primary-dark: #15434a;
+  --c-coffee: #7a5a3a;       /* nâu cà phê sữa — dải mini game */
+  --c-accent: #e0a531;       /* vàng nghệ — tem giảm giá (chữ mực trên nền 7.2:1) */
+  --c-rule: #d8cfbf;         /* đường kẻ menu giấy */
+  --c-rule-strong: #b3a690;
+  --c-on-primary: #fffdf8;
+  --c-danger: #a8321c;       /* lỗi / hết hàng — 6:1 trên giấy */
+  --c-footer: #14363b;       /* xanh đêm */
+  --c-on-footer: #efe7d8;
 
   /* Chữ */
   --c-font-display: "Oswald", "Arial Narrow", "Roboto Condensed", Impact, sans-serif;
@@ -50,13 +52,13 @@
   --text-secondary: var(--c-ink-2);
   --muted: var(--c-muted);
   --muted-2: var(--c-muted);
-  --accent: var(--c-brick);
-  --accent-hover: var(--c-brick-dark);
+  --accent: var(--c-primary);
+  --accent-hover: var(--c-primary-dark);
   --accent-dim: var(--c-coffee);
-  --accent-rgb: 178, 58, 30;
-  --accent-soft: #f6e3d9;
-  --accent-soft-2: #f0d2c3;
-  --on-accent: var(--c-on-brick);
+  --accent-rgb: 30, 90, 95;
+  --accent-soft: #dce9e8;
+  --accent-soft-2: #c7dcdb;
+  --on-accent: var(--c-on-primary);
   --border: var(--c-rule);
   --border-strong: var(--c-rule-strong);
   --shadow-xs: none;

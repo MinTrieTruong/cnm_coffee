@@ -164,118 +164,112 @@ export function Menu() {
   const catName = new Map(categories.map((c) => [c.id, c.name]));
   const priceOn = (r: (typeof PRICES)[number]) => filters.minPrice === r.min && filters.maxPrice === r.max;
 
+  const roots = categories.filter((c) => !c.parentId);
+  // Danh mục cha đang chọn (chọn danh mục con thì vẫn mở hàng con của cha nó)
+  const activeRoot = current ? (current.parentId ? categories.find((c) => c.id === current.parentId) ?? null : current) : null;
+  const children = activeRoot ? categories.filter((c) => c.parentId === activeRoot.id) : [];
+  const priceKey = PRICES.findIndex(priceOn);
+
   return (
     <div className="c-wrap c-menu">
       <Crumbs items={[{ to: "/menu", label: "Thực đơn" }, ...(current ? [{ label: current.name }] : [])]} />
+      <div className="c-menu-head">
+        <h1 className="c-sec-title">
+          {current?.name ?? "Thực đơn"}
+          <span className="c-sec-sub">— {takeawaySid ? "đơn mang về" : tableId ? `bạn đang ngồi ${tableName ?? `bàn #${tableId}`}` : "chọn món, quán pha liền tay"}</span>
+        </h1>
+      </div>
 
-      <div className="c-menu-layout">
-        <aside className="c-menu-side" aria-label="Lọc thực đơn">
-          <div className="c-side-box">
-            <h2 className="c-side-h">Danh mục</h2>
-            <ul className="c-side-cats">
-              <li>
-                <button type="button" className={filters.categoryId === "all" ? "is-on" : undefined} onClick={() => pickCategory("all")}>Tất cả món</button>
-              </li>
-              {categories.map((c) => (
-                <li key={c.id} className={c.parentId ? "is-child" : undefined}>
-                  <button type="button" className={filters.categoryId === c.id ? "is-on" : undefined} aria-pressed={filters.categoryId === c.id} onClick={() => pickCategory(c.id)}>
-                    {c.name}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className="c-side-box">
-            <h2 className="c-side-h">Mức giá</h2>
-            <div className="c-side-chips">
-              {PRICES.map((r) => (
-                <button
-                  key={r.label}
-                  type="button"
-                  className={priceOn(r) ? "is-on" : undefined}
-                  aria-pressed={priceOn(r)}
-                  onClick={() => setFilters((f) => (priceOn(r) ? { ...f, minPrice: "", maxPrice: "" } : { ...f, minPrice: r.min, maxPrice: r.max }))}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="c-side-box">
-            <h2 className="c-side-h">Kiểu món</h2>
-            <div className="c-side-chips">
-              {TAGS.map((t) => {
-                const on = filters.tags.includes(t);
-                return (
-                  <button key={t} type="button" className={on ? "is-on" : undefined} aria-pressed={on} onClick={() => setFilters((f) => ({ ...f, tags: on ? f.tags.filter((x) => x !== t) : [...f.tags, t] }))}>
-                    {TAG_LABEL[t]}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          {hasFilter && <button type="button" className="c-linkish c-side-clear" onClick={clearAll}>Bỏ lọc</button>}
-        </aside>
-
-        <div className="c-menu-main">
-          <div className="c-menu-head">
-            <h1 className="c-sec-title">
-              {current?.name ?? "Thực đơn"}
-              <span className="c-sec-sub">— {takeawaySid ? "đơn mang về" : tableId ? `bạn đang ngồi ${tableName ?? `bàn #${tableId}`}` : "chọn món, quán pha liền tay"}</span>
-            </h1>
-          </div>
-
-          <div className="c-menu-tools">
-            <label className="c-menu-search">
-              <Search size={18} aria-hidden />
-              <span className="c-sr">Tìm món</span>
-              <input value={filters.search} onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))} placeholder="Tìm theo tên món" />
-              {filters.search && (
-                <button type="button" onClick={() => setFilters((f) => ({ ...f, search: "" }))} aria-label="Xóa từ khóa"><X size={16} aria-hidden /></button>
-              )}
-            </label>
-            <div className="c-seg" role="group" aria-label="Kiểu xem">
-              <button type="button" className={view === "grid" ? "is-on" : undefined} aria-pressed={view === "grid"} onClick={() => changeView("grid")}>Lưới ảnh</button>
-              <button type="button" className={view === "paper" ? "is-on" : undefined} aria-pressed={view === "paper"} onClick={() => changeView("paper")}>Menu giấy</button>
-            </div>
-          </div>
-
-          {err && <p className="c-err">{err}</p>}
-          {!data && !err && <p className="c-muted-txt">Đang tải thực đơn…</p>}
-          {data && hasFilter && <p className="c-muted-txt c-menu-count">{total === 0 ? "Không có món nào khớp bộ lọc." : `${total} món`}</p>}
-
-          {data && !hasFilter && data.favorites.length > 0 && view === "grid" && (
-            <section className="c-menu-group">
-              <SectionHead title="Món quen của bạn" sub="bạn hay gọi" />
-              <div className="c-grid c-grid-3">{data.favorites.slice(0, 6).map((p) => <ProductCard key={p.id} p={p} line={catName.get(p.categoryId)} />)}</div>
-            </section>
-          )}
-
-          {data && view === "grid" &&
-            groups.map((c) => (
-              <section key={c.id} className="c-menu-group" id={`cat-${c.id}`}>
-                <SectionHead title={c.name} sub={`${c.list.length} món`} />
-                <div className="c-grid c-grid-3">
-                  {c.list.map((p) => <ProductCard key={p.id} p={p} line={catName.get(p.categoryId)} />)}
-                </div>
-              </section>
+      {/* Bộ lọc ngang, dính dưới thanh điều hướng */}
+      <div className="c-filter" role="search" aria-label="Lọc thực đơn">
+        <div className="c-filter-cats">
+          <button type="button" className={filters.categoryId === "all" ? "is-on" : undefined} aria-pressed={filters.categoryId === "all"} onClick={() => pickCategory("all")}>Tất cả</button>
+          {roots.map((c) => (
+            <button key={c.id} type="button" className={activeRoot?.id === c.id ? "is-on" : undefined} aria-pressed={activeRoot?.id === c.id} onClick={() => pickCategory(c.id)}>
+              {c.name}
+            </button>
+          ))}
+        </div>
+        {children.length > 0 && (
+          <div className="c-filter-subs">
+            <button type="button" className={current?.id === activeRoot?.id ? "is-on" : undefined} onClick={() => activeRoot && pickCategory(activeRoot.id)}>Tất cả {activeRoot?.name.toLowerCase()}</button>
+            {children.map((c) => (
+              <button key={c.id} type="button" className={current?.id === c.id ? "is-on" : undefined} aria-pressed={current?.id === c.id} onClick={() => pickCategory(c.id)}>{c.name}</button>
             ))}
-
-          {data && view === "paper" && groups.length > 0 && (
-            <div className="c-paper">
-              <p className="c-paper-title">TD Coffee<span>— thực đơn treo tường</span></p>
-              <div className="c-paper-cols">{groups.map((c) => <PaperGroup key={c.id} name={c.name} list={c.list} query={query} />)}</div>
-              <p className="c-paper-note">Giá size M. Size S/L và tuỳ chọn đá, đường chọn ở trang món.</p>
-            </div>
-          )}
-
-          {data && !hasFilter && (
-            <section className="c-menu-reviews">
-              <ReviewList title="Khách nói gì về quán" />
-            </section>
-          )}
+          </div>
+        )}
+        <div className="c-filter-row">
+          <label className="c-menu-search">
+            <Search size={18} aria-hidden />
+            <span className="c-sr">Tìm món</span>
+            <input value={filters.search} onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))} placeholder="Tìm theo tên món" />
+            {filters.search && (
+              <button type="button" onClick={() => setFilters((f) => ({ ...f, search: "" }))} aria-label="Xóa từ khóa"><X size={16} aria-hidden /></button>
+            )}
+          </label>
+          <label className="c-filter-sel">
+            <span className="c-sr">Mức giá</span>
+            <select
+              className="c-input"
+              value={priceKey}
+              onChange={(e) => {
+                const r = PRICES[Number(e.target.value)];
+                setFilters((f) => ({ ...f, minPrice: r?.min ?? "", maxPrice: r?.max ?? "" }));
+              }}
+            >
+              <option value={-1}>Mọi mức giá</option>
+              {PRICES.map((r, i) => <option key={r.label} value={i}>{r.label}</option>)}
+            </select>
+          </label>
+          <label className="c-filter-sel">
+            <span className="c-sr">Kiểu món</span>
+            <select className="c-input" value={filters.tags[0] ?? ""} onChange={(e) => setFilters((f) => ({ ...f, tags: e.target.value ? [e.target.value] : [] }))}>
+              <option value="">Mọi kiểu món</option>
+              {TAGS.map((t) => <option key={t} value={t}>{TAG_LABEL[t]}</option>)}
+            </select>
+          </label>
+          {hasFilter && <button type="button" className="c-linkish c-filter-clear" onClick={clearAll}>Bỏ lọc</button>}
+          <div className="c-seg" role="group" aria-label="Kiểu xem">
+            <button type="button" className={view === "grid" ? "is-on" : undefined} aria-pressed={view === "grid"} onClick={() => changeView("grid")}>Lưới ảnh</button>
+            <button type="button" className={view === "paper" ? "is-on" : undefined} aria-pressed={view === "paper"} onClick={() => changeView("paper")}>Menu giấy</button>
+          </div>
         </div>
       </div>
+
+      {err && <p className="c-err">{err}</p>}
+      {!data && !err && <p className="c-muted-txt">Đang tải thực đơn…</p>}
+      {data && hasFilter && <p className="c-muted-txt c-menu-count">{total === 0 ? "Không có món nào khớp bộ lọc." : `${total} món`}</p>}
+
+      {data && !hasFilter && data.favorites.length > 0 && view === "grid" && (
+        <section className="c-menu-group">
+          <SectionHead title="Món quen của bạn" sub="bạn hay gọi" />
+          <div className="c-grid">{data.favorites.slice(0, 8).map((p) => <ProductCard key={p.id} p={p} line={catName.get(p.categoryId)} />)}</div>
+        </section>
+      )}
+
+      {data && view === "grid" &&
+        groups.map((c) => (
+          <section key={c.id} className="c-menu-group" id={`cat-${c.id}`}>
+            <SectionHead title={c.name} sub={`${c.list.length} món`} />
+            <div className="c-grid">
+              {c.list.map((p) => <ProductCard key={p.id} p={p} line={catName.get(p.categoryId)} />)}
+            </div>
+          </section>
+        ))}
+
+      {data && view === "paper" && groups.length > 0 && (
+        <div className="c-paper">
+          <p className="c-paper-title">TD Coffee<span>— thực đơn treo tường</span></p>
+          <div className="c-paper-cols">{groups.map((c) => <PaperGroup key={c.id} name={c.name} list={c.list} query={query} />)}</div>
+          <p className="c-paper-note">Giá size M. Size S/L và tuỳ chọn đá, đường chọn ở trang món.</p>
+        </div>
+      )}
+
+      {data && !hasFilter && (
+        <section className="c-menu-reviews">
+          <ReviewList title="Khách nói gì về quán" />
+        </section>
+      )}
     </div>
   );
 }

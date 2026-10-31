@@ -538,7 +538,7 @@ export function OrderCheckout() {
                   {Object.entries(sepayForm.fields).map(([k, v]) => (
                     <input key={k} type="hidden" name={k} value={String(v)} />
                   ))}
-                  <button type="submit" className="btn btn-block" style={{ padding: "1rem", borderRadius: 4, fontSize: "1.1rem", background: "var(--c-brick)", color: "#fff", border: "none" }}>
+                  <button type="submit" className="btn btn-block" style={{ padding: "1rem", borderRadius: 4, fontSize: "1.1rem", background: "var(--c-primary)", color: "#fff", border: "none" }}>
                     Quét QR chuyển khoản (SePay)
                   </button>
                 </form>

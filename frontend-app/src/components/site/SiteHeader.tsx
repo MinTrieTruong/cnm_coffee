@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronLeft, Menu as MenuIcon, Search, ShoppingBag, User, X } from "lucide-react";
-import { mediaUrl } from "../../lib/api";
-import { useMenuData, useSiteInfo } from "../../lib/site";
+import { ChevronLeft, Search, ShoppingBag, User, X } from "lucide-react";
+import { useSiteInfo } from "../../lib/site";
 import { LogoMark } from "../LogoMark";
 import { StorePicker } from "../StorePicker";
 
@@ -16,7 +15,8 @@ export const SITE_LINKS = [
 
 /**
  * Header trang khách: hàng 1 nền giấy (logo · tìm kiếm · hotline · tài khoản · giỏ),
- * hàng 2 thanh đỏ gạch (danh mục sản phẩm + liên kết). Dính đầu trang, cuộn xuống thì chỉ còn hàng 2.
+ * hàng 2 thanh màu chủ đạo (liên kết). Chỉ thanh hàng 2 dính đầu trang — chiều cao header không đổi khi cuộn
+ * (đổi chiều cao làm nội dung nhảy lên xuống, trang bị giật).
  */
 export function SiteHeader({
   loggedIn,
@@ -37,46 +37,28 @@ export function SiteHeader({
   const loc = useLocation();
   const nav = useNavigate();
   const info = useSiteInfo();
-  const menu = useMenuData();
   const [q, setQ] = useState("");
-  const [compact, setCompact] = useState(false);
-  const [catsOpen, setCatsOpen] = useState(false);
+  const [stuck, setStuck] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const catsRef = useRef<HTMLDivElement>(null);
+  const topRef = useRef<HTMLDivElement>(null);
 
+  // Hàng 1 khuất khỏi màn hình → hiện logo nhỏ + giỏ trong thanh dính (không đổi chiều cao, không lắng nghe scroll)
   useEffect(() => {
-    const onScroll = () => setCompact(window.scrollY > 140);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    const el = topRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setStuck(!e.isIntersecting));
+    io.observe(el);
+    return () => io.disconnect();
   }, []);
   useEffect(() => {
-    setCatsOpen(false);
     setSearchOpen(false);
   }, [loc.pathname, loc.search]);
-  useEffect(() => {
-    if (!catsOpen) return;
-    const onDoc = (e: MouseEvent) => catsRef.current && !catsRef.current.contains(e.target as Node) && setCatsOpen(false);
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setCatsOpen(false);
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [catsOpen]);
 
   function search(e: FormEvent) {
     e.preventDefault();
     const s = q.trim();
     nav(s ? `/menu?q=${encodeURIComponent(s)}` : "/menu");
   }
-
-  // Danh mục gốc kèm ảnh 1 món tiêu biểu
-  const cats = (menu?.categories ?? []).filter((c) => !c.parentId).map((c) => ({
-    ...c,
-    image: menu?.products.find((p) => p.categoryId === c.id && p.imageUrl)?.imageUrl ?? null,
-  }));
 
   const searchForm = (
     <form className="c-search" role="search" onSubmit={search}>
@@ -86,7 +68,7 @@ export function SiteHeader({
   );
 
   return (
-    <header className={`c-header${compact ? " is-compact" : ""}`}>
+    <header className="c-header">
       {/* Điện thoại: logo/quay lại · tiêu đề · tìm · giỏ */}
       <div className="c-head-mobile">
         {onBack ? (
@@ -106,7 +88,7 @@ export function SiteHeader({
       {searchOpen && <div className="c-head-mobile-search">{searchForm}</div>}
 
       {/* Máy tính — hàng 1 */}
-      <div className="c-head-top">
+      <div className="c-head-top" ref={topRef}>
         <div className="c-wrap c-head-top-in">
           <div className="c-brand-col">
             <Link to="/" className="c-brand" aria-label="TD Coffee — trang chủ">
@@ -148,26 +130,10 @@ export function SiteHeader({
         </div>
       </div>
 
-      {/* Máy tính — hàng 2: thanh đỏ gạch */}
-      <nav className="c-head-bar" aria-label="Chính">
+      {/* Máy tính — hàng 2: thanh màu chủ đạo, dính đầu trang */}
+      <nav className={`c-head-bar${stuck ? " is-stuck" : ""}`} aria-label="Chính">
         <div className="c-wrap c-head-bar-in">
           <Link to="/" className="c-bar-logo" aria-label="Trang chủ"><LogoMark width={30} height={30} /></Link>
-          <div className="c-cats" ref={catsRef}>
-            <button type="button" className="c-cats-btn" onClick={() => setCatsOpen((v) => !v)} aria-expanded={catsOpen} aria-haspopup="true">
-              <MenuIcon size={18} aria-hidden /> Danh mục sản phẩm <ChevronDown size={16} aria-hidden />
-            </button>
-            {catsOpen && (
-              <div className="c-cats-pop">
-                {cats.map((c) => (
-                  <Link key={c.id} to={`/menu?category=${c.id}`} className="c-cats-item">
-                    {c.image ? <img src={mediaUrl(c.image)} alt="" loading="lazy" /> : <span className="c-cats-ph" aria-hidden />}
-                    <span>{c.name}</span>
-                  </Link>
-                ))}
-                {!cats.length && <span className="c-cats-empty">Đang tải danh mục…</span>}
-              </div>
-            )}
-          </div>
           {SITE_LINKS.map((l) => (
             <Link key={l.to} to={l.to} className={`c-bar-link${l.match(loc.pathname) ? " is-on" : ""}`}>{l.label}</Link>
           ))}
