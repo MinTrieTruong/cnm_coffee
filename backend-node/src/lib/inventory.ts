@@ -118,7 +118,11 @@ export async function deductForCups(
 
   const alerts: LowStockAlert[] = [];
   for (const [itemId, qty] of need) {
-    const amount = roundQty(qty);
+    let amount = roundQty(qty);
+    if (amount <= 0) continue;
+    // Không trừ tồn xuống âm (đơn đặt lúc còn đủ nhưng tới lúc thanh toán đã hết) — phần thiếu báo pha chế qua cảnh báo sắp hết
+    const cur = await tx.storeInventory.findUnique({ where: { storeId_itemId: { storeId, itemId } }, select: { stockQty: true } });
+    if (cur) amount = roundQty(Math.min(amount, Math.max(0, cur.stockQty)));
     if (amount <= 0) continue;
     const row = await adjustStoreStock(tx, { storeId, itemId, qtyChange: -amount, type: args.type, referenceId: args.referenceId });
     const before = row.stockQty + amount;

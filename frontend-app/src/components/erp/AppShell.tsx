@@ -246,7 +246,7 @@ function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   async function submit() {
-    if (next.length < 4) return setMsg({ ok: false, text: "Mật khẩu mới tối thiểu 4 ký tự." });
+    if (next.length < 6) return setMsg({ ok: false, text: "Mật khẩu mới tối thiểu 6 ký tự." });
     if (next !== again) return setMsg({ ok: false, text: "Nhập lại mật khẩu mới không khớp." });
     setBusy(true);
     try {

@@ -470,7 +470,11 @@ export function Pos() {
         const b = await staffApi<BillRecord>(`/api/pos/bills/${payOrder.id}`);
         printHistoryBill(b);
       } else {
-        await staffApi("/api/pos/pay", { method: "POST", body: JSON.stringify(body) });
+        const paid = await staffApi<{ voucherDropped?: string | null; totalAmount: number }>("/api/pos/pay", { method: "POST", body: JSON.stringify(body) });
+        // Voucher hết lượt / khách đã dùng lúc tính tiền → máy chủ bỏ voucher, tổng thay đổi: báo thu ngân thu đúng số
+        if (paid.voucherDropped) {
+          window.alert(`Không áp dụng voucher: ${paid.voucherDropped}\nTổng thu đúng: ${formatVnd(paid.totalAmount)}`);
+        }
       }
       setPayOrder(null);
       setBillModal(null);

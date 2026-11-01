@@ -1,6 +1,10 @@
 import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
 import { attachStaff, requireRoles } from "../middleware/staff.js";
+import { sanitizeHtml } from "../lib/sanitizeHtml.js";
+
+/** Cột Body là TEXT (~64 KB) */
+const POST_MAX = 60_000;
 
 export function postsRouter(prisma: PrismaClient) {
   const r = Router();
@@ -65,13 +69,15 @@ export function postsRouter(prisma: PrismaClient) {
       title: string; body: string;
       imageUrl?: string | null; pinned?: boolean; isPublished?: boolean;
     };
-    if (!title?.trim() || !body?.trim()) {
+    // Nội dung HTML từ trình soạn thảo: lọc thẻ / thuộc tính chạy được mã trước khi lưu (trang khách render bằng innerHTML)
+    const cleanBody = sanitizeHtml(body, POST_MAX);
+    if (!title?.trim() || !cleanBody) {
       return res.status(400).json({ error: "Tiêu đề và nội dung là bắt buộc." });
     }
     const post = await prisma.post.create({
       data: {
         title: title.trim(),
-        body: body.trim(),
+        body: cleanBody,
         imageUrl: imageUrl?.trim() || null,
         pinned: pinned ?? false,
         isPublished: isPublished ?? true,
@@ -92,7 +98,7 @@ export function postsRouter(prisma: PrismaClient) {
       where: { id },
       data: {
         ...(title !== undefined && { title: title.trim() }),
-        ...(body !== undefined && { body: body.trim() }),
+        ...(body !== undefined && { body: sanitizeHtml(body, POST_MAX) ?? "" }),
         ...(imageUrl !== undefined && { imageUrl: imageUrl?.trim() || null }),
         ...(pinned !== undefined && { pinned }),
         ...(isPublished !== undefined && { isPublished }),

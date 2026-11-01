@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
 import { verifyToken, type StaffPayload } from "../lib/jwt.js";
+import { readToken, viewerOwnsOrder, type OrderViewer } from "../lib/orderAccess.js";
 import { isAdminLike, isOwner } from "../middleware/staff.js";
 import { storeRoom, type StoreRoom } from "../lib/storeScope.js";
 
@@ -12,7 +13,16 @@ export function registerSocketHandlers(io: Server, prisma: PrismaClient) {
   // Nhân viên gửi token qua `auth.token` (Owner gửi thêm `auth.storeId`).
   // Không có token hoặc token sai → kết nối như khách, chỉ vào được phòng của khách.
   io.use(async (socket, next) => {
-    const { token, storeId } = (socket.handshake.auth ?? {}) as { token?: unknown; storeId?: unknown };
+    const { token, storeId, customerToken, orderSession, tableId } = (socket.handshake.auth ?? {}) as {
+      token?: unknown; storeId?: unknown; customerToken?: unknown; orderSession?: unknown; tableId?: unknown;
+    };
+    // Khách: dùng để kiểm quyền vào phòng order:<id> / tracking:<id> (cùng quy tắc với GET /orders/:id)
+    const cust = readToken(typeof customerToken === "string" ? customerToken : null);
+    socket.data.viewer = {
+      customerId: cust?.typ === "cust" ? cust.sub : null,
+      session: typeof orderSession === "string" ? orderSession : null,
+      tableId: Number.isInteger(Number(tableId)) && tableId != null ? Number(tableId) : null,
+    } satisfies OrderViewer;
     if (typeof token === "string" && token) {
       try {
         const p = verifyToken<StaffPayload>(token);
@@ -56,13 +66,21 @@ export function registerSocketHandlers(io: Server, prisma: PrismaClient) {
         return;
       }
 
-      if (
-        /^order:\d+$/.test(room) ||
-        // Khách join phòng riêng để nhận tin: tên phòng kèm mã bí mật của phiên (không đoán được từ số phiên)
-        /^chat:\d+:[0-9a-f-]{36}$/.test(room) ||
-        /^tracking:\d+$/.test(room) // khách join phòng tracking để xem Shipper
-      ) {
+      // Khách join phòng riêng để nhận tin: tên phòng kèm mã bí mật của phiên (không đoán được từ số phiên)
+      if (/^chat:\d+:[0-9a-f-]{36}$/.test(room)) {
         void socket.join(room);
+        return;
+      }
+
+      // Phòng của 1 đơn (thanh toán xong / vị trí shipper): chỉ chủ đơn hoặc nhân viên cùng chi nhánh
+      const ord = /^(order|tracking):(\d+)$/.exec(room);
+      if (ord) {
+        void (async () => {
+          const order = await prisma.order.findUnique({ where: { id: Number(ord[2]) }, select: { customerId: true, sessionId: true, tableId: true, storeId: true } });
+          if (!order) return;
+          const isStaff = !!staff && (isOwner(staff.role) || staff.storeIds.includes(order.storeId));
+          if (isStaff || viewerOwnsOrder(order, (socket.data.viewer ?? {}) as OrderViewer)) void socket.join(room);
+        })();
       }
     });
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api, mediaUrl } from "../lib/api";
 import { Crumbs } from "../components/site/parts";
+import { safeHtml } from "../lib/safeHtml";
 import { useLang } from "../lib/i18n";
 
 type Post = {
@@ -48,7 +49,7 @@ export function BlogDetail() {
         <h1>{post.title}</h1>
       </header>
       {post.imageUrl && <img className="c-article-img" src={mediaUrl(post.imageUrl)} alt={post.title} />}
-      <div className="post-content c-article-body" dangerouslySetInnerHTML={{ __html: post.body }} />
+      <div className="post-content c-article-body" dangerouslySetInnerHTML={{ __html: safeHtml(post.body) }} />
       <p><Link to="/blog" className="c-sec-more">{t("← Tin khác")}</Link></p>
     </article>
   );

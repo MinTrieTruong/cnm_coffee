@@ -4,6 +4,7 @@ import type { PrismaClient } from "@prisma/client";
 import { customerAuth } from "../middleware/customer.js";
 import bcrypt from "bcryptjs";
 import { saveDataUrlImage } from "../lib/uploadImage.js";
+import { normalizeVnPhone } from "../lib/contactLinks.js";
 import { getStoreSettings } from "../lib/pricing.js";
 import { DS } from "../lib/delivery.js";
 import { customerCancelDeadline, moneyToPoints, paidMoney } from "../lib/points.js";
@@ -25,7 +26,13 @@ export function customerRouter(prisma: PrismaClient) {
 
     const dataToUpdate: any = {};
     if (fullName) dataToUpdate.fullName = fullName.trim();
-    if (phone) dataToUpdate.phone = phone.trim();
+    if (phone) {
+      const p = normalizeVnPhone(phone);
+      if (!p) return res.status(400).json({ error: "Số điện thoại chưa đúng." });
+      const taken = await prisma.customer.findFirst({ where: { phone: p, NOT: { id: customerId } }, select: { id: true } });
+      if (taken) return res.status(409).json({ error: "Số điện thoại đã được tài khoản khác sử dụng." });
+      dataToUpdate.phone = p;
+    }
     if (email !== undefined) dataToUpdate.email = email?.trim() || null;
     if (address !== undefined) dataToUpdate.address = address?.trim() || null;
     if (dob) dataToUpdate.dob = new Date(dob);
@@ -44,7 +51,8 @@ export function customerRouter(prisma: PrismaClient) {
       where: { id: customerId },
       data: dataToUpdate,
     });
-    res.json(c);
+    const { passwordHash: _h, ...safe } = c;
+    res.json(safe);
   });
 
   r.patch("/password", customerAuth, async (req, res) => {

@@ -452,4 +452,5 @@ export const EN: Record<string, string> = {
   "Giáng sinh an lành": "Merry Christmas",
   "Merry Christmas & Happy New Year": "Merry Christmas & Happy New Year",
   "Ẩn lời chúc": "Hide greeting",
+  "Cách quán {km} — ngoài phạm vi giao hàng (tối đa {max} km)": "{km} from the store — outside our delivery area (max {max} km)",
 };

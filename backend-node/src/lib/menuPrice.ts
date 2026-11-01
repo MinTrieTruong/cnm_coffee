@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { unsellableProductIds } from "./storeProducts.js";
+import { shortCups, unsellableProductIds } from "./storeProducts.js";
 
 export type Size = "S" | "M" | "L";
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -107,6 +107,12 @@ export async function priceLines(db: Db, storeId: number, raw: RawLine[]): Promi
       }
       lines.push({ ...base, productId: i.productId, quantity: i.quantity * l.quantity!, unitPrice: unit[idx] });
     });
+  }
+  // Đủ nguyên liệu cho đúng số ly / size đã đặt (gộp các dòng, kể cả món trong combo)
+  const short = await shortCups(db, storeId, lines);
+  if (short.size > 0) {
+    const names = products.filter((p) => short.has(p.id)).map((p) => p.name);
+    return { error: `Không đủ nguyên liệu cho: ${names.join(", ")}. Vui lòng giảm số lượng hoặc chọn món khác.` };
   }
   return { lines };
 }

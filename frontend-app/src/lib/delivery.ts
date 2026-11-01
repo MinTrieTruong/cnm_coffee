@@ -46,6 +46,9 @@ export function formatKm(km: number) {
   return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
 }
 
+/** Bán kính giao hàng tối đa (km) — khớp với backend (lib/delivery.ts, mặc định MAX_DELIVERY_KM) */
+export const MAX_DELIVERY_KM = 15;
+
 /** Phí ship — khớp với backend (lib/delivery.ts) */
 export function shippingFeeForDistance(km: number) {
   if (km <= 3) return 0;

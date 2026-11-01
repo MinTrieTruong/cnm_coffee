@@ -11,9 +11,10 @@ import { customerShipping, describeTier, refreshOrderPromotion } from "../lib/pr
 import { priceLines, type RawLine } from "../lib/menuPrice.js";
 import { optionalCustomerAuth } from "../middleware/customer.js";
 import { computeBill, computePointsEarned, getStoreSettings } from "../lib/pricing.js";
-import { DS, getStoreLocation, haversineKm, onKitchenProgress, shippingFeeForDistance } from "../lib/delivery.js";
+import { DS, getStoreLocation, haversineKm, MAX_DELIVERY_KM, onKitchenProgress, shippingFeeForDistance } from "../lib/delivery.js";
 import { customerCancelDeadline, emitRefunded, refundOrderToPoints, RefundError } from "../lib/points.js";
 import { verifyToken, type StaffPayload } from "../lib/jwt.js";
+import { canViewOrder } from "../lib/orderAccess.js";
 
 /** Dòng giỏ hàng khách gửi lên. unitPrice của trình duyệt chỉ để tham khảo — máy chủ tự tính lại giá (lib/menuPrice). */
 type CartLine = RawLine & { unitPrice?: number };
@@ -47,6 +48,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       include: { details: { include: { product: true } }, table: true },
     });
     if (!order) return res.status(404).json({ error: "Không tìm thấy đơn" });
+    if (!(await canViewOrder(prisma, req, order))) return res.status(403).json({ error: "Bạn không có quyền xem đơn này." });
     res.json(order);
   });
 
@@ -54,6 +56,9 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
   r.get("/orders/:id/bill", async (req, res) => {
     const id = Number(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ" });
+    const owner = await prisma.order.findUnique({ where: { id }, select: { customerId: true, sessionId: true, tableId: true, storeId: true } });
+    if (!owner) return res.status(404).json({ error: "Không tìm thấy đơn" });
+    if (!(await canViewOrder(prisma, req, owner))) return res.status(403).json({ error: "Bạn không có quyền xem đơn này." });
     await refreshOrderPromotion(prisma, id);
     const order = await prisma.order.findUnique({
       where: { id },
@@ -182,8 +187,9 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       return res.status(400).json({ error: "Chỉ khách đăng nhập mới dùng điểm được" });
     }
 
+    // Điểm của khách nào chỉ khách đó (đúng token) được áp vào đơn — không token cũng bị chặn
     const reqCustomerId = (req as Request & { customerId?: number }).customerId;
-    if (reqCustomerId && reqCustomerId !== order.customerId) {
+    if (reqCustomerId !== order.customerId) {
       return res.status(403).json({ error: "Không có quyền trên đơn này" });
     }
 
@@ -346,9 +352,11 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     let shippingFee = 0;
     if (isDelivery) {
       const store = await getStoreLocation(prisma, storeId);
-      shippingFee = shippingFeeForDistance(
-        haversineKm(store, { lat: body.customerLat as number, lng: body.customerLng as number }),
-      );
+      const km = haversineKm(store, { lat: body.customerLat as number, lng: body.customerLng as number });
+      if (km > MAX_DELIVERY_KM) {
+        return res.status(400).json({ error: `Địa chỉ cách quán ${km.toFixed(1)} km, ngoài phạm vi giao hàng (tối đa ${MAX_DELIVERY_KM} km).` });
+      }
+      shippingFee = shippingFeeForDistance(km);
     }
     
     const sessionId =
@@ -486,6 +494,13 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     if (order.deliveryStatus && order.deliveryStatus !== DS.AwaitingConfirm) {
       return res.status(400).json({ error: "Quán đã nhận đơn, không thể hủy. Vui lòng liên hệ quán." });
     }
+    // Khách tự hủy: chỉ trong ân hạn, hoặc khi chưa món nào xuống quầy pha chế (đơn mang về chưa thanh toán vẫn ở Hold)
+    if (!isStaff && order.status !== "Pending_Grace") {
+      const inKitchen = await prisma.orderDetail.count({ where: { orderId: id, kdsStatus: { not: "Hold" } } });
+      if (inKitchen > 0) {
+        return res.status(400).json({ error: "Đơn đã chuyển xuống quầy pha chế, không thể tự hủy. Vui lòng báo nhân viên." });
+      }
+    }
     
     // Kiểm tra xem đã có thanh toán nào chưa
     const payments = await prisma.payment.findMany({ where: { orderId: id } });
@@ -529,7 +544,10 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
   r.patch("/kds/details/:id", ...kitchenAuth, async (req, res) => {
     const id = Number(req.params.id);
     const { kdsStatus } = req.body as { kdsStatus?: string };
-    if (!kdsStatus) return res.status(400).json({ error: "Thiếu kdsStatus" });
+    // Pha chế chỉ chuyển món giữa các bước này; Hold / Cancelled do hệ thống đặt
+    if (!kdsStatus || !["Waiting", "Cooking", "Ready", "Served"].includes(kdsStatus)) {
+      return res.status(400).json({ error: "Trạng thái món không hợp lệ." });
+    }
     const cur = await prisma.orderDetail.findUnique({ where: { id }, include: { order: true } });
     if (!cur || !inStore(req, cur.order)) return res.status(404).json({ error: "Không tìm thấy món." });
     if (!["Confirmed", "Paid"].includes(cur.order.status)) {

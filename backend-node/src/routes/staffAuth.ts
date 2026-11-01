@@ -37,13 +37,18 @@ export function staffAuthRouter(prisma: PrismaClient) {
     });
   });
 
-  /** Public — chỉ trả tên/role để hiển thị danh sách chọn nhân viên trên trang login. `?store=` lọc theo chi nhánh. */
-  r.get("/staff/members", async (req, res) => {
-    const store = Number(req.query.store);
+  /**
+   * Danh sách đồng nghiệp (tên/vai trò) để chọn người đổi ca. Cần đăng nhập nhân sự;
+   * nhân viên chỉ thấy chi nhánh mình, Chủ chuỗi lọc bằng `?store=` (hoặc chi nhánh đang chọn).
+   */
+  r.get("/staff/members", auth, async (req, res) => {
+    const sr = req as StaffRequest;
+    const asked = Number(req.query.store);
+    const storeId = sr.staffRow!.role === "Owner" ? (Number.isInteger(asked) && asked > 0 ? asked : sr.storeId) : sr.storeId;
     const rows = await prisma.staff.findMany({
-      where: { status: "Active", ...(Number.isInteger(store) && store > 0 ? { storeId: store } : {}) },
+      where: { status: "Active", ...(storeId != null ? { storeId } : {}) },
       orderBy: [{ role: "asc" }, { fullName: "asc" }],
-      select: { id: true, fullName: true, role: true, username: true },
+      select: { id: true, fullName: true, role: true },
     });
     res.json(rows);
   });
@@ -101,8 +106,8 @@ export function staffAuthRouter(prisma: PrismaClient) {
     if (!currentPassword || !newPassword) {
       return res.status(400).json({ error: "Thiếu mật khẩu hiện tại hoặc mật khẩu mới." });
     }
-    if (newPassword.length < 4) {
-      return res.status(400).json({ error: "Mật khẩu mới phải từ 4 ký tự." });
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: "Mật khẩu mới phải từ 6 ký tự." });
     }
     if (!staff.passwordHash || !(await bcrypt.compare(currentPassword, staff.passwordHash))) {
       return res.status(401).json({ error: "Mật khẩu hiện tại không đúng." });

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient, Staff } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { ALL_ROLES, BRANCH_STAFF_ROLES, attachStaff, isOwner, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
@@ -384,9 +384,10 @@ export function adminRouter(prisma: PrismaClient) {
       allowance?: number;
       storeId?: number | null;
     };
-    if (!b.password || b.password.length < 4 || !b.fullName?.trim() || !b.role) {
+    if (!b.password || !b.fullName?.trim() || !b.role) {
       return res.status(400).json({ error: "Thiếu mật khẩu, họ tên hoặc role." });
     }
+    if (b.password.length < 6) return res.status(400).json({ error: "Mật khẩu phải từ 6 ký tự." });
     const actorRow = (req as StaffRequest).staffRow!;
     if (!ALL_ROLES.includes(b.role)) return res.status(400).json({ error: "Vai trò không hợp lệ." });
     // Quản lý chi nhánh chỉ tạo nhân viên chi nhánh; Quản lý/Chủ chuỗi do Chủ chuỗi tạo
@@ -403,27 +404,35 @@ export function adminRouter(prisma: PrismaClient) {
     const username = desiredUsername || (await makeUsername(b.role, normalizedName));
     const exists = await prisma.staff.findFirst({ where: { username } });
     if (exists) return res.status(409).json({ error: "Username đã tồn tại." });
-    const maxId = (await prisma.staff.aggregate({ _max: { id: true } }))._max.id ?? 0;
     const hash = await bcrypt.hash(b.password, 10);
     const hireDate = b.hireDate ? new Date(b.hireDate) : new Date();
     const dob = b.dob ? new Date(b.dob) : null;
-    const s = await prisma.staff.create({
-      data: {
-        id: maxId + 1,
-        storeId,
-        username,
-        passwordHash: hash,
-        fullName: normalizedName,
-        phone: b.phone?.trim() ?? null,
-        address: b.address?.trim() ?? null,
-        dob: dob && !Number.isNaN(dob.getTime()) ? dob : null,
-        role: b.role,
-        hireDate: Number.isNaN(hireDate.getTime()) ? new Date() : hireDate,
-        status: b.status === "Inactive" ? "Inactive" : "Active",
-        baseSalary: b.baseSalary ?? 0,
-        allowance: b.allowance ?? 0,
-      },
-    });
+    const staffData = {
+      storeId,
+      username,
+      passwordHash: hash,
+      fullName: normalizedName,
+      phone: b.phone?.trim() ?? null,
+      address: b.address?.trim() ?? null,
+      dob: dob && !Number.isNaN(dob.getTime()) ? dob : null,
+      role: b.role,
+      hireDate: Number.isNaN(hireDate.getTime()) ? new Date() : hireDate,
+      status: b.status === "Inactive" ? "Inactive" : "Active",
+      baseSalary: b.baseSalary ?? 0,
+      allowance: b.allowance ?? 0,
+    };
+    // Staff_ID không tự tăng → cấp max+1, trùng (tạo cùng lúc) thì thử lại với ID mới
+    const createStaff = async (attempt: number): Promise<Staff> => {
+      const maxId = (await prisma.staff.aggregate({ _max: { id: true } }))._max.id ?? 0;
+      try {
+        return await prisma.staff.create({ data: { ...staffData, id: maxId + 1 + attempt } });
+      } catch (e) {
+        const target = String((e as Prisma.PrismaClientKnownRequestError).meta?.target ?? "");
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002" && !/username/i.test(target) && attempt < 8) return createStaff(attempt + 1);
+        throw e;
+      }
+    };
+    const s = await createStaff(0);
     const actor = (req as StaffRequest).staffRow!;
     audit(actor.id, "STAFF_CREATE", `Staff #${s.id}`, `${s.username} (${s.role})`);
     res.status(201).json({
@@ -439,6 +448,7 @@ export function adminRouter(prisma: PrismaClient) {
     const id = Number(req.params.id);
     const actor = (req as StaffRequest).staffRow!;
     const b = req.body as {
+      username?: string;
       fullName?: string;
       role?: string;
       status?: string;
@@ -456,16 +466,26 @@ export function adminRouter(prisma: PrismaClient) {
     if (!target || !inStore(req, target)) return res.status(404).json({ error: "Không tìm thấy nhân viên." });
     if (b.role !== undefined && !ALL_ROLES.includes(b.role)) return res.status(400).json({ error: "Vai trò không hợp lệ." });
     if (!isOwner(actor.role)) {
-      // Quản lý chi nhánh: sửa nhân viên chi nhánh (hoặc chính mình nhưng không đổi vai trò)
-      const editable = BRANCH_STAFF_ROLES.includes(target.role) || (target.id === actor.id && b.role === undefined);
-      if (!editable || (b.role !== undefined && !BRANCH_STAFF_ROLES.includes(b.role)) || b.storeId !== undefined) {
+      // Quản lý chi nhánh: sửa nhân viên chi nhánh, hoặc thông tin cá nhân của chính mình
+      const self = target.id === actor.id;
+      const changed = (k: "role" | "status" | "baseSalary" | "allowance") => b[k] !== undefined && b[k] !== target[k];
+      const hireChanged = b.hireDate !== undefined && new Date(b.hireDate).getTime() !== target.hireDate?.getTime();
+      if (self && (changed("role") || changed("status") || changed("baseSalary") || changed("allowance") || hireChanged)) {
+        return res.status(403).json({ error: "Không tự sửa lương, phụ cấp, vai trò, trạng thái hay ngày vào làm của chính mình — nhờ Chủ chuỗi." });
+      }
+      const editable = BRANCH_STAFF_ROLES.includes(target.role) || self;
+      if (!editable || (!self && b.role !== undefined && !BRANCH_STAFF_ROLES.includes(b.role)) || b.storeId !== undefined) {
         return res.status(403).json({ error: "Chỉ Chủ chuỗi được sửa tài khoản quản lý hoặc đổi chi nhánh." });
       }
     }
-    const data: Record<string, unknown> = { ...b };
+    // Chỉ nhận các trường được phép sửa (không nhận passwordHash, faceDescriptor, id… từ body)
+    const data: Record<string, unknown> = {};
+    for (const k of ["username", "fullName", "role", "status", "phone", "address", "baseSalary", "allowance", "storeId"] as const) {
+      if (b[k as keyof typeof b] !== undefined) data[k] = b[k as keyof typeof b];
+    }
     if (b.password) {
+      if (b.password.length < 6) return res.status(400).json({ error: "Mật khẩu phải từ 6 ký tự." });
       data.passwordHash = await bcrypt.hash(b.password, 10);
-      delete data.password;
     }
     if (b.hireDate !== undefined) {
       const parsed = new Date(b.hireDate);
@@ -478,8 +498,9 @@ export function adminRouter(prisma: PrismaClient) {
       data.dob = parsedDob;
     }
     const updated = await prisma.staff.update({ where: { id }, data });
-    audit(actor.id, "STAFF_UPDATE", `Staff #${id}`, `${updated.username ?? updated.fullName}`);
-    res.json(updated);
+    audit(actor.id, "STAFF_UPDATE", `Staff #${id}`, `${updated.username ?? updated.fullName}${data.baseSalary !== undefined && data.baseSalary !== target.baseSalary ? ` · lương ${target.baseSalary} → ${data.baseSalary}` : ""}`);
+    const { passwordHash: _h, faceDescriptor: _f, ...safe } = updated;
+    res.json(safe);
   });
 
   r.delete("/staff/:id", ...admin, async (req, res) => {
@@ -542,7 +563,8 @@ export function adminRouter(prisma: PrismaClient) {
     }
     const updated = await prisma.customer.update({ where: { id }, data });
     audit(actor.id, "CUSTOMER_UPDATE", `Customer #${id}`, updated.fullName);
-    res.json(updated);
+    const { passwordHash: _h, ...safe } = updated;
+    res.json(safe);
   });
 
   r.post("/customers/:id/reset-password", ...owner, async (req, res) => {

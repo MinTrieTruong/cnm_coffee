@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { io, Socket } from "socket.io-client";
-import { api, apiOrigin } from "../lib/api";
+import { api, apiOrigin, orderSocketAuth } from "../lib/api";
 import { getTakeawaySessionId, getTableId, getUser, mergeSessionUser } from "../lib/session";
 import { ArrowLeft, CheckCircle, CreditCard, Banknote } from "lucide-react";
 
@@ -70,7 +70,8 @@ export function OrderCheckout() {
 
   useEffect(() => {
     const vnpCode = searchParams.get("vnp_ResponseCode");
-    const vnpTxnRef = searchParams.get("vnp_TxnRef") ?? undefined;
+    // Gửi lại nguyên bộ tham số vnp_* (kèm chữ ký) để máy chủ tự kiểm — không gửi riêng mã kết quả
+    const vnpParams = Object.fromEntries([...searchParams.entries()].filter(([k]) => k.startsWith("vnp_")));
     if (vnpCode !== null) {
       const result = vnpCode === "00" ? "success" : "error";
       setSepayResult(result as "success" | "error");
@@ -81,7 +82,7 @@ export function OrderCheckout() {
         vnpConfirmSentRef.current = true;
         void (async () => {
           try {
-            await api(`/api/orders/${orderId}/vnpay/client-confirm`, { method: "POST", body: JSON.stringify({ vnp_ResponseCode: vnpCode, vnp_TxnRef: vnpTxnRef }) });
+            await api(`/api/orders/${orderId}/vnpay/client-confirm`, { method: "POST", body: JSON.stringify(vnpParams) });
             const b = await api<BillPayload>(`/api/orders/${orderId}/bill`);
             setBill(b);
           } catch { }
@@ -91,16 +92,24 @@ export function OrderCheckout() {
 
     const sepayStatus = searchParams.get("sepay");
     if (sepayStatus !== null) {
+      const invoice = searchParams.get("inv");
       setSepayResult(sepayStatus as "success" | "error" | "cancel");
       setPayMethod("sepay");
       setSearchParams({}, { replace: true });
       if (sepayStatus === "success" && !Number.isNaN(orderId)) {
         void (async () => {
-          try {
-            await api(`/api/orders/${orderId}/sepay/confirm`, { method: "POST" });
-            const b = await api<BillPayload>(`/api/orders/${orderId}/bill`);
-            setBill(b);
-          } catch { }
+          // Máy chủ tự tra cứu hoá đơn trên SePay; chưa xác nhận được thì chờ IPN — tải lại bill vài lần
+          for (let i = 0; i < 6; i++) {
+            try {
+              const r = await api<{ confirmed: boolean }>(`/api/orders/${orderId}/sepay/confirm`, { method: "POST", body: JSON.stringify({ invoice }) });
+              const b = await api<BillPayload>(`/api/orders/${orderId}/bill`);
+              setBill(b);
+              if (r.confirmed || b.status === "Paid") break;
+            } catch {
+              break;
+            }
+            await new Promise((ok) => setTimeout(ok, 5000));
+          }
         })();
       }
     }
@@ -143,7 +152,7 @@ export function OrderCheckout() {
 
   useEffect(() => {
     if (Number.isNaN(orderId)) return;
-    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"] });
+    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"], auth: orderSocketAuth() });
     socket.emit("join", `order:${orderId}`);
     socket.on("payment:success", (p: { orderId?: number }) => {
       if (p.orderId !== orderId) return;

@@ -1,8 +1,9 @@
 import { Router } from "express";
 import type { Request } from "express";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { signCustomerToken } from "../lib/jwt.js";
+import { normalizeVnPhone } from "../lib/contactLinks.js";
 import { customerAuth } from "../middleware/customer.js";
 import { rankTierFromLifetimeSpend } from "../lib/rank.js";
 
@@ -50,8 +51,10 @@ export function authRouter(prisma: PrismaClient) {
     if (!phone?.trim() || !password || password.length < 6) {
       return res.status(400).json({ error: "Số điện thoại và mật khẩu (≥ 6 ký tự) là bắt buộc." });
     }
+    const normPhone = normalizeVnPhone(phone);
+    if (!normPhone) return res.status(400).json({ error: "Số điện thoại chưa đúng." });
     const exists = await prisma.customer.findFirst({
-      where: { phone: phone.trim() },
+      where: { phone: normPhone },
     });
     if (exists) {
       return res.status(409).json({ error: "Số điện thoại đã được đăng ký." });
@@ -61,16 +64,27 @@ export function authRouter(prisma: PrismaClient) {
       if (e) return res.status(409).json({ error: "Email đã được đăng ký." });
     }
     const hash = await bcrypt.hash(password, 10);
-    const nextId = (await prisma.customer.aggregate({ _max: { id: true } }))._max.id ?? 0;
-    const customer = await prisma.customer.create({
-      data: {
-        id: nextId + 1,
-        phone: phone.trim(),
-        email: email?.trim() || null,
-        fullName: fullName?.trim() || "Khách hàng",
-        passwordHash: hash,
-      },
-    });
+    // Customer_ID không tự tăng → cấp max+1; nhiều người đăng ký cùng lúc trùng ID thì thử lại với ID mới
+    let customer;
+    for (let attempt = 0; ; attempt++) {
+      const nextId = (await prisma.customer.aggregate({ _max: { id: true } }))._max.id ?? 0;
+      try {
+        customer = await prisma.customer.create({
+          data: {
+            id: nextId + 1 + attempt,
+            phone: normPhone,
+            email: email?.trim() || null,
+            fullName: fullName?.trim().slice(0, 255) || "Khách hàng",
+            passwordHash: hash,
+          },
+        });
+        break;
+      } catch (e) {
+        const target = String((e as Prisma.PrismaClientKnownRequestError).meta?.target ?? "");
+        const dupId = e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002" && !/phone|email/i.test(target);
+        if (!dupId || attempt >= 8) throw e;
+      }
+    }
     const tier = await syncCustomerRank(prisma, customer.id);
     const token = signCustomerToken(customer.id);
     return res.status(201).json({
@@ -98,7 +112,7 @@ export function authRouter(prisma: PrismaClient) {
     const q = login.trim();
     const customer = await prisma.customer.findFirst({
       where: {
-        OR: [{ phone: q }, { email: q }],
+        OR: [{ phone: normalizeVnPhone(q) ?? q }, { email: q }],
       },
     });
     if (!customer?.passwordHash || !(await bcrypt.compare(password, customer.passwordHash))) {

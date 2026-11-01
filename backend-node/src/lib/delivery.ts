@@ -52,6 +52,9 @@ export function travelMinutes(km: number) {
 }
 
 /** Phí ship: ≤ 3km miễn phí, xa hơn 15.000đ + 5.000đ/km */
+/** Bán kính giao hàng tối đa tính từ chi nhánh (km) — khớp frontend lib/delivery.ts */
+export const MAX_DELIVERY_KM = Number(process.env.MAX_DELIVERY_KM) || 15;
+
 export function shippingFeeForDistance(km: number) {
   if (km <= 3) return 0;
   return 15000 + Math.ceil(km - 3) * 5000;

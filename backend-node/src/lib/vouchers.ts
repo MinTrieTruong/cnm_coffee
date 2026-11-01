@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { voucherStoreError } from "./stores.js";
 
 /**
@@ -55,3 +55,35 @@ export async function resolveVoucher(
 export function voucherHold(v: { voucherCode: string | null; voucherDiscount: number }) {
   return v.voucherCode ? `VOUCHER:${v.voucherCode}:${v.voucherDiscount}` : null;
 }
+
+/**
+ * Tiêu 1 lượt voucher lúc thanh toán — gọi trong transaction thanh toán.
+ * Nguyên tử: tăng Used_Count chỉ khi còn lượt (không vượt Quantity khi nhiều đơn cùng thanh toán);
+ * đánh dấu ví của khách đã dùng chỉ khi chưa dùng (mỗi khách 1 lần, kể cả voucher công khai).
+ * Trả false nếu hết lượt / khách đã dùng — caller quyết định huỷ thanh toán (POS) hay chỉ ghi log (online đã thu tiền).
+ */
+export async function consumeVoucher(tx: Prisma.TransactionClient, code: string, customerId: number | null, orderId: number) {
+  const v = await tx.voucher.findUnique({ where: { code }, select: { id: true } });
+  if (!v) return false;
+  if (customerId) {
+    const marked = await tx.userVoucher.updateMany({
+      where: { customerId, voucherId: v.id, isUsed: false },
+      data: { isUsed: true, usedAt: new Date(), orderId },
+    });
+    if (marked.count === 0) {
+      const had = await tx.userVoucher.findUnique({ where: { customerId_voucherId: { customerId, voucherId: v.id } } });
+      if (had) return false; // đã dùng ở đơn khác
+      try {
+        await tx.userVoucher.create({ data: { customerId, voucherId: v.id, isUsed: true, usedAt: new Date(), orderId } });
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return false; // đơn khác vừa dùng
+        throw e;
+      }
+    }
+  }
+  const n = await tx.$executeRaw`UPDATE Vouchers SET Used_Count = Used_Count + 1 WHERE Voucher_ID = ${v.id} AND (Quantity = -1 OR Used_Count < Quantity)`;
+  return n > 0;
+}
+
+/** Voucher hết lượt / khách đã dùng phát hiện trong transaction thanh toán */
+export class VoucherUnavailableError extends Error {}

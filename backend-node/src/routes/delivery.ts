@@ -4,6 +4,7 @@ import type { Server } from "socket.io";
 import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
 import { inStore, mustStoreId, storeWhere, toStore } from "../lib/storeScope.js";
 import { saveDataUrlImage } from "../lib/uploadImage.js";
+import { canViewOrder } from "../lib/orderAccess.js";
 import { notify } from "../lib/notify.js";
 import { customerCancelDeadline, emitRefunded, FAIL_REASONS, moneyToPoints, paidMoney, refundOrderToPoints, RefundError, type FailReasonCode } from "../lib/points.js";
 import { getStoreSettings } from "../lib/pricing.js";
@@ -387,6 +388,7 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ" });
     const order = await prisma.order.findUnique({ where: { id }, include: orderInclude });
     if (!order || order.orderType !== "Delivery") return res.status(404).json({ error: "Không tìm thấy đơn giao hàng" });
+    if (!(await canViewOrder(prisma, req, order))) return res.status(403).json({ error: "Bạn không có quyền xem đơn này." });
     const store = await getStoreLocation(prisma, order.storeId);
     const dest = { lat: order.customerLat ?? store.lat, lng: order.customerLng ?? store.lng };
 

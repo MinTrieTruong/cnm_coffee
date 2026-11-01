@@ -31,6 +31,13 @@ export function reviewsRouter(prisma: PrismaClient) {
     if (order.status !== "Paid") {
       return res.status(400).json({ error: "Chỉ đánh giá sau khi thanh toán hoàn tất." });
     }
+    // Ảnh chỉ nhận đường dẫn do /reviews/upload-image cấp (không nhận URL ngoài / javascript:)
+    if (imageUrl && !/^\/uploads\/[0-9a-f-]{36}\.(png|jpe?g|webp|gif)$/i.test(imageUrl)) {
+      return res.status(400).json({ error: "Ảnh đánh giá không hợp lệ." });
+    }
+    if (await prisma.review.findFirst({ where: { orderId }, select: { id: true } })) {
+      return res.status(409).json({ error: "Đơn này đã được đánh giá." });
+    }
     const rev = await prisma.review.create({
       data: {
         orderId,

@@ -7,8 +7,11 @@ import { settlePaidPoints } from "../lib/points.js";
 import { deductInventoryForOrder } from "../lib/inventory.js";
 import { releaseOrderToKitchen } from "../lib/delivery.js";
 import { customerShipping, refreshOrderPromotion } from "../lib/promotions.js";
-import { resolveVoucher, voucherHold } from "../lib/vouchers.js";
+import { consumeVoucher, resolveVoucher, voucherHold } from "../lib/vouchers.js";
 import { toStore } from "../lib/storeScope.js";
+
+/** Trạng thái đơn còn nhận thanh toán */
+const PAYABLE = ["Confirmed", "Pending_Grace", "Waiting_Pay"];
 
 export function vnpayRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
@@ -103,37 +106,28 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
     const orderId = Number(req.params.id);
     if (Number.isNaN(orderId)) return res.status(400).json({ ok: false });
 
-    const { vnp_ResponseCode, vnp_TxnRef } = (req.body ?? {}) as {
-      vnp_ResponseCode?: string;
-      vnp_TxnRef?: string;
-    };
-    if (vnp_ResponseCode !== "00") return res.json({ ok: false, reason: "not_success" });
+    // Trình duyệt gửi lại nguyên bộ tham số vnp_* VNPay trả về — chỉ tin khi chữ ký đúng
+    const query = Object.fromEntries(
+      Object.entries((req.body ?? {}) as Record<string, unknown>)
+        .filter(([k, v]) => k.startsWith("vnp_") && typeof v === "string")
+        .map(([k, v]) => [k, v as string]),
+    );
+    const { valid, responseCode, txnRef } = verifyVnpaySign(query, process.env.VNPAY_HASH_SECRET ?? "");
+    if (!valid) return res.status(400).json({ ok: false, reason: "invalid_signature" });
+    if (responseCode !== "00" || (query.vnp_TransactionStatus && query.vnp_TransactionStatus !== "00")) {
+      return res.json({ ok: false, reason: "not_success" });
+    }
+    if (Number(txnRef.split("_")[0]) !== orderId) return res.status(400).json({ ok: false, reason: "wrong_order" });
 
     const order = await prisma.order.findUnique({ where: { id: orderId } });
     if (!order) return res.status(404).json({ ok: false });
+    if (order.status === "Paid") return res.json({ ok: true, alreadyPaid: true });
+    if (!PAYABLE.includes(order.status)) return res.status(400).json({ ok: false, reason: "not_payable" });
 
     // Dùng vnp_TxnRef làm key idempotent (tránh double-payment kể cả race condition)
-    const transCode = vnp_TxnRef
-      ? `VNPAY-${vnp_TxnRef}`
-      : `VNPAY-CLIENT-${orderId}`;
-
-    // Kiểm tra payment theo transCode (idempotent hoàn toàn)
-    const existingByCode = vnp_TxnRef
-      ? await prisma.payment.findFirst({ where: { transCode } })
-      : null;
-
-    // Kiểm tra payment theo orderId+method (phòng IPN đã xử lý)
-    const existingByOrder = await prisma.payment.findFirst({
-      where: { orderId, method: "VNPay" },
-    });
-
-    if (existingByCode || existingByOrder || order.status === "Paid") {
-      // Đảm bảo status = Paid
-      if (order.status !== "Paid") {
-        await prisma.order.update({ where: { id: orderId }, data: { status: "Paid", paidAt: order.paidAt ?? new Date() } });
-      }
-      return res.json({ ok: true, alreadyPaid: true });
-    }
+    const transCode = `VNPAY-${txnRef}`;
+    const existing = await prisma.payment.findFirst({ where: { OR: [{ transCode }, { orderId, method: "VNPay" }] } });
+    if (existing) return res.json({ ok: true, alreadyPaid: true });
 
     let voucherCode = null;
     let voucherDiscount = 0;
@@ -153,10 +147,12 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
     );
     const finalTotal = computed.totalAmount + customerShipping(order);
     const chargeAmount = Math.round(finalTotal);
+    // VNPay nhân 100; số khách thực trả phải đủ số tiền đơn
+    if (Number(query.vnp_Amount) / 100 < chargeAmount) return res.status(400).json({ ok: false, reason: "amount_mismatch" });
 
     await prisma.$transaction(async (tx) => {
-      const updateResult = await tx.order.updateMany({ 
-        where: { id: orderId, status: { not: "Paid" } }, 
+      const updateResult = await tx.order.updateMany({
+        where: { id: orderId, status: { in: PAYABLE } },
         data: { 
           status: "Paid",
           discountAmt: Number(order.discountAmt) + voucherDiscount,
@@ -179,11 +175,9 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
         },
       });
 
-      if (voucherCode) {
-        await tx.voucher.updateMany({
-          where: { code: voucherCode },
-          data: { usedCount: { increment: 1 } },
-        });
+      // Tiêu lượt voucher nguyên tử; khách đã trả tiền online nên không huỷ giao dịch, chỉ ghi log khi vượt lượt
+      if (voucherCode && !(await consumeVoucher(tx, voucherCode, order.customerId, orderId))) {
+        console.warn("[voucher] Đơn #%d thanh toán online với voucher %s đã hết lượt / khách đã dùng", orderId, voucherCode);
       }
 
       if (order.customerId) {
@@ -264,7 +258,13 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
     if (order.status === "Paid") {
       return res.json({ RspCode: "02", Message: "Order Already Confirmed" });
     }
+    // Đơn đã hủy / đã giao… không nhận tiền nữa (tránh chuyển đơn đã hủy sang Paid)
+    if (!PAYABLE.includes(order.status)) {
+      return res.json({ RspCode: "02", Message: "Order Not Payable" });
+    }
 
+    let amountBad = false;
+    let paidNow = false;
     if (responseCode === "00") {
       await prisma.$transaction(async (tx) => {
         const existingPmt = await tx.payment.findFirst({
@@ -290,9 +290,14 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
         );
         // Khách trả cả phí ship (giống lúc tạo link thanh toán)
         const finalTotal = computed.totalAmount + customerShipping(order);
+        // VNPay nhân 100; trả thiếu thì không ghi nhận
+        if (Number(query.vnp_Amount) / 100 < Math.round(finalTotal)) {
+          amountBad = true;
+          return;
+        }
 
         const updateResult = await tx.order.updateMany({
-          where: { id: orderId, status: { not: "Paid" } },
+          where: { id: orderId, status: { in: PAYABLE } },
           data: {
             status: "Paid",
             discountAmt: Number(order.discountAmt) + voucherDiscount,
@@ -304,6 +309,7 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
           },
         });
         if (updateResult.count === 0) return; // Đã được xử lý bởi request khác
+        paidNow = true;
         await deductInventoryForOrder(tx, orderId);
 
         await tx.payment.create({
@@ -315,11 +321,9 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
           },
         });
 
-        if (voucherCode) {
-          await tx.voucher.updateMany({
-            where: { code: voucherCode },
-            data: { usedCount: { increment: 1 } },
-          });
+        // Tiêu lượt voucher nguyên tử; khách đã trả tiền online nên không huỷ giao dịch, chỉ ghi log khi vượt lượt
+        if (voucherCode && !(await consumeVoucher(tx, voucherCode, order.customerId, orderId))) {
+          console.warn("[voucher] Đơn #%d thanh toán online với voucher %s đã hết lượt / khách đã dùng", orderId, voucherCode);
         }
 
         if (order.customerId) {
@@ -339,13 +343,15 @@ export function vnpayRouter(prisma: PrismaClient, io: Server) {
       });
     }
 
+    if (amountBad) return res.json({ RspCode: "04", Message: "Invalid Amount" });
+
     // Cập nhật socket cho frontend
     const updatedOrder = await prisma.order.findUnique({
       where: { id: orderId },
       include: { table: true, customer: { select: { fullName: true } } },
     });
 
-    if (responseCode === "00" && updatedOrder) {
+    if (paidNow && updatedOrder) {
       // Thông báo POS
       const tableLabel = updatedOrder.table ? updatedOrder.table.name : "Mang về";
       const customerLabel = updatedOrder.customer?.fullName ?? "Vãng lai";

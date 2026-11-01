@@ -7,7 +7,7 @@ import { releaseOrderToKitchen } from "../lib/delivery.js";
 import { customerShipping, refreshOrderPromotion } from "../lib/promotions.js";
 import { computeBill, computePointsEarned, getStoreSettings } from "../lib/pricing.js";
 import { settlePaidPoints } from "../lib/points.js";
-import { resolveVoucher, voucherHold } from "../lib/vouchers.js";
+import { consumeVoucher, resolveVoucher, voucherHold } from "../lib/vouchers.js";
 import { toStore } from "../lib/storeScope.js";
 
 /** Tổng tiền thanh toán online: VAT, điểm đã áp, voucher đang giữ trong cancelReason (VOUCHER:code:giá trị), phí ship */
@@ -156,7 +156,7 @@ export function momoRouter(prisma: PrismaClient, io?: Server) {
             },
           });
           if (voucherCode) {
-            await tx.voucher.updateMany({ where: { code: voucherCode }, data: { usedCount: { increment: 1 } } });
+            if (!(await consumeVoucher(tx, voucherCode, order.customerId, rawOrderId))) console.warn("[voucher] Đơn #%d thanh toán MoMo với voucher %s đã hết lượt / khách đã dùng", rawOrderId, voucherCode);
           }
           if (order.customerId) {
             await settlePaidPoints(tx, {

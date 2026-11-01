@@ -1,4 +1,5 @@
-import type { PrismaClient, Product } from "@prisma/client";
+import type { Prisma, PrismaClient, Product } from "@prisma/client";
+import { stockPerCup } from "./inventory.js";
 
 /**
  * Món nào không bán được tại chi nhánh: món ngừng kinh doanh toàn chuỗi (`isActive = false`),
@@ -18,14 +19,52 @@ export async function unsellableProductIds(
   return out;
 }
 
-/** Món chi nhánh đang tắt hoặc báo hết — ẩn khỏi thực đơn của khách. */
+/** Món chi nhánh đang tắt, báo hết, hoặc hết nguyên liệu — ẩn khỏi thực đơn của khách. */
 export async function hiddenProductIds(prisma: PrismaClient, storeId: number | null): Promise<Set<number>> {
   if (storeId == null) return new Set();
   const rows = await prisma.storeProduct.findMany({
     where: { storeId, OR: [{ isAvailable: false }, { outOfStock: true }] },
     select: { productId: true },
   });
-  return new Set(rows.map((r) => r.productId));
+  const out = new Set(rows.map((r) => r.productId));
+  for (const id of await ingredientShortProductIds(prisma, storeId)) out.add(id);
+  return out;
+}
+
+type Db = PrismaClient | Prisma.TransactionClient;
+
+/**
+ * Nguyên liệu còn thiếu cho các ly cần làm tại chi nhánh. Chỉ xét nguyên liệu chi nhánh có theo dõi tồn
+ * (có dòng Store_Inventory) — chi nhánh chưa nhập kho nguyên liệu nào thì không chặn bán.
+ * Trả productId → true nếu không đủ.
+ */
+export async function shortCups(db: Db, storeId: number, cups: { productId: number; size?: string | null; quantity: number }[]) {
+  const formulas = await db.productFormula.findMany({ where: { productId: { in: [...new Set(cups.map((c) => c.productId))] } } });
+  if (!formulas.length) return new Set<number>();
+  const stock = await db.storeInventory.findMany({
+    where: { storeId, itemId: { in: [...new Set(formulas.map((f) => f.itemId))] } },
+    select: { itemId: true, stockQty: true },
+  });
+  const have = new Map(stock.map((x) => [x.itemId, x.stockQty]));
+  const need = new Map<number, number>();
+  for (const c of cups) for (const f of formulas) if (f.productId === c.productId) need.set(f.itemId, (need.get(f.itemId) ?? 0) + stockPerCup(f, c.size) * c.quantity);
+  const shortItems = new Set([...need].filter(([itemId, qty]) => have.has(itemId) && have.get(itemId)! < qty - 1e-9).map(([itemId]) => itemId));
+  return new Set(formulas.filter((f) => shortItems.has(f.itemId) && cups.some((c) => c.productId === f.productId)).map((f) => f.productId));
+}
+
+/** Món không còn đủ nguyên liệu để làm 1 ly cỡ nhỏ nhất tại chi nhánh — tự coi là hết món */
+export async function ingredientShortProductIds(db: Db, storeId: number): Promise<Set<number>> {
+  const formulas = await db.productFormula.findMany({ select: { productId: true, itemId: true, qtyPerUnit: true, qtySizeS: true, qtySizeM: true, qtySizeL: true, conversionFactor: true } });
+  if (!formulas.length) return new Set();
+  const stock = await db.storeInventory.findMany({ where: { storeId }, select: { itemId: true, stockQty: true } });
+  const have = new Map(stock.map((x) => [x.itemId, x.stockQty]));
+  const out = new Set<number>();
+  for (const f of formulas) {
+    if (!have.has(f.itemId)) continue;
+    const smallest = Math.min(...(["S", "M", "L", null] as const).map((sz) => stockPerCup(f, sz)));
+    if (have.get(f.itemId)! < smallest - 1e-9) out.add(f.productId);
+  }
+  return out;
 }
 
 /** `?store=` từ query của khách (không hợp lệ → null). */

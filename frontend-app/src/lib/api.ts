@@ -1,4 +1,4 @@
-import { getToken } from "./session";
+import { getTableId, getTakeawaySessionId, getToken } from "./session";
 import { mapFetchError } from "./net";
 
 
@@ -16,11 +16,21 @@ export function apiOrigin(): string {
   return b || "http://localhost:4000";
 }
 
+/** Thông tin bắt tay socket để vào phòng order:<id> / tracking:<id> — máy chủ kiểm đúng chủ đơn */
+export function orderSocketAuth() {
+  return { customerToken: getToken() ?? undefined, orderSession: getTakeawaySessionId() ?? undefined, tableId: getTableId() ?? undefined };
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "application/json");
   const t = getToken();
   if (t) headers.set("Authorization", `Bearer ${t}`);
+  // Khách vãng lai: máy chủ chỉ cho xem đơn đúng phiên mang về / đúng bàn của mình
+  const sid = getTakeawaySessionId();
+  if (sid) headers.set("X-Order-Session", sid);
+  const tableId = getTableId();
+  if (tableId != null) headers.set("X-Table-Id", String(tableId));
   const base = apiBase();
   let res: Response;
   try {

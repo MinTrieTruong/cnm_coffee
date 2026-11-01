@@ -6,7 +6,7 @@ import { getTableId, getTakeawaySessionId, getUser, newSessionId, setTakeawaySes
 import { Trash2, Plus, Minus } from "lucide-react";
 import { Crumbs, ProductImage, SectionHead } from "../components/site/parts";
 import { LocationPicker } from "../components/LocationPicker";
-import { formatKm, haversineKm, shippingFeeForDistance, type LatLng } from "../lib/delivery";
+import { formatKm, haversineKm, MAX_DELIVERY_KM, shippingFeeForDistance, type LatLng } from "../lib/delivery";
 import { useCustomerStore, withStore } from "../lib/customerStore";
 import { StorePicker } from "../components/StorePicker";
 import { formatVnd } from "../lib/site";
@@ -63,6 +63,7 @@ export function Cart() {
 
   // Phí ship theo khoảng cách từ quán (cùng công thức với backend)
   const distanceKm = storeLoc && customerLocation ? haversineKm(storeLoc, customerLocation) : null;
+  const tooFar = orderTypeSelection === "delivery" && distanceKm != null && distanceKm > MAX_DELIVERY_KM;
   useEffect(() => {
     setShippingFee(distanceKm != null ? shippingFeeForDistance(distanceKm) : 0);
   }, [distanceKm]);
@@ -274,9 +275,15 @@ export function Cart() {
                 onAddressFound={(addr) => selectedAddressId === "new" && setDeliveryAddress(addr)}
               />
               {distanceKm != null && (
-                <p className="c-muted-txt">
-                  {t("Cách quán {km}", { km: formatKm(distanceKm) })} · {shippingFee === 0 ? t("Miễn phí giao hàng (≤ 3 km)") : t("Phí giao {n}", { n: formatVnd(shippingFee) })}
-                </p>
+                tooFar ? (
+                  <p className="c-muted-txt" role="alert" style={{ color: "var(--c-danger)" }}>
+                    {t("Cách quán {km} — ngoài phạm vi giao hàng (tối đa {max} km)", { km: formatKm(distanceKm), max: MAX_DELIVERY_KM })}
+                  </p>
+                ) : (
+                  <p className="c-muted-txt">
+                    {t("Cách quán {km}", { km: formatKm(distanceKm) })} · {shippingFee === 0 ? t("Miễn phí giao hàng (≤ 3 km)") : t("Phí giao {n}", { n: formatVnd(shippingFee) })}
+                  </p>
+                )
               )}
             </>
           )}
@@ -362,7 +369,7 @@ export function Cart() {
                   : t("Thanh toán ngay → trang hoá đơn chờ thu ngân. Thanh toán sau → có ít phút chỉnh sửa rồi mới xuống bếp.")}
             </p>
             <div className="c-modal-actions">
-              <button type="button" className="c-btn" disabled={submitting} onClick={() => void submitOrder("now")}>
+              <button type="button" className="c-btn" disabled={submitting || tooFar} onClick={() => void submitOrder("now")}>
                 {orderTypeSelection !== "dine-in" ? t("Gửi đơn & xem hoá đơn") : t("Thanh toán ngay")}
               </button>
               {orderTypeSelection === "dine-in" && (

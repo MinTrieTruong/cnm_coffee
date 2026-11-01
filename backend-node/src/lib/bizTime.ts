@@ -22,13 +22,22 @@ export const bizDayEnd = (ymd: string) => new Date(bizDayStart(ymd).getTime() + 
 export const addDaysYmd = (ymd: string, n: number) => new Date(Date.parse(`${ymd}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
 export const daysInRange = (fromYmd: string, toYmd: string) => Math.round((Date.parse(`${toYmd}T00:00:00Z`) - Date.parse(`${fromYmd}T00:00:00Z`)) / DAY) + 1;
 
+/** "YYYY-MM-DD" có thật trên lịch (loại "2026-13-45", "2026-02-30") — sai thì null */
+function validYmd(v: unknown) {
+  if (typeof v !== "string") return null;
+  const ymd = v.slice(0, 10);
+  if (!YMD.test(ymd)) return null;
+  const t = Date.parse(`${ymd}T00:00:00Z`);
+  return Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== ymd ? null : ymd;
+}
+
 /**
  * Khoảng ngày của báo cáo từ query ?from=&to= (YYYY-MM-DD, tính trọn ngày theo giờ quán).
  * Thiếu `to` → hôm nay; thiếu `from` → lùi `defaultBack` ngày tính từ `to`.
  */
 export function bizRange(fromStr: unknown, toStr: unknown, defaultBack: number) {
-  const toYmd = typeof toStr === "string" && YMD.test(toStr.slice(0, 10)) ? toStr.slice(0, 10) : bizToday();
-  const fromYmd = typeof fromStr === "string" && YMD.test(fromStr.slice(0, 10)) ? fromStr.slice(0, 10) : addDaysYmd(toYmd, -defaultBack);
+  const toYmd = validYmd(toStr) ?? bizToday();
+  const fromYmd = validYmd(fromStr) ?? addDaysYmd(toYmd, -defaultBack);
   return { from: bizDayStart(fromYmd), to: bizDayEnd(toYmd), fromYmd, toYmd };
 }
 

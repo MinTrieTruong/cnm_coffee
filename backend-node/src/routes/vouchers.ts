@@ -6,10 +6,28 @@ import { attachStaff, isOwner, requireRoles, requireStore, type StaffRequest } f
 import { customerAuth } from "../middleware/customer.js";
 import { inStore, mustStoreId } from "../lib/storeScope.js";
 import { voucherStoreError } from "../lib/stores.js";
-import { resolveVoucher } from "../lib/vouchers.js";
+import { consumeVoucher, resolveVoucher } from "../lib/vouchers.js";
 import { storeFromQuery } from "../lib/storeProducts.js";
 
 type CustReq = Request & { customerId?: number };
+
+/** Kiểm dữ liệu voucher (tạo mới hoặc sau khi sửa) — trả thông báo lỗi tiếng Việt, hợp lệ thì null */
+function voucherError(v: {
+  code?: string; discountValue?: number; minBillValue?: number; quantity?: number;
+  startDate?: Date; endDate?: Date; goldHourStart?: number | null; goldHourEnd?: number | null;
+}) {
+  if (v.code !== undefined && !/^[A-Z0-9_-]{3,30}$/.test(v.code)) return "Mã voucher 3–30 ký tự: chữ in hoa, số, - hoặc _.";
+  if (v.discountValue !== undefined && (!Number.isInteger(v.discountValue) || v.discountValue <= 0)) return "Giá trị giảm phải là số nguyên dương.";
+  if (v.minBillValue !== undefined && (!Number.isInteger(v.minBillValue) || v.minBillValue < 0)) return "Giá trị đơn tối thiểu không hợp lệ.";
+  if (v.quantity !== undefined && (!Number.isInteger(v.quantity) || (v.quantity < 1 && v.quantity !== -1))) return "Số lượt phải ≥ 1 (hoặc -1 = không giới hạn).";
+  if (v.startDate && Number.isNaN(v.startDate.getTime())) return "Ngày bắt đầu không hợp lệ.";
+  if (v.endDate && Number.isNaN(v.endDate.getTime())) return "Ngày kết thúc không hợp lệ.";
+  if (v.startDate && v.endDate && v.startDate >= v.endDate) return "Ngày bắt đầu phải trước ngày kết thúc.";
+  const gs = v.goldHourStart, ge = v.goldHourEnd;
+  if ((gs == null) !== (ge == null)) return "Giờ vàng cần cả giờ bắt đầu và giờ kết thúc.";
+  if (gs != null && ge != null && (!Number.isInteger(gs) || !Number.isInteger(ge) || gs < 0 || ge > 24 || gs >= ge)) return "Giờ vàng: 0 ≤ bắt đầu < kết thúc ≤ 24.";
+  return null;
+}
 
 export function vouchersRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
@@ -65,6 +83,12 @@ export function vouchersRouter(prisma: PrismaClient, io: Server) {
     if (!code?.trim() || !discountValue || !endDate || !quantity) {
       return res.status(400).json({ error: "Thiếu thông tin bắt buộc." });
     }
+    const invalid = voucherError({
+      code: code.trim().toUpperCase(), discountValue, minBillValue: minBillValue ?? 0, quantity,
+      startDate: startDate ? new Date(startDate) : new Date(), endDate: new Date(endDate),
+      goldHourStart: goldHourStart ?? null, goldHourEnd: goldHourEnd ?? null,
+    });
+    if (invalid) return res.status(400).json({ error: invalid });
 
     const voucher = await prisma.voucher.create({
       data: {
@@ -115,6 +139,16 @@ export function vouchersRouter(prisma: PrismaClient, io: Server) {
     if (!(await canManage(req, id))) {
       return res.status(403).json({ error: "Voucher toàn chuỗi hoặc của chi nhánh khác — chỉ Chủ chuỗi được sửa." });
     }
+    const cur = await prisma.voucher.findUnique({ where: { id } });
+    if (!cur) return res.status(404).json({ error: "Không tìm thấy voucher." });
+    const invalid = voucherError({
+      quantity,
+      startDate: cur.startDate,
+      endDate: endDate ? new Date(endDate) : cur.endDate,
+      goldHourStart: goldHourStart !== undefined ? goldHourStart : cur.goldHourStart,
+      goldHourEnd: goldHourEnd !== undefined ? goldHourEnd : cur.goldHourEnd,
+    });
+    if (invalid) return res.status(400).json({ error: invalid });
     if (storeIds !== undefined) {
       if (!isOwner((req as StaffRequest).staffRow!.role)) {
         return res.status(403).json({ error: "Chỉ Chủ chuỗi được đổi chi nhánh áp dụng." });
@@ -372,19 +406,10 @@ export function vouchersRouter(prisma: PrismaClient, io: Server) {
     const storeErr = await voucherStoreError(prisma, voucherId, order.storeId);
     if (storeErr) return res.status(400).json({ error: storeErr });
 
-    await prisma.$transaction(async (tx) => {
-      await tx.voucher.update({
-        where: { id: voucherId },
-        data: { usedCount: { increment: 1 } },
-      });
-      if (customerId) {
-        await tx.userVoucher.upsert({
-          where: { customerId_voucherId: { customerId, voucherId } },
-          create: { customerId, voucherId, isUsed: true, usedAt: new Date(), orderId },
-          update: { isUsed: true, usedAt: new Date(), orderId },
-        });
-      }
-    });
+    const voucher = await prisma.voucher.findUnique({ where: { id: voucherId }, select: { code: true } });
+    if (!voucher) return res.status(404).json({ error: "Không tìm thấy voucher." });
+    const ok = await prisma.$transaction((tx) => consumeVoucher(tx, voucher.code, customerId ?? null, orderId));
+    if (!ok) return res.status(400).json({ error: "Voucher đã hết lượt hoặc khách đã dùng." });
 
     res.json({ ok: true });
   });

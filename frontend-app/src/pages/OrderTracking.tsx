@@ -5,7 +5,7 @@ import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { ArrowLeft, Check, ChefHat, Clock, MapPin, Phone, Receipt, Store, Truck } from "lucide-react";
-import { api, apiOrigin, mediaUrl } from "../lib/api";
+import { api, apiOrigin, mediaUrl, orderSocketAuth } from "../lib/api";
 import {
   deliveryLabel, fetchRoadRoute, formatVnd, homeIcon, riderIcon, storeIcon, type LatLng,
 } from "../lib/delivery";
@@ -113,7 +113,7 @@ export function OrderTracking() {
   useEffect(() => {
     void load();
     if (Number.isNaN(orderId)) return;
-    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"] });
+    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"], auth: orderSocketAuth() });
     const join = () => socket.emit("join", `tracking:${orderId}`);
     join();
     socket.on("connect", join);

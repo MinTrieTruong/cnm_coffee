@@ -136,7 +136,8 @@ export function EmployeeForm({ recordId }: { recordId?: string }) {
 
   async function save() {
     if (!form.fullName.trim()) return setErr("Thiếu họ tên nhân viên.");
-    if (isNew && form.password.length < 4) return setErr("Mật khẩu tối thiểu 4 ký tự.");
+    if (form.password && form.password.length < 6) return setErr("Mật khẩu tối thiểu 6 ký tự.");
+    if (isNew && !form.password) return setErr("Nhập mật khẩu cho nhân viên mới.");
     setSaving(true);
     setErr(null);
     try {
