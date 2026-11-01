@@ -1,8 +1,10 @@
 import { useEffect, useState, type CSSProperties } from "react";
-import { RotateCcw, Save } from "lucide-react";
+import { PartyPopper, RotateCcw, Save } from "lucide-react";
 import { staffApi } from "../../lib/staffApi";
 import { Alert, Badge, Button, Field, FormGroup, FormGroups, errMsg } from "../../components/erp";
 import { DEFAULT_THEME, NEUTRAL, PRESETS, contrast, paletteVars, type ColorMode, type SiteTheme } from "../../lib/siteTheme";
+import { OCCASIONS, activeOccasion, effectiveTheme, nextOccasionDate, occasionById, ymd } from "../../lib/occasions";
+import { OccasionArt } from "../../components/site/Festive";
 import { useResource } from "../shared";
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -43,8 +45,10 @@ function Ratio({ a, b, label }: { a: string; b: string; label: string }) {
 
 /** Bản xem trước thu nhỏ trang khách — dùng đúng hàm tính màu của trang khách */
 function Preview({ theme, mode }: { theme: SiteTheme; mode: ColorMode }) {
-  const v = paletteVars(theme, mode);
+  const v = paletteVars(effectiveTheme(theme), mode);
   const n = NEUTRAL[mode];
+  // Xem trước luôn hiện chủ đề lễ đã chọn, kể cả khi ngày tự tắt đã qua (để chủ chuỗi thấy trước khi chỉnh ngày)
+  const oc = activeOccasion(theme.occasion ? { ...theme, occasion: { ...theme.occasion, until: null } } : theme);
   const box: CSSProperties = { borderRadius: 6, overflow: "hidden", border: "1px solid var(--o-border)", background: n.paper, color: n.ink, fontFamily: "'Be Vietnam Pro', system-ui, sans-serif" };
   const display: CSSProperties = { fontFamily: "Oswald, 'Arial Narrow', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em" };
   return (
@@ -58,6 +62,12 @@ function Preview({ theme, mode }: { theme: SiteTheme; mode: ColorMode }) {
         <span>Khuyến mãi</span>
         <span>Liên hệ</span>
       </div>
+      {oc && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 10px", background: `color-mix(in srgb, ${v["--c-accent"]} 22%, ${n.surface})`, borderBottom: `2px solid ${v["--c-primary"]}` }}>
+          <OccasionArt id={oc.id} height={32} />
+          <span style={{ ...display, fontSize: 12, color: v["--c-primary"] }}>{oc.greeting}</span>
+        </div>
+      )}
       <div style={{ padding: 12, display: "grid", gridTemplateColumns: "72px 1fr", gap: 12, alignItems: "center" }}>
         <div style={{ position: "relative", aspectRatio: "1", borderRadius: 4, background: mode === "dark" ? "#212b2b" : "#e9e1d3" }}>
           <span style={{ position: "absolute", top: 6, left: 4, transform: "rotate(-4deg)", background: v["--c-accent"], color: v["--c-on-accent"], border: `1.5px dashed ${v["--c-primary"]}`, padding: "1px 4px", fontSize: 9, ...display }}>Giảm 15%</span>
@@ -85,6 +95,11 @@ export function SiteThemeSettings() {
   const set = (patch: Partial<SiteTheme>) => setF((x) => ({ ...x, ...patch }));
   const lightPrimary = paletteVars(f, "light")["--c-primary"];
   const adjusted = lightPrimary !== f.primary.toLowerCase();
+  const today = ymd(new Date());
+  const oc = f.occasion ?? null;
+  const ocInfo = occasionById(oc?.id);
+  const ocExpired = !!oc?.until && oc.until < today;
+  const setOccasion = (patch: Partial<NonNullable<SiteTheme["occasion"]>>) => setF((x) => (x.occasion ? { ...x, occasion: { ...x.occasion, ...patch } } : x));
 
   async function save() {
     setSaving(true);
@@ -113,6 +128,59 @@ export function SiteThemeSettings() {
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1fr)", gap: 20, alignItems: "start" }} className="o-theme-grid">
         <FormGroups>
+          <FormGroup title="Chủ đề dịp lễ">
+            <div className="o-hint" style={{ marginTop: 0, marginBottom: 10 }}>
+              Gần tới dịp lễ thì bật chủ đề: trang khách đổi sang màu lễ, hiện dải lời chúc có hình trang trí dưới thanh điều hướng và hiệu ứng rơi. Hết ngày tự tắt, trang về lại màu thường bên dưới.
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 10 }}>
+              {OCCASIONS.map((o) => {
+                const on = oc?.id === o.id;
+                const next = nextOccasionDate(o);
+                return (
+                  <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => set({ occasion: on ? null : { id: o.id, until: next?.until ?? null, effects: oc?.effects ?? true } })}
+                    aria-pressed={on}
+                    style={{ textAlign: "left", padding: 10, borderRadius: 6, cursor: "pointer", background: "var(--o-surface, #fff)", border: on ? `2px solid ${o.primary}` : "1px solid var(--o-border)" }}
+                  >
+                    <span style={{ display: "flex", justifyContent: "center", borderRadius: 4, marginBottom: 8, background: `color-mix(in srgb, ${o.accent} 22%, #fffdf8)`, borderBottom: `3px solid ${o.primary}` }}>
+                      <OccasionArt id={o.id} height={60} />
+                    </span>
+                    <span className="o-row" style={{ justifyContent: "space-between", gap: 6, flexWrap: "nowrap" }}>
+                      <strong style={{ fontSize: 13 }}>{o.name}</strong>
+                      {on && <Badge tone="success">Đang chọn</Badge>}
+                    </span>
+                    <span className="o-muted" style={{ display: "block", fontSize: 12 }}>{o.note}</span>
+                    {next && (
+                      <span style={{ display: "block", fontSize: 12, marginTop: 4, fontWeight: 600, color: next.days <= 30 ? "var(--o-success, #2f6b2f)" : undefined }}>
+                        {next.days > 0 ? `Còn ${next.days} ngày` : next.days === 0 ? "Hôm nay" : "Đang trong dịp lễ"} · {new Date(next.date).toLocaleDateString("vi-VN")}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {oc && ocInfo && (
+              <div className="o-stack" style={{ gap: 10, marginTop: 12 }}>
+                <Field label="Tự tắt sau ngày" htmlFor="th-until">
+                  <div className="o-row">
+                    <input id="th-until" type="date" className="o-input" style={{ width: 170 }} value={oc.until ?? ""} min={today} onChange={(e) => setOccasion({ until: e.target.value || null })} />
+                    {oc.until && <Button onClick={() => setOccasion({ until: null })}>Không tự tắt</Button>}
+                  </div>
+                  <div className="o-hint">{oc.until ? `Khách thấy chủ đề ${ocInfo.name} tới hết ngày ${new Date(oc.until).toLocaleDateString("vi-VN")}.` : "Chủ đề hiện tới khi bạn tắt tay."}</div>
+                </Field>
+                {ocExpired && <Alert tone="warning">Ngày tự tắt đã qua — khách đang thấy màu thường. Chọn ngày mới nếu muốn bật lại.</Alert>}
+                <label className="o-row" style={{ gap: 6 }}>
+                  <input type="checkbox" checked={oc.effects} onChange={(e) => setOccasion({ effects: e.target.checked })} />
+                  Hiệu ứng rơi (cánh mai, cánh hoa, sao, tuyết) — tự ẩn trên máy khách bật giảm chuyển động
+                </label>
+                <div>
+                  <Button icon={PartyPopper} onClick={() => set({ occasion: null })}>Tắt chủ đề lễ</Button>
+                </div>
+              </div>
+            )}
+          </FormGroup>
           <FormGroup title="Bộ màu gợi ý">
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
               {PRESETS.map((p) => {

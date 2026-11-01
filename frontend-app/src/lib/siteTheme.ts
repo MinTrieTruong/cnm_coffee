@@ -1,10 +1,18 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 /** Màu trang khách do chủ chuỗi chọn ở Website › Giao diện (GET /api/site-info → theme) */
-export type SiteTheme = { preset: string; primary: string; accent: string; defaultMode: "light" | "dark" | "auto"; allowToggle: boolean };
+export type SiteTheme = {
+  preset: string;
+  primary: string;
+  accent: string;
+  defaultMode: "light" | "dark" | "auto";
+  allowToggle: boolean;
+  /** Chủ đề dịp lễ đang bật (lib/occasions.ts); until = ngày cuối còn hiện (YYYY-MM-DD), null = tới khi tắt tay */
+  occasion?: { id: string; until: string | null; effects: boolean } | null;
+};
 export type ColorMode = "light" | "dark";
 
-export const DEFAULT_THEME: SiteTheme = { preset: "gach-bong", primary: "#1e5a5f", accent: "#e0a531", defaultMode: "light", allowToggle: true };
+export const DEFAULT_THEME: SiteTheme = { preset: "gach-bong", primary: "#1e5a5f", accent: "#e0a531", defaultMode: "light", allowToggle: true, occasion: null };
 
 /** Bộ màu gợi ý — đã kiểm tra tương phản; tránh trùng nhận diện các chuỗi lớn */
 export const PRESETS: { id: string; name: string; note: string; primary: string; accent: string }[] = [

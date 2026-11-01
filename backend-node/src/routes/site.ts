@@ -21,9 +21,18 @@ const cleanLink = (v: unknown) => {
 };
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const HEX = /^#[0-9a-f]{6}$/i;
-type SiteTheme = { preset: string; primary: string; accent: string; defaultMode: "light" | "dark" | "auto"; allowToggle: boolean };
+type Occasion = { id: string; until: string | null; effects: boolean };
+type SiteTheme = { preset: string; primary: string; accent: string; defaultMode: "light" | "dark" | "auto"; allowToggle: boolean; occasion: Occasion | null };
 /** Màu mặc định "gạch bông Sài Gòn" — trùng customer-tokens.css */
-const DEFAULT_THEME: SiteTheme = { preset: "gach-bong", primary: "#1e5a5f", accent: "#e0a531", defaultMode: "light", allowToggle: true };
+const DEFAULT_THEME: SiteTheme = { preset: "gach-bong", primary: "#1e5a5f", accent: "#e0a531", defaultMode: "light", allowToggle: true, occasion: null };
+/** Chủ đề dịp lễ — trùng frontend lib/occasions.ts */
+const OCCASION_IDS = ["tet", "8-3", "30-4", "noel"];
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+function readOccasion(raw: unknown): Occasion | null {
+  const o = (raw && typeof raw === "object" ? raw : null) as Partial<Occasion> | null;
+  if (!o || typeof o.id !== "string" || !OCCASION_IDS.includes(o.id)) return null;
+  return { id: o.id, until: typeof o.until === "string" && YMD.test(o.until) ? o.until : null, effects: o.effects !== false };
+}
 function readTheme(raw: unknown): SiteTheme {
   const t = (raw && typeof raw === "object" ? raw : {}) as Partial<SiteTheme>;
   return {
@@ -32,6 +41,7 @@ function readTheme(raw: unknown): SiteTheme {
     accent: typeof t.accent === "string" && HEX.test(t.accent) ? t.accent.toLowerCase() : DEFAULT_THEME.accent,
     defaultMode: t.defaultMode === "dark" || t.defaultMode === "auto" ? t.defaultMode : "light",
     allowToggle: t.allowToggle !== false,
+    occasion: readOccasion(t.occasion),
   };
 }
 
@@ -110,7 +120,7 @@ export function siteRouter(prisma: PrismaClient) {
     const theme = readTheme(b);
     await getStoreSettings(prisma);
     await prisma.storeSettings.update({ where: { id: 1 }, data: { siteTheme: theme } });
-    audit((req as StaffRequest).staffRow!.id, "SITE_THEME_UPDATE", "Giao diện trang khách", `${theme.primary} · ${theme.accent} · ${theme.defaultMode}`);
+    audit((req as StaffRequest).staffRow!.id, "SITE_THEME_UPDATE", "Giao diện trang khách", `${theme.primary} · ${theme.accent} · ${theme.defaultMode}${theme.occasion ? ` · lễ ${theme.occasion.id}${theme.occasion.until ? ` tới ${theme.occasion.until}` : ""}` : ""}`);
     res.json(theme);
   });
 

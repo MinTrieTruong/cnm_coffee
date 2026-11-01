@@ -12,6 +12,8 @@ import { SiteHeader } from "./site/SiteHeader";
 import { SiteFooter } from "./site/SiteFooter";
 import { useSiteInfo } from "../lib/site";
 import { paletteVars, useColorMode } from "../lib/siteTheme";
+import { activeOccasion, effectiveTheme } from "../lib/occasions";
+import { FestiveFall, FestiveStrip } from "./site/Festive";
 import { useLang } from "../lib/i18n";
 import "../styles/customer.css";
 
@@ -84,7 +86,9 @@ export function PublicLayout() {
   // Màu do chủ chuỗi chọn (Website › Giao diện) + chế độ sáng/tối của khách
   const info = useSiteInfo();
   const color = useColorMode(info?.theme ?? null);
-  const themeStyle = info?.theme ? paletteVars(info.theme, color.mode) : undefined;
+  // Chủ đề dịp lễ đang bật (chưa quá ngày tự tắt) đè màu thường + thêm dải lời chúc, hạt rơi
+  const occasion = activeOccasion(info?.theme);
+  const themeStyle = info?.theme ? paletteVars(effectiveTheme(info.theme), color.mode) : undefined;
   const { t, lang } = useLang();
   useEffect(() => {
     document.documentElement.lang = lang;
@@ -116,6 +120,8 @@ export function PublicLayout() {
         color={color}
         onBack={isSubPage ? goBack : null}
       />
+      {occasion && <FestiveStrip occasion={occasion} />}
+      {occasion?.effects && <FestiveFall id={occasion.id} />}
 
       <main className="site-main c-main">
         <Outlet />

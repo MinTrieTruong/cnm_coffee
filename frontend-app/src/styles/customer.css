@@ -885,3 +885,32 @@ label.c-pd-opt .c-pd-label { margin-bottom: 0; }
 }
 .c-check { display: flex; align-items: flex-start; gap: 10px; font-size: 0.92rem; line-height: 1.45; cursor: pointer; }
 .c-check input { width: 18px; height: 18px; margin-top: 1px; accent-color: var(--c-primary); flex: 0 0 auto; }
+
+/* ── Chủ đề dịp lễ (components/site/Festive.tsx) ── */
+.fz-strip { position: relative; background: color-mix(in srgb, var(--c-accent) 22%, var(--c-surface)); border-bottom: 3px solid var(--c-primary); overflow: hidden; }
+.fz-in { display: flex; align-items: center; justify-content: center; gap: 20px; min-height: 72px; padding-block: 4px; }
+.fz-art { flex: none; display: block; }
+.fz-text { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; min-width: 0; }
+.fz-text strong { font-family: var(--c-font-display); font-weight: 700; font-size: 1.35rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--c-primary); line-height: 1.2; }
+.fz-text span { font-size: 0.9rem; color: var(--c-ink-2); }
+.fz-close { position: absolute; top: 6px; right: 8px; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: 999px; background: transparent; color: var(--c-ink-2); cursor: pointer; }
+.fz-close:hover { background: color-mix(in srgb, var(--c-ink) 10%, transparent); }
+@media (max-width: 768px) {
+  .fz-in { gap: 10px; min-height: 56px; justify-content: flex-start; padding-right: 36px; }
+  .fz-art { height: 48px; width: 96px; }
+  .fz-art-r { display: none; }
+  .fz-text { align-items: flex-start; text-align: left; }
+  .fz-text strong { font-size: 1.02rem; }
+  .fz-text span { font-size: 0.8rem; }
+}
+
+.fz-fall { position: fixed; inset: 0; z-index: 60; pointer-events: none; overflow: hidden; }
+.fz-p { position: absolute; top: -28px; display: block; animation-name: fz-drop; animation-timing-function: linear; animation-iteration-count: infinite; will-change: transform; }
+.fz-sway { display: block; width: 100%; height: 100%; animation: fz-sway 3s ease-in-out infinite alternate; }
+.fz-sway svg { display: block; width: 100%; height: 100%; }
+.fz-fall-noel .fz-sway svg { filter: drop-shadow(0 0 1px rgba(30, 60, 90, 0.55)); }
+@keyframes fz-drop { to { transform: translateY(calc(100vh + 56px)) rotate(var(--rot, 300deg)); } }
+@keyframes fz-sway { from { transform: translateX(-16px); } to { transform: translateX(16px); } }
+@media (max-width: 768px) { .fz-p:nth-child(n + 11) { display: none; } }
+/* Máy bật giảm chuyển động: bỏ hạt rơi, vẫn giữ dải lời chúc */
+@media (prefers-reduced-motion: reduce) { .fz-fall { display: none; } }

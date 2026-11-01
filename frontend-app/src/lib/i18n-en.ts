@@ -442,4 +442,14 @@ export const EN: Record<string, string> = {
   "TD Coffee phản hồi": "TD Coffee replied",
   "Đánh giá ẩn danh": "Post anonymously",
   "không hiện tên và ảnh của bạn trong danh sách đánh giá": "your name and photo won't be shown in reviews",
+  // Chủ đề dịp lễ (lib/occasions.ts)
+  "Chúc mừng năm mới": "Happy Lunar New Year",
+  "An khang thịnh vượng — vạn sự như ý": "Wishing you peace, health and prosperity",
+  "Chúc mừng ngày Quốc tế Phụ nữ 8/3": "Happy International Women's Day",
+  "Gửi yêu thương đến một nửa thế giới": "With love to all the women in our lives",
+  "Mừng ngày Thống nhất đất nước 30/4": "Celebrating Reunification Day, April 30",
+  "Nghỉ lễ 30/4 – 1/5 vui vẻ": "Enjoy the April 30 – May 1 holidays",
+  "Giáng sinh an lành": "Merry Christmas",
+  "Merry Christmas & Happy New Year": "Merry Christmas & Happy New Year",
+  "Ẩn lời chúc": "Hide greeting",
 };
