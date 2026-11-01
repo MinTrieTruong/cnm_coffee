@@ -10,3 +10,8 @@ backend-node/uploads/
 !backend-node/prisma/sql/*.sql
 *.tsbuildinfo
 .agents/
+
+# QA (tests/qa) — chỉ commit script, không commit kết quả chạy
+tests/qa/output/
+test-results/
+playwright-report/
