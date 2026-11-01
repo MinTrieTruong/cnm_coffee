@@ -4,6 +4,8 @@
  *   QA_API=http://localhost:4100  QA_DB=cmn_test  node tests/qa/<script>.mjs
  */
 import { execFileSync } from "node:child_process";
+import { createHmac } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdirSync, writeFileSync, appendFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -78,9 +80,13 @@ export async function newCustomer(tag = "") {
 /* ── Ghi kết quả ── */
 const results = [];
 let current = "chung";
+/** Bắt đầu nhóm kiểm tra. QA_ONLY="A6,B17" → chỉ chạy nhóm có tên chứa một trong các chuỗi đó; trả false nếu bỏ qua */
 export function group(name) {
+  const only = (process.env.QA_ONLY ?? "").split(",").map((x) => x.trim()).filter(Boolean);
   current = name;
+  if (only.length && !only.some((o) => name.includes(o))) return false;
   console.log(`\n=== ${name}`);
+  return true;
 }
 /** Ghi một kiểm tra: ok = true (đạt) / false (lỗi) / null (bỏ qua) */
 export function check(name, ok, detail = "") {
@@ -99,3 +105,22 @@ export function save(file) {
   appendFileSync(join(OUT, "summary.txt"), `${new Date().toISOString()} ${file}: ${pass} pass / ${fail} fail / ${skip} skip\n`);
 }
 export const short = (b) => String(typeof b === "string" ? b : JSON.stringify(b) ?? "").slice(0, 200);
+
+/** Biến trong backend-node/.env (dùng để ký callback thanh toán hợp lệ khi test) — không in ra */
+export function backendEnv(key) {
+  const txt = readFileSync(join(here, "../../backend-node/.env"), "utf8");
+  const m = new RegExp(`^${key}=(.*)$`, "m").exec(txt);
+  return m ? m[1].trim().replace(/^"|"$/g, "") : "";
+}
+
+/** Bộ tham số vnp_* đã ký đúng (giống VNPay trả về thật) cho đơn `orderId`, số tiền `amount` VND */
+export function signedVnpayParams(orderId, amount, extra = {}) {
+  const params = { vnp_Amount: String(Math.round(amount) * 100), vnp_ResponseCode: "00", vnp_TransactionStatus: "00", vnp_TxnRef: `${orderId}_${Date.now()}`, vnp_TransactionNo: String(Date.now()).slice(-8), ...extra };
+  const sorted = Object.fromEntries(Object.keys(params).sort().map((k) => [k, params[k]]));
+  const signData = new URLSearchParams(sorted).toString();
+  return { ...sorted, vnp_SecureHash: createHmac("sha512", backendEnv("VNPAY_HASH_SECRET")).update(signData).digest("hex") };
+}
+/** URL IPN VNPay đã ký đúng */
+export function signedVnpayIpn(orderId, amount, extra = {}) {
+  return `/api/vnpay/ipn?${new URLSearchParams(signedVnpayParams(orderId, amount, extra)).toString()}`;
+}

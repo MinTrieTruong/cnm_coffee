@@ -60,8 +60,7 @@ for (const [label, viewport] of [["390px", { width: 390, height: 844 }], ["1440p
   await ctx.close();
 }
 
-group("A3/A13 Thêm giỏ, VI/EN, sáng/tối");
-{
+if (group("A3/A13 Thêm giỏ, VI/EN, sáng/tối")) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
   await page.goto(WEB + "/product/2", { waitUntil: "domcontentloaded" });

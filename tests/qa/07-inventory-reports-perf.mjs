@@ -11,13 +11,12 @@ if (!sh.body?.shift) await call("POST", "/api/shifts/open", { token: cashier, bo
 const c = await newCustomer("kho");
 async function sell(productId, quantity) {
   const o = (await call("POST", "/api/orders", { token: c.token, body: { orderType: "Takeaway", storeId: 1, lines: [{ productId, quantity, size: "M" }] } })).body;
-  const p = await call("POST", "/api/pos/pay", { token: cashier, body: { orderId: o.id, method: "Transfer" } });
+  const p = await call("POST", "/api/pos/pay", { token: cashier, body: { orderId: o.id, method: "Transfer_QR" } });
   return { o, p };
 }
 const stock = (itemId) => Number(sql1(`SELECT Stock_Qty q FROM Store_Inventory WHERE Store_ID=1 AND Item_ID=${itemId}`)?.q);
 
-group("B20 Kho — trừ theo định mức, âm kho, tự ẩn món");
-{
+if (group("B20 Kho — trừ theo định mức, âm kho, tự ẩn món")) {
   const pid = 2;
   const formula = sql(`SELECT Item_ID, Qty_Size_M, Qty_Per_Unit FROM Product_Formulas WHERE Product_ID=${pid}`);
   if (!formula.length) check("Món có định mức", null, "bỏ qua: món 2 chưa có định mức");
@@ -34,19 +33,24 @@ group("B20 Kho — trừ theo định mức, âm kho, tự ẩn món");
     const item = formula[0].Item_ID;
     const keep = stock(item);
     sql(`UPDATE Store_Inventory SET Stock_Qty=0 WHERE Store_ID=1 AND Item_ID=${item}`);
-    const menu = await call("GET", "/api/menu?storeId=1");
+    const menu = await call("GET", "/api/menu?store=1");
     const prod = (menu.body.products ?? []).find((x) => x.id === pid);
     check("Hết nguyên liệu → món hiện 'hết hàng' trên menu", !prod || prod.outOfStock === true, `outOfStock=${prod?.outOfStock}`);
     const order = await call("POST", "/api/orders", { token: c.token, body: { orderType: "Takeaway", storeId: 1, lines: [{ productId: pid, quantity: 1, size: "M" }] } });
     check("Hết nguyên liệu → không đặt được món", order.status === 400, `status ${order.status}`);
-    if (order.status === 201) await call("POST", "/api/pos/pay", { token: cashier, body: { orderId: order.body.id, method: "Transfer" } });
+    if (order.status === 201) await call("POST", "/api/pos/pay", { token: cashier, body: { orderId: order.body.id, method: "Transfer_QR" } });
     check("Tồn kho không bị âm sau khi bán lúc hết nguyên liệu", stock(item) >= 0, `tồn #${item} = ${stock(item)}`);
+    sql(`UPDATE Store_Inventory SET Stock_Qty=${keep} WHERE Store_ID=1 AND Item_ID=${item}`);
+    // Đặt lúc còn đủ, tới lúc thanh toán đã hết → trừ kho không xuống âm
+    const late = (await call("POST", "/api/orders", { token: c.token, body: { orderType: "Takeaway", storeId: 1, lines: [{ productId: pid, quantity: 1, size: "M" }] } })).body;
+    sql(`UPDATE Store_Inventory SET Stock_Qty=0 WHERE Store_ID=1 AND Item_ID=${item}`);
+    const latePay = await call("POST", "/api/pos/pay", { token: cashier, body: { orderId: late.id, method: "Transfer_QR" } });
+    check("Hết nguyên liệu giữa lúc đặt và thanh toán: vẫn thanh toán, tồn kho không âm", latePay.status === 200 && stock(item) >= 0, `pay ${latePay.status}, tồn #${item} = ${stock(item)}`);
     sql(`UPDATE Store_Inventory SET Stock_Qty=${keep} WHERE Store_ID=1 AND Item_ID=${item}`);
   }
 }
 
-group("B25 Báo cáo — đối chiếu CSDL");
-{
+if (group("B25 Báo cáo — đối chiếu CSDL")) {
   const today = new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10);
   const rep = await call("GET", `/api/admin/reports/revenue?from=${today}&to=${today}`, { token: owner, headers: { "X-Store-Id": "1" } });
   const db = sql1(`SELECT COALESCE(SUM(p.Amount),0) s FROM Payments p JOIN Orders o ON o.Order_ID=p.Order_ID
@@ -66,8 +70,7 @@ group("B25 Báo cáo — đối chiếu CSDL");
   check("Xuất Excel đơn hàng chạy được", exp.status === 200, `status ${exp.status} ${exp.headers?.get?.("content-type") ?? ""}`);
 }
 
-group("C30 Hiệu năng sơ bộ (> 1s là chậm)");
-{
+if (group("C30 Hiệu năng sơ bộ (> 1s là chậm)")) {
   const slow = [];
   const eps = [
     ["GET", "/api/menu?storeId=1", null], ["GET", "/api/homepage?storeId=1", null], ["GET", "/api/site-info", null],

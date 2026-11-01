@@ -26,8 +26,7 @@ const admin = await staffLogin("admin");
 const owner = await staffLogin("owner");
 
 /* ───────── POS thanh toán ───────── */
-group("B17 POS thanh toán");
-{
+if (group("B17 POS thanh toán")) {
   const s = await freshShift(cashier);
   check("Thu ngân mở ca (đầu ca 0đ)", s.status === 201, `status ${s.status} ${short(s.body)}`);
   const dupOpen = await call("POST", "/api/shifts/open", { token: cashier, body: { startingCash: 0 } });
@@ -46,7 +45,7 @@ group("B17 POS thanh toán");
   check("Phương thức thanh toán lạ bị từ chối", weird.status === 400, `status ${weird.status} → đơn ${status(o2.id)}`);
 
   const o3 = await takeaway(c.token);
-  const cross = await call("POST", "/api/pos/pay", { token: cashier2, body: { orderId: o3.id, method: "Transfer" } });
+  const cross = await call("POST", "/api/pos/pay", { token: cashier2, body: { orderId: o3.id, method: "Transfer_QR" } });
   check("Thu ngân CN2 không thanh toán được đơn CN1", cross.status === 400 || cross.status === 403, `status ${cross.status}`);
   const bills2 = await call("GET", "/api/pos/bills", { token: cashier2 });
   const leaks = JSON.stringify(bills2.body).includes(`"id":${o.id},`);
@@ -56,8 +55,8 @@ group("B17 POS thanh toán");
   await freshShift(cashierB);
   const o4 = await takeaway(c.token, 2, 2);
   const [p1, p2] = await Promise.all([
-    call("POST", "/api/pos/pay", { token: cashier, body: { orderId: o4.id, method: "Transfer" } }),
-    call("POST", "/api/pos/pay", { token: cashierB, body: { orderId: o4.id, method: "Transfer" } }),
+    call("POST", "/api/pos/pay", { token: cashier, body: { orderId: o4.id, method: "Transfer_QR" } }),
+    call("POST", "/api/pos/pay", { token: cashierB, body: { orderId: o4.id, method: "Transfer_QR" } }),
   ]);
   const pays = Number(sql1(`SELECT COUNT(*) n FROM Payments WHERE Order_ID=${o4.id}`)?.n);
   check("2 thu ngân thanh toán cùng đơn cùng lúc → chỉ 1 Payment", pays === 1, `mã ${p1.status}/${p2.status}, Payments=${pays}`);
@@ -66,8 +65,7 @@ group("B17 POS thanh toán");
 }
 
 /* ───────── Ca & két: tiền dự kiến ───────── */
-group("B19 Ca & két — tiền dự kiến = đầu ca + TM thu + thu khác − chi");
-{
+if (group("B19 Ca & két — tiền dự kiến = đầu ca + TM thu + thu khác − chi")) {
   const s = await freshShift(cashier);
   const c = await newCustomer("Két");
   let cashSales = 0;
@@ -77,7 +75,7 @@ group("B19 Ca & két — tiền dự kiến = đầu ca + TM thu + thu khác −
     if (p.status === 200) cashSales += p.body.totalAmount;
   }
   const oT = await takeaway(c.token, 3, 1);
-  await call("POST", "/api/pos/pay", { token: cashier, body: { orderId: oT.id, method: "Transfer" } });
+  await call("POST", "/api/pos/pay", { token: cashier, body: { orderId: oT.id, method: "Transfer_QR" } });
   const inE = await call("POST", "/api/cash/entries", { token: cashier, body: { type: "IN", category: "OTHER_INCOME", amount: 50000, fund: "DRAWER", description: "Thu khác QA" } });
   check("Phiếu thu khác vào ngăn kéo", inE.status === 201, `status ${inE.status} ${short(inE.body)}`);
   const noPhoto = await call("POST", "/api/cash/entries", { token: cashier, body: { type: "OUT", category: "SUPPLIES", amount: 20000, fund: "DRAWER", description: "Mua đá" } });
@@ -112,7 +110,7 @@ const mkVoucher = async (patch = {}) => {
 async function payWithVoucher(cust, code, productId = 2, qty = 1) {
   const o = await takeaway(cust.token, productId, qty);
   const rq = await call("POST", `/api/orders/${o.id}/request-payment`, { token: cust.token, body: { voucherCode: code } });
-  const pay = rq.status === 200 ? await call("POST", "/api/pos/pay", { token: cashier, body: { orderId: o.id, method: "Transfer" } }) : null;
+  const pay = rq.status === 200 ? await call("POST", "/api/pos/pay", { token: cashier, body: { orderId: o.id, method: "Transfer_QR" } }) : null;
   return { o, rq, pay };
 }
 {
@@ -152,14 +150,18 @@ async function payWithVoucher(cust, code, productId = 2, qty = 1) {
     call("POST", `/api/orders/${oA.id}/request-payment`, { token: k1.token, body: { voucherCode: one.code } }),
     call("POST", `/api/orders/${oB.id}/request-payment`, { token: k2.token, body: { voucherCode: one.code } }),
   ]);
-  await Promise.all([oA, oB].map((o) => call("POST", "/api/pos/pay", { token: cashier, body: { orderId: o.id, method: "Transfer" } })));
+  let pays = await Promise.all([oA, oB].map((o) => call("POST", "/api/pos/pay", { token: cashier, body: { orderId: o.id, method: "Transfer_QR" } })));
+  // Máy nhận 409 "voucher vừa hết lượt" → thu ngân bấm thanh toán lại
+  pays = await Promise.all(pays.map((p, i) => (p.status === 409 ? call("POST", "/api/pos/pay", { token: cashier, body: { orderId: [oA, oB][i].id, method: "Transfer_QR" } }) : p)));
   const used = sql1(`SELECT Used_Count u, Quantity q FROM Vouchers WHERE Code='${one.code}'`);
   check("Voucher còn 1 lượt, 2 khách dùng cùng lúc → chỉ 1 lượt bị dùng", Number(used?.u) <= Number(used?.q), `giữ mã ${rqA.status}/${rqB.status}, Used_Count=${used?.u}/${used?.q}`);
+  const discounted = pays.filter((p) => p.status === 200 && p.body.discountAmt >= 10000).length;
+  const dropped = pays.find((p) => p.body?.voucherDropped);
+  check("Đơn còn lại thanh toán không voucher và thu ngân được báo lý do", discounted === 1 && pays.every((p) => p.status === 200) && !!dropped, pays.map((p) => `${p.status} giảm ${p.body?.discountAmt} ${p.body?.voucherDropped ?? ""}`).join(" | "));
 }
 
 /* ───────── Mini game ───────── */
-group("A12 Mini game (vòng quay) — không vượt số lượng giải");
-{
+if (group("A12 Mini game (vòng quay) — không vượt số lượng giải")) {
   const camp = sql1(`SELECT Campaign_ID id FROM Game_Campaigns ORDER BY Campaign_ID LIMIT 1`) ?? sql1(`SELECT id FROM Game_Campaigns LIMIT 1`);
   const cid = camp?.id;
   if (!cid) check("Có chiến dịch mini game mẫu", null, "bỏ qua: không có chiến dịch");

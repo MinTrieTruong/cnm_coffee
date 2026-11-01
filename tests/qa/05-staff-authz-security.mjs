@@ -9,8 +9,7 @@ const tokens = {};
 for (const u of ["owner", "admin", "admin2", "cashier", "cashier2", "waiter", "waiter2", "kitchen", "kitchen2", "kho", "SP_Hieu"]) tokens[u] = await staffLogin(u);
 const staffId = (u) => Number(sql1(`SELECT Staff_ID id FROM Staff WHERE Username='${u}'`)?.id);
 
-group("B15 Phân quyền theo vai trò");
-{
+if (group("B15 Phân quyền theo vai trò")) {
   const cases = [
     ["cashier", "POST", "/api/admin/staff", { fullName: "X", role: "Waiter", password: "1234" }],
     ["waiter", "GET", "/api/admin/customers"],
@@ -31,8 +30,7 @@ group("B15 Phân quyền theo vai trò");
   check("Token nhân sự gọi API khách → 403/401", r2.status === 403 || r2.status === 401, `status ${r2.status}`);
 }
 
-group("B15 Phân quyền theo chi nhánh (đối tượng của CN1, người của CN2)");
-{
+if (group("B15 Phân quyền theo chi nhánh (đối tượng của CN1, người của CN2)")) {
   const target = staffId("NV_Mai");
   const e1 = await call("PATCH", `/api/admin/staff/${target}`, { token: tokens.admin2, body: { fullName: "Bị sửa bởi CN2" } });
   check("Quản lý CN2 không sửa được nhân viên CN1", e1.status === 404 || e1.status === 403, `status ${e1.status}`);
@@ -44,6 +42,9 @@ group("B15 Phân quyền theo chi nhánh (đối tượng của CN1, người c�
     check("Pha chế CN2 không đổi trạng thái món của CN1", k.status === 404 || k.status === 403, `status ${k.status}`);
     const bad = await call("PATCH", `/api/kds/details/${detail}`, { token: tokens.kitchen, body: { kdsStatus: "Hacked" } });
     check("KDS từ chối trạng thái món không hợp lệ", bad.status === 400, `status ${bad.status} → ${sql1(`SELECT KDS_Status s FROM Order_Details WHERE Detail_ID=${detail}`)?.s}`);
+    sql(`UPDATE Order_Details SET KDS_Status='Waiting' WHERE Detail_ID=${detail}`);
+    const good = await call("PATCH", `/api/kds/details/${detail}`, { token: tokens.kitchen, body: { kdsStatus: "Cooking" } });
+    check("KDS vẫn chuyển món sang Cooking bình thường", good.status === 200, `status ${good.status} ${short(good.body)}`);
     sql(`UPDATE Order_Details SET KDS_Status='Waiting' WHERE Detail_ID=${detail}`);
   }
   const t1 = Number(sql1(`SELECT Table_ID id FROM Tables WHERE Store_ID=1 AND Status='Empty' LIMIT 1`)?.id);
@@ -58,8 +59,7 @@ group("B15 Phân quyền theo chi nhánh (đối tượng của CN1, người c�
   check("Owner chọn chi nhánh không tồn tại → 400", ownerAll.status === 400, `status ${ownerAll.status}`);
 }
 
-group("B23 Nhân viên CRUD — leo thang quyền");
-{
+if (group("B23 Nhân viên CRUD — leo thang quyền")) {
   const me = staffId("admin");
   const before = Number(sql1(`SELECT Base_Salary s FROM Staff WHERE Staff_ID=${me}`)?.s);
   const raise = await call("PATCH", `/api/admin/staff/${me}`, { token: tokens.admin, body: { baseSalary: 99999999 } });
@@ -67,12 +67,23 @@ group("B23 Nhân viên CRUD — leo thang quyền");
   check("Quản lý chi nhánh không tự tăng lương của mình", after === before, `status ${raise.status}, lương ${before} → ${after}`);
   sql(`UPDATE Staff SET Base_Salary=${before} WHERE Staff_ID=${me}`);
   check("PATCH /admin/staff/:id không trả passwordHash / faceDescriptor", !("passwordHash" in (raise.body ?? {})), `keys: ${Object.keys(raise.body ?? {}).slice(0, 25).join(",")}`);
+  const cur = sql1(`SELECT Base_Salary s, Role r, Status st FROM Staff WHERE Staff_ID=${me}`);
+  const selfForm = await call("PATCH", `/api/admin/staff/${me}`, { token: tokens.admin, body: { fullName: "Quản lý", phone: "0909000111", role: cur.r, status: cur.st, baseSalary: Number(cur.s) } });
+  check("Quản lý vẫn lưu được hồ sơ của mình (form gửi kèm lương không đổi)", selfForm.status === 200, `status ${selfForm.status} ${short(selfForm.body)}`);
+  const byOwner = await call("PATCH", `/api/admin/staff/${me}`, { token: tokens.owner, body: { baseSalary: 12000000 } });
+  check("Chủ chuỗi sửa được lương quản lý chi nhánh", byOwner.status === 200 && Number(sql1(`SELECT Base_Salary s FROM Staff WHERE Staff_ID=${me}`)?.s) === 12000000, `status ${byOwner.status}`);
+  sql(`UPDATE Staff SET Base_Salary=${before} WHERE Staff_ID=${me}`);
+  const mass = await call("PATCH", `/api/admin/staff/${staffId("NV_Mai")}`, { token: tokens.admin, body: { faceDescriptor: "[1,2,3]", passwordHash: "x" } });
+  check("PATCH bỏ qua trường không được phép (faceDescriptor, passwordHash)", mass.status === 200 && sql1(`SELECT Password_Hash h FROM Staff WHERE Username='NV_Mai'`)?.h !== "x", `status ${mass.status}`);
   const promote = await call("PATCH", `/api/admin/staff/${staffId("NV_Mai")}`, { token: tokens.admin, body: { role: "Admin" } });
   check("Quản lý chi nhánh không nâng nhân viên lên Admin", promote.status === 403, `status ${promote.status}`);
   const mkOwner = await call("POST", "/api/admin/staff", { token: tokens.admin, body: { fullName: "Chủ giả", role: "Owner", password: "123456" } });
   check("Quản lý chi nhánh không tạo được tài khoản Owner", mkOwner.status === 403, `status ${mkOwner.status}`);
   const weak = await call("POST", "/api/admin/staff", { token: tokens.admin, body: { fullName: "Mật khẩu yếu", role: "Waiter", password: "1234" } });
   check("Tạo nhân viên với mật khẩu 4 ký tự bị từ chối (tối thiểu nên 6)", weak.status === 400, `status ${weak.status}`);
+  const stamp = Date.now();
+  const many = await Promise.all([0, 1, 2, 3].map((i) => call("POST", "/api/admin/staff", { token: tokens.admin, body: { fullName: `Song song ${i}`, role: "Waiter", password: "123456", username: `qa_par_${stamp}_${i}` } })));
+  check("Tạo 4 nhân viên cùng lúc đều thành công (không trùng ID)", many.every((r) => r.status === 201), many.map((r) => r.status).join(","));
   const customers = await call("GET", "/api/admin/customers", { token: tokens.admin });
   check("GET /admin/customers không lộ passwordHash", !JSON.stringify(customers.body).includes("passwordHash"), `status ${customers.status}`);
   // Nhân viên bị khoá: token cũ phải hết hiệu lực
@@ -85,8 +96,7 @@ group("B23 Nhân viên CRUD — leo thang quyền");
   }
 }
 
-group("C28 Bảo mật — JWT, upload, XSS");
-{
+if (group("C28 Bảo mật — JWT, upload, XSS")) {
   const forged = `${b64u({ alg: "HS256", typ: "JWT" })}.${b64u({ typ: "staff", sub: 1, role: "Owner" })}.${createHmac("sha256", "dev-secret-change-me").update("x").digest("base64url")}`;
   const f1 = await call("GET", "/api/admin/customers", { token: forged });
   check("JWT ký sai bị từ chối", f1.status === 401, `status ${f1.status}`);

@@ -1,5 +1,38 @@
 # Báo cáo kiểm thử QA — TD Coffee
 
+## 0. Trạng thái sửa lỗi (cập nhật 01/11/2026)
+
+**Đã sửa cả 26 lỗi.** Chạy lại toàn bộ `tests/qa` (03–08) trên backend test: **233 đạt · 0 lỗi · 1 bỏ qua** (JWT hết hạn). Không còn lỗi 500 sau khi sửa.
+
+| Mã | Cách sửa (file chính) |
+|---|---|
+| 001 | `/sepay/confirm` chỉ xác nhận khi tự tra hoá đơn trên SePay thấy đã trả đủ; mã hoá đơn quay về qua `success_url` (`sepay.ts`, `OrderCheckout.tsx`) |
+| 002 | VNPay client-confirm kiểm `vnp_SecureHash`, số tiền, đúng đơn, trạng thái; IPN kiểm số tiền + không nhận đơn đã hủy (`vnpay.ts`) |
+| 003 | IPN SePay luôn tra lại hoá đơn trên SePay; có header chữ ký thì phải khớp; `confirmOrderPaid` chỉ nhận đơn chờ thanh toán (`sepay.ts`) |
+| 004, 026 | POS chiếm đơn bằng `updateMany where status=Confirmed` đầu transaction; máy sau nhận 409 (`pos.ts`) |
+| 005 | `canViewOrder` cho `/orders/:id`, `/bill`, `/tracking`; `/pos/bills/:id` cần thu ngân cùng chi nhánh; `api()` gửi `X-Order-Session` / `X-Table-Id` (`lib/orderAccess.ts`) |
+| 006 | PATCH nhân viên theo danh sách trắng; quản lý không tự đổi lương/vai trò/trạng thái; response bỏ hash (`admin.ts`) |
+| 007, 008 | `consumeVoucher` nguyên tử (Used_Count < Quantity, mỗi khách 1 lần) dùng ở POS / SePay / VNPay / MoMo / apply; POS kiểm lại voucher, báo thu ngân khi bỏ (`lib/vouchers.ts`, `Pos.tsx`) |
+| 009 | POS chỉ nhận `Cash` / `Transfer_QR` / `Card`; tiền mặt thiếu → 400 (`pos.ts`) |
+| 010 | Áp điểm bắt buộc đúng token chủ đơn (`orders.ts`) |
+| 011 | Hồ sơ khách bỏ hash, chuẩn hoá + kiểm trùng SĐT (`customer.ts`) |
+| 012 | Khách chỉ tự hủy khi còn ân hạn hoặc chưa món nào xuống bếp; nhân viên vẫn hủy được (`orders.ts`) |
+| 013 | `/staff/members` cần đăng nhập, theo chi nhánh, bỏ username (`staffAuth.ts`) |
+| 014 | Chuẩn hoá SĐT (đăng ký + đăng nhập); trùng ID khi đồng thời thì thử lại (khách + nhân viên) (`auth.ts`, `admin.ts`) |
+| 015 | Bán kính giao tối đa 15 km (`MAX_DELIVERY_KM`), giỏ hàng báo + khoá nút (`lib/delivery.ts`, `Cart.tsx`) |
+| 016 | Menu ẩn món không đủ nguyên liệu; đặt món kiểm đủ nguyên liệu theo số ly / size; trừ kho không xuống âm (`lib/storeProducts.ts`, `lib/menuPrice.ts`, `lib/inventory.ts`) |
+| 017 | Phòng socket `order:` / `tracking:` chỉ cho chủ đơn hoặc nhân viên cùng chi nhánh (`socket/handlers.ts`) |
+| 018 | Bài đăng lọc HTML khi lưu (`sanitizeHtml`) và khi hiển thị (`safeHtml`) (`posts.ts`, `BlogDetail.tsx`) |
+| 019 | Kiểm dữ liệu voucher khi tạo / sửa (`vouchers.ts`) |
+| 020 | KDS chỉ nhận `Waiting` / `Cooking` / `Ready` / `Served` (`orders.ts`) |
+| 021 | Mỗi đơn 1 đánh giá; ảnh chỉ nhận `/uploads/<uuid>.<ảnh>` (`reviews.ts`) |
+| 022 | `bizRange` loại ngày không có thật (`lib/bizTime.ts`) |
+| 023 | Upload kiểm magic bytes PNG/JPEG/WebP/GIF (`lib/uploadImage.ts`) |
+| 024 | Mật khẩu nhân viên ≥ 6 ký tự (tạo, sửa, tự đổi; cả frontend) |
+| 025 | `.c-filter-row { position: relative }` — chữ ẩn `.c-sr` không thoát vùng cuộn (`customer.css`) |
+
+Còn mở: SePay (001/003) chưa thử với SePay thật (máy test không gọi ra SePay được); ID khách / nhân viên vẫn cấp `max+1` (có thử lại), đổi sang `AUTO_INCREMENT` cần migration trên CSDL thật.
+
 ## 1. Tóm tắt
 
 | Mục | Giá trị |

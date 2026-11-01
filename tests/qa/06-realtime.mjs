@@ -1,18 +1,18 @@
 /**
  * B27 Realtime (socket.io): mở nhiều phiên song song, kiểm sự kiện tới đúng phòng / đúng chi nhánh.
- * Chạy: NODE_PATH=frontend-app/node_modules node tests/qa/06-realtime.mjs (dùng socket.io-client của frontend)
+ * Dùng socket.io-client có sẵn trong frontend-app/node_modules.
  */
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { call, check, group, save, newCustomer, staffLogin } from "./lib.mjs";
 
-const require = createRequire(join(process.cwd(), "frontend-app", "package.json"));
+const require = createRequire(fileURLToPath(new URL("../../frontend-app/package.json", import.meta.url)));
 const { io } = require("socket.io-client");
 const API = process.env.QA_API ?? "http://localhost:4100";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function client(token, rooms) {
-  const s = io(API, { transports: ["websocket"], auth: token ? { token } : {}, forceNew: true });
+function client(token, rooms, auth = {}) {
+  const s = io(API, { transports: ["websocket"], auth: { ...(token ? { token } : {}), ...auth }, forceNew: true });
   const got = [];
   s.onAny((ev, payload) => got.push({ ev, payload }));
   s.on("connect", () => rooms.forEach((r) => s.emit("join", r)));
@@ -29,11 +29,12 @@ await sleep(1500);
 const c = await newCustomer("socket");
 const o = await call("POST", "/api/orders", { token: c.token, body: { orderType: "Takeaway", storeId: 1, lines: [{ productId: 2, quantity: 1, size: "M" }] } });
 const spy = client(null, [`order:${o.body.id}`]);
+const ownerSock = client(null, [`order:${o.body.id}`], { customerToken: c.token });
 await sleep(800);
 const cashier = await staffLogin("cashier");
 const sh = await call("GET", "/api/shifts/open", { token: cashier });
 if (!sh.body?.shift) await call("POST", "/api/shifts/open", { token: cashier, body: { startingCash: 0 } });
-await call("POST", "/api/pos/pay", { token: cashier, body: { orderId: o.body.id, method: "Transfer" } });
+await call("POST", "/api/pos/pay", { token: cashier, body: { orderId: o.body.id, method: "Transfer_QR" } });
 await sleep(1500);
 
 const has = (cl, ev) => cl.got.some((g) => g.ev === ev && (g.payload?.orderId === o.body.id || g.payload?.id === o.body.id));
@@ -43,6 +44,7 @@ check("Kết nối không token join 'pos/kds/admin_room' không nhận gì", an
 check("Phục vụ không vào được admin_room", waiterAdmin.got.every((g) => !String(g.ev).startsWith("complaint")), `${waiterAdmin.got.length} sự kiện`);
 check("Người lạ join phòng order:<id> của đơn người khác không nhận payment:success", !spy.got.some((g) => g.ev === "payment:success"), spy.got.map((g) => `${g.ev}:${JSON.stringify(g.payload).slice(0, 80)}`).join(" | "));
 
-for (const cl of [pos1, pos2, anon, waiterAdmin, spy]) cl.s.close();
+check("Chủ đơn (gửi token khách khi bắt tay) join order:<id> vẫn nhận payment:success", ownerSock.got.some((g) => g.ev === "payment:success"), ownerSock.got.map((g) => g.ev).join(",") || "không có sự kiện");
+for (const cl of [pos1, pos2, anon, waiterAdmin, spy, ownerSock]) cl.s.close();
 save("06-realtime.json");
 process.exit(0);

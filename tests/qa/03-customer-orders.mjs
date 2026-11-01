@@ -2,7 +2,7 @@
  * A. Khách hàng: đăng ký / đăng nhập / hồ sơ, đặt món (tại bàn, mang về, giao hàng), ân hạn & hủy,
  * định giá phía server, phí ship, thanh toán (SePay/VNPay/MoMo giả lập), điểm, đánh giá, IDOR.
  */
-import { call, sql, sql1, check, group, save, newCustomer, customerLogin, staffLogin, short } from "./lib.mjs";
+import { call, sql, sql1, check, group, save, newCustomer, customerLogin, staffLogin, short, signedVnpayIpn, signedVnpayParams } from "./lib.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const line = (productId = 1, quantity = 1, extra = {}) => ({ productId, quantity, size: "M", ...extra });
@@ -11,8 +11,7 @@ const points = (cid) => Number(sql1(`SELECT Points p FROM Customers WHERE Custom
 const freeTable = () => Number(sql1(`SELECT Table_ID id FROM Tables WHERE Store_ID=1 AND Status='Empty' ORDER BY Table_ID LIMIT 1`)?.id);
 
 /* ───────── 1. Đăng ký / đăng nhập ───────── */
-group("A1 Đăng ký / đăng nhập / hồ sơ");
-{
+if (group("A1 Đăng ký / đăng nhập / hồ sơ")) {
   const bad = await call("POST", "/api/auth/register", { body: { phone: "abc-khong-phai-sdt", password: "123456" } });
   check("Đăng ký với SĐT sai định dạng bị từ chối", bad.status === 400, `status ${bad.status}`);
   const shortPw = await call("POST", "/api/auth/register", { body: { phone: "0911111111", password: "123" } });
@@ -49,9 +48,8 @@ group("A1 Đăng ký / đăng nhập / hồ sơ");
 }
 
 /* ───────── 2-4. Đặt món, định giá, ân hạn, hủy ───────── */
-group("A4 Đặt món tại bàn / mang về, định giá server, ân hạn & hủy");
 const c = await newCustomer("Đặt món");
-{
+if (group("A4 Đặt món tại bàn / mang về, định giá server, ân hạn & hủy")) {
   const t = freeTable();
   const tamper = await call("POST", "/api/orders", { token: c.token, body: { tableId: t, lines: [line(1, 2, { unitPrice: 1, price: 1 })] } });
   const expectSub = 2 * Math.round(25000 * 0.85);
@@ -80,6 +78,9 @@ const c = await newCustomer("Đặt món");
   const late = await call("POST", `/api/orders/${o2.body.id}/cancel`, { token: c.token, body: {} });
   check("Khách hủy SAU ân hạn (đơn đã vào bếp) bị chặn", late.status === 400 || late.status === 403, `status ${late.status} → ${orderRow(o2.body.id)?.status}`);
 
+  const byStaff = await call("POST", `/api/orders/${o2.body.id}/cancel`, { token: await staffLogin("cashier"), body: { cancelReason: "Khách đổi ý, quán hủy" } });
+  check("Nhân viên cùng chi nhánh vẫn hủy được đơn đã vào bếp", byStaff.status === 200 && orderRow(o2.body.id)?.status === "Cancelled", `status ${byStaff.status}`);
+
   // Người khác hủy đơn của khách
   const other = await newCustomer("Kẻ lạ");
   const o3 = await call("POST", "/api/orders", { token: c.token, body: { tableId: freeTable(), lines: [line(3, 1)] } });
@@ -93,8 +94,7 @@ const c = await newCustomer("Đặt món");
 }
 
 /* ───────── 5. Giao hàng / phí ship ───────── */
-group("A5 Giao hàng, phí ship theo khoảng cách");
-{
+if (group("A5 Giao hàng, phí ship theo khoảng cách")) {
   const anon = await call("POST", "/api/orders", { body: { orderType: "Delivery", storeId: 1, deliveryAddress: "x", customerLat: 10.78, customerLng: 106.7, lines: [line()] } });
   check("Đặt giao hàng khi chưa đăng nhập → 401", anon.status === 401, `status ${anon.status}`);
   const near = await call("POST", "/api/orders", { token: c.token, body: { orderType: "Delivery", storeId: 1, deliveryAddress: "Gần quán, Q1", customerLat: 10.7775, customerLng: 106.7015, lines: [line()] } });
@@ -108,15 +108,23 @@ group("A5 Giao hàng, phí ship theo khoảng cách");
 }
 
 /* ───────── 6. Thanh toán giả lập ───────── */
-group("A6 Thanh toán online — xác nhận giả mạo / chữ ký / gọi lặp");
-{
+if (group("A6 Thanh toán online — xác nhận giả mạo / chữ ký / gọi lặp")) {
   const victim = await newCustomer("Thanh toán");
   const mk = async () => (await call("POST", "/api/orders", { token: victim.token, body: { orderType: "Takeaway", storeId: 1, lines: [line(2, 2)] } })).body;
+  /** Số tiền VNPay sẽ thu (vnp_Amount trong link do /vnpay/create tạo) — giống luồng thật */
+  const charge = async (o) => {
+    const r = await call("POST", `/api/orders/${o.id}/vnpay/create`, { token: victim.token, body: {} });
+    return Number(new URL(r.body.payUrl).searchParams.get("vnp_Amount")) / 100;
+  };
 
   const o1 = await mk();
   const p0 = points(victim.id);
   const fake = await call("POST", `/api/orders/${o1.id}/sepay/confirm`, {});
   check("Người lạ KHÔNG xác nhận được đơn đã trả qua /sepay/confirm (không token, không giao dịch)", orderRow(o1.id)?.status !== "Paid", `status ${fake.status} → đơn ${orderRow(o1.id)?.status}, điểm ${p0} → ${points(victim.id)}`);
+  const forged = await call("POST", `/api/orders/${o1.id}/sepay/confirm`, { body: { invoice: `TD${o1.id}-${Date.now()}` } });
+  check("/sepay/confirm với mã hoá đơn đúng dạng nhưng SePay chưa ghi nhận → không Paid (202 chờ)", forged.status === 202 && orderRow(o1.id)?.status !== "Paid", `status ${forged.status} → đơn ${orderRow(o1.id)?.status}`);
+  const otherInv = await call("POST", `/api/orders/${o1.id}/sepay/confirm`, { body: { invoice: `TD${o1.id + 1}-${Date.now()}` } });
+  check("/sepay/confirm với mã hoá đơn của đơn khác → 400", otherInv.status === 400, `status ${otherInv.status}`);
 
   const o2 = await mk();
   const vfake = await call("POST", `/api/orders/${o2.id}/vnpay/client-confirm`, { body: { vnp_ResponseCode: "00" } });
@@ -127,16 +135,19 @@ group("A6 Thanh toán online — xác nhận giả mạo / chữ ký / gọi l�
   check("VNPay IPN chữ ký sai bị từ chối", orderRow(o3.id)?.status !== "Paid", `status ${badSig.status} ${short(badSig.body)}`);
   const momo = await call("POST", "/api/momo/ipn", { body: { orderId: `TD${o3.id}-1`, resultCode: 0, amount: o3.totalAmount, signature: "sai" } });
   check("MoMo IPN chữ ký sai bị từ chối", orderRow(o3.id)?.status !== "Paid", `status ${momo.status} ${short(momo.body)}`);
-  const sepayNoSig = await call("POST", "/api/sepay/ipn", { body: { order_invoice_number: `TD${o3.id}-1`, status: "SUCCESS", amount: 1 } });
-  check("SePay IPN không có chữ ký (số tiền 1đ) bị từ chối", orderRow(o3.id)?.status !== "Paid", `status ${sepayNoSig.status} → đơn ${orderRow(o3.id)?.status}`);
+  const sepayNoSig = await call("POST", "/api/sepay/ipn", { body: { order_invoice_number: `TD${o3.id}-${Date.now()}`, status: "SUCCESS", amount: 1 } });
+  check("SePay IPN không chữ ký, SePay không xác nhận giao dịch → không Paid", orderRow(o3.id)?.status !== "Paid", `status ${sepayNoSig.status} ${short(sepayNoSig.body)} → đơn ${orderRow(o3.id)?.status}`);
+  const sepayBadSig = await call("POST", "/api/sepay/ipn", { body: { order_invoice_number: `TD${o3.id}-${Date.now()}`, status: "SUCCESS" }, headers: { "X-SePay-Signature": "sai" } });
+  check("SePay IPN chữ ký sai → 400", sepayBadSig.status === 400 && orderRow(o3.id)?.status !== "Paid", `status ${sepayBadSig.status}`);
 
   // Gọi xác nhận 2 lần / song song → chỉ 1 Payment, điểm cộng 1 lần
   const o4 = await mk();
+  const amt4 = await charge(o4);
   const before = points(victim.id);
-  await Promise.all([1, 2, 3].map(() => call("POST", `/api/orders/${o4.id}/sepay/confirm`, {})));
+  await Promise.all([1, 2, 3].map(() => call("GET", signedVnpayIpn(o4.id, amt4))));
   const pays = Number(sql1(`SELECT COUNT(*) n FROM Payments WHERE Order_ID=${o4.id}`)?.n);
   const earned = Number(orderRow(o4.id)?.pe ?? 0);
-  check("Xác nhận thanh toán gọi 3 lần song song chỉ tạo 1 Payment", pays <= 1, `Payments ${pays}`);
+  check("IPN hợp lệ gọi 3 lần song song chỉ tạo đúng 1 Payment", pays === 1, `Payments ${pays}`);
   check("Điểm chỉ cộng 1 lần", points(victim.id) - before === earned, `điểm +${points(victim.id) - before}, Points_Earned ${earned}`);
   const afterPaidCancel = await call("POST", `/api/orders/${o4.id}/cancel`, { token: victim.token, body: {} });
   check("Không hủy được đơn mang về đã Paid", afterPaidCancel.status === 400, `status ${afterPaidCancel.status}`);
@@ -144,18 +155,31 @@ group("A6 Thanh toán online — xác nhận giả mạo / chữ ký / gọi l�
   // Đơn đã hủy rồi xác nhận thanh toán
   const o5 = await mk();
   await call("POST", `/api/orders/${o5.id}/cancel`, { token: victim.token, body: {} });
-  const paidCancelled = await call("POST", `/api/orders/${o5.id}/vnpay/client-confirm`, { body: { vnp_ResponseCode: "00", vnp_TxnRef: `${o5.id}-x` } });
-  check("Đơn đã hủy không chuyển được sang Paid", orderRow(o5.id)?.status === "Cancelled", `status ${paidCancelled.status} → ${orderRow(o5.id)?.status}`);
+  const paidCancelled = await call("POST", `/api/orders/${o5.id}/vnpay/client-confirm`, { body: signedVnpayParams(o5.id, o5.totalAmount) });
+  const ipnCancelled = await call("GET", signedVnpayIpn(o5.id, o5.totalAmount));
+  check("Đơn đã hủy không chuyển được sang Paid (kể cả chữ ký VNPay hợp lệ, client-confirm lẫn IPN)", orderRow(o5.id)?.status === "Cancelled", `client ${paidCancelled.status} ${short(paidCancelled.body)}, IPN ${short(ipnCancelled.body)} → ${orderRow(o5.id)?.status}`);
+
+  const o6 = await mk();
+  const okSigned = await call("POST", `/api/orders/${o6.id}/vnpay/client-confirm`, { body: signedVnpayParams(o6.id, await charge(o6)) });
+  check("VNPay client-confirm có chữ ký hợp lệ, đủ tiền → Paid", okSigned.status === 200 && orderRow(o6.id)?.status === "Paid", `status ${okSigned.status} ${short(okSigned.body)} → ${orderRow(o6.id)?.status}`);
+  const o7 = await mk();
+  const cheap = await call("POST", `/api/orders/${o7.id}/vnpay/client-confirm`, { body: signedVnpayParams(o7.id, 1000) });
+  const cheapIpn = await call("GET", signedVnpayIpn(o7.id, 1000));
+  check("VNPay chữ ký hợp lệ nhưng trả thiếu tiền (1.000đ) → không Paid", orderRow(o7.id)?.status !== "Paid", `client ${cheap.status} ${short(cheap.body)}, IPN ${short(cheapIpn.body)} → ${orderRow(o7.id)?.status}`);
+  const wrongOrder = await call("POST", `/api/orders/${o7.id}/vnpay/client-confirm`, { body: signedVnpayParams(o6.id, o6.totalAmount) });
+  check("Dùng bộ tham số VNPay hợp lệ của đơn khác → không Paid", orderRow(o7.id)?.status !== "Paid", `status ${wrongOrder.status} ${short(wrongOrder.body)}`);
 }
 
 /* ───────── 8. Điểm: IDOR redeem ───────── */
-group("A8 Điểm — dùng điểm, IDOR");
-{
+if (group("A8 Điểm — dùng điểm, IDOR")) {
   const rich = await newCustomer("Nhiều điểm");
   sql(`UPDATE Customers SET Points=50000 WHERE Customer_ID=${rich.id}`);
   const o = await call("POST", "/api/orders", { token: rich.token, body: { orderType: "Takeaway", storeId: 1, lines: [line(2, 1)] } });
   const anon = await call("POST", `/api/orders/${o.body.id}/redeem-points`, { body: { pointsToUse: 999999 } });
   check("Người lạ (không token) không áp điểm của khách khác vào đơn của họ", anon.status === 403 || anon.status === 401, `status ${anon.status} pointsUsed=${orderRow(o.body.id)?.pu}`);
+  const otherK = await newCustomer("Người khác dùng điểm");
+  const foreign = await call("POST", `/api/orders/${o.body.id}/redeem-points`, { token: otherK.token, body: { pointsToUse: 1000 } });
+  check("Khách khác (đăng nhập) không áp điểm vào đơn người khác", foreign.status === 403, `status ${foreign.status}`);
   const neg = await call("POST", `/api/orders/${o.body.id}/redeem-points`, { token: rich.token, body: { pointsToUse: -5000 } });
   check("Dùng điểm âm không làm tăng tổng tiền", Number(orderRow(o.body.id)?.pu) >= 0, `status ${neg.status} pu=${orderRow(o.body.id)?.pu}`);
   const over = await call("POST", `/api/orders/${o.body.id}/redeem-points`, { token: rich.token, body: { pointsToUse: 999999 } });
@@ -163,8 +187,7 @@ group("A8 Điểm — dùng điểm, IDOR");
 }
 
 /* ───────── IDOR đọc đơn / bill ───────── */
-group("A IDOR — đọc đơn, bill người khác");
-{
+if (group("A IDOR — đọc đơn, bill người khác")) {
   const owner = await newCustomer("Chủ đơn");
   sql(`UPDATE Customers SET Customer_Name='Bí Mật QA' WHERE Customer_ID=${owner.id}`);
   const o = await call("POST", "/api/orders", { token: owner.token, body: { orderType: "Delivery", storeId: 1, deliveryAddress: "123 Đường Riêng Tư, Q1", customerLat: 10.7775, customerLng: 106.7015, lines: [line()] } });
@@ -173,13 +196,31 @@ group("A IDOR — đọc đơn, bill người khác");
     const leak = JSON.stringify(r.body);
     check(`Không đăng nhập không đọc được ${p.replace(String(o.body.id), ":id")} (SĐT/địa chỉ)`, !(r.status === 200 && (leak.includes(owner.phone) || leak.includes("Riêng Tư"))), `status ${r.status}${leak.includes(owner.phone) ? " · lộ SĐT" : ""}${leak.includes("Riêng Tư") ? " · lộ địa chỉ" : ""}`);
   }
+  for (const p of [`/api/orders/${o.body.id}`, `/api/orders/${o.body.id}/bill`, `/api/orders/${o.body.id}/tracking`]) {
+    const mine = await call("GET", p, { token: owner.token });
+    check(`Chủ đơn vẫn xem được ${p.replace(String(o.body.id), ":id")}`, mine.status === 200, `status ${mine.status}`);
+  }
+  const otherCust = await newCustomer("Tò mò");
+  const peek = await call("GET", `/api/orders/${o.body.id}/bill`, { token: otherCust.token });
+  check("Khách khác (đăng nhập) không xem được bill đơn người khác", peek.status === 403, `status ${peek.status}`);
+  const cs1 = await staffLogin("cashier");
+  const cs2 = await staffLogin("cashier2");
+  check("Thu ngân cùng chi nhánh xem được bill (POS in lại)", (await call("GET", `/api/pos/bills/${o.body.id}`, { token: cs1 })).status === 200);
+  const cross = await call("GET", `/api/pos/bills/${o.body.id}`, { token: cs2 });
+  check("Thu ngân chi nhánh khác không xem được bill", cross.status === 404 || cross.status === 403, `status ${cross.status}`);
+  const sid = "qa-" + Date.now();
+  const guest = await call("POST", "/api/orders", { body: { orderType: "Takeaway", storeId: 1, sessionId: sid, lines: [line()] } });
+  const gOk = await call("GET", `/api/orders/${guest.body.id}/bill`, { headers: { "X-Order-Session": sid } });
+  const gBad = await call("GET", `/api/orders/${guest.body.id}/bill`, { headers: { "X-Order-Session": "sai" } });
+  check("Khách vãng lai mang về xem được bill bằng đúng mã phiên, sai mã thì 403", gOk.status === 200 && gBad.status === 403, `đúng ${gOk.status}, sai ${gBad.status}`);
   const staffList = await call("GET", "/api/staff/members");
+  const m2 = await call("GET", "/api/staff/members?store=1", { token: await staffLogin("waiter2") });
+  check("Nhân viên CN2 xin danh sách CN1 vẫn chỉ nhận đồng nghiệp CN2, không có username", m2.status === 200 && Array.isArray(m2.body) && m2.body.length > 0 && !JSON.stringify(m2.body).includes('"username"') && !m2.body.some((x) => x.fullName === "Quản lý"), `status ${m2.status}, ${m2.body?.length} người`);
   check("Danh sách nhân sự (username, vai trò) không công khai", staffList.status === 401 || staffList.status === 403, `status ${staffList.status}, ${Array.isArray(staffList.body) ? staffList.body.length + " nhân sự" : ""}`);
 }
 
 /* ───────── 10. Đánh giá ───────── */
-group("A10 Đánh giá");
-{
+if (group("A10 Đánh giá")) {
   const k = await newCustomer("Đánh giá");
   const o = await call("POST", "/api/orders", { token: k.token, body: { orderType: "Takeaway", storeId: 1, lines: [line(1, 1)] } });
   const early = await call("POST", "/api/reviews", { token: k.token, body: { orderId: o.body.id, rating: 5, comment: "chưa trả tiền" } });
@@ -194,7 +235,9 @@ group("A10 Đánh giá");
   check("Không đánh giá 2 lần cùng một đơn", again.status === 409 || again.status === 400, `status ${again.status}`);
   const rate = await call("POST", "/api/reviews", { token: k.token, body: { orderId: o.body.id, rating: 9 } });
   check("Rating ngoài 1–5 bị từ chối", rate.status === 400, `status ${rate.status}`);
-  const js = await call("POST", "/api/reviews", { token: k.token, body: { orderId: o.body.id, rating: 4, imageUrl: "javascript:alert(1)" } });
+  const o2 = await call("POST", "/api/orders", { token: k.token, body: { orderType: "Takeaway", storeId: 1, lines: [line(1, 1)] } });
+  sql(`UPDATE Orders SET Status='Paid' WHERE Order_ID=${o2.body.id}`);
+  const js = await call("POST", "/api/reviews", { token: k.token, body: { orderId: o2.body.id, rating: 4, imageUrl: "javascript:alert(1)" } });
   check("imageUrl dạng javascript: bị từ chối", js.status === 400, `status ${js.status}`);
 }
 
