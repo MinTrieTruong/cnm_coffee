@@ -271,7 +271,7 @@ function AddProductModal({ options, onClose, onAdd, onOptionsChanged }: { option
                 </div>
                 <div className="o-muted" style={{ margin: "6px 0" }}>Nhập tồn quà theo chi nhánh ở mục CRM › Quà tặng hiện vật.</div>
                 <div className="o-row">
-                  <Button variant="primary" disabled={!gift.name.trim()} onClick={() => void createGift()}>Tạo và thêm vào vòng</Button>
+                  <Button variant="primary" disabled={!gift.name.trim()} onClick={() => void createGift()}>Tạo và thêm vào bảng giải</Button>
                   <Button onClick={() => setCreating(false)}>Hủy</Button>
                 </div>
               </div>
@@ -324,7 +324,7 @@ function AddVoucherModal({ options, used, onClose, onAdd }: { options: GameOptio
           </table>
         </div>
       )}
-      <div className="o-muted" style={{ marginTop: 8 }}>Mỗi khách chỉ nhận một voucher cùng loại: khách đã có voucher này thì vòng quay tự chọn giải khác.</div>
+      <div className="o-muted" style={{ marginTop: 8 }}>Mỗi khách chỉ nhận một voucher cùng loại: khách đã có voucher này thì hệ thống tự chọn giải khác.</div>
     </Modal>
   );
 }

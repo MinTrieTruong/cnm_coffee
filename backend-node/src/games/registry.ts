@@ -1,5 +1,8 @@
 import type { GameType } from "@prisma/client";
 import { GameError } from "./errors.js";
+import { mysteryHandler } from "./handlers/mystery.js";
+import { scratchHandler } from "./handlers/scratch.js";
+import { seasonalHandler } from "./handlers/seasonal.js";
 import { wheelHandler } from "./handlers/wheel.js";
 import type { GameHandler } from "./types.js";
 
@@ -17,16 +20,16 @@ const comingSoon = (label: string): GameHandler => {
  */
 export const GAME_HANDLERS: Record<GameType, GameHandler> = {
   WHEEL: wheelHandler,
-  SCRATCH: comingSoon("Thẻ cào"),
-  MYSTERY_BOX: comingSoon("Hộp quà bí mật"),
+  SCRATCH: scratchHandler,
+  MYSTERY_BOX: mysteryHandler,
   STAMP: comingSoon("Thẻ tích ly"),
   MISSION: comingSoon("Nhiệm vụ tuần"),
   QUIZ: comingSoon("Đố vui"),
-  SEASONAL: comingSoon("Lì xì theo mùa"),
+  SEASONAL: seasonalHandler,
 };
 
 /** Loại game đã chơi được */
-export const READY_GAMES: GameType[] = ["WHEEL"];
+export const READY_GAMES: GameType[] = ["WHEEL", "SCRATCH", "MYSTERY_BOX", "SEASONAL"];
 
 export const GAME_LABELS: Record<GameType, string> = {
   WHEEL: "Vòng quay may mắn",
@@ -35,5 +38,5 @@ export const GAME_LABELS: Record<GameType, string> = {
   STAMP: "Thẻ tích ly",
   MISSION: "Nhiệm vụ tuần",
   QUIZ: "Đố vui",
-  SEASONAL: "Lì xì theo mùa",
+  SEASONAL: "Lì xì Tết",
 };

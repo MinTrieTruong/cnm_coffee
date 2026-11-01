@@ -1,10 +1,10 @@
 # Kiến trúc mini game
 
-Vòng quay may mắn (`WHEEL`) là mini game đầu tiên. Thẻ cào, hộp quà bí mật, thẻ tích ly, nhiệm vụ tuần, đố vui, lì xì theo mùa sẽ dùng lại toàn bộ **tầng chung** và chỉ viết **tầng riêng**.
+Đã chạy: Vòng quay may mắn (`WHEEL`), Thẻ cào (`SCRATCH`), Hộp quà bí mật (`MYSTERY_BOX`) và Lì xì Tết (`SEASONAL`). Thẻ tích ly, nhiệm vụ tuần, đố vui sẽ dùng lại toàn bộ **tầng chung** và chỉ viết **tầng riêng**.
 
 ## Thêm một game mới: đúng 4 việc
 
-Ví dụ thêm Thẻ cào (`SCRATCH`):
+Ví dụ (Thẻ cào `SCRATCH` đã làm đúng theo các bước này, xem `handlers/scratch.ts` và `modules/games/scratch/`):
 
 1. **Enum**: `SCRATCH` đã có sẵn trong `enum GameType` (`backend-node/prisma/schema.prisma`). Game hoàn toàn mới thì thêm giá trị vào enum, chạy `npx prisma db push`, rồi thêm khoá đó vào `GAME_LABELS` ở backend và `GAME_UI` ở frontend.
 2. **Handler backend**: tạo `backend-node/src/games/handlers/scratch.ts` export một `GameHandler`:
@@ -51,6 +51,10 @@ Những phần sau **không cần sửa** khi thêm game: route, lượt chơi, 
   - `expireClaims` + `startGiftClaimExpiryJob`: chạy mỗi 10 phút. Mã quá hạn chuyển sang EXPIRED, trả lại số lượng giải và giữ chỗ tồn.
 - `registry.ts`: `GAME_HANDLERS: Record<GameType, GameHandler>`, `READY_GAMES`, `GAME_LABELS`.
 - `handlers/wheel.ts`: phần riêng của vòng quay (cấu hình màu/ảnh nền, trả `segmentIndex` để giao diện dừng đúng ô).
+- `handlers/scratch.ts`: phần riêng của thẻ cào (màu thẻ, màu + chữ lớp phủ, `revealPercent`). Giải được chọn và phát ngay khi khách lấy thẻ; lớp phủ chỉ là diễn hoạt.
+- `handlers/pickOne.ts`: `pickOneHandler` dùng chung cho game "chọn 1 trong N" (phần chơi + dữ liệu công khai); game chỉ viết `validateConfig`.
+- `handlers/mystery.ts`: Hộp quà bí mật (màu hộp hoặc mỗi hộp một màu, màu ruy băng, số hộp 3/4/6/8/9).
+- `handlers/seasonal.ts`: Lì xì Tết (màu bao, màu nhũ, chữ con dấu, số bao 4/6/8/9/12, lời chúc). Bao khách chọn chỉ là diễn hoạt, giải chọn theo tỉ lệ khi mở.
 
 ### API (`backend-node/src/routes/games.ts`)
 
@@ -78,7 +82,13 @@ Phân quyền: Chủ chuỗi sửa mọi chiến dịch. Quản lý chi nhánh c
 - `GamesHub.tsx`: CRM › Mini game. Mỗi loại game một thẻ (chưa sẵn sàng thì hiện "Sắp ra mắt"), bên dưới là danh sách chiến dịch của loại đang chọn.
 - `GameCampaignDetail.tsx`: trang chi tiết dùng chung, gồm cấu hình chung + `GAME_UI[type].ConfigPanel` + nút Bật/Tắt + in QR, `PrizeTable`, xem trước, ước tính chi phí 1.000 lượt, và `WinnerList`.
 - `PrizeTable.tsx`, `WinnerList.tsx`, `GiftItems.tsx`, `MyGifts.tsx` (Quà của tôi + `GameBanner`): dùng chung.
-- `wheel/`: `WheelSvg` (vẽ vòng, `rotationFor`), `WheelConfigPanel`, `WheelPlayView`.
+- `PlayParts.tsx`: phần dùng chung của màn chơi: `GameHero`, `PlayGate` (chưa chạy / sai chi nhánh / đăng nhập / hết lượt / đổi điểm), `ResultPopup`, `PrizeChips`.
+- `ConfigFields.tsx`: `ColorBox`, `BackgroundBox` cho khối cấu hình riêng.
+- `wheel/`: `WheelSvg` (vẽ vòng, `stopAngle`), `WheelConfigPanel`, `WheelPlayView` (quay bằng requestAnimationFrame, tiếng tích `wheelTick.ts`).
+- `PickOneGame.tsx`: khung màn chơi "chọn 1 trong N" (chọn → lắc trong lúc gọi máy chủ → mở → popup → bày lại). Game chỉ truyền `renderItem`, `board`, câu chữ.
+- `mystery/`: `GiftBox` (hộp quà SVG: nảy / lắc / bung nắp + tia sáng + thẻ quà / mờ), `MysteryConfigPanel`, `MysteryPlayView`.
+- `seasonal/`: `Envelope` (bao lì xì SVG: chờ / lắc / mở nắp + thiệp / mờ), `LixiConfigPanel`, `LixiPlayView`.
+- `scratch/`: `ScratchCard` (canvas lớp phủ, cào bằng chuột / ngón tay, đo % đã cào), `ScratchConfigPanel`, `ScratchPlayView`.
 - Trang khách: `pages/GamePlay.tsx`, route `/game/:campaignId?store=<id>`, render `GAME_UI[gameType].PlayView`.
 - POS: `components/PosGiftClaim.tsx` (nút "Nhận quà" ở màn Thu ngân).
 

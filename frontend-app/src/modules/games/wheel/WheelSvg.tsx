@@ -41,22 +41,21 @@ const at = (deg: number, r: number) => {
 
 /**
  * Vòng quay vẽ bằng SVG. Ô 0 bắt đầu ở đỉnh (dưới kim), các ô xếp theo chiều kim đồng hồ.
- * `rotation` (độ) xoay cả vòng — trang chơi đổi rotation + transition để quay và dừng đúng ô.
+ * `rotorRef` trỏ vào nhóm các ô — trang chơi tự đặt thuộc tính transform mỗi khung hình (requestAnimationFrame)
+ * thay vì dùng CSS transition, vì rule prefers-reduced-motion toàn cục ép transition về 0ms làm vòng nhảy thẳng tới kết quả.
  */
 export function WheelSvg({
   segments,
   wheelColor,
   borderColor,
   size = 320,
-  rotation = 0,
-  spinMs = 0,
+  rotorRef,
 }: {
   segments: WheelSegment[];
   wheelColor: string;
   borderColor: string;
   size?: number;
-  rotation?: number;
-  spinMs?: number;
+  rotorRef?: React.Ref<SVGGElement>;
 }) {
   const uid = useId().replace(/:/g, "");
   const n = Math.max(segments.length, 1);
@@ -84,12 +83,7 @@ export function WheelSvg({
         return <circle key={i} cx={x} cy={y} r={2.1} fill="#FFFFFF" opacity={0.95} />;
       })}
 
-      <g
-        style={{
-          transform: `rotate(${rotation}deg)`,
-          transition: spinMs ? `transform ${spinMs}ms cubic-bezier(0.12, 0.72, 0.12, 1)` : undefined,
-        }}
-      >
+      <g ref={rotorRef}>
         {segments.map((s, i) => {
           const a0 = i * seg;
           const a1 = (i + 1) * seg;
@@ -145,11 +139,9 @@ export function WheelSvg({
   );
 }
 
-/** Góc xoay để ô `index` dừng đúng dưới kim, cộng thêm `turns` vòng và lệch ngẫu nhiên trong ô cho tự nhiên */
-export function rotationFor(index: number, count: number, current: number, turns = 6) {
+/** Góc (0–360) để ô `index` dừng dưới kim, lệch ngẫu nhiên trong ô cho tự nhiên */
+export function stopAngle(index: number, count: number) {
   const seg = 360 / count;
   const jitter = (Math.random() - 0.5) * seg * 0.6;
-  const target = 360 - (index * seg + seg / 2) + jitter;
-  const base = current - (current % 360);
-  return base + turns * 360 + ((target % 360) + 360) % 360;
+  return (((360 - (index * seg + seg / 2) + jitter) % 360) + 360) % 360;
 }

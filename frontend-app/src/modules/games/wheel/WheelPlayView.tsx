@@ -1,15 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Coins, Gift, RotateCw, Ticket, X } from "lucide-react";
-import QRCode from "qrcode";
-import { api, mediaUrl } from "../../../lib/api";
+import { Link, useNavigate } from "react-router-dom";
+import { Gift, RotateCw, Volume2, VolumeX } from "lucide-react";
+import { api } from "../../../lib/api";
+import { GameHero, PlayGate, ResultPopup } from "../PlayParts";
 import type { PlayViewProps } from "../registry";
 import type { PlayResponse, PublicSegment } from "../types";
 import { WHEEL_DEFAULT_CONFIG, type WheelConfig } from "./WheelConfigPanel";
-import { WheelSvg, rotationFor } from "./WheelSvg";
+import { WheelSvg, stopAngle } from "./WheelSvg";
+import { isMuted, playTick, setMuted, unlockTick } from "./wheelTick";
 
-const SPIN_MS = 5200;
-const reducedMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+/** Tốc độ quay đều (độ/ms ≈ 2 vòng/giây), thời gian tăng tốc, số vòng tối thiểu khi giảm tốc */
+const CRUISE = 0.75;
+const RAMP_MS = 450;
+const MIN_TURNS = 2.5;
+
+/** Lệnh dừng: target = góc 0–360 cần dừng (null = dừng nhanh tại chỗ, khi lỗi) */
+type StopReq = { target: number | null; done: () => void };
 
 /** Giao diện chơi vòng quay của khách */
 export function WheelPlayView({ campaign, storeId, onPlayed }: PlayViewProps) {
@@ -17,111 +23,136 @@ export function WheelPlayView({ campaign, storeId, onPlayed }: PlayViewProps) {
   const cfg = { ...WHEEL_DEFAULT_CONFIG, ...view.config };
   const segments = view.segments;
   const nav = useNavigate();
-  const loc = useLocation();
-  const [rotation, setRotation] = useState(0);
-  const [spinMs, setSpinMs] = useState(0);
   const [spinning, setSpinning] = useState(false);
   const [result, setResult] = useState<PlayResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [busyExchange, setBusyExchange] = useState(false);
   const timer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const raf = useRef<number | undefined>(undefined);
+  const rotor = useRef<SVGGElement>(null);
+  const angle = useRef(0);
+  const stopReq = useRef<StopReq | null>(null);
+  const [muted, setMutedState] = useState(isMuted);
+  const mutedRef = useRef(muted);
+  mutedRef.current = muted;
+  useEffect(
+    () => () => {
+      window.clearTimeout(timer.current);
+      if (raf.current) cancelAnimationFrame(raf.current);
+    },
+    [],
+  );
 
   const me = campaign.me;
   const canSpin = !!me && me.leftToday > 0 && campaign.running && campaign.storeAllowed && !spinning;
-  const nextUrl = encodeURIComponent(loc.pathname + loc.search);
+
+  function setAngle(a: number) {
+    // Vạch chia ô nằm ở bội số của góc mỗi ô (ô 0 bắt đầu dưới kim) — qua vạch mới thì kêu tích
+    const seg = 360 / Math.max(segments.length, 1);
+    if (!mutedRef.current && Math.floor(a / seg) !== Math.floor(angle.current / seg)) playTick();
+    angle.current = a;
+    rotor.current?.setAttribute("transform", `rotate(${a})`);
+  }
+
+  function toggleMute() {
+    setMutedState((m) => {
+      setMuted(!m);
+      return !m;
+    });
+  }
+
+  /**
+   * Quay ngay khi bấm (tăng tốc rồi quay đều) trong lúc chờ máy chủ; có kết quả thì giảm tốc
+   * theo ease-out bậc 3 với vận tốc đầu bằng tốc độ quay đều nên không bị khựng, dừng đúng ô.
+   */
+  function startRotor() {
+    const t0 = performance.now();
+    const a0 = angle.current;
+    let settle: { from: number; dist: number; start: number; dur: number; done: () => void } | null = null;
+    stopReq.current = null;
+
+    const frame = (now: number) => {
+      if (settle) {
+        const s = Math.min(1, (now - settle.start) / settle.dur);
+        setAngle(settle.from + settle.dist * (1 - (1 - s) ** 3));
+        if (s >= 1) {
+          // Thu góc về 0–360 (cùng vị trí, không kêu tích)
+          angle.current %= 360;
+          rotor.current?.setAttribute("transform", `rotate(${angle.current})`);
+          raf.current = undefined;
+          settle.done();
+          return;
+        }
+      } else {
+        const t = now - t0;
+        setAngle(a0 + (t < RAMP_MS ? (CRUISE * t * t) / (2 * RAMP_MS) : CRUISE * (t - RAMP_MS / 2)));
+        const req = stopReq.current;
+        if (req && t >= RAMP_MS) {
+          const from = angle.current;
+          let dist = (CRUISE * 600) / 3;
+          if (req.target !== null) {
+            dist = (((req.target - from) % 360) + 360) % 360;
+            while (dist < MIN_TURNS * 360) dist += 360;
+          }
+          settle = { from, dist, start: now, dur: (3 * dist) / CRUISE, done: req.done };
+        }
+      }
+      raf.current = requestAnimationFrame(frame);
+    };
+    raf.current = requestAnimationFrame(frame);
+  }
 
   async function spin() {
     if (!canSpin) return;
     setErr(null);
     setSpinning(true);
+    unlockTick();
+    startRotor();
     try {
       const r = await api<PlayResponse>(`/api/games/${campaign.id}/play`, { method: "POST", body: JSON.stringify({ storeId }) });
       const idx = Number(r.data.segmentIndex ?? -1);
-      const ms = reducedMotion() ? 1200 : SPIN_MS;
-      setSpinMs(ms);
-      setRotation((cur) => rotationFor(idx >= 0 ? idx : 0, segments.length, cur, reducedMotion() ? 2 : 6));
-      timer.current = window.setTimeout(() => {
-        setSpinning(false);
-        setResult(r);
-        onPlayed();
-      }, ms + 250);
+      stopReq.current = {
+        target: stopAngle(idx >= 0 ? idx : 0, segments.length),
+        done: () => {
+          timer.current = window.setTimeout(() => {
+            setSpinning(false);
+            setResult(r);
+            onPlayed();
+          }, 250);
+        },
+      };
     } catch (e) {
-      setSpinning(false);
-      setErr(e instanceof Error ? e.message : "Không quay được, thử lại sau.");
+      stopReq.current = {
+        target: null,
+        done: () => {
+          setSpinning(false);
+          setErr(e instanceof Error ? e.message : "Không quay được, thử lại sau.");
+        },
+      };
     }
   }
 
-  async function exchange() {
-    setErr(null);
-    setBusyExchange(true);
-    try {
-      await api(`/api/games/${campaign.id}/exchange`, { method: "POST" });
-      onPlayed();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Không đổi được lượt.");
-    } finally {
-      setBusyExchange(false);
-    }
-  }
-
-  const bg = mediaUrl(cfg.backgroundUrl);
   const style = { "--gw-main": cfg.borderColor, "--gw-soft": cfg.wheelColor } as React.CSSProperties;
 
   return (
     <div className="gw" style={style}>
-      <div className="gw-hero" style={bg ? { backgroundImage: `linear-gradient(180deg, rgba(0,0,0,.15), rgba(0,0,0,.55)), url("${bg}")` } : undefined}>
-        <h1>{campaign.name}</h1>
-        {campaign.description && <p>{campaign.description}</p>}
-        {me && (
-          <div className="gw-chips">
-            <span className="gw-chip"><Ticket size={15} aria-hidden /> Còn <strong>{me.tickets}</strong> lượt</span>
-            <span className="gw-chip">Hôm nay quay thêm được <strong>{me.leftToday}</strong></span>
-          </div>
-        )}
-      </div>
+      <GameHero campaign={campaign} backgroundUrl={cfg.backgroundUrl} verb="quay" />
 
       <div className="gw-stage">
         <div className="gw-wheel">
-          <WheelSvg segments={segments} wheelColor={cfg.wheelColor} borderColor={cfg.borderColor} size={380} rotation={rotation} spinMs={spinMs} />
+          <WheelSvg segments={segments} wheelColor={cfg.wheelColor} borderColor={cfg.borderColor} size={380} rotorRef={rotor} />
+          <button type="button" className="gw-sound" onClick={toggleMute} aria-pressed={!muted} aria-label={muted ? "Bật tiếng" : "Tắt tiếng"} title={muted ? "Bật tiếng" : "Tắt tiếng"}>
+            {muted ? <VolumeX size={18} aria-hidden /> : <Volume2 size={18} aria-hidden />}
+          </button>
         </div>
 
         {err && <div className="gw-err" role="alert">{err}</div>}
 
-        {!campaign.running ? (
-          <div className="gw-note">Chương trình chưa bắt đầu hoặc đã kết thúc.</div>
-        ) : !campaign.storeAllowed ? (
-          <div className="gw-note">Chương trình không áp dụng tại chi nhánh này.</div>
-        ) : !me ? (
-          <div className="gw-login">
-            <p>Đăng nhập bằng số điện thoại để quay và nhận quà.</p>
-            <div className="gw-row">
-              <Link className="gw-btn" to={`/login?next=${nextUrl}`}>Đăng nhập</Link>
-              <Link className="gw-btn ghost" to={`/register?next=${nextUrl}`}>Đăng ký</Link>
-            </div>
-          </div>
-        ) : (
-          <>
-            <button type="button" className="gw-spin" onClick={() => void spin()} disabled={!canSpin}>
-              <RotateCw size={20} aria-hidden className={spinning ? "gw-rotating" : undefined} />
-              {spinning ? "Đang quay…" : "QUAY"}
-            </button>
-            {me.tickets === 0 && (
-              <div className="gw-note">
-                Bạn đã hết lượt. Mỗi đơn từ <strong>{campaign.minOrderValue.toLocaleString("vi-VN")}đ</strong> được tặng 1 lượt quay.
-                {campaign.allowPointExchange && (
-                  <div className="gw-row" style={{ marginTop: 10 }}>
-                    <button type="button" className="gw-btn ghost" disabled={busyExchange || me.points < campaign.pointsPerTicket} onClick={() => void exchange()}>
-                      <Coins size={16} aria-hidden /> Đổi {campaign.pointsPerTicket.toLocaleString("vi-VN")} điểm lấy 1 lượt
-                    </button>
-                    <span className="gw-muted">Bạn có {me.points.toLocaleString("vi-VN")} điểm</span>
-                  </div>
-                )}
-              </div>
-            )}
-            {me.tickets > 0 && me.leftToday === 0 && <div className="gw-note">Hôm nay bạn đã quay đủ {campaign.maxPlaysPerDay} lượt, quay lại vào ngày mai nhé.</div>}
-          </>
-        )}
+        <PlayGate campaign={campaign} verb="quay" onPlayed={onPlayed} onError={setErr}>
+          <button type="button" className="gw-spin" onClick={() => void spin()} disabled={!canSpin}>
+            <RotateCw size={20} aria-hidden className={spinning ? "gw-rotating" : undefined} />
+            {spinning ? "Đang quay…" : "QUAY"}
+          </button>
+        </PlayGate>
 
         <Link className="gw-link" to="/account/gifts"><Gift size={15} aria-hidden /> Quà của tôi</Link>
       </div>
@@ -131,53 +162,3 @@ export function WheelPlayView({ campaign, storeId, onPlayed }: PlayViewProps) {
   );
 }
 
-function ResultPopup({ r, onClose, onUseVoucher }: { r: PlayResponse; onClose: () => void; onUseVoucher: () => void }) {
-  const [qr, setQr] = useState("");
-  useEffect(() => {
-    if (r.giftClaim) void QRCode.toDataURL(r.giftClaim.code, { width: 320, margin: 1 }).then(setQr);
-  }, [r.giftClaim]);
-  const img = mediaUrl(r.prize.imageUrl);
-  const lose = r.prize.kind === "NONE";
-
-  return (
-    <div className="gw-modal" role="dialog" aria-modal="true" aria-label="Kết quả" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`gw-result${lose ? " lose" : ""}`}>
-        <button type="button" className="gw-close" onClick={onClose} aria-label="Đóng"><X size={18} /></button>
-        {!lose && <div className="gw-confetti" aria-hidden />}
-        <div className="gw-kicker">{lose ? "Tiếc quá!" : "Chúc mừng bạn!"}</div>
-        {img && !lose && <img className="gw-prize-img" src={img} alt="" />}
-        <h2>{r.prize.label}</h2>
-
-        {r.prize.kind === "POINTS" && <div className="gw-big">+{(r.prize.points ?? 0).toLocaleString("vi-VN")} điểm</div>}
-
-        {r.prize.kind === "VOUCHER" && r.prize.voucher && (
-          <>
-            <div className="gw-code">{r.prize.voucher.code}</div>
-            <p className="gw-muted">
-              Đã thêm vào ví voucher · giảm {r.prize.voucher.discountValue.toLocaleString("vi-VN")}đ cho đơn từ {r.prize.voucher.minBillValue.toLocaleString("vi-VN")}đ ·
-              hạn {new Date(r.prize.voucher.endDate).toLocaleDateString("vi-VN")}
-            </p>
-            <button type="button" className="gw-btn" onClick={onUseVoucher}>Dùng ngay</button>
-          </>
-        )}
-
-        {r.giftClaim && (
-          <>
-            <p className="gw-muted">Đưa mã này cho thu ngân để nhận quà</p>
-            <div className="gw-code">{r.giftClaim.code}</div>
-            {qr && <img className="gw-qr" src={qr} alt={`QR mã ${r.giftClaim.code}`} />}
-            <p className="gw-muted">
-              Hạn nhận: <strong>{new Date(r.giftClaim.expiresAt).toLocaleDateString("vi-VN")}</strong>
-              <br />
-              Nhận tại: <strong>{r.giftClaim.store ? r.giftClaim.store.name : "bất kỳ chi nhánh còn quà"}</strong>
-              {r.giftClaim.store?.address ? <><br />{r.giftClaim.store.address}</> : null}
-            </p>
-          </>
-        )}
-
-        {lose && <p className="gw-muted">Chúc bạn may mắn lần sau nhé!</p>}
-        <button type="button" className={`gw-btn${r.prize.kind === "VOUCHER" ? " ghost" : ""}`} onClick={onClose}>Đóng</button>
-      </div>
-    </div>
-  );
-}

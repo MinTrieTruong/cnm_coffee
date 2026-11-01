@@ -181,7 +181,7 @@ export function GameCampaignDetail({ recordId }: { recordId?: string }) {
         </div>
         <fieldset disabled={!editable} className="gm-fieldset">
           <div className="gm-form-grid">
-            <Field label="Tên chiến dịch" required full><input className="o-input" value={g.name} onChange={(e) => set("name", e.target.value)} maxLength={150} placeholder="VD: Vòng quay tháng 11" /></Field>
+            <Field label="Tên chiến dịch" required full><input className="o-input" value={g.name} onChange={(e) => set("name", e.target.value)} maxLength={150} placeholder={type === "SCRATCH" ? "VD: Thẻ cào tháng 12" : type === "SEASONAL" ? "VD: Lì xì Tết Đinh Mùi" : type === "MYSTERY_BOX" ? "VD: Hộp quà Giáng sinh" : "VD: Vòng quay tháng 11"} /></Field>
             <Field label="Mô tả" full><textarea className="o-input" rows={2} value={g.description} onChange={(e) => set("description", e.target.value)} maxLength={1000} placeholder="Hiển thị cho khách trên trang chơi" /></Field>
             <Field label="Bắt đầu" required><input type="datetime-local" className="o-input" value={g.startAt} onChange={(e) => set("startAt", e.target.value)} /></Field>
             <Field label="Kết thúc" required><input type="datetime-local" className="o-input" value={g.endAt} onChange={(e) => set("endAt", e.target.value)} /></Field>
