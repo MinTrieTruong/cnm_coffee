@@ -1,6 +1,6 @@
 /**
  * Menu sidebar (desktop) và danh sách "Thêm" (mobile) — dựng tự động từ APPS trong registry.
- * Muốn đổi cách gom nhóm: sửa SIDEBAR_GROUPS. Muốn đổi icon một mục: sửa LEAF_ICONS.
+ * Muốn đổi cách gom nhóm / thứ tự mục: sửa SIDEBAR_GROUPS. Muốn đổi icon một mục: sửa LEAF_ICONS.
  */
 import {
   ArrowRightLeft,
@@ -62,31 +62,54 @@ import {
   Search,
   BadgePercent,
   MessageSquareWarning,
+  Library,
+  Bot,
+  Gauge,
 } from "lucide-react";
-import { APPS, appPath, canSee, isLeaf, listed, type AppDef, type MenuLeaf } from "./registry";
+import { APPS, appPath, canSee, leavesOf, listed, type AppDef, type MenuLeaf } from "./registry";
 import type { BadgeKey } from "../lib/navConfig";
 
-/** Một nhóm sidebar gom một hoặc nhiều app của registry (theo thứ tự app trong mảng) */
+/** Mục trong nhóm: khóa `app/leaf`; `roles` / `notRoles` khi cùng một mục nằm ở nhóm khác nhau theo vai trò */
+type GroupEntry = string | { key: string; roles?: string[]; notRoles?: string[] };
+
+/** Một nhóm sidebar gom từng mục lá của registry (theo thứ tự trong mảng) — đường dẫn & phân quyền vẫn theo registry */
 export type SidebarGroupDef = {
   id: string;
   label: string;
-  apps: string[];
-  /** Nhóm chỉ chứa màn "hỗ trợ ca" (vào được nhưng không liệt kê trong menu thường) */
-  support?: boolean;
+  items: GroupEntry[];
+  /** Thu gọn sẵn (người dùng mở ra thì nhớ lựa chọn) */
+  collapsed?: boolean;
 };
 
+const MANAGERS = ["Owner", "Admin"];
+
+/** Thứ tự theo tần suất dùng trong ngày: làm ca → món → khách → người → tiền → cài đặt → việc cá nhân */
 export const SIDEBAR_GROUPS: SidebarGroupDef[] = [
-  { id: "overview", label: "Tổng quan", apps: ["overview"] },
-  { id: "sales", label: "Bán hàng", apps: ["pos", "tables", "delivery"] },
-  { id: "products", label: "Sản phẩm", apps: ["sales", "kitchen"] },
-  { id: "stock", label: "Kho & mua hàng", apps: ["inventory", "purchase"] },
-  { id: "crm", label: "CRM", apps: ["crm"] },
-  { id: "finance", label: "Tài chính", apps: ["finance"] },
-  { id: "hr", label: "Nhân sự", apps: ["hr"] },
-  { id: "website", label: "Website", apps: ["website"] },
-  { id: "settings", label: "Cấu hình", apps: ["settings"] },
-  // Quản lý chi nhánh vào các màn thao tác ca để hỗ trợ
-  { id: "support", label: "Theo dõi ca", apps: ["pos", "tables", "kitchen", "delivery"], support: true },
+  { id: "overview", label: "Tổng quan", items: ["overview/home", "overview/notifications", "hr/broadcast", "overview/branch-proposals"] },
+  // Màn thao tác ca: nhân viên dùng hằng ngày, quản lý vào để hỗ trợ ca
+  { id: "ops", label: "Vận hành ca", items: ["pos/pos", "tables/floor", "kitchen/kds", "tables/order-status", "delivery/orders", "delivery/shipper", "tables/chat"] },
+  { id: "menu", label: "Thực đơn", items: ["sales/products", "sales/categories", "sales/combos", "kitchen/formulas", "sales/proposals"] },
+  { id: "stock", label: "Kho & mua hàng", items: ["inventory/stock", "inventory/urgent", "inventory/transfers", "inventory/counts", "inventory/waste", "purchase/orders", "purchase/suppliers"] },
+  {
+    id: "customers",
+    label: "Khách hàng & khuyến mãi",
+    items: ["sales/customers", "sales/reviews", "overview/complaints", "crm/messages", "sales/vouchers", "sales/bulk-promotions", "crm/games", "crm/winners", "crm/gifts"],
+  },
+  { id: "ai", label: "Trí tuệ nhân tạo", items: ["ai/dashboard", "ai/agents", "ai/knowledge"] },
+  {
+    id: "hr",
+    label: "Nhân sự",
+    items: ["hr/employees", "hr/tasks", { key: "hr/schedule", roles: MANAGERS }, "hr/warnings", "hr/approvals", "hr/payroll", "hr/shift-config"],
+  },
+  { id: "finance", label: "Tài chính", items: ["finance/funds", "finance/entries", "finance/shifts", "finance/daily", "finance/payables"] },
+  { id: "reports", label: "Báo cáo", items: ["overview/revenue", "overview/profit", "finance/pnl", "kitchen/stats", "sales/search", "overview/compare"] },
+  { id: "website", label: "Website", collapsed: true, items: ["website/banners", "crm/popups", "settings/contact", "website/posts", "website/theme", "website/company"] },
+  { id: "settings", label: "Cấu hình", collapsed: true, items: ["settings/stores", "tables/zones", "tables/qr", "settings/store", "settings/audit"] },
+  {
+    id: "mine",
+    label: "Của tôi",
+    items: ["hr/attendance", "hr/my-schedule", { key: "hr/schedule", notRoles: MANAGERS }, "hr/open-shifts", "hr/my-tasks", "hr/payslips", "hr/requests"],
+  },
 ];
 
 /** Icon từng mục lá, khóa `app/leaf`; thiếu thì dùng icon của app */
@@ -158,6 +181,9 @@ const LEAF_ICONS: Record<string, LucideIcon> = {
   "settings/stores": Building2,
   "settings/store": Settings,
   "settings/audit": History,
+  "ai/knowledge": Library,
+  "ai/agents": Bot,
+  "ai/dashboard": Gauge,
 };
 
 /** Nhãn riêng khi nhiều app gom chung một nhóm dễ trùng nghĩa */
@@ -188,7 +214,7 @@ export const LEAF_BADGES: Record<string, BadgeKey> = {
 export type SideLeaf = { kind: "leaf"; key: string; label: string; to: string; icon: LucideIcon; badge?: BadgeKey; app: AppDef; leaf: MenuLeaf };
 export type SideNode = { kind: "node"; key: string; label: string; icon: LucideIcon; children: SideLeaf[] };
 export type SideItem = SideLeaf | SideNode;
-export type SideGroup = { id: string; label: string; items: SideItem[]; support?: boolean };
+export type SideGroup = { id: string; label: string; items: SideItem[]; collapsed?: boolean };
 
 const keyOf = (app: AppDef, leaf: MenuLeaf) => `${app.id}/${leaf.id}`;
 
@@ -206,27 +232,30 @@ function toLeaf(app: AppDef, leaf: MenuLeaf, role: string): SideLeaf {
   };
 }
 
-/** Dựng menu theo vai trò; bỏ nhóm rỗng */
+/** Hiện trong menu: mục thường của vai trò, hoặc màn thao tác ca mà quản lý vào để hỗ trợ */
+const showLeaf = (l: MenuLeaf, role: string) => listed(l, role) || (!!l.supportFor && canSee(l, role) && !l.alias && !l.hidden);
+
+/** Dựng menu theo vai trò; bỏ nhóm rỗng. Mục registry chưa xếp nhóm nào rơi vào nhóm "Khác" để không bị mất */
 export function buildSidebar(role: string): SideGroup[] {
+  const all = new Map<string, { app: AppDef; leaf: MenuLeaf }>();
+  for (const app of APPS) for (const leaf of leavesOf(app)) all.set(keyOf(app, leaf), { app, leaf });
+
+  const placed = new Set<string>();
   const groups: SideGroup[] = [];
   for (const g of SIDEBAR_GROUPS) {
-    const show = (l: MenuLeaf) => (g.support ? canSee(l, role) && !listed(l, role) : listed(l, role));
     const items: SideItem[] = [];
-    for (const appId of g.apps) {
-      const app = APPS.find((a) => a.id === appId);
-      if (!app) continue;
-      for (const m of app.menus) {
-        if (isLeaf(m)) {
-          if (show(m)) items.push(toLeaf(app, m, role));
-          continue;
-        }
-        const kids = m.children.filter(show).map((c) => toLeaf(app, c, role));
-        if (kids.length === 1) items.push(kids[0]);
-        else if (kids.length > 1) items.push({ kind: "node", key: `${app.id}/${m.id}`, label: m.label, icon: kids[0].icon, children: kids });
-      }
+    for (const e of g.items) {
+      const { key, roles, notRoles } = typeof e === "string" ? { key: e, roles: undefined, notRoles: undefined } : e;
+      if ((roles && !roles.includes(role)) || notRoles?.includes(role)) continue;
+      const hit = all.get(key);
+      if (!hit || placed.has(key) || !showLeaf(hit.leaf, role)) continue;
+      placed.add(key);
+      items.push(toLeaf(hit.app, hit.leaf, role));
     }
-    if (items.length) groups.push({ id: g.id, label: g.label, items, support: g.support });
+    if (items.length) groups.push({ id: g.id, label: g.label, items, collapsed: g.collapsed });
   }
+  const rest = [...all].filter(([k, { leaf }]) => !placed.has(k) && showLeaf(leaf, role)).map(([, { app, leaf }]) => toLeaf(app, leaf, role));
+  if (rest.length) groups.push({ id: "other", label: "Khác", items: rest });
   return groups;
 }
 

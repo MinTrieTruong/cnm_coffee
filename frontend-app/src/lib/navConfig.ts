@@ -154,7 +154,7 @@ export const NAV_BY_ROLE: Record<string, RoleNav> = {
   Shipper: { primary: [I.home, I.shipOrders, I.shipMap, I.attendance], more: [I.shipHistory, I.schedule] },
   // Thủ kho kiểm tồn hằng ngày, sắp hết thì đặt mua hoặc nhờ chi nhánh khác chuyển gấp
   Warehouse: { primary: [I.home, I.stock, I.purchase, I.attendance], more: [I.urgentStock, I.transfers, I.suppliers] },
-  // Quản lý chi nhánh: duyệt & lịch; thao tác ca nằm ở nhóm "Theo dõi ca" của Trang chủ
+  // Quản lý chi nhánh: duyệt & lịch; thao tác ca nằm ở nhóm "Vận hành ca" của sidebar
   Admin: { primary: [I.home, I.approvals, I.schedule, I.attendance], more: [I.tasks, I.branchProposals, I.overview, I.inventoryApp, I.employees], moreAllApps: true },
   // Chủ chuỗi: việc của cả chuỗi
   Owner: { primary: [I.home, I.storesCompare, I.products, I.employees], more: [I.branchProposals, I.stores, I.overview], moreAllApps: true },

@@ -66,6 +66,10 @@ export function Sidebar({
   const popTimer = useRef<number | undefined>(undefined);
   const footRef = useRef<HTMLDivElement>(null);
 
+  // Nhóm mặc định mở (trừ nhóm đánh dấu thu gọn sẵn), menu con mặc định đóng
+  const startCollapsed = new Set(groups.filter((g) => g.collapsed).map((g) => `g:${g.id}`));
+  const defaultOpen = (k: string) => k.startsWith("g:") && !startCollapsed.has(k);
+
   // Mở sẵn nhóm & menu con chứa trang hiện tại
   useEffect(() => {
     const need: string[] = [];
@@ -78,13 +82,13 @@ export function Sidebar({
       }
     }
     setOpen((prev) => {
-      if (need.every((k) => prev[k] !== false)) return prev;
+      if (need.every((k) => prev[k] ?? defaultOpen(k))) return prev;
       const next = { ...prev };
       for (const k of need) next[k] = true;
       writeOpen(next);
       return next;
     });
-  }, [currentKey, groups]);
+  }, [currentKey, groups]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setPop(null);
@@ -105,11 +109,10 @@ export function Sidebar({
     };
   }, [userOpen]);
 
-  // Nhóm mặc định mở, menu con mặc định đóng
-  const isOpen = (k: string) => open[k] ?? k.startsWith("g:");
+  const isOpen = (k: string) => open[k] ?? defaultOpen(k);
   const toggle = (k: string) =>
     setOpen((prev) => {
-      const next = { ...prev, [k]: !(prev[k] ?? k.startsWith("g:")) };
+      const next = { ...prev, [k]: !(prev[k] ?? defaultOpen(k)) };
       writeOpen(next);
       return next;
     });
@@ -203,7 +206,7 @@ export function Sidebar({
           const k = `g:${g.id}`;
           const expanded = collapsed || isOpen(k);
           return (
-            <section key={g.id} className={g.support ? "o-side-group is-support" : "o-side-group"}>
+            <section key={g.id} className="o-side-group">
               {collapsed ? (
                 <div className="o-side-sep" role="separator" aria-label={g.label} />
               ) : (

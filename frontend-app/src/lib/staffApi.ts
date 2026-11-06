@@ -99,7 +99,8 @@ export async function staffBlobUrl(path: string): Promise<string | null> {
 
 export async function staffApi<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
-  headers.set("Content-Type", "application/json");
+  // Gửi tệp (FormData): để trình duyệt tự đặt multipart + boundary
+  if (!(init?.body instanceof FormData)) headers.set("Content-Type", "application/json");
   const t = getStaffToken();
   if (t) headers.set("Authorization", `Bearer ${t}`);
   setStoreHeader(headers);

@@ -75,3 +75,16 @@
 .cx-status b { font-weight: 600; }
 .cx-link { border: 0; background: none; color: var(--accent, #92400e); font-weight: 600; cursor: pointer; font-size: 0.8rem; padding: 0; }
 .cx-closed { padding: 10px 12px; font-size: 0.85rem; text-align: center; color: var(--muted, #78716c); background: var(--surface, #fff); }
+
+/* ── AI tư vấn trong màn Tin nhắn (pages/StaffChat.tsx) ── */
+.staff-chat-ai-tag { border-radius: 20px; padding: 1px 7px; font-size: 0.7rem; font-weight: 600; white-space: nowrap; }
+.staff-chat-ai-tag.is-ai, .staff-chat-ai-bar.is-ai { background: #eff6ff; color: #1d4ed8; }
+.staff-chat-ai-tag.is-handoff, .staff-chat-ai-bar.is-handoff { background: #fff7ed; color: #c2410c; }
+.staff-chat-ai-tag.is-staff, .staff-chat-ai-bar.is-staff { background: #f0fdf4; color: #15803d; }
+.staff-chat-ai-btn { font-size: 0.8rem; padding: 4px 10px; margin-right: 6px; }
+.staff-chat-ai-bar { padding: 8px 20px; font-size: 0.82rem; border-bottom: 1px solid var(--border); }
+.staff-chat-ai-summary { margin: 6px 0 0; color: var(--text); font-size: 0.82rem; line-height: 1.45; }
+.staff-chat-ai-mark { margin-left: 6px; padding: 0 5px; border-radius: 4px; background: #eff6ff; color: #1d4ed8; font-size: 0.65rem; font-weight: 700; vertical-align: 1px; }
+.staff-chat-ai-typing { font-style: italic; color: var(--muted); }
+.staff-chat-rate-btn { margin-top: 4px; padding: 0; border: 0; background: none; font: inherit; font-size: 0.72rem; color: var(--muted); text-decoration: underline; cursor: pointer; }
+.staff-chat-rate { margin-top: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); max-width: 420px; }

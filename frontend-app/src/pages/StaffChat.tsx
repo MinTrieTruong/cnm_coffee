@@ -6,6 +6,7 @@ import {
   applyReaction, EmojiPicker, ImageAttachButton, MessageImage, MessageReactions, PendingImage,
   type ChatMessage as ChatMsg, type ChatReaction,
 } from "../components/chat/ChatParts";
+import { FeedbackForm } from "../modules/ai/Feedback";
 
 interface ChatSession {
   id: number;
@@ -14,6 +15,21 @@ interface ChatSession {
   status: "open" | "closed";
   updatedAt: string;
   messages: ChatMsg[]; // chỉ có 1 tin gần nhất (từ list endpoint)
+  /** AI tư vấn: agent đang gán cho phiên, AI dừng (nhân viên tiếp quản / đã chuyển / tắt tay) */
+  aiAgentId?: number | null;
+  aiPaused?: boolean;
+  aiPausedReason?: string | null;
+  /** Tóm tắt AI gửi khi chuyển nhân viên (lưu trong phiên) */
+  aiHandoffSummary?: string | null;
+}
+
+type AiState = { sessionId: number; aiPaused: boolean; aiPausedReason: string | null; summary?: string };
+
+/** Nhãn trạng thái AI của phiên */
+function aiLabel(s: Pick<ChatSession, "aiAgentId" | "aiPaused" | "aiPausedReason">) {
+  if (!s.aiAgentId) return null;
+  if (!s.aiPaused) return { text: "AI đang trả lời", cls: "is-ai" };
+  return s.aiPausedReason === "HANDOFF" ? { text: "Đã chuyển nhân viên", cls: "is-handoff" } : { text: "Nhân viên đang xử lý", cls: "is-staff" };
 }
 
 /* ── Socket singleton ───────────────────────────────────────────────── */
@@ -53,6 +69,12 @@ export function StaffChat() {
   const [replyImage, setReplyImage] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [unreadIds, setUnreadIds] = useState<Set<number>>(new Set());
+  // Tóm tắt AI gửi kèm khi chuyển nhân viên; phiên AI đang soạn câu trả lời
+  const [summaries, setSummaries] = useState<Record<number, string>>({});
+  const [aiTyping, setAiTyping] = useState<Set<number>>(new Set());
+  // Tin AI đang mở khung đánh giá Đúng / Sai
+  const [rateMsg, setRateMsg] = useState<number | null>(null);
+  const [rated, setRated] = useState<Record<number, string>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
   const staffInfo = getStaffInfo();
 
@@ -82,7 +104,8 @@ export function StaffChat() {
     const sock = getSocket();
     sock.emit("join", "staff");
 
-    function onEscalate(data: { sessionId: number; guestName: string; tableId: number | null; message: string }) {
+    function onEscalate(data: { sessionId: number; guestName: string; tableId: number | null; message: string; summary?: string }) {
+      if (data.summary) setSummaries((p) => ({ ...p, [data.sessionId]: data.summary! }));
       // Thêm vào danh sách nếu chưa có
       setSessions((prev) => {
         if (prev.find((s) => s.id === data.sessionId)) {
@@ -137,11 +160,29 @@ export function StaffChat() {
       if (data.sessionId === selected) setThread((prev) => applyReaction(prev, data.messageId, data.reactions));
     }
 
+    function onAiState(data: AiState) {
+      setSessions((prev) => prev.map((s) => (s.id === data.sessionId ? { ...s, aiPaused: data.aiPaused, aiPausedReason: data.aiPausedReason } : s)));
+      if (data.summary) setSummaries((p) => ({ ...p, [data.sessionId]: data.summary! }));
+    }
+
+    function onTyping(data: { sessionId: number; on: boolean }) {
+      setAiTyping((prev) => {
+        const n = new Set(prev);
+        if (data.on) n.add(data.sessionId);
+        else n.delete(data.sessionId);
+        return n;
+      });
+    }
+
     sock.on("chat:escalate", onEscalate);
     sock.on("chat:reply", onReply);
     sock.on("chat:reaction", onReaction);
     sock.on("chat:session_closed", onClosed);
+    sock.on("chat:ai_state", onAiState);
+    sock.on("chat:typing", onTyping);
     return () => {
+      sock.off("chat:ai_state", onAiState);
+      sock.off("chat:typing", onTyping);
       sock.off("chat:escalate", onEscalate);
       sock.off("chat:reply", onReply);
       sock.off("chat:reaction", onReaction);
@@ -155,8 +196,9 @@ export function StaffChat() {
     setReplyText("");
     setUnreadIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
     try {
-      const data = await apiFetch<{ messages: ChatMsg[] }>(`/api/staff/chat/sessions/${id}`);
+      const data = await apiFetch<{ messages: ChatMsg[]; aiAgentId: number | null; aiPaused: boolean; aiPausedReason: string | null; aiHandoffSummary: string | null }>(`/api/staff/chat/sessions/${id}`);
       setThread(data.messages ?? []);
+      setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, aiAgentId: data.aiAgentId, aiPaused: data.aiPaused, aiPausedReason: data.aiPausedReason, aiHandoffSummary: data.aiHandoffSummary } : s)));
     } catch (e) {
       console.error(e);
     }
@@ -193,6 +235,17 @@ export function StaffChat() {
       alert(e instanceof Error ? e.message : "Gửi thất bại");
     } finally {
       setSending(false);
+    }
+  }
+
+  /* ── Tiếp quản / trả lại cho AI ────────────────────────────────── */
+  async function setAiPaused(id: number, paused: boolean) {
+    try {
+      const r = await apiFetch<{ aiPaused: boolean; aiPausedReason: string | null }>(`/api/staff/chat/sessions/${id}/ai`, { method: "PATCH", body: JSON.stringify({ paused }) });
+      setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, ...r, ...(r.aiPaused ? {} : { aiHandoffSummary: null }) } : s)));
+      if (!r.aiPaused) setSummaries((p) => { const n = { ...p }; delete n[id]; return n; });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Lỗi");
     }
   }
 
@@ -286,6 +339,7 @@ export function StaffChat() {
                   {s.status === "closed" && (
                     <span className="staff-chat-closed-tag">Đóng</span>
                   )}
+                  {s.status === "open" && aiLabel(s) && <span className={`staff-chat-ai-tag ${aiLabel(s)!.cls}`}>{aiLabel(s)!.text}</span>}
                 </div>
                 <div className="staff-chat-preview">{preview}</div>
                 <div className="staff-chat-time">
@@ -320,6 +374,16 @@ export function StaffChat() {
                   <span className="staff-chat-closed-tag" style={{ marginLeft: 8 }}>Đã đóng</span>
                 )}
               </div>
+              {selectedSession?.status === "open" && selectedSession.aiAgentId && (
+                <button
+                  type="button"
+                  className="btn staff-chat-ai-btn"
+                  onClick={() => void setAiPaused(selected, !selectedSession.aiPaused)}
+                  title={selectedSession.aiPaused ? "AI trả lời các tin khách nhắn tiếp theo" : "AI dừng ở phiên này, bạn trả lời khách"}
+                >
+                  {selectedSession.aiPaused ? "Trả lại cho AI" : "Tiếp quản"}
+                </button>
+              )}
               {selectedSession?.status === "open" && (
                 <button
                   type="button"
@@ -333,9 +397,19 @@ export function StaffChat() {
             </div>
 
             {/* Messages */}
+            {selectedSession?.status === "open" && aiLabel(selectedSession) && (
+              <div className={`staff-chat-ai-bar ${aiLabel(selectedSession)!.cls}`}>
+                <strong>{aiLabel(selectedSession)!.text}</strong>
+                {!selectedSession.aiPaused && <span> · bạn trả lời khách thì AI tự dừng ở phiên này</span>}
+                {selected != null && (summaries[selected] ?? selectedSession.aiHandoffSummary) && (
+                  <p className="staff-chat-ai-summary"><b>Tóm tắt từ AI:</b> {summaries[selected] ?? selectedSession.aiHandoffSummary}</p>
+                )}
+              </div>
+            )}
             <div className="staff-chat-thread" id="staff-chat-thread">
-              {thread.map((msg) => {
+              {thread.map((msg, idx) => {
                 const isStaff = msg.sender === "staff";
+                const lastOfRun = msg.aiRunId != null && thread[idx + 1]?.aiRunId !== msg.aiRunId;
                 const isMe = isStaff && msg.senderName === staffInfo?.fullName;
                 return (
                   <div
@@ -350,9 +424,21 @@ export function StaffChat() {
                     <div className="staff-msg-name">
                       {msg.senderName}
                       {msg.sender === "staff" && !isMe && " (NV)"}
+                      {msg.sender === "bot" && msg.aiRunId != null && <span className="staff-chat-ai-mark">AI</span>}
                     </div>
                     {msg.body && <div className="staff-msg-bubble">{msg.body}</div>}
                     <MessageImage url={msg.imageUrl} />
+                    {msg.sender === "bot" && msg.aiRunId != null && lastOfRun && (
+                      rateMsg === msg.id ? (
+                        <div className="staff-chat-rate">
+                          <FeedbackForm runId={msg.aiRunId} onDone={(r) => { setRated((p) => ({ ...p, [msg.id]: r.rating })); setRateMsg(null); }} />
+                        </div>
+                      ) : (
+                        <button type="button" className="staff-chat-rate-btn" onClick={() => setRateMsg(msg.id)}>
+                          {rated[msg.id] === "GOOD" ? "Đã đánh giá: Đúng" : rated[msg.id] === "BAD" ? "Đã đánh giá: Sai" : "Đánh giá câu trả lời AI"}
+                        </button>
+                      )
+                    )}
                     {msg.sender !== "bot" && (
                       <MessageReactions reactions={msg.reactions} mine={myKey} onReact={(e) => void react(msg.id, e)} align={msg.sender === "customer" ? "start" : "end"} />
                     )}
@@ -362,6 +448,7 @@ export function StaffChat() {
                   </div>
                 );
               })}
+              {selected != null && aiTyping.has(selected) && <div className="staff-msg staff-msg-bot"><div className="staff-msg-bubble staff-chat-ai-typing">AI đang soạn câu trả lời…</div></div>}
               <div ref={bottomRef} />
             </div>
 

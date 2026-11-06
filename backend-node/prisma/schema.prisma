@@ -344,23 +344,26 @@ model Staff {
   store   Store? @relation(fields: [storeId], references: [id])
 
   wasteLogs               WasteLog[]
-  stockRequests           StockRequest[]   @relation("StockRequestBy")
-  stockRequestsAccepted   StockRequest[]   @relation("StockRequestAcceptedBy")
-  menuProposals           MenuProposal[]   @relation("MenuProposalBy")
-  menuProposalsReviewed   MenuProposal[]   @relation("MenuProposalReviewer")
-  branchProposals         BranchProposal[] @relation("BranchProposalBy")
-  branchProposalsReviewed BranchProposal[] @relation("BranchProposalReviewer")
-  inventoryCounts         InventoryCount[] @relation("InventoryCountBy")
-  inventoryCountsApproved InventoryCount[] @relation("InventoryCountApprover")
+  stockRequests           StockRequest[]      @relation("StockRequestBy")
+  stockRequestsAccepted   StockRequest[]      @relation("StockRequestAcceptedBy")
+  menuProposals           MenuProposal[]      @relation("MenuProposalBy")
+  menuProposalsReviewed   MenuProposal[]      @relation("MenuProposalReviewer")
+  branchProposals         BranchProposal[]    @relation("BranchProposalBy")
+  branchProposalsReviewed BranchProposal[]    @relation("BranchProposalReviewer")
+  inventoryCounts         InventoryCount[]    @relation("InventoryCountBy")
+  inventoryCountsApproved InventoryCount[]    @relation("InventoryCountApprover")
   /// Thu chi & két
-  cashEntriesCreated      CashEntry[]      @relation("CashEntryCreatedBy")
-  cashEntriesApproved     CashEntry[]      @relation("CashEntryApprovedBy")
-  safeSessionsOpened      SafeSession[]    @relation("SafeOpenedBy")
-  safeSessionsClosed      SafeSession[]    @relation("SafeClosedBy")
-  shiftsReviewed          Shift[]          @relation("ShiftReviewer")
-  supplierBillsCreated    SupplierBill[]   @relation("SupplierBillCreatedBy")
-  supplierReturnsCreated  SupplierReturn[] @relation("SupplierReturnCreatedBy")
-  supplierReturnsApproved SupplierReturn[] @relation("SupplierReturnApprovedBy")
+  cashEntriesCreated      CashEntry[]         @relation("CashEntryCreatedBy")
+  cashEntriesApproved     CashEntry[]         @relation("CashEntryApprovedBy")
+  safeSessionsOpened      SafeSession[]       @relation("SafeOpenedBy")
+  safeSessionsClosed      SafeSession[]       @relation("SafeClosedBy")
+  shiftsReviewed          Shift[]             @relation("ShiftReviewer")
+  supplierBillsCreated    SupplierBill[]      @relation("SupplierBillCreatedBy")
+  supplierReturnsCreated  SupplierReturn[]    @relation("SupplierReturnCreatedBy")
+  supplierReturnsApproved SupplierReturn[]    @relation("SupplierReturnApprovedBy")
+  knowledgeBases          KnowledgeBase[]
+  knowledgeDocuments      KnowledgeDocument[]
+  aiAgents                AiAgent[]
 
   @@index([storeId])
   @@map("Staff")
@@ -907,33 +910,49 @@ model WorkSchedule {
 
 /// Phiên chat của khách — 1 phiên = 1 cuộc trò chuyện
 model ChatSession {
-  id              Int           @id @default(autoincrement()) @map("Session_ID")
+  id               Int           @id @default(autoincrement()) @map("Session_ID")
   /// Khách đã đăng nhập (null nếu vãng lai)
-  customerId      Int?          @map("Customer_ID")
+  customerId       Int?          @map("Customer_ID")
   /// Tên hiển thị (khách vãng lai thì để "Khách")
-  guestName       String        @default("Khách") @map("Guest_Name") @db.VarChar(100)
-  tableId         Int?          @map("Table_ID")
+  guestName        String        @default("Khách") @map("Guest_Name") @db.VarChar(100)
+  tableId          Int?          @map("Table_ID")
   /// "open" | "closed"
-  status          String        @default("open") @map("Status") @db.VarChar(20)
+  status           String        @default("open") @map("Status") @db.VarChar(20)
   /// CHAT = hỏi đáp (bot / nhân viên) · COMPLAINT = khiếu nại (chuyển thẳng quản lý chi nhánh)
-  kind            String        @default("CHAT") @map("Kind") @db.VarChar(10)
+  kind             String        @default("CHAT") @map("Kind") @db.VarChar(10)
   /// Mã bí mật của phiên — khách cần để xem lịch sử / nhận tin (phòng socket chat:<id>:<key>)
-  accessKey       String?       @map("Access_Key") @db.VarChar(36)
+  accessKey        String?       @map("Access_Key") @db.VarChar(36)
   /// Khiếu nại: HYGIENE · SERVICE · FOOD · WAIT · DELIVERY · BILLING · OTHER
-  category        String?       @map("Category") @db.VarChar(20)
+  category         String?       @map("Category") @db.VarChar(20)
   /// Khiếu nại: NEW → IN_PROGRESS → RESOLVED
-  complaintStatus String?       @map("Complaint_Status") @db.VarChar(15)
-  resolutionNote  String?       @map("Resolution_Note") @db.VarChar(1000)
-  handledById     Int?          @map("Handled_By")
-  resolvedAt      DateTime?     @map("Resolved_At")
+  complaintStatus  String?       @map("Complaint_Status") @db.VarChar(15)
+  resolutionNote   String?       @map("Resolution_Note") @db.VarChar(1000)
+  handledById      Int?          @map("Handled_By")
+  resolvedAt       DateTime?     @map("Resolved_At")
   /// Lần cuối nhân viên chi nhánh mở xem / trả lời phiên — tin cần nhân viên mới hơn mốc này = chưa đọc (badge Tin nhắn)
-  staffReadAt     DateTime?     @map("Staff_Read_At")
-  createdAt       DateTime      @default(now()) @map("Created_At")
-  updatedAt       DateTime      @updatedAt @map("Updated_At")
-  messages        ChatMessage[]
+  staffReadAt      DateTime?     @map("Staff_Read_At")
+  /// Kênh: WEB (chat trên web) · sau này MESSENGER / ZALO / INSTAGRAM (hộp thư đa kênh)
+  channel          String        @default("WEB") @map("Channel") @db.VarChar(20)
+  /// AI Agent đang trả lời phiên (gán khi phiên mở, theo kênh + chi nhánh)
+  aiAgentId        Int?          @map("AI_Agent_ID")
+  /// AI dừng ở phiên này (nhân viên tiếp quản / đã chuyển nhân viên / tắt tay)
+  aiPaused         Boolean       @default(false) @map("AI_Paused")
+  /// STAFF_TAKEOVER | HANDOFF | MANUAL
+  aiPausedReason   String?       @map("AI_Paused_Reason") @db.VarChar(20)
+  /// Lần cuối gửi tin ngoài giờ (mỗi phiên tối đa 1 lần / 2 giờ)
+  aiOutOfHoursAt   DateTime?     @map("AI_Out_Of_Hours_At")
+  /// AI sẽ trả lời lúc này (gộp tin / đợi nhân viên) — khởi động lại server thì hẹn lại theo mốc này
+  aiReplyDueAt     DateTime?     @map("AI_Reply_Due_At")
+  /// Tin khách đã được xử lý tới Msg_ID này (AI không trả lời lại tin cũ hơn)
+  aiAnsweredMsgId  Int?          @map("AI_Answered_Msg_ID")
+  /// Tóm tắt AI gửi nhân viên khi chuyển phiên
+  aiHandoffSummary String?       @map("AI_Handoff_Summary") @db.VarChar(1000)
+  createdAt        DateTime      @default(now()) @map("Created_At")
+  updatedAt        DateTime      @updatedAt @map("Updated_At")
+  messages         ChatMessage[]
   /// Chi nhánh
-  storeId         Int           @map("Store_ID")
-  store           Store         @relation(fields: [storeId], references: [id])
+  storeId          Int           @map("Store_ID")
+  store            Store         @relation(fields: [storeId], references: [id])
 
   @@index([status])
   @@index([storeId])
@@ -953,6 +972,8 @@ model ChatMessage {
   body       String         @map("Body") @db.VarChar(2000)
   /// Ảnh đính kèm (đường dẫn /uploads/…)
   imageUrl   String?        @map("Image_URL") @db.VarChar(1024)
+  /// Tin của AI: lần chạy tạo ra tin (AiRunLog) — để xem chi tiết / đánh giá
+  aiRunId    Int?           @map("AI_Run_ID")
   reactions  ChatReaction[]
   createdAt  DateTime       @default(now()) @map("Created_At")
   session    ChatSession    @relation(fields: [sessionId], references: [id])
@@ -1300,6 +1321,8 @@ model Store {
   gamePlays             GamePlay[]
   giftClaims            GiftClaim[]
   popups                PopupStore[]
+  knowledgeBases        KnowledgeBase[]
+  aiBindings            AiAgentBinding[]
   contactButtons        ContactButton[]
   banners               Banner[]
   contactMessages       ContactMessage[]
@@ -1882,15 +1905,15 @@ model WorkTask {
 
 /// Người được giao một công việc — mỗi người tự báo xong phần của mình
 model WorkTaskAssignee {
-  id       Int       @id @default(autoincrement()) @map("WTA_ID")
-  taskId   Int       @map("Task_ID")
-  staffId  Int       @map("Staff_ID")
+  id             Int       @id @default(autoincrement()) @map("WTA_ID")
+  taskId         Int       @map("Task_ID")
+  staffId        Int       @map("Staff_ID")
   /// TODO | DONE
-  status   String    @default("TODO") @map("Status") @db.VarChar(10)
-  doneAt   DateTime? @map("Done_At")
+  status         String    @default("TODO") @map("Status") @db.VarChar(10)
+  doneAt         DateTime? @map("Done_At")
   /// Ghi chú của nhân viên khi báo xong
-  note     String?   @map("Note") @db.VarChar(500)
-  photoUrl String?   @map("Photo_Url") @db.VarChar(1024)
+  note           String?   @map("Note") @db.VarChar(500)
+  photoUrl       String?   @map("Photo_Url") @db.VarChar(1024)
   /// Ảnh báo xong: vị trí GPS + lúc chụp + khoảng cách tới chi nhánh — lib/photoProof.ts
   photoLat       Float?    @map("Photo_Lat")
   photoLng       Float?    @map("Photo_Lng")
@@ -1898,9 +1921,9 @@ model WorkTaskAssignee {
   photoTakenAt   DateTime? @map("Photo_Taken_At")
   photoDistanceM Int?      @map("Photo_Distance_M")
   /// Quản lý yêu cầu làm lại: lý do
-  redoNote String?   @map("Redo_Note") @db.VarChar(500)
-  task     WorkTask  @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  staff    Staff     @relation(fields: [staffId], references: [id])
+  redoNote       String?   @map("Redo_Note") @db.VarChar(500)
+  task           WorkTask  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  staff          Staff     @relation(fields: [staffId], references: [id])
 
   @@unique([taskId, staffId])
   @@index([staffId, status])
@@ -2486,4 +2509,216 @@ model CustomerMessage {
 
   @@index([customerId, createdAt])
   @@map("Customer_Messages")
+}
+
+/// Kho tri thức cho AI tư vấn (RAG) — tài liệu ít thay đổi: thương hiệu, chính sách, FAQ. Giá / món / giờ mở cửa lấy từ CSDL, không để ở đây.
+model KnowledgeBase {
+  id          Int                    @id @default(autoincrement()) @map("KB_ID")
+  name        String                 @map("Name") @db.VarChar(150)
+  description String?                @map("Description") @db.VarChar(1000)
+  /// null = dùng chung cả chuỗi; có giá trị = kho riêng của chi nhánh
+  storeId     Int?                   @map("Store_ID")
+  enabled     Boolean                @default(true) @map("Enabled")
+  createdById Int                    @map("Created_By")
+  createdAt   DateTime               @default(now()) @map("Created_At")
+  updatedAt   DateTime               @updatedAt @map("Updated_At")
+  store       Store?                 @relation(fields: [storeId], references: [id])
+  createdBy   Staff                  @relation(fields: [createdById], references: [id])
+  documents   KnowledgeDocument[]
+  agents      AiAgentKnowledgeBase[]
+
+  @@index([storeId])
+  @@map("Knowledge_Bases")
+}
+
+/// Một tài liệu trong kho: tệp tải lên (PDF / DOCX / TXT / MD), văn bản nhập tay, hoặc bảng Hỏi–Đáp
+model KnowledgeDocument {
+  id              Int              @id @default(autoincrement()) @map("Doc_ID")
+  knowledgeBaseId Int              @map("KB_ID")
+  title           String           @map("Title") @db.VarChar(200)
+  /// FILE | TEXT | FAQ
+  sourceType      String           @map("Source_Type") @db.VarChar(10)
+  fileName        String?          @map("File_Name") @db.VarChar(255)
+  mimeType        String?          @map("Mime_Type") @db.VarChar(120)
+  /// Tệp gốc (thư mục uploads/knowledge/)
+  fileUrl         String?          @map("File_URL") @db.VarChar(1024)
+  /// Văn bản đã trích & làm sạch; FAQ: JSON [{q, a}]
+  rawText         String           @map("Raw_Text") @db.LongText
+  charCount       Int              @default(0) @map("Char_Count")
+  chunkCount      Int              @default(0) @map("Chunk_Count")
+  /// PENDING | PROCESSING | READY | ERROR
+  status          String           @default("PENDING") @map("Status") @db.VarChar(12)
+  errorMessage    String?          @map("Error_Message") @db.VarChar(1000)
+  enabled         Boolean          @default(true) @map("Enabled")
+  /// sha256 của văn bản đã làm sạch — giống lần trước thì không tạo lại embedding
+  contentHash     String?          @map("Content_Hash") @db.VarChar(64)
+  createdById     Int              @map("Created_By")
+  createdAt       DateTime         @default(now()) @map("Created_At")
+  updatedAt       DateTime         @updatedAt @map("Updated_At")
+  knowledgeBase   KnowledgeBase    @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  createdBy       Staff            @relation(fields: [createdById], references: [id])
+  chunks          KnowledgeChunk[]
+
+  @@index([knowledgeBaseId])
+  @@index([status])
+  @@map("Knowledge_Documents")
+}
+
+/// Một đoạn đã cắt của tài liệu + vector embedding (Float32 little-endian, đã chuẩn hoá L2)
+model KnowledgeChunk {
+  id              Int               @id @default(autoincrement()) @map("Chunk_ID")
+  documentId      Int               @map("Doc_ID")
+  /// Trùng với tài liệu — để lọc nhanh theo kho
+  knowledgeBaseId Int               @map("KB_ID")
+  ordinal         Int               @map("Ordinal")
+  heading         String?           @map("Heading") @db.VarChar(300)
+  content         String            @map("Content") @db.Text
+  charCount       Int               @map("Char_Count")
+  embedding       Bytes?            @map("Embedding") @db.MediumBlob
+  embedModel      String?           @map("Embed_Model") @db.VarChar(60)
+  embedDim        Int?              @map("Embed_Dim")
+  createdAt       DateTime          @default(now()) @map("Created_At")
+  document        KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([knowledgeBaseId])
+  @@index([documentId])
+  @@map("Knowledge_Chunks")
+}
+
+/// AI Agent tư vấn: giọng điệu, kho tri thức, hành vi, giờ hoạt động, kênh — ai/agent/
+model AiAgent {
+  id                    Int                    @id @default(autoincrement()) @map("Agent_ID")
+  name                  String                 @map("Name") @db.VarChar(60)
+  description           String?                @map("Description") @db.VarChar(500)
+  /// DEFAULT | CHAT | CREATIVE | TECH | CSKH | SALES | SUPPORT | VIP
+  icon                  String                 @default("DEFAULT") @map("Icon") @db.VarChar(12)
+  enabled               Boolean                @default(true) @map("Enabled")
+  botName               String                 @default("TD Bot") @map("Bot_Name") @db.VarChar(60)
+  /// PROFESSIONAL | FRIENDLY | CASUAL
+  tone                  String                 @default("FRIENDLY") @map("Tone") @db.VarChar(15)
+  selfPronoun           String                 @default("em") @map("Self_Pronoun") @db.VarChar(20)
+  customerPronoun       String                 @default("anh/chị") @map("Customer_Pronoun") @db.VarChar(20)
+  greeting              String                 @map("Greeting") @db.Text
+  fallbackMessage       String                 @map("Fallback_Message") @db.Text
+  /// "Ghi nhớ cố định" — luôn nằm trong prompt
+  memory                String?                @map("Memory") @db.VarChar(1000)
+  extraInstructions     String?                @map("Extra_Instructions") @db.VarChar(2000)
+  /// SHORT | MEDIUM | LONG | VERY_LONG
+  responseLength        String                 @default("MEDIUM") @map("Response_Length") @db.VarChar(10)
+  splitLongMessages     Boolean                @default(true) @map("Split_Long_Messages")
+  /// Được trả lời bằng hiểu biết chung (ngoài kho tri thức) về cà phê / đồ uống
+  allowGeneralKnowledge Boolean                @default(false) @map("Allow_General_Knowledge")
+  /// Được tìm thêm trên Internet (Google Search qua Gemini)
+  allowWebSearch        Boolean                @default(false) @map("Allow_Web_Search")
+  /// Gộp tin: đợi N giây sau tin cuối của khách rồi mới trả lời một lần
+  mergeWindowSec        Int                    @default(5) @map("Merge_Window_Sec")
+  historySize           Int                    @default(20) @map("History_Size")
+  /// OFF | NORMAL | DEEP
+  reasoningLevel        String                 @default("NORMAL") @map("Reasoning_Level") @db.VarChar(10)
+  /// Ngưỡng độ tương đồng vector: đoạn tài liệu thấp hơn coi như không liên quan
+  minScore              Float                  @default(0.68) @map("Min_Score")
+  handoffEnabled        Boolean                @default(true) @map("Handoff_Enabled")
+  quickRepliesEnabled   Boolean                @default(true) @map("Quick_Replies_Enabled")
+  /// ALWAYS | SCHEDULE
+  scheduleMode          String                 @default("ALWAYS") @map("Schedule_Mode") @db.VarChar(10)
+  /// [{ day: 0–6 (0 = Chủ nhật), from: "07:00", to: "22:00" }]
+  schedule              Json?                  @map("Schedule")
+  outOfHoursMessage     String?                @map("Out_Of_Hours_Message") @db.Text
+  /// Đợi nhân viên trả lời trước N phút; hết giờ chưa ai trả lời thì AI mới trả lời (0 = không đợi)
+  staffWaitMinutes      Int                    @default(0) @map("Staff_Wait_Minutes")
+  /// Số lượt gọi AI tối đa mỗi ngày (null = không giới hạn)
+  dailyRequestLimit     Int?                   @map("Daily_Request_Limit")
+  createdById           Int                    @map("Created_By")
+  createdAt             DateTime               @default(now()) @map("Created_At")
+  updatedAt             DateTime               @updatedAt @map("Updated_At")
+  createdBy             Staff                  @relation(fields: [createdById], references: [id])
+  knowledgeBases        AiAgentKnowledgeBase[]
+  bindings              AiAgentBinding[]
+  quickReplies          AiQuickReply[]
+  runs                  AiRunLog[]
+
+  @@map("AI_Agents")
+}
+
+model AiAgentKnowledgeBase {
+  agentId         Int           @map("Agent_ID")
+  knowledgeBaseId Int           @map("KB_ID")
+  agent           AiAgent       @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, knowledgeBaseId])
+  @@map("AI_Agent_Knowledge_Bases")
+}
+
+/// Gán agent cho kênh: đúng kênh + chi nhánh, không có thì dùng bản gán "cả chuỗi" (storeId null) của kênh
+model AiAgentBinding {
+  id               Int     @id @default(autoincrement()) @map("Binding_ID")
+  agentId          Int     @map("Agent_ID")
+  /// WEB | MESSENGER | INSTAGRAM | ZALO
+  channel          String  @map("Channel") @db.VarChar(20)
+  storeId          Int?    @map("Store_ID")
+  /// Để dành cho hộp thư đa kênh (tài khoản Zalo OA / trang Facebook…)
+  channelAccountId Int?    @map("Channel_Account_ID")
+  agent            AiAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  store            Store?  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([channel, storeId, channelAccountId])
+  @@index([agentId])
+  @@map("AI_Agent_Bindings")
+}
+
+/// Mẫu trả lời nhanh — khớp thì trả lời ngay, không gọi AI
+model AiQuickReply {
+  id        Int     @id @default(autoincrement()) @map("QR_ID")
+  agentId   Int     @map("Agent_ID")
+  name      String  @map("Name") @db.VarChar(60)
+  /// EXACT (cả câu) | CONTAINS (có chứa)
+  matchType String  @default("CONTAINS") @map("Match_Type") @db.VarChar(10)
+  /// string[] — so khớp trên chữ đã bỏ dấu
+  patterns  Json    @map("Patterns")
+  /// string[] — chọn ngẫu nhiên một câu
+  replies   Json    @map("Replies")
+  /// NONE | HANDOFF (chuyển nhân viên)
+  action    String  @default("NONE") @map("Action") @db.VarChar(10)
+  enabled   Boolean @default(true) @map("Enabled")
+  sortOrder Int     @default(0) @map("Sort_Order")
+  agent     AiAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@map("AI_Quick_Replies")
+}
+
+/// Nhật ký mỗi lần AI xử lý: đầu vào, đầu ra, đoạn tài liệu, công cụ đã gọi, token, độ trễ
+model AiRunLog {
+  id             Int      @id @default(autoincrement()) @map("Run_ID")
+  agentId        Int      @map("Agent_ID")
+  sessionId      Int?     @map("Session_ID")
+  channel        String   @default("WEB") @map("Channel") @db.VarChar(20)
+  storeId        Int?     @map("Store_ID")
+  /// QUICK_REPLY | RAG | FALLBACK | HANDOFF | OUT_OF_HOURS | LIMIT | ERROR | TEST
+  kind           String   @map("Kind") @db.VarChar(15)
+  input          String   @map("Input") @db.Text
+  output         String   @map("Output") @db.Text
+  /// [{ chunkId, documentId, title, heading, vectorScore, keywordScore }]
+  retrieved      Json?    @map("Retrieved")
+  /// [{ name, args, resultSummary, ms }]
+  toolCalls      Json?    @map("Tool_Calls")
+  model          String?  @map("Model") @db.VarChar(60)
+  promptTokens   Int      @default(0) @map("Prompt_Tokens")
+  outputTokens   Int      @default(0) @map("Output_Tokens")
+  thinkingTokens Int      @default(0) @map("Thinking_Tokens")
+  latencyMs      Int      @default(0) @map("Latency_Ms")
+  costVnd        Decimal  @default(0) @map("Cost_VND") @db.Decimal(12, 2)
+  errorMessage   String?  @map("Error_Message") @db.VarChar(1000)
+  /// GOOD | BAD — nhân viên đánh giá (phiên 3)
+  rating         String?  @map("Rating") @db.VarChar(5)
+  ratedById      Int?     @map("Rated_By")
+  correction     String?  @map("Correction") @db.Text
+  createdAt      DateTime @default(now()) @map("Created_At")
+  agent          AiAgent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, createdAt])
+  @@index([createdAt])
+  @@index([sessionId])
+  @@map("AI_Run_Logs")
 }

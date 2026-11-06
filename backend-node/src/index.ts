@@ -50,6 +50,11 @@ import { setRealtime } from "./lib/realtime.js";
 import { hrRequestsRouter } from "./routes/hrRequests.js";
 import { attendanceRouter } from "./routes/attendance.js";
 import { tasksRouter } from "./routes/tasks.js";
+import { knowledgeRouter } from "./routes/knowledge.js";
+import { aiAgentsRouter } from "./routes/aiAgents.js";
+import { resumeAiReplies, startAiLogCleanup } from "./ai/agent/scheduler.js";
+import { aiDashboardRouter } from "./routes/aiDashboard.js";
+import { resumeKnowledgeQueue } from "./ai/knowledge/ingest.js";
 import { myStatsRouter } from "./routes/myStats.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { initNotify, startNotificationCleanup } from "./lib/notify.js";
@@ -141,6 +146,10 @@ app.use("/api", inventoryCountsRouter(prisma, io));
 app.use("/api", hrRequestsRouter(prisma, io));
 app.use("/api", attendanceRouter(prisma));
 app.use("/api", tasksRouter(prisma, io));
+// AI tư vấn: kho tri thức (RAG)
+app.use("/api", knowledgeRouter(prisma));
+app.use("/api", aiAgentsRouter(prisma));
+app.use("/api", aiDashboardRouter(prisma));
 app.use("/api", myStatsRouter(prisma));
 app.use("/api", notificationsRouter(prisma));
 app.use("/api", comboRouter(prisma));
@@ -190,6 +199,9 @@ async function bootstrap() {
   }
 
   warnSocialConfig();
+  void resumeKnowledgeQueue();
+  void resumeAiReplies();
+  startAiLogCleanup();
   httpServer.listen(port, () => {
     console.log(`API + Socket.io: http://localhost:${port}`);
   });

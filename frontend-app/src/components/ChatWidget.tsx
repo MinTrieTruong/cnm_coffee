@@ -87,6 +87,10 @@ export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: bool
   const [image, setImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [hasNew, setHasNew] = useState(false);
+  // AI tư vấn của chi nhánh (tên bot, lời chào) + đang soạn câu trả lời
+  const [assistant, setAssistant] = useState<{ enabled: boolean; botName?: string; greeting?: string; online?: boolean } | null>(null);
+  const [aiTyping, setAiTyping] = useState(false);
+  const typingTimer = useRef<number | undefined>(undefined);
   // Form khiếu nại mới
   const [composing, setComposing] = useState(false);
   const [category, setCategory] = useState("");
@@ -133,6 +137,7 @@ export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: bool
       const m = modeOf(d.sessionId);
       if (!m) return;
       push(m, [d.message]);
+      if (m === "chat" && d.message.sender !== "customer") showTyping(false);
       if (!open || m !== mode) setHasNew(true);
       // Quản lý trả lời khiếu nại → trạng thái đổi; tải lại để lấy trạng thái mới
       if (m === "complaint") setInfo((p) => (p.complaint && p.complaint.complaintStatus === "NEW" && d.message.sender === "staff" ? { ...p, complaint: { ...p.complaint, complaintStatus: "IN_PROGRESS" } } : p));
@@ -150,10 +155,15 @@ export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: bool
         setRef("chat", null);
       }
     }
+    function onTyping(d: { sessionId: number; on: boolean }) {
+      if (modeOf(d.sessionId) === "chat") showTyping(d.on);
+    }
     sock.on("chat:reply", onReply);
     sock.on("chat:reaction", onReaction);
     sock.on("chat:closed", onClosed);
+    sock.on("chat:typing", onTyping);
     return () => {
+      sock.off("chat:typing", onTyping);
       sock.off("chat:reply", onReply);
       sock.off("chat:reaction", onReaction);
       sock.off("chat:closed", onClosed);
@@ -162,7 +172,27 @@ export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: bool
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [threads, open, mode]);
+  }, [threads, open, mode, aiTyping]);
+
+  /* ── AI tư vấn: lời chào khi mở khung chat ──────────────────────── */
+  useEffect(() => {
+    if (!open || assistant) return;
+    const q = new URLSearchParams();
+    const sid = getStoreId();
+    if (sid) q.set("storeId", String(sid));
+    if (tableId) q.set("tableId", String(tableId));
+    fetch(`${apiBase()}/api/chat/assistant?${q}`)
+      .then((r) => (r.ok ? r.json() : { enabled: false }))
+      .then(setAssistant)
+      .catch(() => setAssistant({ enabled: false }));
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Bong bóng "đang gõ" của AI: bật khi máy chủ báo, tắt khi có câu trả lời / báo xong / quá 40 giây */
+  const showTyping = (on: boolean) => {
+    window.clearTimeout(typingTimer.current);
+    setAiTyping(on);
+    if (on) typingTimer.current = window.setTimeout(() => setAiTyping(false), 40_000);
+  };
 
   function handleToggle() {
     setOpen((v) => !v);
@@ -184,7 +214,7 @@ export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: bool
     setImage(null);
     setLoading(true);
     try {
-      const data = await postJson<{ sessionId: number; key: string; kind: string; message: ChatMessage; reply: ChatMessage | null }>("/api/chat", {
+      const data = await postJson<{ sessionId: number; key: string; kind: string; message: ChatMessage; reply: ChatMessage | null; greeting?: ChatMessage | null }>("/api/chat", {
         message: body, image: img, tableId, storeId: getStoreId(), guestName,
         sessionId: ref?.id ?? null, key: ref?.key ?? null,
         kind: isComplaint ? "COMPLAINT" : "CHAT", category: newComplaint ? category : undefined,
@@ -200,7 +230,8 @@ export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: bool
           setCategory("");
         }
       }
-      push(mode, [data.message, ...(data.reply ? [data.reply] : [])]);
+      // Phiên mới có AI: lời chào là tin đầu tiên (trước tin của khách)
+      push(mode, [...(data.greeting ? [data.greeting] : []), data.message, ...(data.reply ? [data.reply] : [])]);
     } catch (err) {
       setText(body);
       setImage(img);
@@ -283,9 +314,20 @@ export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: bool
             <>
               <div className="chat-messages" id="chat-messages-list">
                 {thread.length === 0 && mode === "chat" && (
-                  <p className="chat-empty">Chào bạn! Cần hỗ trợ gì không?<br />
-                    <span className="subtle">Thử hỏi: pass wifi, nhà vệ sinh, giờ mở cửa…</span>
-                  </p>
+                  assistant?.enabled && assistant.greeting ? (
+                    <div className="chat-row chat-row-bot">
+                      <span className="chat-ava"><span className="chat-ava-bot"><LogoMark width={32} height={32} /></span></span>
+                      <div className="chat-msg chat-msg-bot">
+                        <div className="chat-msg-name">{assistant.botName}</div>
+                        <div className="chat-msg-bubble">{assistant.greeting}</div>
+                        <div className="chat-msg-time subtle">Thử hỏi: giá món, phí giao hàng, khuyến mãi, giờ mở cửa…</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="chat-empty">Chào bạn! Cần hỗ trợ gì không?<br />
+                      <span className="subtle">Thử hỏi: pass wifi, nhà vệ sinh, giờ mở cửa…</span>
+                    </p>
+                  )
                 )}
                 {thread.map((msg, i) => {
                   const prev = thread[i - 1];
@@ -310,7 +352,7 @@ export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: bool
                     <div key={msg.id} className={`chat-row chat-row-${msg.sender}${same(next) ? " is-grouped" : ""}`}>
                       {!mine && <span className="chat-ava">{ava}</span>}
                       <div className={`chat-msg chat-msg-${msg.sender}`}>
-                        {!mine && !same(prev) && <div className="chat-msg-name">{msg.sender === "bot" ? "TD Bot" : msg.senderName}</div>}
+                        {!mine && !same(prev) && <div className="chat-msg-name">{msg.sender === "bot" ? msg.senderName || "TD Bot" : msg.senderName}</div>}
                         {msg.body && <div className="chat-msg-bubble">{msg.body}</div>}
                         <MessageImage url={msg.imageUrl} />
                         {msg.id > 0 && !closed && (
@@ -326,7 +368,7 @@ export function ChatWidget({ embedded = false, onOpenChange }: { embedded?: bool
                     </div>
                   );
                 })}
-                {loading && (
+                {(loading || (aiTyping && mode === "chat")) && (
                   <div className="chat-row chat-row-bot">
                     <span className="chat-ava"><span className="chat-ava-bot"><LogoMark width={32} height={32} /></span></span>
                     <div className="chat-msg chat-msg-bot">

@@ -9,6 +9,7 @@ import {
   Monitor,
   ShoppingBag,
   ShoppingCart,
+  Sparkles,
   UsersRound,
   UtensilsCrossed,
   Wallet,
@@ -112,6 +113,11 @@ const WinnersPage = L(() => import("../modules/games/WinnerList"), "WinnersPage"
 const GiftItems = L(() => import("../modules/games/GiftItems"), "GiftItems");
 const PopupList = L(() => import("../modules/popups/PopupList"), "PopupList");
 const PopupForm = L(() => import("../modules/popups/PopupForm"), "PopupForm");
+const KnowledgeBaseList = L(() => import("../modules/ai/KnowledgeBases"), "KnowledgeBaseList");
+const KnowledgeBaseDetail = L(() => import("../modules/ai/KnowledgeBaseDetail"), "KnowledgeBaseDetail");
+const AgentList = L(() => import("../modules/ai/Agents"), "AgentList");
+const AgentEditor = L(() => import("../modules/ai/AgentEditor"), "AgentEditor");
+const AiDashboard = L(() => import("../modules/ai/AiDashboard"), "AiDashboard");
 
 export type Layout = "erp" | "legacy" | "full";
 
@@ -162,7 +168,7 @@ const STAFF = ["Admin", "Warehouse", "Waiter", "Kitchen", "Cashier", "Shipper"];
 const SHIFT_STAFF = ["Warehouse", "Waiter", "Kitchen", "Cashier", "Shipper"];
 /** Thu ngân + quản lý + chủ chuỗi (chủ chuỗi xem tổng hợp mọi chi nhánh) */
 const CASH = ["Owner", "Admin", "Cashier"];
-/** Quản lý vào được màn thao tác ca để hỗ trợ, nhưng không hiện trong menu thường (nhóm "Theo dõi ca" ở sidebar) */
+/** Quản lý vào được màn thao tác ca để hỗ trợ, nhưng không hiện trong menu thường (sidebar gom vào nhóm "Vận hành ca") */
 const SUPPORT = ["Admin"];
 
 export const APPS: AppDef[] = [
@@ -340,6 +346,19 @@ export const APPS: AppDef[] = [
     ],
   },
   {
+    id: "ai",
+    label: "Trí tuệ nhân tạo",
+    icon: Sparkles,
+    menus: [
+      // Tài liệu cho AI tư vấn tra cứu (RAG). Quản lý chi nhánh: xem kho chung, sửa kho của chi nhánh mình
+      // Số liệu & chi phí AI toàn chuỗi: chỉ Chủ chuỗi
+      { id: "dashboard", label: "Bảng điều khiển AI", description: "AI đang xử lý gì, trả lời được bao nhiêu, token và chi phí", roles: OWNER, component: AiDashboard, layout: "erp", ownHeader: true },
+      // Chủ chuỗi tạo / sửa; Quản lý chi nhánh xem và thử agent
+      { id: "agents", label: "AI Agents", description: "Quản lý Agent. Gán vào kênh để bật trả lời tự động.", roles: CHAIN_AND_BRANCH, component: AgentList, form: AgentEditor, layout: "erp", ownHeader: true },
+      { id: "knowledge", label: "Kho tri thức", description: "Lưu trữ và cập nhật tài liệu để AI tra cứu khi tư vấn", roles: CHAIN_AND_BRANCH, component: KnowledgeBaseList, form: KnowledgeBaseDetail, layout: "erp", ownHeader: true },
+    ],
+  },
+  {
     id: "website",
     label: "Website",
     icon: Globe,
@@ -376,7 +395,7 @@ export const canSee = (leaf: MenuLeaf, role: string) =>
   leaf.roles.includes(role) ||
   (role === "Owner" && leaf.roles.includes("Admin") && getOwnerStore() != null);
 
-/** Có hiện trong menu không (màn "hỗ trợ ca" của quản lý nằm ở nhóm "Theo dõi ca" của sidebar) */
+/** Có hiện trong menu không (màn "hỗ trợ ca" của quản lý nằm ở nhóm "Vận hành ca" của sidebar) */
 export const listed = (leaf: MenuLeaf, role: string) => {
   if (!canSee(leaf, role) || leaf.alias || leaf.hidden) return false;
   const support = leaf.supportFor ?? [];
