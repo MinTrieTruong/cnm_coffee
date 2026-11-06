@@ -15,6 +15,8 @@ export type OpenShift = {
   endMin: number;
   role: string | null;
   managerNote: string | null;
+  /** Ca bổ sung cần nhiều người: số chỗ còn trống */
+  slotsLeft?: number;
 };
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
@@ -79,7 +81,7 @@ function OpenShiftList({ shifts, reload, onMsg }: { shifts: OpenShift[]; reload:
         <li key={s.id}>
           <span className="o-kpic-icon is-sm is-orange"><CalendarPlus size={16} strokeWidth={1.75} aria-hidden /></span>
           <span className="o-att-list-name">
-            <strong>{s.shiftName} · {dayText(s.workDate)}</strong>
+            <strong>{s.shiftName} · {dayText(s.workDate)}{(s.slotsLeft ?? 1) > 1 ? ` · còn ${s.slotsLeft} chỗ` : ""}</strong>
             <span>{hhmm(s.startMin)}–{hhmm(s.endMin)}{s.managerNote ? ` · ${s.managerNote}` : ""}</span>
           </span>
           <Button size="sm" variant="primary" disabled={busy != null} onClick={() => void claim(s)}>
@@ -97,7 +99,7 @@ export function OpenShifts() {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   return (
     <div className="o-dash">
-      <PageHeader title="Ca trống cần người" description="Ca của đồng nghiệp xin nghỉ, đúng vị trí của bạn và vào ngày bạn chưa có ca. Ai bấm nhận trước được ca." />
+      <PageHeader title="Ca trống cần người" description="Ca của đồng nghiệp xin nghỉ hoặc ca bổ sung quản lý cần thêm người, đúng vị trí và khung giờ bạn rảnh. Ai bấm nhận trước được ca." />
       {error && <Alert>{error}</Alert>}
       {msg && <Alert tone={msg.ok ? "info" : "danger"}>{msg.text}</Alert>}
       {loading && !shifts.length ? (

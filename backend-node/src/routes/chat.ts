@@ -46,6 +46,8 @@ function botReply(text: string, info: BotInfo): string | null {
 
 /** Phòng socket riêng của khách — tên kèm mã bí mật, không đoán được từ số phiên */
 const customerRoom = (s: Pick<ChatSession, "id" | "accessKey">) => `chat:${s.id}:${s.accessKey}`;
+/** Tin bot báo đã chuyển cho nhân viên — dùng để biết phiên có tin khách cần nhân viên (badge chưa đọc) */
+const WAIT_FOR_STAFF = "Đã chuyển yêu cầu tới nhân viên. Vui lòng chờ trong giây lát.";
 
 export function chatRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
@@ -185,7 +187,7 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
       sessionId: session.id, guestName: session.guestName, tableId: session.tableId, message: text || "[Ảnh]", at: new Date().toISOString(),
     });
     const wait = await prisma.chatMessage.create({
-      data: { sessionId: session.id, sender: "bot", senderName: "TD Bot", body: "Đã chuyển yêu cầu tới nhân viên. Vui lòng chờ trong giây lát." },
+      data: { sessionId: session.id, sender: "bot", senderName: "TD Bot", body: WAIT_FOR_STAFF },
       include: msgInclude,
     });
     return res.json({ ...out, reply: wait, bot: false });
@@ -227,6 +229,45 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
 
   /* ───────────────────────── Nhân viên: chat (không gồm khiếu nại) ───────────────────────── */
 
+  /**
+   * Badge "Tin nhắn": phiên chat đang mở có tin khách cần nhân viên (bot đã báo "chuyển tới nhân viên")
+   * mới hơn lần cuối nhân viên chi nhánh mở xem / trả lời phiên.
+   */
+  r.get("/staff/chat/unread", ...staffAuth, async (req, res) => {
+    const sessions = await prisma.chatSession.findMany({
+      where: { ...storeWhere(req), status: "open", kind: "CHAT" },
+      select: { id: true, staffReadAt: true },
+    });
+    if (!sessions.length) return res.json({ count: 0, sessionIds: [] });
+    const lastWait = await prisma.chatMessage.groupBy({
+      by: ["sessionId"],
+      where: { sessionId: { in: sessions.map((x) => x.id) }, sender: "bot", body: WAIT_FOR_STAFF },
+      _max: { createdAt: true },
+    });
+    const waitAt = new Map(lastWait.map((w) => [w.sessionId, w._max.createdAt]));
+    const sessionIds = sessions
+      .filter((x) => {
+        const w = waitAt.get(x.id);
+        return w && (!x.staffReadAt || w > x.staffReadAt);
+      })
+      .map((x) => x.id);
+    res.json({ count: sessionIds.length, sessionIds });
+  });
+
+  /** Nhân viên đã xem phiên → hết "chưa đọc" cho cả chi nhánh (badge của đồng nghiệp tính lại) */
+  async function markStaffRead(session: ChatSession) {
+    if (session.kind !== "CHAT") return;
+    await prisma.chatSession.update({ where: { id: session.id }, data: { staffReadAt: new Date() } });
+    toStore(io, "staff", session.storeId).emit("chat:read", { sessionId: session.id });
+  }
+
+  r.post("/staff/chat/sessions/:id/read", ...staffAuth, async (req, res) => {
+    const s = await staffSession(req, Number(req.params.id));
+    if (!s) return res.status(404).json({ error: "Không tìm thấy" });
+    await markStaffRead(s);
+    res.json({ ok: true });
+  });
+
   r.get("/staff/chat/sessions", ...staffAuth, async (req, res) => {
     res.json(await prisma.chatSession.findMany({
       where: { ...storeWhere(req), status: "open", kind: "CHAT" },
@@ -258,6 +299,7 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
   r.get("/staff/chat/sessions/:id", attachStaff(prisma), requireRoles("Admin", "Cashier", "Waiter", "Kitchen"), async (req, res) => {
     const s = await staffSession(req, Number(req.params.id));
     if (!s) return res.status(404).json({ error: "Không tìm thấy" });
+    await markStaffRead(s);
     res.json(await prisma.chatSession.findUnique({ where: { id: s.id }, include: withMessages }));
   });
 
@@ -289,6 +331,7 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
     });
     const [out] = await withStaffAvatars([msg]);
     broadcast(touched, "chat:reply", { sessionId: session.id, message: out });
+    await markStaffRead(touched);
     res.status(201).json(out);
   });
 

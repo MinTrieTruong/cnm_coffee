@@ -14,6 +14,8 @@ type WS = {
   workDate: string;
   shiftCode: string;
   status: "PENDING" | "APPROVED" | "REJECTED";
+  startMin: number;
+  endMin: number;
   staffNote: string | null;
   managerNote: string | null;
 };
@@ -63,7 +65,8 @@ export function WorkSchedule() {
     let total = 0;
     shifts.forEach((s) => {
       const ws = saved.find((w) => isSameDay(parseISO(w.workDate), new Date(dateStr)) && w.shiftCode === s.code);
-      if (ws) total += s.hours;
+      // Ca bổ sung: giờ từng ca tự chọn → tính theo giờ thực của ca
+      if (ws) total += s.code === "EXTRA" ? (ws.endMin - ws.startMin) / 60 : s.hours;
     });
     return total;
   }
@@ -133,7 +136,10 @@ export function WorkSchedule() {
                           alignItems: "center", justifyContent: "center", gap: "0.3rem",
                         }}>
                           {isAssigned ? (
-                            <CheckCircle2 size={16} color="var(--o-success)" aria-label="Có ca" />
+                            <>
+                              <CheckCircle2 size={16} color="var(--o-success)" aria-label="Có ca" />
+                              {shift.code === "EXTRA" && <div style={{ fontSize: "0.68rem", fontWeight: 700 }}>{pad2(Math.floor(ws!.startMin / 60))}:{pad2(ws!.startMin % 60)}–{pad2(Math.floor(ws!.endMin / 60))}:{pad2(ws!.endMin % 60)}</div>}
+                            </>
                           ) : (
                             <span style={{ color: "#d1d5db", fontSize: "0.75rem" }}>—</span>
                           )}

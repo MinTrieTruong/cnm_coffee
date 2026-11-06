@@ -38,6 +38,7 @@ const InventoryCounts = L(() => import("../modules/inventory/Counts"), "Inventor
 const AttendanceWarnings = L(() => import("../modules/hr/AttendanceWarnings"), "AttendanceWarnings");
 const StaffChat = L(() => import("../pages/StaffChat"), "StaffChat");
 const StaffOrderStatus = L(() => import("../pages/StaffOrderStatus"), "StaffOrderStatus");
+const StaffAccount = L(() => import("../pages/StaffAccount"), "StaffAccount");
 const Attendance = L(() => import("../pages/Attendance"), "Attendance");
 const StaffPayslips = L(() => import("../pages/StaffPayslips"), "StaffPayslips");
 const HrRequests = L(() => import("../pages/HrRequests"), "HrRequests");
@@ -133,6 +134,8 @@ export type MenuLeaf = {
   ownHeader?: boolean;
   /** Cùng màn hình với mục `alias` của app — không hiện trong menu, sidebar tô sáng mục kia */
   alias?: string;
+  /** Không hiện trong menu (mở từ chỗ khác, vd "Tài khoản của tôi" ở menu hồ sơ) */
+  hidden?: boolean;
 };
 
 export type MenuNode = MenuLeaf | { id: string; label: string; children: MenuLeaf[] };
@@ -192,7 +195,8 @@ export const APPS: AppDef[] = [
       { id: "vouchers", label: "Voucher", description: "Mã giảm giá và điều kiện áp dụng", roles: CHAIN_AND_BRANCH, component: VoucherList, form: VoucherForm, layout: "erp" },
       { id: "proposals", label: "Đề xuất món", description: "Món mới do chi nhánh đề xuất chờ duyệt", roles: CHAIN_AND_BRANCH, component: ProposalList, layout: "erp" },
       { id: "search", label: "Khách tìm kiếm", description: "Khách tìm món gì, bao nhiêu % tìm mà quán chưa có", roles: CHAIN_AND_BRANCH, component: SearchInsights, layout: "erp" },
-      { id: "customers", label: "Khách hàng", description: "Khách thành viên, điểm tích lũy và lịch sử mua", roles: OWNER, component: CustomerList, form: CustomerForm, layout: "erp" },
+      // Quản lý chi nhánh: chỉ xem (số liệu mua tại chi nhánh mình); sửa thông tin / đặt lại mật khẩu: Chủ chuỗi
+      { id: "customers", label: "Khách hàng", description: "Khách thành viên, thói quen, lịch sử mua và tích điểm", roles: CHAIN_AND_BRANCH, component: CustomerList, form: CustomerForm, layout: "erp" },
       { id: "reviews", label: "Đánh giá", description: "Nhận xét của khách về món và chi nhánh", roles: CHAIN_AND_BRANCH, component: ReviewList, form: ReviewForm, layout: "erp" },
     ],
   },
@@ -274,6 +278,8 @@ export const APPS: AppDef[] = [
     icon: UsersRound,
     menus: [
       { id: "employees", label: "Nhân viên", description: "Hồ sơ, vai trò và trạng thái nhân viên", roles: CHAIN_AND_BRANCH, component: EmployeeList, form: EmployeeForm, layout: "erp" },
+      // Mở từ menu hồ sơ (thanh bên / "Thêm" trên điện thoại), không cần mục riêng trong danh sách
+      { id: "me", label: "Tài khoản của tôi", roles: "all", component: StaffAccount, layout: "erp", ownHeader: true, hidden: true },
       { id: "broadcast", label: "Gửi thông báo", roles: CHAIN_AND_BRANCH, component: Broadcast, layout: "erp", ownHeader: true },
       {
         id: "work",
@@ -372,7 +378,7 @@ export const canSee = (leaf: MenuLeaf, role: string) =>
 
 /** Có hiện trong menu không (màn "hỗ trợ ca" của quản lý nằm ở nhóm "Theo dõi ca" của sidebar) */
 export const listed = (leaf: MenuLeaf, role: string) => {
-  if (!canSee(leaf, role) || leaf.alias) return false;
+  if (!canSee(leaf, role) || leaf.alias || leaf.hidden) return false;
   const support = leaf.supportFor ?? [];
   return !(support.includes(role) || (role === "Owner" && support.includes("Admin") && !leaf.roles.includes("Owner")));
 };

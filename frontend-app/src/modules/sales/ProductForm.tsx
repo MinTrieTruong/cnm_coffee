@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { mediaUrl } from "../../lib/api";
+import { mediaUrl, type ProductTemps } from "../../lib/api";
 import { getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
 import { Alert, Button, Field, FormGroup, FormGroups, FormView, StatusBar, Tabs, errMsg, formatVnd } from "../../components/erp";
 import { ImageField, TagsInput, digits, parseTags, useRecordNav, useResource } from "../shared";
@@ -30,12 +30,21 @@ type Draft = {
   outOfStock: boolean;
   /** false = món 1 loại (bánh, đồ ăn): 1 giá, công thức trừ 1 mức */
   hasSizes: boolean;
+  /** Nhiệt độ phục vụ: BOTH = khách chọn nóng/đá, ICED = chỉ đá, HOT = chỉ nóng, NONE = không áp dụng */
+  temps: ProductTemps;
 };
 
 const EMPTY: Draft = {
   name: "", sku: "", costPrice: "", sellPrice: "", priceSizeS: "", priceSizeL: "",
-  categoryId: "", imageUrl: "", tags: [], discountPercent: "", isActive: true, outOfStock: false, hasSizes: true,
+  categoryId: "", imageUrl: "", tags: [], discountPercent: "", isActive: true, outOfStock: false, hasSizes: true, temps: "BOTH",
 };
+
+const TEMP_OPTIONS: { value: ProductTemps; label: string }[] = [
+  { value: "BOTH", label: "Nóng & đá — khách chọn" },
+  { value: "ICED", label: "Chỉ đá" },
+  { value: "HOT", label: "Chỉ nóng" },
+  { value: "NONE", label: "Không áp dụng" },
+];
 
 /** Danh mục đồ ăn / bánh → món mới mặc định không size */
 const isFoodCategory = (name?: string) => !!name && /đồ ăn|bánh/i.test(name);
@@ -70,6 +79,7 @@ function toDraft(p: ProductRow): Draft {
     isActive: p.isActive,
     outOfStock: p.outOfStock,
     hasSizes: p.hasSizes !== false,
+    temps: p.hasSizes === false ? "NONE" : p.temps ?? "BOTH",
   };
 }
 
@@ -126,6 +136,7 @@ export function ProductForm({ recordId }: { recordId?: string }) {
             name: draft.name.trim(),
             sellPrice: price,
             hasSizes: draft.hasSizes,
+            temps: draft.hasSizes ? draft.temps : "NONE",
             priceSizeS: draft.hasSizes && draft.priceSizeS ? digits(draft.priceSizeS) : undefined,
             priceSizeL: draft.hasSizes && draft.priceSizeL ? digits(draft.priceSizeL) : undefined,
             categoryId: draft.categoryId,
@@ -149,6 +160,7 @@ export function ProductForm({ recordId }: { recordId?: string }) {
           sku: draft.sku.trim() || null,
           sellPrice: price,
           hasSizes: draft.hasSizes,
+          temps: draft.hasSizes ? draft.temps : "NONE",
           priceSizeS: draft.hasSizes && draft.priceSizeS ? digits(draft.priceSizeS) : null,
           priceSizeL: draft.hasSizes && draft.priceSizeL ? digits(draft.priceSizeL) : null,
           categoryId: draft.categoryId,
@@ -277,6 +289,20 @@ export function ProductForm({ recordId }: { recordId?: string }) {
               </select>
             )}
           </Field>
+          {draft.hasSizes && (
+            <Field label="Nóng / đá">
+              {ro ? (
+                TEMP_OPTIONS.find((o) => o.value === draft.temps)?.label
+              ) : (
+                <>
+                  <select className="o-input" value={draft.temps} onChange={(e) => set("temps", e.target.value as ProductTemps)}>
+                    {TEMP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <div className="o-hint">Món chỉ đá hoặc chỉ nóng: khách không chọn được kiểu còn lại trên thực đơn.</div>
+                </>
+              )}
+            </Field>
+          )}
           <Field label="Nhãn">
             <TagsInput tags={draft.tags} onChange={(t) => set("tags", t)} disabled={ro} />
           </Field>

@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { safeNext, setSession, setGuestMode } from "../lib/session";
 import { PasswordInput } from "../components/PasswordInput";
+import { SocialButtons, useSocialSignIn } from "../components/site/SocialLogin";
 import { useLang } from "../lib/i18n";
 
 export function Welcome() {
@@ -14,6 +15,7 @@ export function Welcome() {
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const onSocial = useSocialSignIn(next);
 
   async function onLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -85,19 +87,16 @@ export function Welcome() {
             </button>
           </form>
 
-          <p style={{ textAlign: "center", color: "var(--muted)", margin: "1.5rem 0 1rem", fontSize: "0.9rem" }}>
-            {t("Chưa có tài khoản?")}{" "}
-            <Link to={params.get("next") ? `/register?next=${encodeURIComponent(next)}` : "/register"} style={{ color: "var(--accent)", fontWeight: 600 }}>{t("Đăng ký")}</Link>
-          </p>
-
-          <div style={{ position: "relative", textAlign: "center", margin: "1.5rem 0" }}>
-            <div style={{ position: "absolute", top: "50%", left: 0, right: 0, borderTop: "1px dashed var(--border)" }} />
-            <span style={{ background: "var(--surface2)", padding: "0 10px", position: "relative", fontSize: "0.8rem", color: "var(--muted)", textTransform: "uppercase" }}>{t("Hoặc")}</span>
-          </div>
+          <SocialButtons onToken={onSocial} divider googleText="continue_with" />
 
           <button type="button" className="ghost-btn" onClick={onGuest}>
             {t("Tiếp tục không đăng nhập")}
           </button>
+
+          <p style={{ textAlign: "center", color: "var(--muted)", margin: "1.5rem 0 0", fontSize: "0.9rem" }}>
+            {t("Chưa có tài khoản?")}{" "}
+            <Link to={params.get("next") ? `/register?next=${encodeURIComponent(next)}` : "/register"} style={{ color: "var(--accent)", fontWeight: 600 }}>{t("Đăng ký")}</Link>
+          </p>
         </div>
 
         <footer style={{ textAlign: "center", marginTop: "2rem" }}>

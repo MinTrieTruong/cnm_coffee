@@ -7,6 +7,8 @@ export type CartItem = {
   quantity: number;
   imageUrl: string | null;
   size: "S" | "M" | "L";
+  /** Nóng / đá (null = món không áp dụng) */
+  temp?: "HOT" | "ICED" | null;
   icePct: 0 | 50 | 100;
   sugar: "0" | "50" | "100";
   notes: string;
@@ -45,10 +47,10 @@ export function addToCart(
   opts: Omit<CartItem, "productId" | "name" | "imageUrl">,
 ) {
   const items = load();
-  // Gộp nếu trùng product + size + đá + đường + notes
-  const key = `${product.id}|${opts.size}|${opts.icePct}|${opts.sugar}|${opts.notes}`;
+  // Gộp nếu trùng product + size + nóng/đá + đá + đường + notes
+  const key = `${product.id}|${opts.size}|${opts.temp ?? ""}|${opts.icePct}|${opts.sugar}|${opts.notes}`;
   const existing = items.find(
-    (i) => `${i.productId}|${i.size}|${i.icePct}|${i.sugar}|${i.notes}` === key,
+    (i) => `${i.productId}|${i.size}|${i.temp ?? ""}|${i.icePct}|${i.sugar}|${i.notes}` === key,
   );
   if (existing) {
     existing.quantity += opts.quantity;
@@ -67,6 +69,25 @@ export function removeLine(index: number) {
   const items = load();
   items.splice(index, 1);
   save(items);
+}
+
+/** Xoá nhiều dòng một lúc (chọn tất cả / vuốt xoá trong giỏ) */
+export function removeLines(indexes: number[]) {
+  const drop = new Set(indexes);
+  save(load().filter((_, i) => !drop.has(i)));
+}
+
+/** Khoá ổn định của một dòng giỏ (cùng tiêu chí gộp ở addToCart/addComboToCart) */
+export function lineKey(i: CartItem) {
+  return i.isCombo ? `combo|${i.comboId}` : `${i.productId}|${i.size}|${i.temp ?? ""}|${i.icePct}|${i.sugar}|${i.notes}`;
+}
+
+/** Bớt 1 món ở dòng thêm gần nhất của sản phẩm (nút − trên thẻ món ngoài menu) */
+export function decProduct(productId: number) {
+  const items = load();
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (!items[i].isCombo && items[i].productId === productId) return updateQty(i, items[i].quantity - 1);
+  }
 }
 
 /** Cập nhật số lượng; nếu qty <= 0 thì xóa dòng đó */
@@ -132,4 +153,9 @@ export function addComboToCart(combo: Combo) {
     });
   }
   save(items);
+}
+
+/** Ghi chú đồ uống gửi kèm dòng món (pha chế đọc trên KDS): "Size M · Đá 100% · Đường 100%" / "Size M · Nóng · Đường 50%" */
+export function drinkNotes(o: { size: string; temp: "HOT" | "ICED" | null; icePct: number; sugar: string }) {
+  return [`Size ${o.size}`, o.temp === "HOT" ? "Nóng" : o.temp === "ICED" ? `Đá ${o.icePct}%` : null, `Đường ${o.sugar}%`].filter(Boolean).join(" · ");
 }

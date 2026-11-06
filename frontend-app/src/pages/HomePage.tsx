@@ -6,35 +6,91 @@ import { useCustomerStore, withStore } from "../lib/customerStore";
 import { formatVnd, useMenuData, useSiteInfo } from "../lib/site";
 import { ProductCard, SectionHead, VoucherTicket, type PublicVoucher } from "../components/site/parts";
 import { useLang } from "../lib/i18n";
+import { ReviewList } from "../components/ReviewList";
 
 type Banner = { id: number; imageUrl: string; title: string | null; subtitle: string | null; link: string | null };
 type Post = { id: number; title: string; body: string; imageUrl: string | null; createdAt: string };
 type ActiveGame = { id: number; name: string; description: string | null; minOrderValue: number; me: { tickets: number } | null };
 
 const plain = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-const reduceMotion = () => typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
-/** Banner lớn: ảnh do quản lý tải lên, tiêu đề poster đặt trên ảnh; tự chuyển 6 giây, dừng khi rê chuột */
+const BANNER_MS = 3000;
+
+/** Banner lớn: ảnh do quản lý tải lên, tiêu đề poster đặt trên ảnh; tự chuyển 3 giây (dừng khi rê chuột), điện thoại vuốt ngang để đổi */
 function BannerCarousel({ banners }: { banners: Banner[] }) {
   const nav = useNavigate();
   const { t } = useLang();
   const [i, setI] = useState(0);
-  const paused = useRef(false);
+  const [hover, setHover] = useState(false);
+  /** Độ lệch (px) khi đang kéo bằng tay; null = không kéo */
+  const [dx, setDx] = useState<number | null>(null);
+  const drag = useRef<{ x: number; y: number; axis: "x" | "y" | null } | null>(null);
+  const moved = useRef(false);
+  const box = useRef<HTMLDivElement>(null);
   const n = banners.length;
   useEffect(() => {
-    if (n < 2 || reduceMotion()) return;
-    const t = window.setInterval(() => !paused.current && setI((x) => (x + 1) % n), 6000);
-    return () => window.clearInterval(t);
-  }, [n]);
+    if (i >= n) setI(0);
+  }, [i, n]);
+  // Hẹn giờ theo từng ảnh: bấm chấm / mũi tên / vuốt thì đếm lại 3 giây từ đầu
+  useEffect(() => {
+    if (n < 2 || hover || dx != null) return;
+    const tm = window.setTimeout(() => setI((x) => (x + 1) % n), BANNER_MS);
+    return () => window.clearTimeout(tm);
+  }, [i, n, hover, dx]);
   if (!n) return <div className="c-banner c-banner-empty" aria-hidden />;
+
+  function onTouchStart(e: React.TouchEvent) {
+    if (n < 2) return;
+    const p = e.touches[0];
+    drag.current = { x: p.clientX, y: p.clientY, axis: null };
+    moved.current = false;
+  }
+  function onTouchMove(e: React.TouchEvent) {
+    const d = drag.current;
+    if (!d) return;
+    const p = e.touches[0];
+    const mx = p.clientX - d.x, my = p.clientY - d.y;
+    if (!d.axis) {
+      if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
+      d.axis = Math.abs(mx) > Math.abs(my) ? "x" : "y";
+    }
+    if (d.axis === "x") {
+      moved.current = true;
+      setDx(mx);
+    }
+  }
+  function onTouchEnd() {
+    const d = drag.current;
+    drag.current = null;
+    if (!d || d.axis !== "x" || dx == null) return setDx(null);
+    const width = box.current?.offsetWidth ?? 360;
+    if (Math.abs(dx) > Math.min(60, width * 0.2)) setI((x) => (dx < 0 ? (x + 1) % n : (x - 1 + n) % n));
+    setDx(null);
+  }
   const go = (b: Banner) => {
     if (!b.link) return;
     if (/^https:/i.test(b.link)) window.open(b.link, "_blank", "noopener,noreferrer");
     else nav(b.link);
   };
   return (
-    <div className="c-banner" onMouseEnter={() => (paused.current = true)} onMouseLeave={() => (paused.current = false)} aria-roledescription="carousel" aria-label={t("Chương trình nổi bật")}>
-      <div className="c-banner-track" style={{ transform: `translateX(-${i * 100}%)` }}>
+    <div
+      ref={box}
+      className="c-banner"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchEnd}
+      // Vừa vuốt xong thì không tính là bấm "Xem ngay"
+      onClickCapture={(e) => { if (moved.current) { e.stopPropagation(); e.preventDefault(); moved.current = false; } }}
+      aria-roledescription="carousel"
+      aria-label={t("Chương trình nổi bật")}
+    >
+      <div
+        className={dx != null ? "c-banner-track is-dragging" : "c-banner-track"}
+        style={{ transform: dx != null ? `translateX(calc(-${i * 100}% + ${dx}px))` : `translateX(-${i * 100}%)` }}
+      >
         {banners.map((b, k) => (
           <div key={b.id} className="c-banner-slide" role="group" aria-roledescription="slide" aria-label={`${k + 1} / ${n}`} aria-hidden={k !== i}>
             <img src={mediaUrl(b.imageUrl)} alt={b.title ?? ""} loading={k === 0 ? "eager" : "lazy"} />
@@ -218,6 +274,10 @@ export function HomePage() {
           </div>
         </section>
       )}
+
+      <section className="c-wrap c-sec">
+        <ReviewList title="Khách nói gì về quán" />
+      </section>
     </div>
   );
 }

@@ -3,7 +3,9 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { clearSession, useSessionUser } from "../lib/session";
 import { CustomerAvatar } from "./CustomerAvatar";
 import { CART_EVENT, getCart } from "../lib/cart";
-import { BottomNav } from "./BottomNav";
+import { BottomNav, type MoreSheet } from "./BottomNav";
+import { Coins, Gift, Mail, ReceiptText, ShieldCheck, Star, Ticket, UserRound } from "lucide-react";
+import { rankLabel } from "../pages/account/shared";
 import { customerNav } from "../lib/navConfig";
 import { canGoBackInApp } from "../lib/appHistory";
 import { PopupHost } from "./popup/PopupHost";
@@ -30,13 +32,13 @@ function titleOf(p: string): string {
     ["/product/", "Chi tiết món"],
     ["/cart", "Giỏ hàng"],
     ["/account/profile", "Thông tin cá nhân"],
+    ["/account/inbox", "Hộp thư"],
     ["/account/security", "Bảo mật"],
     ["/account/orders", "Đơn hàng"],
     ["/account/reviews", "Đánh giá đơn"],
     ["/account/points", "Lịch sử điểm"],
     ["/account/vouchers", "Ví voucher"],
     ["/account/gifts", "Quà của tôi"],
-    ["/account/feedback", "Nhận xét chung"],
     ["/account", "Tài khoản"],
     ["/promotions", "Khuyến mãi"],
     ["/blog", "Tin tức"],
@@ -104,6 +106,28 @@ export function PublicLayout() {
     clearSession();
     nav("/", { replace: true });
   }
+  // Điện thoại: bấm avatar ở thanh đáy → bảng chức năng tài khoản (kèm Đăng xuất) thay vì chuyển thẳng sang trang
+  const accountSheet: MoreSheet | null = user
+    ? {
+        profile: {
+          name: user.fullName,
+          role: t("Hạng {r} · {n} điểm", { r: t(rankLabel(user.rankTier)), n: user.points.toLocaleString(lang === "en" ? "en-US" : "vi-VN") }),
+          avatar: <CustomerAvatar src={user.avatarUrl} name={user.fullName} size={40} />,
+        },
+        items: [
+          { id: "acc-profile", label: t("Thông tin cá nhân"), short: "", icon: UserRound, to: "/account/profile" },
+          { id: "acc-inbox", label: t("Hộp thư"), short: "", icon: Mail, to: "/account/inbox" },
+          { id: "acc-orders", label: t("Đơn hàng"), short: "", icon: ReceiptText, to: "/account/orders" },
+          { id: "acc-reviews", label: t("Đánh giá đơn"), short: "", icon: Star, to: "/account/reviews" },
+          { id: "acc-points", label: t("Lịch sử điểm"), short: "", icon: Coins, to: "/account/points" },
+          { id: "acc-vouchers", label: t("Ví voucher"), short: "", icon: Ticket, to: "/account/vouchers" },
+          { id: "acc-gifts", label: t("Quà của tôi"), short: "", icon: Gift, to: "/account/gifts" },
+          { id: "acc-security", label: t("Bảo mật"), short: "", icon: ShieldCheck, to: "/account/security" },
+        ],
+        onLogout: handleLogout,
+        text: { title: t("Tài khoản"), section: t("Tài khoản"), logout: t("Đăng xuất"), close: t("Đóng") },
+      }
+    : null;
 
   const p = loc.pathname;
   const showTabBar = !TABBAR_HIDDEN_PREFIXES.some((x) => p.startsWith(x));
@@ -130,7 +154,7 @@ export function PublicLayout() {
         {!/^\/order\/[^/]+\/checkout/.test(p) && !p.startsWith("/staff") && <FloatingContact />}
       </main>
 
-      <BottomNav items={navItems} badges={{ cart: cartCount }} hidden={!showTabBar} />
+      <BottomNav items={navItems} badges={{ cart: cartCount }} menus={accountSheet ? { account: accountSheet } : undefined} hidden={!showTabBar} />
 
       <SiteFooter color={color} />
     </div>

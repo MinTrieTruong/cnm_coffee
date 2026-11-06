@@ -27,14 +27,36 @@ function cached<T>(map: Map<string, Promise<T>>, key: string, load: () => Promis
   return p;
 }
 
+/* Bản site-info lần trước lưu trên máy: vẽ ngay đúng màu quán / chủ đề lễ khi tải lại trang
+   (không nháy màu mặc định trong lúc chờ API), rồi cập nhật khi API trả về */
+const lsKey = (storeId: number | null | undefined) => `c-site-info:${storeId ?? ""}`;
+function readStoredInfo(storeId: number | null | undefined): SiteInfo | null {
+  try {
+    const raw = localStorage.getItem(lsKey(storeId));
+    return raw ? (JSON.parse(raw) as SiteInfo) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Thông tin công ty, hotline theo chi nhánh khách chọn, danh sách chi nhánh, mạng xã hội (từ nút liên hệ) */
 export function useSiteInfo() {
   const { storeId } = useCustomerStore();
-  const [info, setInfo] = useState<SiteInfo | null>(null);
+  const [info, setInfo] = useState<SiteInfo | null>(() => readStoredInfo(storeId));
   useEffect(() => {
     let off = false;
+    const stored = readStoredInfo(storeId);
+    if (stored) setInfo(stored);
     cached(infoCache, String(storeId ?? ""), () => api<SiteInfo>(`/api/site-info${storeId ? `?storeId=${storeId}` : ""}`))
-      .then((d) => !off && setInfo(d))
+      .then((d) => {
+        if (off) return;
+        setInfo(d);
+        try {
+          localStorage.setItem(lsKey(storeId), JSON.stringify(d));
+        } catch {
+          /* chế độ riêng tư / đầy bộ nhớ: lần sau vẫn tải từ API */
+        }
+      })
       .catch(() => undefined);
     return () => {
       off = true;

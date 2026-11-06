@@ -1,7 +1,8 @@
 import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
 import { Prisma } from "@prisma/client";
-import { publicReview } from "./reviews.js";
+import { productRatings, publicReview } from "./reviews.js";
+import { hiddenProductIds, storeFromQuery, storeMenuState } from "../lib/storeProducts.js";
 
 export function catalogRouter(prisma: PrismaClient) {
   const r = Router();
@@ -38,7 +39,9 @@ export function catalogRouter(prisma: PrismaClient) {
       include: { category: true },
     });
     if (!p) return res.status(404).json({ error: "Không tìm thấy món" });
-    res.json(p);
+    // ?store= → chi nhánh tắt món / báo hết / hết nguyên liệu thì khoá nút thêm ở trang chi tiết
+    const { disabled, soldOut } = await storeMenuState(prisma, storeFromQuery(req.query.store));
+    res.json({ ...p, soldOut: p.outOfStock || disabled.has(id) || soldOut.has(id) });
   });
 
   /** Trang chi tiết món: "Ăn kèm ngon hơn" (món đồ ăn hay mua chung đơn, thiếu thì lấy món không size) + đánh giá của đơn có món này */
@@ -57,18 +60,19 @@ export function catalogRouter(prisma: PrismaClient) {
           take: 30,
         })
       : [];
-    const food = await prisma.product.findMany({ where: { isActive: true, outOfStock: false, hasSizes: false, id: { not: id } }, orderBy: { id: "asc" } });
+    const hidden = await hiddenProductIds(prisma, storeFromQuery(req.query.store));
+    const food = await prisma.product.findMany({ where: { isActive: true, outOfStock: false, hasSizes: false, id: { notIn: [id, ...hidden] } }, orderBy: { id: "asc" } });
     const rank = new Map(together.map((t, i) => [t.productId, i]));
     const pairings = [...food].sort((a, b) => (rank.get(a.id) ?? 999) - (rank.get(b.id) ?? 999)).slice(0, 5);
-    const reviews = orderIds.length
-      ? await prisma.review.findMany({
-          where: { hidden: false, orderId: { in: orderIds } },
-          orderBy: { createdAt: "desc" },
-          take: 10,
-          select: { id: true, rating: true, comment: true, imageUrl: true, adminReply: true, createdAt: true, anonymous: true, customer: { select: { fullName: true, avatarUrl: true } } },
-        })
-      : [];
-    res.json({ pairings, reviews: reviews.map(publicReview) });
+    // Chỉ đánh giá khách viết cho đúng món này (đánh giá chung của đơn không hiện ở đây)
+    const reviews = await prisma.review.findMany({
+      where: { hidden: false, productId: id },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: { id: true, rating: true, comment: true, imageUrl: true, adminReply: true, createdAt: true, anonymous: true, customer: { select: { fullName: true, avatarUrl: true } } },
+    });
+    const rating = (await productRatings(prisma, [id])).get(id) ?? { avg: 0, count: 0 };
+    res.json({ pairings, reviews: reviews.map(publicReview), rating });
   });
 
   r.get("/inventory", async (_req, res) => {

@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Check, Minus, Plus } from "lucide-react";
-import { api, type Product } from "../lib/api";
-import { addToCart } from "../lib/cart";
+import { api, TEMP_TEXT, tempChoices, type Product, type Temp } from "../lib/api";
+import { addToCart, drinkNotes } from "../lib/cart";
 import { formatVnd } from "../lib/site";
 import { useLang } from "../lib/i18n";
+import { useCustomerStore, withStore } from "../lib/customerStore";
+import { getUser } from "../lib/session";
+import { ReviewComposer } from "../components/site/ReviewComposer";
 import { Crumbs, ProductImage, listPrice, quickAdd } from "../components/site/parts";
 import { ReviewItem, type PublicReviewRow } from "../components/site/ReviewItem";
 
 type Detail = Product & { sku?: string | null; outOfStock?: boolean; tags?: unknown };
 type Review = PublicReviewRow;
-type Extras = { pairings: Product[]; reviews: Review[] };
+type Extras = { pairings: Product[]; reviews: Review[]; rating?: { avg: number; count: number } };
 
 const SIZES = ["S", "M", "L"] as const;
 type Size = (typeof SIZES)[number];
@@ -88,11 +91,20 @@ export function ProductDetail() {
   const [extras, setExtras] = useState<Extras | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [size, setSize] = useState<Size>("M");
+  /** Khách chọn nóng/đá — null = theo mặc định của món (kiểu đầu tiên trong tempChoices) */
+  const [tempPick, setTempPick] = useState<Temp | null>(null);
   const [icePct, setIcePct] = useState<0 | 50 | 100>(100);
   const [sugar, setSugar] = useState<"0" | "50" | "100">("100");
   const [notes, setNotes] = useState("");
   const [qty, setQty] = useState(1);
   const [added, setAdded] = useState(false);
+  const { storeId } = useCustomerStore();
+  const user = getUser();
+  /** Đơn đã mua món này mà khách chưa đánh giá món → hiện nút "Viết đánh giá" */
+  const [canReview, setCanReview] = useState<{ orderId: number } | null>(null);
+  const [writing, setWriting] = useState(false);
+  const [thanks, setThanks] = useState(false);
+  const [reviewTick, setReviewTick] = useState(0);
 
   useEffect(() => {
     if (!id) return;
@@ -101,16 +113,31 @@ export function ProductDetail() {
     setErr(null);
     setExtras(null);
     setQty(1);
-    api<Detail>(`/api/products/${id}`)
+    api<Detail>(withStore(`/api/products/${id}`, storeId))
       .then((d) => !cancelled && setP(d))
       .catch((e) => !cancelled && setErr(e instanceof Error ? e.message : t("Lỗi")));
-    api<Extras>(`/api/products/${id}/extras`)
+    api<Extras>(withStore(`/api/products/${id}/extras`, storeId))
       .then((d) => !cancelled && setExtras(d))
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, storeId]);
+
+  useEffect(() => {
+    setCanReview(null);
+    setWriting(false);
+    if (!id || !user?.customerId) return;
+    let cancelled = false;
+    api<{ orderId: number } | null>(`/api/reviews/product-eligible/${id}`)
+      .then((d) => !cancelled && setCanReview(d))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [id, user?.customerId, reviewTick]);
+
+  useEffect(() => setThanks(false), [id]);
 
   if (err || !p) {
     return (
@@ -127,27 +154,33 @@ export function ProductDetail() {
   const basePrice = isFood ? p.sellPrice : sizePrice(p, size);
   const unitPrice = off(p, basePrice);
   const hasDiscount = unitPrice < basePrice;
-  const soldOut = !!p.outOfStock || !p.isActive;
+  // soldOut: máy chủ tính theo chi nhánh khách đang chọn (báo hết / hết nguyên liệu / chi nhánh không bán)
+  const soldOut = !!p.soldOut || !!p.outOfStock || !p.isActive;
   // Nhãn lưu kèm emoji ("🔥 Best Seller") — chỉ hiện phần chữ
   const tags = tagList(p.tags).map((t) => t.replace(/^[^\p{L}\p{N}]+/u, "").trim()).filter(Boolean);
 
+  // Nóng / đá theo cấu hình món: món chỉ nóng / chỉ đá không cho chọn kiểu kia
+  const temps = tempChoices(p);
+  const temp: Temp | null = temps.length === 0 ? null : tempPick && temps.includes(tempPick) ? tempPick : temps[0];
+
   function add() {
-    if (!p) return;
+    if (!p || soldOut) return;
     const noteParts = [];
-    if (!isFood) noteParts.push(`Size ${size}`, `Đá ${icePct}%`, `Đường ${sugar}%`);
+    if (!isFood) noteParts.push(drinkNotes({ size, temp, icePct, sugar }));
     if (notes.trim()) noteParts.push(notes.trim());
     addToCart(p, {
       unitPrice,
       quantity: qty,
       size: isFood ? "M" : size,
-      icePct: isFood ? 100 : icePct,
+      temp,
+      icePct: isFood || temp === "HOT" ? 100 : icePct,
       sugar: isFood ? "100" : sugar,
       notes: noteParts.join(" · "),
     });
   }
 
   const reviews = extras?.reviews ?? [];
-  const avg = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
+  const rating = extras?.rating ?? { avg: reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0, count: reviews.length };
 
   return (
     <div className="c-wrap c-pd">
@@ -177,7 +210,14 @@ export function ProductDetail() {
           {!isFood && (
             <>
               <Choice label="Kích cỡ" value={size} options={SIZES} onChange={setSize} />
-              <Choice label="Lượng đá" value={icePct} options={[0, 50, 100] as const} onChange={setIcePct} fmt={(v) => `${v}%`} />
+              {temps.length > 1 && temp && <Choice label="Nóng / đá" value={temp} options={temps} onChange={setTempPick} fmt={(v) => t(TEMP_TEXT[v])} />}
+              {temps.length === 1 && (
+                <div className="c-pd-opt">
+                  <span className="c-pd-label">{t("Nóng / đá")}</span>
+                  <p className="c-muted-txt" style={{ margin: 0 }}>{temps[0] === "HOT" ? t("Món này chỉ phục vụ nóng") : t("Món này chỉ phục vụ đá")}</p>
+                </div>
+              )}
+              {temp !== "HOT" && <Choice label="Lượng đá" value={icePct} options={[0, 50, 100] as const} onChange={setIcePct} fmt={(v) => `${v}%`} />}
               <Choice label="Lượng đường" value={sugar} options={["0", "50", "100"] as const} onChange={setSugar} fmt={(v) => `${v}%`} />
             </>
           )}
@@ -209,9 +249,10 @@ export function ProductDetail() {
                 window.setTimeout(() => setAdded(false), 1800);
               }}
             >
-              {added ? t("Đã thêm vào giỏ") : t("Thêm vào giỏ")}
+              {soldOut ? t("Hết hàng") : added ? t("Đã thêm vào giỏ") : t("Thêm vào giỏ")}
             </button>
           </div>
+          {soldOut && <p className="c-muted-txt c-pd-soldout" role="status">{t("Chi nhánh bạn chọn đang tạm hết món này. Thử chọn chi nhánh khác hoặc quay lại sau nhé.")}</p>}
         </div>
       </div>
 
@@ -250,10 +291,32 @@ export function ProductDetail() {
       </div>
 
       <section className="c-pd-reviews">
-        <h2 className="c-pd-h">
-          {t("Đánh giá của khách")}
-          {reviews.length > 0 && <span className="c-pd-avg"> · {avg.toFixed(1)}/5 ({reviews.length})</span>}
-        </h2>
+        <div className="c-pd-rv-head">
+          <h2 className="c-pd-h">
+            {t("Đánh giá của khách")}
+            {rating.count > 0 && <span className="c-pd-avg"> · ★ {rating.avg.toFixed(1)}/5 ({rating.count})</span>}
+          </h2>
+          {canReview && !writing && <button type="button" className="c-btn is-outline" onClick={() => { setWriting(true); setThanks(false); }}>{t("Viết đánh giá")}</button>}
+        </div>
+        {!user && <p className="c-muted-txt c-pd-rv-note">{t("Đã mua món này?")} <Link to="/login">{t("Đăng nhập")}</Link> {t("để viết đánh giá.")}</p>}
+        {thanks && <p className="c-acc-ok" role="status">{t("Cảm ơn bạn đã gửi đánh giá!")}</p>}
+        {canReview && writing && (
+          <div className="c-pd-rv-write">
+            <ReviewComposer
+              orderId={canReview.orderId}
+              productId={p.id}
+              placeholder={t("Hương vị, độ ngọt, cách trình bày…")}
+              onDone={() => {
+                setWriting(false);
+                setThanks(true);
+                setReviewTick((n) => n + 1);
+                // Tải lại danh sách đánh giá + điểm trung bình (không tải lại cả trang)
+                api<Extras>(withStore(`/api/products/${p.id}/extras`, storeId)).then(setExtras).catch(() => undefined);
+              }}
+              onCancel={() => setWriting(false)}
+            />
+          </div>
+        )}
         {reviews.length === 0 ? (
           <p className="c-muted-txt">{t("Chưa có đánh giá cho món này.")}</p>
         ) : (

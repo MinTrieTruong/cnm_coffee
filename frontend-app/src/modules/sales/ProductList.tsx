@@ -25,6 +25,7 @@ export type ProductRow = {
   discountPercent?: number | null;
   /** false = món 1 loại (bánh…): không có giá S/L */
   hasSizes?: boolean;
+  temps?: import("../../lib/api").ProductTemps;
 };
 
 export const PRODUCTS_BASE = "/app/sales/products";

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { KeyRound, LogOut, MoreHorizontal, X } from "lucide-react";
 import { isActive, type BadgeKey, type NavItem } from "../lib/navConfig";
@@ -56,9 +56,11 @@ export type MoreSheet = {
   apps?: NavItem[];
   /** Danh sách đầy đủ theo nhóm (dựng từ SIDEBAR_GROUPS) — có thì thay cho `apps` + `items` */
   groups?: { label: string; items: NavItem[] }[];
-  profile?: { name: string; role: string };
+  profile?: { name: string; role: string; avatar?: ReactNode };
   onChangePassword?: () => void;
   onLogout?: () => void;
+  /** Chữ hiển thị (trang khách dịch theo ngôn ngữ); thiếu thì dùng chữ mặc định của khu nhân viên */
+  text?: { title?: string; section?: string; logout?: string; close?: string };
 };
 
 function Badge({ n }: { n?: number }) {
@@ -74,15 +76,22 @@ export function BottomNav({
   items,
   badges = {},
   more,
+  menus,
   hidden,
 }: {
   items: NavItem[];
   badges?: Partial<Record<BadgeKey, number>>;
   more?: MoreSheet;
+  /** Tab bấm vào mở bảng chức năng thay vì chuyển trang (vd. Tài khoản của khách: avatar → menu + Đăng xuất) */
+  menus?: Record<string, MoreSheet>;
   hidden?: boolean;
 }) {
   const loc = useLocation();
-  const [sheetOpen, setSheetOpen] = useState(false);
+  /** Bảng đang mở: "more" = nút Thêm, còn lại = id tab có trong `menus` */
+  const [openId, setOpenId] = useState<string | null>(null);
+  const sheetOpen = openId != null;
+  const setSheetOpen = (v: boolean) => setOpenId(v ? "more" : null);
+  const sheet = openId === "more" ? more : openId ? menus?.[openId] : undefined;
   const keyboard = useKeyboardOpen();
   const pageHides = useSyncExternalStore(subscribe, () => hiders.size > 0);
   const visible = !hidden && !pageHides && !keyboard;
@@ -104,15 +113,26 @@ export function BottomNav({
   const tabs = more ? items.slice(0, 4) : items.slice(0, 5);
   const act = (i: NavItem) => isActive(i, loc.pathname, loc.search);
   const anyTabActive = tabs.some(act);
-  const moreActive = !!more && (sheetOpen || (!anyTabActive && [...more.items, ...(more.apps ?? []), ...(more.groups ?? []).flatMap((g) => g.items)].some(act)));
+  const moreActive = !!more && (openId === "more" || (!anyTabActive && [...more.items, ...(more.apps ?? []), ...(more.groups ?? []).flatMap((g) => g.items)].some(act)));
 
   return (
     <>
       {visible && (
         <nav className="bn" aria-label="Điều hướng chính">
           {tabs.map((i) => {
-            const on = act(i);
+            const on = act(i) || openId === i.id;
             const Icon = i.icon;
+            if (menus?.[i.id]) {
+              return (
+                <button key={i.id} type="button" className={on ? "bn-item active" : "bn-item"} onClick={() => setOpenId(i.id)} aria-haspopup="dialog" aria-expanded={openId === i.id}>
+                  <span className="bn-icon">
+                    {i.iconNode ?? <Icon size={22} aria-hidden />}
+                    <Badge n={i.badge ? badges[i.badge] : undefined} />
+                  </span>
+                  <span className="bn-label">{i.short}</span>
+                </button>
+              );
+            }
             return (
               <Link key={i.id} to={i.to} className={on ? "bn-item active" : "bn-item"} aria-current={on ? "page" : undefined}>
                 <span className="bn-icon">
@@ -132,25 +152,25 @@ export function BottomNav({
         </nav>
       )}
 
-      {sheetOpen && more && (
+      {sheet && (
         <div className="bn-sheet-backdrop" role="presentation" onClick={(e) => e.target === e.currentTarget && setSheetOpen(false)}>
-          <div className="bn-sheet" role="dialog" aria-modal="true" aria-label="Thêm">
+          <div className="bn-sheet" role="dialog" aria-modal="true" aria-label={sheet.text?.title ?? "Thêm"}>
             <div className="bn-sheet-head">
-              {more.profile ? (
+              {sheet.profile ? (
                 <div className="bn-profile">
-                  <span className="bn-avatar">{more.profile.name.slice(0, 1)}</span>
+                  {sheet.profile.avatar ?? <span className="bn-avatar">{sheet.profile.name.slice(0, 1)}</span>}
                   <span>
-                    <strong>{more.profile.name}</strong>
-                    <span className="bn-role">{more.profile.role}</span>
+                    <strong>{sheet.profile.name}</strong>
+                    <span className="bn-role">{sheet.profile.role}</span>
                   </span>
                 </div>
               ) : (
-                <strong>Thêm</strong>
+                <strong>{sheet.text?.title ?? "Thêm"}</strong>
               )}
-              <button type="button" className="bn-close" onClick={() => setSheetOpen(false)} aria-label="Đóng"><X size={20} /></button>
+              <button type="button" className="bn-close" onClick={() => setSheetOpen(false)} aria-label={sheet.text?.close ?? "Đóng"}><X size={20} /></button>
             </div>
             <div className="bn-sheet-body">
-              {more.groups?.map((g) => (
+              {sheet.groups?.map((g) => (
                 <div key={g.label} className="bn-group">
                   <div className="bn-section">{g.label}</div>
                   {g.items.map((i) => {
@@ -164,11 +184,11 @@ export function BottomNav({
                   })}
                 </div>
               ))}
-              {!more.groups && more.apps && more.apps.length > 0 && (
+              {!sheet.groups && sheet.apps && sheet.apps.length > 0 && (
                 <>
                   <div className="bn-section">Ứng dụng</div>
                   <div className="bn-apps">
-                    {more.apps.map((a) => {
+                    {sheet.apps.map((a) => {
                       const Icon = a.icon;
                       return (
                         <Link key={a.id} to={a.to} className={act(a) ? "bn-app active" : "bn-app"}>
@@ -180,10 +200,10 @@ export function BottomNav({
                   </div>
                 </>
               )}
-              {!more.groups && more.items.length > 0 && (
+              {!sheet.groups && sheet.items.length > 0 && (
                 <>
-                  <div className="bn-section">Cá nhân</div>
-                  {more.items.map((i) => {
+                  <div className="bn-section">{sheet.text?.section ?? "Cá nhân"}</div>
+                  {sheet.items.map((i) => {
                     const Icon = i.icon;
                     return (
                       <Link key={i.id} to={i.to} className={act(i) ? "bn-row active" : "bn-row"}>
@@ -194,22 +214,22 @@ export function BottomNav({
                   })}
                 </>
               )}
-              {(more.onChangePassword || more.onLogout) && <div className="bn-sep" />}
-              {more.onChangePassword && (
+              {(sheet.onChangePassword || sheet.onLogout) && <div className="bn-sep" />}
+              {sheet.onChangePassword && (
                 <button
                   type="button"
                   className="bn-row"
                   onClick={() => {
                     setSheetOpen(false);
-                    more.onChangePassword!();
+                    sheet.onChangePassword!();
                   }}
                 >
-                  <KeyRound size={20} aria-hidden /> <span>Ảnh đại diện & mật khẩu</span>
+                  <KeyRound size={20} aria-hidden /> <span>Tài khoản của tôi</span>
                 </button>
               )}
-              {more.onLogout && (
-                <button type="button" className="bn-row danger" onClick={more.onLogout}>
-                  <LogOut size={20} aria-hidden /> <span>Đăng xuất</span>
+              {sheet.onLogout && (
+                <button type="button" className="bn-row danger" onClick={sheet.onLogout}>
+                  <LogOut size={20} aria-hidden /> <span>{sheet.text?.logout ?? "Đăng xuất"}</span>
                 </button>
               )}
             </div>

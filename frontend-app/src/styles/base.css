@@ -1488,3 +1488,62 @@ button.o-status-step { cursor: pointer; }
 .bp-gift select.o-input { flex: 1; min-width: 0; }
 .bp-gift input.o-input { width: 64px; flex: none; text-align: right; }
 @media (max-width: 900px) { .o-theme-grid { grid-template-columns: minmax(0, 1fr) !important; } }
+
+/* ═══════════ Tài khoản của tôi (nhân viên) — pages/StaffAccount.tsx ═══════════ */
+.o-myacc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.o-myacc-hero { display: flex; align-items: center; gap: 16px; padding: 16px 14px 4px; }
+.o-myacc-name { font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
+.o-myacc-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 14px 14px; flex-wrap: wrap; }
+.o-myacc .o-card-note { display: flex; gap: 6px; align-items: baseline; border-top: 1px solid var(--o-border); padding-top: 10px; }
+.o-myacc-face { display: flex; gap: 16px; align-items: flex-start; padding: 14px; }
+.o-myacc-face-img { width: 96px; height: 96px; flex: 0 0 auto; object-fit: cover; border-radius: var(--o-radius); border: 1px solid var(--o-border); }
+.o-myacc-face-img.is-empty { display: inline-flex; align-items: center; justify-content: center; background: var(--o-surface-alt); color: var(--o-muted); }
+@media (max-width: 900px) {
+  .o-myacc-grid { grid-template-columns: minmax(0, 1fr); }
+}
+/* Trong thẻ: một cột nhãn trên/ô dưới cho gọn, ô nhập rộng hết thẻ */
+.o-myacc .o-groups { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.o-myacc .o-field { grid-template-columns: 150px minmax(0, 1fr); }
+.o-myacc .o-field .o-input { width: 100%; }
+.o-myacc-face .o-stack, .o-myacc-hero .o-stack { align-items: flex-start; }
+@media (max-width: 520px) {
+  .o-myacc .o-field { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .o-myacc .o-group { gap: 10px; }
+}
+/* Ca bổ sung trong ô lịch: chip nhỏ "+" cạnh ca chính */
+.o-sched-chip.o-sched-extra { width: 16px; height: 16px; font-size: 11px; margin-left: 2px; vertical-align: middle; }
+
+/* ═══════════ Hồ sơ khách hàng (modules/sales/CustomerInsights.tsx) ═══════════ */
+.o-cust-rank { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border: 1px solid var(--o-border); border-radius: var(--o-radius); background: var(--o-surface); }
+.o-cust-bar { display: block; height: 8px; border-radius: 4px; background: var(--o-surface-alt); overflow: hidden; }
+.o-cust-bar.is-thin { height: 6px; }
+.o-cust-bar > span { display: block; height: 100%; border-radius: 4px; background: #6F4E37; }
+.o-cust-2col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.o-cust-3col { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.o-cust-share { list-style: none; margin: 0; padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+.o-cust-share li { display: flex; flex-direction: column; gap: 4px; }
+.o-cust-share-top { display: flex; justify-content: space-between; gap: 8px; font-size: var(--o-fs-sm); }
+.o-cust-heat-wrap { padding: 10px 14px 14px; overflow-x: auto; }
+.o-cust-heat { width: 100%; border-collapse: separate; border-spacing: 2px; font-size: var(--o-fs-sm); }
+.o-cust-heat th { font-weight: 500; color: var(--o-muted); font-size: var(--o-fs-xs); padding: 2px 4px; text-align: center; }
+.o-cust-heat tbody th { text-align: left; width: 32px; }
+.o-cust-heat td { height: 30px; text-align: center; border-radius: 4px; background: var(--o-surface-alt); font-weight: 600; font-variant-numeric: tabular-nums; }
+.o-cust-detail td { background: var(--o-surface-alt); }
+.o-cust-detail ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.o-cust-detail li { display: flex; justify-content: space-between; gap: 12px; }
+.o-cust-detail-sum { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--o-border); font-size: var(--o-fs-sm); text-align: right; }
+.o-cust-reviews { list-style: none; margin: 0; padding: 4px 14px 12px; }
+.o-cust-reviews li { padding: 8px 0; border-bottom: 1px solid var(--o-border); }
+.o-cust-reviews li:last-child { border-bottom: 0; }
+.o-cust-reviews p { margin: 4px 0 0; }
+.o-card-head h3 svg { vertical-align: -2px; }
+@media (max-width: 900px) {
+  .o-cust-2col, .o-cust-3col { grid-template-columns: minmax(0, 1fr); }
+}
+/* Bảng rộng trong tab hồ sơ khách: cuộn ngang trong khung, không đẩy khung chính đè cột "Lịch sử" */
+.o-tab-panel { min-width: 0; }
+.o-tab-panel .o-stack > * { min-width: 0; }
+.o-cust-scroll { max-width: 100%; overflow-x: auto; }
+/* .o-sheet căn giữa bằng margin auto nên co theo nội dung (bảng rộng đẩy nó tràn sang cột "Lịch sử") — trang có bảng cuộn ngang thì cố định theo cột */
+.o-form-main > .o-sheet:has(.o-tab-panel) { width: 100%; min-width: 0; }
+.o-list td.o-cust-wrap { white-space: normal; min-width: 96px; }

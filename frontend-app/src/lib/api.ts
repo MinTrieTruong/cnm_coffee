@@ -4,8 +4,8 @@ import { mapFetchError } from "./net";
 
 export function apiBase(): string {
   if (import.meta.env.DEV) return ""; // Dùng Vite proxy (tránh lỗi Mixed Content trên điện thoại)
-  const API_URL = import.meta.env.VITE_API_URL;
-  return API_URL ? API_URL.trim() : "http://localhost:4000";
+  // Build production: VITE_API_URL khi API ở tên miền riêng; để trống = cùng tên miền (nginx chuyển /api, /socket.io, /uploads)
+  return import.meta.env.VITE_API_URL?.trim().replace(/\/$/, "") ?? "";
 }
 
 export function apiOrigin(): string {
@@ -13,12 +13,19 @@ export function apiOrigin(): string {
     return window.location.origin;
   }
   const b = apiBase();
-  return b || "http://localhost:4000";
+  return b || (typeof window !== "undefined" ? window.location.origin : "");
 }
 
 /** Thông tin bắt tay socket để vào phòng order:<id> / tracking:<id> — máy chủ kiểm đúng chủ đơn */
 export function orderSocketAuth() {
   return { customerToken: getToken() ?? undefined, orderSession: getTakeawaySessionId() ?? undefined, tableId: getTableId() ?? undefined };
+}
+
+/** Lỗi API kèm mã HTTP và nguyên body (vd. 409 LINK_REQUIRED mang phiếu liên kết) — message vẫn là câu báo lỗi */
+export class ApiError extends Error {
+  constructor(message: string, public status: number, public data?: Record<string, unknown>) {
+    super(message);
+  }
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -40,9 +47,10 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     let msg = res.statusText;
+    let data: Record<string, unknown> | undefined;
     try {
-      const j = (await res.json()) as { error?: string };
-      if (j.error) msg = j.error;
+      data = (await res.json()) as Record<string, unknown>;
+      if (typeof data.error === "string") msg = data.error;
     } catch {
 
     }
@@ -50,7 +58,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       msg =
         "API đang lỗi/không chạy. Kiểm tra backend (cd backend-node && npm run dev), MySQL Docker và thử lại.";
     }
-    throw new Error(msg);
+    throw new ApiError(msg, res.status, data);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -81,12 +89,30 @@ export type Product = {
   priceSizeL?: number | null;
   /** false = món 1 loại (bánh, đồ ăn): không chọn size */
   hasSizes?: boolean;
+  /** Nhiệt độ phục vụ: BOTH = khách chọn, ICED = chỉ đá, HOT = chỉ nóng, NONE = không áp dụng */
+  temps?: ProductTemps;
   isActive: boolean;
   isBestSeller?: boolean;
   discountPercent?: number | null;
   imageUrl: string | null;
   category?: Category;
+  /** Chi nhánh đang hết món (báo hết / hết nguyên liệu) — thực đơn hiện mờ, không cho thêm */
+  soldOut?: boolean;
+  /** Điểm sao trung bình từ đánh giá theo món (null = chưa có đánh giá) */
+  rating?: { avg: number; count: number } | null;
 };
+
+export type ProductTemps = "BOTH" | "ICED" | "HOT" | "NONE";
+export type Temp = "HOT" | "ICED";
+export const TEMP_TEXT: Record<Temp, string> = { HOT: "Nóng", ICED: "Đá" };
+
+/** Kiểu nóng / đá khách được chọn cho món — khớp tempFor ở backend (món 1 loại không có nóng/đá) */
+export function tempChoices(p: { temps?: ProductTemps; hasSizes?: boolean }): Temp[] {
+  if (p.hasSizes === false || p.temps === "NONE") return [];
+  if (p.temps === "HOT") return ["HOT"];
+  if (p.temps === "ICED") return ["ICED"];
+  return ["ICED", "HOT"];
+}
 
 export type MenuResponse = {
   categories: Category[];

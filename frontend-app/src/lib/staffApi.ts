@@ -83,6 +83,20 @@ export function staffSocket(): Socket {
   });
 }
 
+/** Tải ảnh cần đăng nhập (vd. ảnh chụp lúc đăng ký FaceID) → object URL để gắn vào <img>; null nếu không có / không được xem */
+export async function staffBlobUrl(path: string): Promise<string | null> {
+  const headers = new Headers();
+  const t = getStaffToken();
+  if (t) headers.set("Authorization", `Bearer ${t}`);
+  setStoreHeader(headers);
+  try {
+    const res = await fetch(`${apiBase()}${path}`, { headers });
+    return res.ok ? URL.createObjectURL(await res.blob()) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function staffApi<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "application/json");

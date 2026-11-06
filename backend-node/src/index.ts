@@ -8,6 +8,7 @@ import cors from "cors";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { authRouter } from "./routes/auth.js";
+import { warnSocialConfig } from "./lib/socialAuth.js";
 import { prisma } from "./db.js";
 import { staffAuthRouter } from "./routes/staffAuth.js";
 import { catalogRouter } from "./routes/catalog.js";
@@ -19,6 +20,7 @@ import { chatRouter } from "./routes/chat.js";
 import { reviewsRouter } from "./routes/reviews.js";
 import { posRouter } from "./routes/pos.js";
 import { adminRouter } from "./routes/admin.js";
+import { customerInsightsRouter } from "./routes/customerInsights.js";
 import { staffOpsRouter, takeawayRouter } from "./routes/staffOps.js";
 import { formulaRouter } from "./routes/formula.js";
 import { vnpayRouter } from "./routes/vnpay.js";
@@ -100,6 +102,8 @@ app.use("/api/auth", authRouter(prisma));
 app.use("/api", staffAuthRouter(prisma));
 app.use("/api", shiftsRouter(prisma));
 app.use("/api", cashRouter(prisma));
+// Hồ sơ khách (thói quen, quay lại, lịch sử) — gắn trước adminRouter
+app.use("/api/admin", customerInsightsRouter(prisma));
 app.use("/api/admin", adminRouter(prisma));
 app.use("/api/admin", supplierRouter());
 app.use("/api/admin", auditRouter());
@@ -185,6 +189,7 @@ async function bootstrap() {
     process.exit(1);
   }
 
+  warnSocialConfig();
   httpServer.listen(port, () => {
     console.log(`API + Socket.io: http://localhost:${port}`);
   });

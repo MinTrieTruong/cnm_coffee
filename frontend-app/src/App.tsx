@@ -3,6 +3,7 @@ import { PublicLayout } from "./components/PublicLayout";
 import { Welcome } from "./pages/Welcome";
 import { HomePage } from "./pages/HomePage";
 import { Register } from "./pages/Register";
+import { CompletePhone, LinkAccount } from "./pages/SocialComplete";
 import { Menu } from "./pages/Menu";
 import { ProductDetail } from "./pages/ProductDetail";
 import { Cart } from "./pages/Cart";
@@ -45,6 +46,8 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<Welcome />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/login/phone" element={<CompletePhone />} />
+          <Route path="/login/link" element={<LinkAccount />} />
           <Route path="/staff/login" element={<StaffLogin />} />
           <Route path="/account" element={<Account />} />
           <Route path="/account/:section" element={<Account />} />
@@ -62,6 +65,8 @@ export default function App() {
           <Route path="/vnpay-return" element={<VnpayReturn />} />
           <Route path="/game/:campaignId" element={<GamePlay />} />
           <Route path="/policy/:slug" element={<Policy />} />
+          <Route path="/privacy" element={<Policy slug="privacy" />} />
+          <Route path="/data-deletion" element={<Policy slug="data-deletion" />} />
           <Route path="/contact" element={<Contact />} />
         </Route>
 

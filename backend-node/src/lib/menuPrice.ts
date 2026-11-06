@@ -11,6 +11,26 @@ export const normalizeSize = (s: unknown): Size => (s === "S" || s === "L" ? s :
 /** Size thật của dòng: món chỉ 1 loại (bánh, đồ ăn — hasSizes = false) luôn là M, bỏ qua size trình duyệt gửi */
 export const sizeFor = (p: { hasSizes: boolean }, s: unknown): Size => (p.hasSizes ? normalizeSize(s) : "M");
 
+export type Temp = "HOT" | "ICED";
+/** Giá trị Product.temps hợp lệ */
+export const PRODUCT_TEMPS = ["BOTH", "ICED", "HOT", "NONE"] as const;
+export const TEMP_LABEL: Record<Temp, string> = { HOT: "nóng", ICED: "đá" };
+
+/**
+ * Nhiệt độ thật của dòng theo cấu hình món: món chỉ nóng / chỉ đá không cho chọn kiểu kia (báo lỗi),
+ * món BOTH lấy theo khách chọn (mặc định đá), món NONE / món 1 loại (bánh…) không có nhiệt độ.
+ */
+export function tempFor(p: { temps: string; name: string; hasSizes: boolean }, raw: unknown): Temp | null | { error: string } {
+  const want = raw === "HOT" || raw === "ICED" ? raw : null;
+  // Món 1 loại (bánh, đồ ăn) không có nóng/đá, kể cả món cũ còn để mặc định BOTH
+  if (p.temps === "NONE" || !p.hasSizes) return null;
+  if (p.temps === "HOT" || p.temps === "ICED") {
+    if (want && want !== p.temps) return { error: `Món ${p.name} chỉ có ${TEMP_LABEL[p.temps]}.` };
+    return p.temps;
+  }
+  return want ?? "ICED";
+}
+
 /**
  * Giá bán theo size — giống quy tắc trang đặt món & màn quản lý món:
  * S/L chưa đặt giá riêng thì S = M − 3.000đ, L = M + 5.000đ.
@@ -27,9 +47,9 @@ export function unitPriceOf(p: PricedProduct, size: Size) {
   return p.discountPercent && p.discountPercent > 0 ? Math.round(base * (1 - p.discountPercent / 100)) : base;
 }
 
-export type RawLine = { productId?: number; quantity?: number; size?: unknown; customNotes?: string | null; comboId?: number | null };
+export type RawLine = { productId?: number; quantity?: number; size?: unknown; temp?: unknown; customNotes?: string | null; comboId?: number | null };
 export type PricedLine = {
-  productId: number; quantity: number; unitPrice: number; size: Size; customNotes: string | null; comboId: number | null;
+  productId: number; quantity: number; unitPrice: number; size: Size; temperature: Temp | null; customNotes: string | null; comboId: number | null;
   /** Các dòng của cùng 1 lần mua combo chung mã — đếm số combo đã bán */
   comboRef: string | null; comboQty: number | null;
 };
@@ -64,7 +84,7 @@ export async function priceLines(db: Db, storeId: number, raw: RawLine[]): Promi
   if (productIds.some((id) => !Number.isInteger(id) || id <= 0)) return { error: "Món không hợp lệ." };
   const products = await db.product.findMany({
     where: { id: { in: productIds } },
-    select: { id: true, name: true, isActive: true, outOfStock: true, sellPrice: true, priceSizeS: true, priceSizeL: true, discountPercent: true, hasSizes: true },
+    select: { id: true, name: true, isActive: true, outOfStock: true, sellPrice: true, priceSizeS: true, priceSizeL: true, discountPercent: true, hasSizes: true, temps: true },
   });
   if (products.length !== productIds.length) return { error: "Một số món không còn phục vụ tại chi nhánh này." };
   const unsellable = await unsellableProductIds(db as PrismaClient, storeId, products);
@@ -73,6 +93,8 @@ export async function priceLines(db: Db, storeId: number, raw: RawLine[]): Promi
     return { error: `Món không còn phục vụ tại chi nhánh này: ${names.join(", ")}.` };
   }
   const byId = new Map(products.map((p) => [p.id, p]));
+  /** Món trong combo: nhiệt độ mặc định của món (chỉ nóng → nóng, còn lại đá; bánh → không có) */
+  const comboTemp = (productId: number) => tempFor(byId.get(productId)!, undefined) as Temp | null;
 
   const lines: PricedLine[] = [];
   for (const l of raw) {
@@ -80,7 +102,9 @@ export async function priceLines(db: Db, storeId: number, raw: RawLine[]): Promi
     if (!l.comboId) {
       const p = byId.get(Number(l.productId))!;
       const size = sizeFor(p, l.size);
-      lines.push({ productId: p.id, quantity: l.quantity!, unitPrice: unitPriceOf(p, size), size, customNotes, comboId: null, comboRef: null, comboQty: null });
+      const temperature = tempFor(p, l.temp);
+      if (temperature && typeof temperature === "object") return temperature;
+      lines.push({ productId: p.id, quantity: l.quantity!, unitPrice: unitPriceOf(p, size), size, temperature, customNotes, comboId: null, comboRef: null, comboQty: null });
       continue;
     }
     // Combo: chia giá combo theo tỷ lệ giá gốc (size M) của từng món
@@ -101,11 +125,11 @@ export async function priceLines(db: Db, storeId: number, raw: RawLine[]): Promi
     const base = { size: "M" as Size, customNotes: notes, comboId: combo.id, comboRef: ref, comboQty: l.quantity! };
     combo.items.forEach((i, idx) => {
       if (idx === last && extra > 0) {
-        if (lastQty > 1) lines.push({ ...base, productId: i.productId, quantity: (lastQty - 1) * l.quantity!, unitPrice: unit[idx] });
-        lines.push({ ...base, productId: i.productId, quantity: l.quantity!, unitPrice: unit[idx] + extra });
+        if (lastQty > 1) lines.push({ ...base, productId: i.productId, temperature: comboTemp(i.productId), quantity: (lastQty - 1) * l.quantity!, unitPrice: unit[idx] });
+        lines.push({ ...base, productId: i.productId, temperature: comboTemp(i.productId), quantity: l.quantity!, unitPrice: unit[idx] + extra });
         return;
       }
-      lines.push({ ...base, productId: i.productId, quantity: i.quantity * l.quantity!, unitPrice: unit[idx] });
+      lines.push({ ...base, productId: i.productId, temperature: comboTemp(i.productId), quantity: i.quantity * l.quantity!, unitPrice: unit[idx] });
     });
   }
   // Đủ nguyên liệu cho đúng số ly / size đã đặt (gộp các dòng, kể cả món trong combo)

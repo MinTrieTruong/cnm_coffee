@@ -60,8 +60,13 @@ export function StaffChat() {
   async function loadSessions() {
     try {
       const url = showAll ? "/api/staff/chat/sessions/all" : "/api/staff/chat/sessions";
-      const data = await apiFetch<ChatSession[]>(url);
+      const [data, unread] = await Promise.all([
+        apiFetch<ChatSession[]>(url),
+        apiFetch<{ sessionIds: number[] }>("/api/staff/chat/unread").catch(() => null),
+      ]);
       setSessions(data);
+      // Chưa đọc lấy từ máy chủ (giữ được khi tải lại trang / đổi máy), trừ phiên đang mở
+      if (unread) setUnreadIds(new Set(unread.sessionIds.filter((id) => id !== selected)));
     } catch (e) {
       console.error(e);
     }
@@ -99,7 +104,12 @@ export function StaffChat() {
           ...prev,
         ];
       });
-      setUnreadIds((prev) => new Set([...prev, data.sessionId]));
+      if (data.sessionId === selected) {
+        // Đang mở đúng phiên → coi như đã đọc (đợi bot ghi xong tin "chuyển tới nhân viên" rồi mới đánh dấu)
+        window.setTimeout(() => void apiFetch(`/api/staff/chat/sessions/${data.sessionId}/read`, { method: "POST" }).catch(() => undefined), 1500);
+      } else {
+        setUnreadIds((prev) => new Set([...prev, data.sessionId]));
+      }
     }
 
     function onReply(data: { sessionId: number; message: ChatMsg }) {
@@ -154,7 +164,9 @@ export function StaffChat() {
 
   /* ── Scroll cuối thread ────────────────────────────────────────── */
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Chỉ cuộn khung tin nhắn (scrollIntoView cuộn cả trang → khuất thanh tên khách / nút quay lại trên điện thoại)
+    const box = bottomRef.current?.parentElement;
+    if (box) box.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
   }, [thread]);
 
   /* ── Gửi reply ─────────────────────────────────────────────────── */
@@ -212,17 +224,26 @@ export function StaffChat() {
   }
 
   const selectedSession = sessions.find((s) => s.id === selected);
-  const openCount = sessions.filter((s) => s.status === "open").length;
+  // Phiên chưa đọc lên đầu (còn lại giữ thứ tự mới nhất) — điện thoại danh sách ngắn, phiên cũ chưa đọc dễ bị khuất
+  const ordered = [...sessions].sort((a, b) => Number(unreadIds.has(b.id)) - Number(unreadIds.has(a.id)));
+  const unreadCount = sessions.filter((s) => unreadIds.has(s.id)).length;
+  const timeLabel = (iso: string) => {
+    const d = new Date(iso);
+    const today = d.toDateString() === new Date().toDateString();
+    return today
+      ? d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
+      : d.toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
+  };
 
   /* ── Render ─────────────────────────────────────────────────────── */
   return (
-    <div className="staff-chat-layout">
+    <div className={selected ? "staff-chat-layout has-thread" : "staff-chat-layout"}>
       {/* ── Sidebar danh sách phiên ── */}
       <aside className="staff-chat-sidebar">
         <div className="staff-chat-sidebar-header">
           <h2 className="staff-chat-title">
             Tin nhắn
-            {openCount > 0 && <span className="staff-chat-badge">{openCount}</span>}
+            {unreadCount > 0 && <span className="staff-chat-badge" title="Phiên chưa đọc">{unreadCount}</span>}
           </h2>
           <label className="staff-chat-toggle-label">
             <input
@@ -239,7 +260,7 @@ export function StaffChat() {
         )}
 
         <ul className="staff-chat-session-list">
-          {sessions.map((s) => {
+          {ordered.map((s) => {
             const preview = s.messages[0]?.body || (s.messages[0]?.imageUrl ? "📷 Ảnh" : "…");
             const isUnread = unreadIds.has(s.id);
             const isActive = selected === s.id;
@@ -268,7 +289,7 @@ export function StaffChat() {
                 </div>
                 <div className="staff-chat-preview">{preview}</div>
                 <div className="staff-chat-time">
-                  {new Date(s.updatedAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
+                  {timeLabel(s.updatedAt)}
                 </div>
               </li>
             );
@@ -286,7 +307,9 @@ export function StaffChat() {
           <>
             {/* Header thread */}
             <div className="staff-chat-thread-header">
-              <div>
+              {/* Điện thoại: danh sách và hội thoại là hai màn — nút quay lại danh sách */}
+              <button type="button" className="staff-chat-back" onClick={() => setSelected(null)} aria-label="Quay lại danh sách">‹</button>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <strong>{selectedSession?.guestName ?? "Khách"}</strong>
                 {selectedSession?.tableId && (
                   <span className="staff-chat-table-tag" style={{ marginLeft: 8 }}>

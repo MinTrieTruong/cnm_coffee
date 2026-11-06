@@ -8,6 +8,7 @@ import { normalizeVnPhone } from "../lib/contactLinks.js";
 import { getStoreSettings } from "../lib/pricing.js";
 import { DS } from "../lib/delivery.js";
 import { customerCancelDeadline, moneyToPoints, paidMoney } from "../lib/points.js";
+import { logCustomerAuth } from "../lib/customerAccount.js";
 
 export function customerRouter(prisma: PrismaClient) {
   const r = Router();
@@ -59,21 +60,47 @@ export function customerRouter(prisma: PrismaClient) {
     const customerId = (req as Request & { customerId?: number }).customerId!;
     const { currentPassword, newPassword } = req.body as { currentPassword?: string; newPassword?: string };
     
-    if (!currentPassword || !newPassword || newPassword.length < 6) {
+    if (!newPassword || newPassword.length < 6) {
       return res.status(400).json({ error: "Mật khẩu mới phải ≥ 6 ký tự." });
     }
 
     const c = await prisma.customer.findUnique({ where: { id: customerId } });
-    if (!c || !c.passwordHash) return res.status(400).json({ error: "Không tìm thấy khách hàng." });
+    if (!c) return res.status(400).json({ error: "Không tìm thấy khách hàng." });
 
-    const isValid = await bcrypt.compare(currentPassword, c.passwordHash);
-    if (!isValid) return res.status(400).json({ error: "Mật khẩu hiện tại không đúng." });
+    // Khách tạo từ Google / Facebook chưa có mật khẩu → đặt lần đầu, không cần mật khẩu cũ
+    if (c.passwordHash) {
+      if (!currentPassword) return res.status(400).json({ error: "Nhập mật khẩu hiện tại." });
+      const isValid = await bcrypt.compare(currentPassword, c.passwordHash);
+      if (!isValid) return res.status(400).json({ error: "Mật khẩu hiện tại không đúng." });
+    }
 
     const hash = await bcrypt.hash(newPassword, 10);
     await prisma.customer.update({
       where: { id: customerId },
       data: { passwordHash: hash },
     });
+    if (!c.passwordHash) logCustomerAuth(prisma, req, customerId, "SET_PASSWORD", "PASSWORD");
+    res.json({ ok: true });
+  });
+
+  /** Hộp thư: tin quán gửi (chăm sóc khách, tặng voucher, điều chỉnh điểm) */
+  r.get("/messages", customerAuth, async (req, res) => {
+    const customerId = (req as Request & { customerId?: number }).customerId!;
+    const [rows, unread] = await Promise.all([
+      prisma.customerMessage.findMany({
+        where: { customerId },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: { id: true, kind: true, title: true, body: true, readAt: true, createdAt: true },
+      }),
+      prisma.customerMessage.count({ where: { customerId, readAt: null } }),
+    ]);
+    res.json({ unread, rows });
+  });
+
+  r.post("/messages/read", customerAuth, async (req, res) => {
+    const customerId = (req as Request & { customerId?: number }).customerId!;
+    await prisma.customerMessage.updateMany({ where: { customerId, readAt: null }, data: { readAt: new Date() } });
     res.json({ ok: true });
   });
 

@@ -1100,6 +1100,20 @@ textarea {
   text-align: center;
 }
 
+.staff-chat-back {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-left: -8px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 1.8rem;
+  line-height: 1;
+  cursor: pointer;
+}
 .staff-chat-thread-header {
   padding: 12px 20px;
   box-shadow: 0 1px 0 var(--border);
@@ -1212,11 +1226,16 @@ textarea {
     min-height: calc(100dvh - 140px);
   }
 
+  /* Điện thoại / máy tính bảng: một màn danh sách, chọn phiên thì sang màn hội thoại (có nút quay lại) */
   .staff-chat-sidebar {
     width: 100%;
-    max-height: 240px;
-    box-shadow: 0 1px 0 var(--border);
+    box-shadow: none;
   }
+  .staff-chat-layout:not(.has-thread) .staff-chat-main { display: none; }
+  .staff-chat-layout.has-thread .staff-chat-sidebar { display: none; }
+  /* Trừ header + thanh mục con (~106px) và thanh đáy (~60px) để ô nhập tin không bị che */
+  .staff-chat-layout.has-thread { height: calc(100dvh - 170px - env(safe-area-inset-bottom, 0px)); min-height: 0; }
+  .staff-chat-back { display: inline-flex !important; }
 
   .staff-msg {
     max-width: 88%;

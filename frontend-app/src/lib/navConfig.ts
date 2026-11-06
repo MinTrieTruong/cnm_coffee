@@ -54,6 +54,8 @@ export type BadgeKey =
   | "attendance"
   // Thông báo chưa đọc (lib/notifications)
   | "notifications"
+  // Phiên chat khách đang chờ nhân viên mà chưa ai mở xem (GET /api/staff/chat/unread)
+  | "chat"
   // Việc chờ xử lý (GET /api/admin/stats → pending)
   | "approvals"
   | "purchase"
@@ -104,7 +106,7 @@ const I: Record<string, NavItem> = {
   tasks: { id: "tasks", label: "Giao việc", short: "Giao việc", icon: ClipboardCheck, to: "/app/hr/tasks" },
   floor: { id: "floor", label: "Sơ đồ bàn", short: "Bàn", icon: LayoutGrid, to: "/app/tables/floor" },
   orderStatus: { id: "order-status", label: "Trạng thái món", short: "Món", icon: ListChecks, to: "/app/tables/order-status" },
-  chat: { id: "chat", label: "Tin nhắn", short: "Tin nhắn", icon: MessageSquare, to: "/app/tables/chat" },
+  chat: { id: "chat", label: "Tin nhắn", short: "Tin nhắn", icon: MessageSquare, to: "/app/tables/chat", badge: "chat" },
   pos: { id: "pos", label: "Thu ngân (POS)", short: "POS", icon: Monitor, to: "/pos" },
   onlineOrders: { id: "delivery-orders", label: "Đơn online / giao hàng", short: "Đơn online", icon: Bike, to: "/app/delivery/orders", badge: "deliveryNew" },
   kitchenStats: { id: "kitchen-stats", label: "Thống kê pha chế", short: "Thống kê", icon: BarChart3, to: "/app/kitchen/stats" },
@@ -144,8 +146,9 @@ export const STAFF_COMMON_MORE: NavItem[] = [
 
 export const NAV_BY_ROLE: Record<string, RoleNav> = {
   // Mọi vai trò: Trang chủ · 2 việc chính của vai trò · Chấm công; phần còn lại ở Trang chủ và "Thêm"
-  Waiter: { primary: [I.home, I.floor, I.orderStatus, I.attendance], more: [I.chat] },
-  Cashier: { primary: [I.home, I.pos, I.onlineOrders, I.attendance], more: [I.floor, I.chat, I.schedule] },
+  // Phục vụ / thu ngân: Tin nhắn với khách lên thanh đáy; Chấm công chuyển vào "Thêm" (đến giờ ca vẫn có nhắc chấm công)
+  Waiter: { primary: [I.home, I.floor, I.orderStatus, I.chat], more: [I.attendance] },
+  Cashier: { primary: [I.home, I.pos, I.onlineOrders, I.chat], more: [I.attendance, I.floor, I.schedule] },
   // Pha chế chỉ tập trung pha chế: hết món / hao hụt / đề xuất món đều nằm trong màn KDS
   Kitchen: { primary: [I.home, I.kds, I.schedule, I.attendance], more: [I.kitchenStats] },
   Shipper: { primary: [I.home, I.shipOrders, I.shipMap, I.attendance], more: [I.shipHistory, I.schedule] },

@@ -13,6 +13,7 @@
  * POST   /schedule/open/:id/claim     — Nhận ca trống (ai bấm trước được ca)
  */
 import { Router } from "express";
+import { randomUUID } from "crypto";
 import type { Request } from "express";
 import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
@@ -20,7 +21,8 @@ import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../m
 import { inStore, mustStoreId, storeWhere, toStore } from "../lib/storeScope.js";
 import { getHrConfig, getShiftTemplates, shiftDefsOf, SHIFT_ROLES } from "../lib/hrConfig.js";
 import { autoSchedule } from "../lib/autoSchedule.js";
-import { announceOpenShifts, claimOpenShift, closeOpenShift, openShiftsFor } from "../lib/openShifts.js";
+import { announceOpenShifts, claimOpenShift, closeOpenShift, EXTRA_SHIFT_NAME, openShiftsFor, shiftStart } from "../lib/openShifts.js";
+import { notify as notifyStaff, recallNotification } from "../lib/notify.js";
 
 function pad2(n: number) { return String(n).padStart(2, "0"); }
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
@@ -118,6 +120,93 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
     }
   });
 
+  /* ── POST /schedule/admin/extra — Ca bổ sung: cần thêm người vài tiếng (giờ tự chọn, tính lương như làm thêm) ──
+     Body: { date, start: "HH:MM", end: "HH:MM", reason, staffId? } — có staffId: giao thẳng; không có: đăng ca trống
+     cho vị trí `role` để nhân viên rảnh bấm nhận (không trùng giờ ca chính vẫn nhận được). */
+  r.post("/schedule/admin/extra", ...mgmtOnly, async (req, res) => {
+    const me = (req as StaffRequest).staffRow!;
+    const b = req.body as { date?: string; start?: string; end?: string; reason?: string; staffId?: number | null; role?: string; count?: number };
+    const toMin = (s?: string) => {
+      const m = /^(\d{1,2}):(\d{2})$/.exec(s ?? "");
+      return m && Number(m[1]) < 24 && Number(m[2]) < 60 ? Number(m[1]) * 60 + Number(m[2]) : null;
+    };
+    const startMin = toMin(b.start);
+    const endMin = toMin(b.end);
+    const reason = (b.reason ?? "").trim().slice(0, 300);
+    if (!b.date || !/^\d{4}-\d{2}-\d{2}$/.test(b.date)) return res.status(400).json({ error: "Chọn ngày." });
+    if (startMin == null || endMin == null) return res.status(400).json({ error: "Giờ bắt đầu / kết thúc không hợp lệ." });
+    if (endMin <= startMin) return res.status(400).json({ error: "Giờ kết thúc phải sau giờ bắt đầu (ca bổ sung không qua đêm)." });
+    if (endMin - startMin < 30 || endMin - startMin > 8 * 60) return res.status(400).json({ error: "Ca bổ sung dài từ 30 phút đến 8 tiếng." });
+    if (reason.length < 3) return res.status(400).json({ error: "Nhập lý do cần thêm người." });
+
+    const storeId = mustStoreId(req);
+    const workDate = dateOnly(b.date);
+    const endAt = shiftStart({ workDate, startMin: endMin }).getTime();
+    if (endAt <= Date.now()) return res.status(400).json({ error: "Ca bổ sung đã qua giờ kết thúc." });
+
+    let staffId: number | null = null;
+    let role: string;
+    // Đăng ca trống: cần bao nhiêu người (mỗi người 1 chỗ, đủ thì ngưng nhận)
+    const count = b.staffId != null ? 1 : Math.floor(Number(b.count ?? 1));
+    if (!(count >= 1 && count <= 20)) return res.status(400).json({ error: "Số người cần từ 1 đến 20." });
+    if (b.staffId != null) {
+      const target = await prisma.staff.findUnique({ where: { id: Number(b.staffId) }, select: { id: true, storeId: true, role: true, status: true } });
+      if (!target || target.storeId !== storeId || target.status !== "Active") return res.status(400).json({ error: "Nhân viên không thuộc chi nhánh này." });
+      if (await overlapping(target.id, workDate, startMin, endMin)) return res.status(400).json({ error: "Nhân viên đã có ca trùng giờ trong khung này." });
+      staffId = target.id;
+      role = target.role;
+    } else {
+      if (!b.role || !(SHIFT_ROLES as readonly string[]).includes(b.role)) return res.status(400).json({ error: "Chọn vị trí cần người." });
+      role = b.role;
+    }
+
+    try {
+      const group = count > 1 ? randomUUID() : null;
+      const rows = await prisma.$transaction(
+        Array.from({ length: count }, () =>
+          prisma.workSchedule.create({
+            data: {
+              storeId, staffId, workDate, shiftCode: "EXTRA", isExtra: true, extraGroup: group, role, startMin, endMin,
+              status: staffId != null ? "APPROVED" : "OPEN_SHIFT", managerNote: reason, reviewedBy: me.id,
+            },
+            include: { staff: { select: { id: true, fullName: true, role: true } } },
+          }),
+        ),
+      );
+      const created = rows[0];
+      notify(storeId, [staffId], "schedule:new", { staffId, date: b.date });
+      const label = `${EXTRA_SHIFT_NAME} ${b.date.slice(8, 10)}/${b.date.slice(5, 7)} (${b.start}–${b.end})`;
+      if (staffId != null) {
+        void notifyStaff({
+          type: "SHIFT_OPEN",
+          title: `Bạn được xếp ${label}`,
+          body: `${reason}. Giờ làm trong ca bổ sung được tính lương như làm thêm. Nhớ chấm công vào/ra như ca thường.`,
+          link: "/app/hr/my-schedule",
+          storeId,
+          to: { staffIds: [staffId] },
+        });
+      } else {
+        void announceOpenShifts(rows.map((r) => r.id), reason);
+      }
+      res.json({ ok: true, schedule: created, count: rows.length });
+    } catch (e: any) {
+      if (e.code === "P2002") return res.status(400).json({ error: "Nhân viên đã có một ca bổ sung trong ngày này." });
+      res.status(500).json({ error: "Lỗi máy chủ." });
+    }
+  });
+
+  /* ── DELETE /schedule/admin/extra-group/:group — Ngưng nhận thêm: xoá các chỗ còn trống của ca bổ sung nhiều người ── */
+  r.delete("/schedule/admin/extra-group/:group", ...mgmtOnly, async (req, res) => {
+    const group = String(req.params.group);
+    const open = await prisma.workSchedule.findMany({ where: { extraGroup: group, status: "OPEN_SHIFT", staffId: null } });
+    if (!open.length || !open.every((w) => inStore(req, w))) return res.status(404).json({ error: "Không còn chỗ trống nào." });
+    // Xoá cả nhóm chỗ trống nên thu hồi thẳng lời mời (không chuyển sang chỗ khác như khi có người nhận)
+    for (const w of open) if (w.openNotifId) await recallNotification(w.openNotifId).catch(() => {});
+    await prisma.workSchedule.deleteMany({ where: { id: { in: open.map((w) => w.id) }, status: "OPEN_SHIFT", staffId: null } });
+    notify(open[0].storeId, [], "schedule:deleted", { group });
+    res.json({ ok: true, removed: open.length });
+  });
+
   /* ── GET /schedule/my — Lịch cá nhân ── */
   r.get("/schedule/my", ...anyStaff, async (req, res) => {
     const me = (req as StaffRequest).staffRow!;
@@ -187,6 +276,8 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
       shiftCode?: string; managerNote?: string; staffId?: number | null;
     };
 
+    // Ca bổ sung giữ nguyên giờ đã chọn (muốn đổi giờ thì xoá rồi tạo lại)
+    if (existing.isExtra && shiftCode && shiftCode !== existing.shiftCode) return res.status(400).json({ error: "Ca bổ sung không đổi sang ca mẫu được — xoá rồi tạo lại." });
     const tpl = shiftCode && shiftCode !== existing.shiftCode ? await templateOf(shiftCode) : null;
     if (shiftCode && shiftCode !== existing.shiftCode && !tpl) return res.status(400).json({ error: "Mã ca không hợp lệ." });
     const startMin = tpl?.startMin ?? existing.startMin;

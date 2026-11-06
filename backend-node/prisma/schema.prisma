@@ -9,39 +9,42 @@ datasource db {
 
 /// Cấu hình chung cả chuỗi (1 dòng): VAT, quy đổi điểm. Toạ độ/bán kính nằm ở từng Store.
 model StoreSettings {
-  id                  Int   @id @default(1)
-  vatRatePercent      Int   @default(10) @map("VAT_Rate_Percent")
+  id                   Int     @id @default(1)
+  vatRatePercent       Int     @default(10) @map("VAT_Rate_Percent")
   /// Legacy — không dùng cho công thức tích điểm mới
-  pointPerVnd         Int   @default(10000) @map("Point_Per_VND")
+  pointPerVnd          Int     @default(10000) @map("Point_Per_VND")
   /// 1 điểm đổi được bao nhiêu VND giảm trừ (1 = 1 điểm = 1đ)
-  pointValueVnd       Int   @default(1) @map("Point_Value_VND")
-  cashRoundTo         Int   @default(1000) @map("Cash_Round_To")
+  pointValueVnd        Int     @default(1) @map("Point_Value_VND")
+  cashRoundTo          Int     @default(1000) @map("Cash_Round_To")
   /// Cứ mỗi N VND thành tiền thanh toán → cộng `pointEarnEach` điểm
-  pointEarnEveryVnd   Int   @default(1000) @map("Point_Earn_Every_VND")
-  pointEarnEach       Int   @default(100) @map("Point_Earn_Each")
+  pointEarnEveryVnd    Int     @default(1000) @map("Point_Earn_Every_VND")
+  pointEarnEach        Int     @default(100) @map("Point_Earn_Each")
   /// Độ nhạy nhận diện khuôn mặt (FaceID) - càng thấp càng khắt khe
-  faceMatchThreshold  Float @default(0.5) @map("Face_Match_Threshold")
+  faceMatchThreshold   Float   @default(0.5) @map("Face_Match_Threshold")
   /// Thu ngân tự chi từ két / ngăn kéo tối đa bao nhiêu mỗi phiếu; vượt mức cần quản lý duyệt
-  pettyCashLimit      Int   @default(200000) @map("Petty_Cash_Limit")
+  pettyCashLimit       Int     @default(200000) @map("Petty_Cash_Limit")
   /// Đơn giao hàng đã trả online: khách tự hủy (hoàn 100% ra điểm) trong N phút sau khi thanh toán, khi quán chưa nhận đơn
-  cancelWindowMinutes Int   @default(5) @map("Cancel_Window_Minutes")
+  cancelWindowMinutes  Int     @default(5) @map("Cancel_Window_Minutes")
   /// Hàng nhập theo đơn mua: trả lại nhà cung cấp trong N ngày kể từ ngày nhận (quá hạn quản lý duyệt kèm lý do)
-  supplierReturnDays  Int   @default(7) @map("Supplier_Return_Days")
+  supplierReturnDays   Int     @default(7) @map("Supplier_Return_Days")
   /// Gợi ý món từ tìm kiếm rỗng: tối thiểu N khách khác nhau và tỷ lệ % khách, trong cửa sổ số ngày
-  searchMinCustomers  Int   @default(3) @map("Search_Min_Customers")
-  searchMinPercent    Float @default(2) @map("Search_Min_Percent")
-  searchWindowDays    Int   @default(30) @map("Search_Window_Days")
+  searchMinCustomers   Int     @default(3) @map("Search_Min_Customers")
+  searchMinPercent     Float   @default(2) @map("Search_Min_Percent")
+  searchWindowDays     Int     @default(30) @map("Search_Window_Days")
+  /// Đăng nhập khách bằng Google / Facebook (tắt → ẩn nút, API từ chối)
+  googleLoginEnabled   Boolean @default(true) @map("Google_Login_Enabled")
+  facebookLoginEnabled Boolean @default(true) @map("Facebook_Login_Enabled")
 
   /// Thông tin công ty hiện ở header / footer / trang Liên hệ của web khách
-  companyName    String  @default("TD Coffee") @map("Company_Name") @db.VarChar(150)
-  companyIntro   String  @default("Cà phê pha phin, bánh nướng mỗi sáng. Ngồi lại quán hoặc đặt mang về.") @map("Company_Intro") @db.VarChar(500)
-  companyAddress String  @default("114 Dương Quảng Hàm, Phường 5, Gò Vấp, TP.HCM") @map("Company_Address") @db.VarChar(255)
-  companyEmail   String  @default("hello@tdcoffee.vn") @map("Company_Email") @db.VarChar(150)
+  companyName    String @default("TD Coffee") @map("Company_Name") @db.VarChar(150)
+  companyIntro   String @default("Cà phê pha phin, bánh nướng mỗi sáng. Ngồi lại quán hoặc đặt mang về.") @map("Company_Intro") @db.VarChar(500)
+  companyAddress String @default("114 Dương Quảng Hàm, Phường 5, Gò Vấp, TP.HCM") @map("Company_Address") @db.VarChar(255)
+  companyEmail   String @default("hello@tdcoffee.vn") @map("Company_Email") @db.VarChar(150)
   /// Hotline chung (khi chi nhánh / nút liên hệ chưa có số)
-  companyPhone   String  @default("0389730362") @map("Company_Phone") @db.VarChar(20)
-  companyHours   String  @default("7:00 – 22:00 hằng ngày") @map("Company_Hours") @db.VarChar(100)
+  companyPhone   String @default("0389730362") @map("Company_Phone") @db.VarChar(20)
+  companyHours   String @default("7:00 – 22:00 hằng ngày") @map("Company_Hours") @db.VarChar(100)
   /// Màu trang khách: { preset, primary, accent, defaultMode: light|dark|auto, allowToggle } — null = mặc định "gạch bông"
-  siteTheme      Json?   @map("Site_Theme")
+  siteTheme      Json?  @map("Site_Theme")
 
   @@map("Store_Settings")
 }
@@ -106,6 +109,8 @@ model Product {
   priceSizeL      Int?             @map("Price_Size_L")
   /// false = món chỉ 1 loại (bánh, đồ ăn): không chọn size, giá = sellPrice, công thức không phân size
   hasSizes        Boolean          @default(true) @map("Has_Sizes")
+  /// Nhiệt độ phục vụ: BOTH = khách chọn nóng/đá, ICED = chỉ đá, HOT = chỉ nóng, NONE = không áp dụng (bánh, đồ ăn)
+  temps           String           @default("BOTH") @map("Temperature") @db.VarChar(10)
   isActive        Boolean          @map("Is_Active")
   outOfStock      Boolean          @default(false) @map("Out_Of_Stock")
   isBestSeller    Boolean          @default(false) @map("Is_Best_Seller")
@@ -122,6 +127,7 @@ model Product {
   proposals  MenuProposal[]
   gamePrizes GamePrize[]
   giftClaims GiftClaim[]
+  reviews    Review[]
 
   @@map("Products")
 }
@@ -211,8 +217,51 @@ model Customer {
   gameTickets       GameTicket[]
   gamePlays         GamePlay[]
   giftClaims        GiftClaim[]
+  identities        CustomerIdentity[]
+  authLogs          CustomerAuthLog[]
+  messages          CustomerMessage[]
 
   @@map("Customers")
+}
+
+/// Tài khoản Google / Facebook liên kết với khách — 1 khách có thể liên kết nhiều nhà cung cấp
+model CustomerIdentity {
+  id             Int       @id @default(autoincrement()) @map("Identity_ID")
+  customerId     Int       @map("Customer_ID")
+  /// GOOGLE | FACEBOOK
+  provider       String    @map("Provider") @db.VarChar(20)
+  /// Google `sub` / Facebook user id (theo app)
+  providerUserId String    @map("Provider_User_ID") @db.VarChar(100)
+  /// Email nhà cung cấp trả về lúc liên kết (Facebook có thể không có)
+  email          String?   @map("Email") @db.VarChar(150)
+  name           String?   @map("Name") @db.VarChar(255)
+  avatarUrl      String?   @map("Avatar_URL") @db.VarChar(255)
+  createdAt      DateTime  @default(now()) @map("Created_At")
+  lastLoginAt    DateTime? @map("Last_Login_At")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@index([customerId])
+  @@map("Customer_Identities")
+}
+
+/// Nhật ký đăng nhập / liên kết tài khoản của khách
+model CustomerAuthLog {
+  id         Int      @id @default(autoincrement()) @map("Log_ID")
+  customerId Int      @map("Customer_ID")
+  /// LOGIN | REGISTER | LINK | UNLINK | SET_PASSWORD
+  event      String   @map("Event") @db.VarChar(20)
+  /// PASSWORD | GOOGLE | FACEBOOK
+  provider   String   @map("Provider") @db.VarChar(20)
+  ip         String?  @map("IP") @db.VarChar(64)
+  userAgent  String?  @map("User_Agent") @db.VarChar(255)
+  createdAt  DateTime @default(now()) @map("Created_At")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, createdAt])
+  @@map("Customer_Auth_Logs")
 }
 
 model CustomerAddress {
@@ -247,6 +296,10 @@ model Staff {
   status           String             @default("Active") @map("Status") @db.VarChar(20)
   /// Face descriptor JSON (128-d Float32Array) cho nhận diện khuôn mặt
   faceDescriptor   String?            @map("Face_Descriptor") @db.Text
+  /// Lúc nhân viên tự đăng ký FaceID (chỉ đăng ký 1 lần; quản lý xoá thì mới đăng ký lại)
+  faceRegisteredAt DateTime?          @map("Face_Registered_At")
+  /// Ảnh chụp lúc đăng ký FaceID để quản lý đối chiếu — lưu thư mục riêng, không công khai (/api/.../face-photo)
+  facePhotoPath    String?            @map("Face_Photo_Path") @db.VarChar(255)
   orders           Order[]
   shifts           Shift[]            @relation("ShiftStaff")
   workSchedules    WorkSchedule[]
@@ -442,6 +495,8 @@ model OrderDetail {
   quantity    Int       @map("Quantity")
   unitPrice   Int       @map("Unit_Price")
   size        String?   @map("Size") @db.VarChar(10)
+  /// HOT | ICED (null = món không áp dụng nóng/đá)
+  temperature String?   @map("Temperature") @db.VarChar(10)
   customNotes String?   @map("Custom_Notes") @db.VarChar(512)
   /// Các dòng cùng 1 lần mua combo có chung mã này (đếm số combo đã bán, doanh thu theo combo)
   comboRef    String?   @map("Combo_Ref") @db.VarChar(36)
@@ -498,6 +553,8 @@ model PointTransaction {
 model Review {
   id         Int      @id @default(autoincrement()) @map("Review_ID")
   orderId    Int      @map("Order_ID")
+  /// Món được đánh giá (phải có trong đơn); null = đánh giá chung cho quán / cả đơn
+  productId  Int?     @map("Product_ID")
   customerId Int      @map("Customer_ID")
   rating     Int      @map("Rating")
   comment    String?  @map("Comment") @db.VarChar(500)
@@ -509,9 +566,13 @@ model Review {
   anonymous  Boolean  @default(false) @map("Anonymous")
   createdAt  DateTime @default(now()) @map("Created_At")
   order      Order    @relation(fields: [orderId], references: [id])
+  product    Product? @relation(fields: [productId], references: [id])
   customer   Customer @relation(fields: [customerId], references: [id])
   replyBy    Staff?   @relation(fields: [replyById], references: [id])
 
+  /// Mỗi món trong một đơn chỉ đánh giá 1 lần (đánh giá chung productId = null: kiểm tra ở API)
+  @@unique([orderId, productId])
+  @@index([productId])
   @@map("Reviews")
 }
 
@@ -812,6 +873,10 @@ model WorkSchedule {
   overtimeNote    String?            @map("Overtime_Note") @db.VarChar(500)
   /// Vị trí của ca (Cashier/Waiter/Kitchen…) — giữ lại khi ca thành ca trống
   role            String?            @map("Role") @db.VarChar(20)
+  /// Ca bổ sung (shiftCode "EXTRA"): quản lý tự chọn giờ khi cần thêm người vài tiếng; toàn bộ giờ trong ca tính lương như làm thêm
+  isExtra         Boolean            @default(false) @map("Is_Extra")
+  /// Ca bổ sung đăng cho nhiều người (VD cần 5 người): các chỗ cùng khung giờ chung một mã — mời 1 lần, đủ người thì ngưng
+  extraGroup      String?            @map("Extra_Group") @db.VarChar(36)
   /// Đi muộn đã được duyệt đơn — không tính cảnh báo
   lateExcused     Boolean            @default(false) @map("Late_Excused")
   /// Về sớm đã được duyệt đơn — không tính cảnh báo
@@ -835,6 +900,7 @@ model WorkSchedule {
   @@unique([staffId, workDate, shiftCode])
   @@index([staffId])
   @@index([workDate])
+  @@index([extraGroup])
   @@index([storeId])
   @@map("Work_Schedules")
 }
@@ -860,6 +926,8 @@ model ChatSession {
   resolutionNote  String?       @map("Resolution_Note") @db.VarChar(1000)
   handledById     Int?          @map("Handled_By")
   resolvedAt      DateTime?     @map("Resolved_At")
+  /// Lần cuối nhân viên chi nhánh mở xem / trả lời phiên — tin cần nhân viên mới hơn mốc này = chưa đọc (badge Tin nhắn)
+  staffReadAt     DateTime?     @map("Staff_Read_At")
   createdAt       DateTime      @default(now()) @map("Created_At")
   updatedAt       DateTime      @updatedAt @map("Updated_At")
   messages        ChatMessage[]
@@ -2039,7 +2107,8 @@ model ChatReaction {
   @@map("Chat_Reactions")
 }
 
-/* ═══════════════════════ MINI GAME (tầng chung) ═══════════════════════
+/**
+ * ═══════════════════════ MINI GAME (tầng chung) ═══════════════════════
  * Mọi mini game (vòng quay, thẻ cào, hộp quà…) dùng chung các bảng dưới.
  * Phần riêng của từng game nằm trong GameCampaign.config (Json) và GamePlay.data (Json).
  * Xem docs/minigame-architecture.md trước khi thêm game mới.
@@ -2255,7 +2324,8 @@ model GiftClaim {
   @@map("Gift_Claims")
 }
 
-/* ═══════════════════════ POP UP quảng bá trang khách ═══════════════════════
+/**
+ * ═══════════════════════ POP UP quảng bá trang khách ═══════════════════════
  * Loại đích (targetType) khai báo MỘT chỗ: backend-node/src/lib/popupTargets.ts
  */
 
@@ -2303,7 +2373,8 @@ model PopupStore {
   @@map("Popup_Stores")
 }
 
-/* ═══════════════════════ NÚT LIÊN HỆ NỔI (trang khách) ═══════════════════════
+/**
+ * ═══════════════════════ NÚT LIÊN HỆ NỔI (trang khách) ═══════════════════════
  * Link / SĐT do quản lý dán trên trang quản trị — không ghi cứng trong code.
  * Chuẩn hoá & loại nút: backend-node/src/lib/contactLinks.ts
  */
@@ -2349,7 +2420,9 @@ model ContactClick {
   @@map("Contact_Clicks")
 }
 
-/* ═══════════════════════ WEBSITE KHÁCH: BANNER & LIÊN HỆ ═══════════════════════ */
+/**
+ * ═══════════════════════ WEBSITE KHÁCH: BANNER & LIÊN HỆ ═══════════════════════
+ */
 
 /// Banner carousel trang chủ (ảnh do quản lý tải lên)
 model Banner {
@@ -2394,4 +2467,23 @@ model ContactMessage {
 
   @@index([kind, status, createdAt])
   @@map("Contact_Messages")
+}
+
+/// Hộp thư của khách: quán nhắn / tặng voucher / điều chỉnh điểm (thao tác chăm sóc trên hồ sơ khách)
+model CustomerMessage {
+  id         Int       @id @default(autoincrement()) @map("Msg_ID")
+  customerId Int       @map("Customer_ID")
+  /// MESSAGE | VOUCHER | POINTS
+  kind       String    @default("MESSAGE") @map("Kind") @db.VarChar(10)
+  title      String    @map("Title") @db.VarChar(150)
+  body       String?   @map("Body") @db.VarChar(1000)
+  /// Nhân viên gửi (quản lý chi nhánh / Chủ chuỗi)
+  senderId   Int?      @map("Sender_ID")
+  storeId    Int?      @map("Store_ID")
+  readAt     DateTime? @map("Read_At")
+  createdAt  DateTime  @default(now()) @map("Created_At")
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, createdAt])
+  @@map("Customer_Messages")
 }

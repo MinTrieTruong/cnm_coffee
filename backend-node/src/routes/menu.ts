@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
-import { hiddenProductIds, storeFromQuery } from "../lib/storeProducts.js";
+import { hiddenProductIds, storeFromQuery, storeMenuState } from "../lib/storeProducts.js";
+import { productRatings } from "./reviews.js";
 
 const AI_URL = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
 
@@ -96,8 +97,9 @@ export function menuRouter(prisma: PrismaClient) {
       orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
     });
     
-    const hidden = await hiddenProductIds(prisma, storeFromQuery(req.query.store));
-    let where: any = { isActive: true, outOfStock: false, id: { notIn: [...hidden] } };
+    // Món chi nhánh tắt → ẩn; món hết hàng (báo hết / hết nguyên liệu) → vẫn trả về với soldOut để khách thấy mờ
+    const { disabled, soldOut } = await storeMenuState(prisma, storeFromQuery(req.query.store));
+    let where: any = { isActive: true, id: { notIn: [...disabled] } };
     if (search) {
       where.name = { contains: search }; // note: MySQL handles case-insensitivity by default
     }
@@ -111,11 +113,17 @@ export function menuRouter(prisma: PrismaClient) {
       if (maxPrice !== undefined && !Number.isNaN(maxPrice)) where.sellPrice.lte = maxPrice;
     }
 
-    let products = await prisma.product.findMany({
-      where,
-      include: { category: true },
-      orderBy: [{ categoryId: "asc" }, { id: "asc" }],
-    });
+    const ratings = await productRatings(prisma);
+    let products = (
+      await prisma.product.findMany({
+        where,
+        include: { category: true },
+        orderBy: [{ categoryId: "asc" }, { id: "asc" }],
+      })
+    )
+      .map((p) => ({ ...p, soldOut: p.outOfStock || soldOut.has(p.id), rating: ratings.get(p.id) ?? null }))
+      // Món hết hàng xuống cuối danh mục (sort ổn định giữ thứ tự còn lại)
+      .sort((a, b) => a.categoryId - b.categoryId || Number(a.soldOut) - Number(b.soldOut));
 
     if (tagsParam) {
       const selectedTags = tagsParam.split(",").map(t => t.trim()).filter(Boolean);
@@ -150,7 +158,7 @@ export function menuRouter(prisma: PrismaClient) {
       // Đếm theo món (không tách theo ghi chú size/đá/đường) — tách ra thì cùng một món hiện nhiều lần
       const freq = new Map<number, number>();
       for (const d of details) freq.set(d.productId, (freq.get(d.productId) ?? 0) + d.quantity);
-      const pmap = new Map(products.map((p) => [p.id, p]));
+      const pmap = new Map(products.filter((p) => !p.soldOut).map((p) => [p.id, p]));
       favorites = [...freq.entries()]
         .sort((a, b) => b[1] - a[1])
         .map(([pid]) => pmap.get(pid))
@@ -174,7 +182,7 @@ export function menuRouter(prisma: PrismaClient) {
     }
 
     if (favorites.length === 0) {
-      favorites = products.filter((p) => [7, 9, 11].includes(p.id)).slice(0, 3);
+      favorites = products.filter((p) => !p.soldOut && [7, 9, 11].includes(p.id)).slice(0, 3);
     }
 
     res.json({ categories, products, favorites });

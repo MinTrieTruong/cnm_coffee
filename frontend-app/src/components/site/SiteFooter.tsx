@@ -12,10 +12,13 @@ import { Toggles } from "./Toggles";
 
 export const POLICIES = [
   { slug: "dat-hang", label: "Chính sách đặt hàng" },
-  { slug: "bao-mat", label: "Chính sách bảo mật" },
+  { slug: "privacy", label: "Chính sách quyền riêng tư" },
   { slug: "thanh-toan", label: "Chính sách thanh toán" },
   { slug: "doi-tra", label: "Chính sách đổi trả" },
+  { slug: "data-deletion", label: "Xoá dữ liệu người dùng" },
 ];
+/** /privacy và /data-deletion có URL riêng (khai báo với Meta / Google), các chính sách khác ở /policy/… */
+export const policyHref = (slug: string) => (slug === "privacy" || slug === "data-deletion" ? `/${slug}` : `/policy/${slug}`);
 
 const SOCIAL_COLOR: Record<string, string> = { ZALO: "#0068FF", MESSENGER: "#0084FF", CUSTOM: "#6F4E37" };
 
@@ -72,7 +75,7 @@ export function SiteFooter({ color }: { color: { mode: ColorMode; setMode: (m: C
         <div className="c-footer-col">
           <h2 className="c-footer-h">{t("Chính sách")}</h2>
           <ul className="c-footer-links">
-            {POLICIES.map((p) => <li key={p.slug}><Link to={`/policy/${p.slug}`}>{t(p.label)}</Link></li>)}
+            {POLICIES.map((p) => <li key={p.slug}><Link to={policyHref(p.slug)}>{t(p.label)}</Link></li>)}
           </ul>
         </div>
 

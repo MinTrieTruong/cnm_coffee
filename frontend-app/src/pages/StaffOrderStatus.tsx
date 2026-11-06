@@ -276,6 +276,8 @@ export function StaffOrderStatus() {
   const [servingIds, setServingIds] = useState<Set<number>>(new Set());
   const [err, setErr] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  /** Bấm ô tổng quan → chỉ xem một trạng thái (điện thoại màn nhỏ dễ nhìn); null = cả 3 cột */
+  const [focus, setFocus] = useState<LiveItem["kdsStatus"] | null>(null);
   const audioUnlocked = useRef(false);
   const prevReadyIds = useRef<Set<number>>(new Set());
 
@@ -508,36 +510,52 @@ export function StaffOrderStatus() {
 
       {err && <p style={{ color: "var(--danger)", marginBottom: "0.75rem" }}>{err}</p>}
 
-      {/* Tong quan nhanh */}
-      <div style={{ display: "flex", gap: "0.6rem", marginBottom: "1rem", flexWrap: "wrap" }}>
+      {/* Tổng quan nhanh — bấm để lọc chỉ trạng thái đó, bấm lại để xem tất cả */}
+      <div role="group" aria-label="Lọc theo trạng thái" style={{ display: "flex", gap: "0.6rem", marginBottom: focus ? "0.5rem" : "1rem", flexWrap: "wrap" }}>
         {(["Waiting", "Cooking", "Ready"] as const).map((s) => {
           const meta = COL_META[s];
           const count = s === "Waiting" ? waiting.length : s === "Cooking" ? cooking.length : ready.length;
+          const on = focus === s;
           return (
-            <div key={s} style={{
-              background: meta.headerBg,
-              border: `1px solid ${meta.border}`,
-              borderRadius: 10, padding: "0.55rem 0.9rem",
-              display: "flex", alignItems: "center", gap: "0.55rem",
-              flex: "1 1 110px",
-            }}>
+            <button
+              key={s}
+              type="button"
+              aria-pressed={on}
+              onClick={() => setFocus(on ? null : s)}
+              style={{
+                background: on ? meta.dimColor : meta.headerBg,
+                border: `${on ? 2 : 1}px solid ${on ? meta.color : meta.border}`,
+                borderRadius: 10, padding: on ? "calc(0.55rem - 1px) calc(0.9rem - 1px)" : "0.55rem 0.9rem",
+                display: "flex", alignItems: "center", gap: "0.55rem",
+                flex: "1 1 90px", textAlign: "left", cursor: "pointer", font: "inherit",
+                opacity: focus && !on ? 0.6 : 1,
+              }}
+            >
               <div>
                 <div style={{ fontWeight: 800, fontSize: "1.3rem", color: meta.color, lineHeight: 1 }}>{count}</div>
-                <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.12rem" }}>{meta.label}</div>
+                <div style={{ fontSize: "0.7rem", color: on ? meta.color : "var(--muted)", fontWeight: on ? 700 : 400, marginTop: "0.12rem" }}>{meta.label}</div>
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
+      {focus && (
+        <p style={{ display: "flex", alignItems: "center", gap: "0.5rem", margin: "0 0 0.85rem", fontSize: "0.8rem", color: "var(--muted)" }}>
+          Đang lọc: <strong style={{ color: COL_META[focus].color }}>{COL_META[focus].label}</strong>
+          <button type="button" className="btn btn-ghost staff-btn-light" style={{ padding: "0.2rem 0.6rem", fontSize: "0.78rem" }} onClick={() => setFocus(null)}>
+            Xem tất cả
+          </button>
+        </p>
+      )}
 
       {/* Bảng 3 cột */}
       <div
-        className="order-status-board"
-        style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "0.85rem", alignItems: "start" }}
+        className={focus ? "order-status-board is-focus" : "order-status-board"}
+        style={{ display: "grid", gridTemplateColumns: focus ? "1fr" : "repeat(3,1fr)", gap: "0.85rem", alignItems: "start" }}
       >
-        <StatusColumn status="Waiting" items={waiting} />
-        <StatusColumn status="Cooking" items={cooking} />
-        <StatusColumn status="Ready"   items={ready}   onServed={(id) => void handleServed(id)} servingIds={servingIds} />
+        {(!focus || focus === "Waiting") && <StatusColumn status="Waiting" items={waiting} />}
+        {(!focus || focus === "Cooking") && <StatusColumn status="Cooking" items={cooking} />}
+        {(!focus || focus === "Ready") && <StatusColumn status="Ready" items={ready} onServed={(id) => void handleServed(id)} servingIds={servingIds} />}
       </div>
 
       <style>{`
@@ -551,6 +569,7 @@ export function StaffOrderStatus() {
         @media (min-width: 681px) and (max-width: 960px) {
           .order-status-board { grid-template-columns: 1fr 1fr !important; }
         }
+        .order-status-board.is-focus { grid-template-columns: 1fr !important; }
       `}</style>
     </div>
   );

@@ -51,9 +51,11 @@ export function useStaffBadges(role: string | undefined, staffId: number | undef
     // Quản lý không nhận ca trống
     const wantOpenShifts = !isAdminRole(role);
     const wantStats = isAdminRole(role) || role === "Warehouse";
+    // Tin nhắn với khách: các vai trò được trả lời chat (khớp quyền /api/staff/chat)
+    const wantChat = ["Admin", "Cashier", "Waiter", "Kitchen"].includes(role);
     // Chủ chuỗi xem "Tất cả chi nhánh": việc chờ là của từng chi nhánh → chỉ đếm đề xuất món (việc của chuỗi)
     const allStores = role === "Owner" && getOwnerStore() == null;
-    if (!wantKds && !wantDelivery && !wantShipper && !wantTasks && !wantOpenShifts && !wantStats) return;
+    if (!wantKds && !wantDelivery && !wantShipper && !wantTasks && !wantOpenShifts && !wantStats && !wantChat) return;
 
     let alive = true;
     const refresh = async () => {
@@ -79,6 +81,10 @@ export function useStaffBadges(role: string | undefined, staffId: number | undef
         if (wantOpenShifts) {
           const o = await staffApi<{ shifts: unknown[] }>("/api/schedule/open").catch(() => null);
           if (o) next.openShifts = o.shifts.length;
+        }
+        if (wantChat) {
+          const c = await staffApi<{ count: number }>("/api/staff/chat/unread").catch(() => null);
+          if (c) next.chat = c.count;
         }
         if (wantStats) {
           const s = await staffApi<{ pending: Pending }>("/api/admin/stats").catch(() => null);
@@ -124,6 +130,7 @@ export function useStaffBadges(role: string | undefined, staffId: number | undef
       "order:new", "kds:update", "delivery:new", "delivery:update", "shipper:new_order", "shipper:refresh",
       "task:assigned", "task:update", "task:redo", "openshift:update",
       "hr:request", "menu-proposal:new", "branch-proposal:update", "inventory-count:update", "stock-request:new", "stock-request:accepted",
+      "chat:escalate", "chat:read", "chat:session_closed",
     ];
     for (const ev of events) socket.on(ev, onEvent);
     // Kết nối lại sau khi mất mạng → có thể đã lỡ sự kiện, tải lại

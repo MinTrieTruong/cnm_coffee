@@ -332,6 +332,10 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     if (isDelivery && !customerId) {
       return res.status(401).json({ error: "Vui lòng đăng nhập để đặt giao hàng." });
     }
+    // Tài khoản tạo từ Google / Facebook chưa bổ sung SĐT → shipper không liên lạc được
+    if (isDelivery && !(await prisma.customer.findUnique({ where: { id: customerId! }, select: { phone: true } }))?.phone) {
+      return res.status(400).json({ code: "PHONE_REQUIRED", error: "Vui lòng bổ sung số điện thoại trong tài khoản để đặt giao hàng." });
+    }
     if (isDelivery && !body.deliveryAddress) {
       return res.status(400).json({ error: "Đơn giao hàng bắt buộc phải có địa chỉ." });
     }
@@ -392,6 +396,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
               quantity: l.quantity,
               unitPrice: l.unitPrice,
               size: l.size,
+              temperature: l.temperature,
               customNotes: merged || null,
               priority: isTakeaway,
               comboId: l.comboId,

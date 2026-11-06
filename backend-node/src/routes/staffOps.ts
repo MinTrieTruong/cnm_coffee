@@ -5,7 +5,7 @@ import type { Server } from "socket.io";
 import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
 import { inStore, mustStoreId, storeWhere, toStore } from "../lib/storeScope.js";
 import { unsellableProductIds } from "../lib/storeProducts.js";
-import { sizeFor, unitPriceOf } from "../lib/menuPrice.js";
+import { sizeFor, tempFor, unitPriceOf } from "../lib/menuPrice.js";
 import { refreshOrderPromotion } from "../lib/promotions.js";
 import { computeBill, getStoreSettings } from "../lib/pricing.js";
 
@@ -66,13 +66,15 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
 
   r.post("/staff/tables/:id/items", ...waiterOps, async (req, res) => {
     const tableId = Number(req.params.id);
-    const { productId, quantity, customNotes, customerPhone, size: rawSize } = req.body as {
+    const { productId, quantity, customNotes, customerPhone, size: rawSize, temp } = req.body as {
       productId?: number;
       quantity?: number;
       customNotes?: string;
       customerPhone?: string;
       /** S | M | L — món không có size (bánh…) gửi M */
       size?: string;
+      /** HOT | ICED — món chỉ nóng / chỉ đá không cho chọn kiểu kia */
+      temp?: string;
     };
     if (!tableId || !Number.isInteger(productId) || !Number.isInteger(quantity) || (quantity as number) <= 0 || (quantity as number) > 99) {
       return res.status(400).json({ error: "Thiếu bàn, món hoặc số lượng." });
@@ -87,6 +89,8 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
     }
     // Món 1 loại (bánh…) luôn size M — không tin size gửi lên
     const size = sizeFor(product, rawSize);
+    const temperature = tempFor(product, temp);
+    if (temperature && typeof temperature === "object") return res.status(400).json({ error: temperature.error });
     let customerId: number | null = null;
     if (customerPhone?.trim()) {
       const c = await prisma.customer.findFirst({ where: { phone: customerPhone.trim() } });
@@ -123,6 +127,7 @@ export function staffOpsRouter(prisma: PrismaClient, io: Server) {
           // Giá theo size + % giảm giá của món (cùng cách tính với khách tự đặt)
           unitPrice: unitPriceOf(product, size),
           size,
+          temperature,
           customNotes: customNotes?.trim() ? customNotes.trim() : null,
           kdsStatus: "Waiting",
         },

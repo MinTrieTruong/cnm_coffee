@@ -230,7 +230,7 @@ export function Sidebar({
         {userOpen && (
           <div className="o-side-usermenu" role="menu">
             <button type="button" role="menuitem" className="o-dropdown-item" onClick={() => { setUserOpen(false); onChangePassword(); }}>
-              <KeyRound size={16} aria-hidden /> Ảnh đại diện & mật khẩu
+              <KeyRound size={16} aria-hidden /> Tài khoản của tôi
             </button>
             <Link to="/menu" role="menuitem" className="o-dropdown-item"><Store size={16} aria-hidden /> Trang khách</Link>
             <div className="o-dropdown-sep" />

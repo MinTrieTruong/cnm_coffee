@@ -3,7 +3,8 @@ import type { PrismaClient, Staff } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { ALL_ROLES, BRANCH_STAFF_ROLES, attachStaff, isOwner, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
-import { saveDataUrlImage } from "../lib/uploadImage.js";
+import { deletePrivateFacePhoto, readPrivateFacePhoto, saveDataUrlImage } from "../lib/uploadImage.js";
+import { notify } from "../lib/notify.js";
 import { audit } from "../lib/audit.js";
 import { inStore, mustStoreId, reqStoreId, storeWhere } from "../lib/storeScope.js";
 import { applyIncomingCost, productsUsingItems, recalcProductCost } from "../lib/productCost.js";
@@ -11,6 +12,8 @@ import { createBill, createEntry, fundBalance, openSafeSession } from "../lib/ca
 import { getStoreSettings } from "../lib/pricing.js";
 import { adjustStoreStock, roundQty } from "../lib/inventory.js";
 import { announceMenuChange } from "../lib/menuEvents.js";
+import { PRODUCT_TEMPS } from "../lib/menuPrice.js";
+import { socialConfigured } from "../lib/socialAuth.js";
 
 export function adminRouter(prisma: PrismaClient) {
   const r = Router();
@@ -210,9 +213,14 @@ export function adminRouter(prisma: PrismaClient) {
       discountPercent?: number;
       /** false = món 1 loại (bánh…): không size */
       hasSizes?: boolean;
+      /** BOTH | ICED | HOT | NONE */
+      temps?: string;
     };
     if (!b.name || typeof b.sellPrice !== "number" || !b.categoryId) {
       return res.status(400).json({ error: "Thiếu tên, giá bán hoặc danh mục." });
+    }
+    if (b.temps !== undefined && !(PRODUCT_TEMPS as readonly string[]).includes(b.temps)) {
+      return res.status(400).json({ error: "Nhiệt độ phục vụ không hợp lệ." });
     }
     const maxId = (await prisma.product.aggregate({ _max: { id: true } }))._max.id ?? 0;
     const p = await prisma.product.create({
@@ -224,6 +232,8 @@ export function adminRouter(prisma: PrismaClient) {
         costPrice: b.costPrice ?? 0,
         sellPrice: b.sellPrice,
         hasSizes: b.hasSizes ?? true,
+        // Món 1 loại (bánh…) mặc định không áp dụng nóng/đá
+        temps: b.temps ?? (b.hasSizes === false ? "NONE" : "BOTH"),
         priceSizeS: b.hasSizes === false ? null : b.priceSizeS ?? null,
         priceSizeL: b.hasSizes === false ? null : b.priceSizeL ?? null,
         isActive: b.isActive ?? true,
@@ -251,7 +261,11 @@ export function adminRouter(prisma: PrismaClient) {
       tags: any;
       discountPercent: number | null;
       hasSizes: boolean;
+      temps: string;
     }>;
+    if (b.temps !== undefined && !(PRODUCT_TEMPS as readonly string[]).includes(b.temps)) {
+      return res.status(400).json({ error: "Nhiệt độ phục vụ không hợp lệ." });
+    }
     // outOfStock là trạng thái theo chi nhánh — không ghi vào món chung
     const { outOfStock, ...rest } = b;
     // Món 1 loại: bỏ giá S/L và định mức theo size (công thức trừ 1 mức duy nhất)
@@ -320,16 +334,41 @@ export function adminRouter(prisma: PrismaClient) {
     res.status(204).send();
   });
 
+  /** Xoá FaceID để nhân viên đăng ký lại — bắt buộc lý do, ghi nhật ký; quản lý chi nhánh không tự xoá FaceID của mình */
   r.patch("/staff/:id/reset-face", ...admin, async (req, res) => {
+    const actor = (req as StaffRequest).staffRow!;
     const id = Number(req.params.id);
+    const reason = String((req.body as { reason?: string })?.reason ?? "").trim().slice(0, 300);
+    if (reason.length < 5) return res.status(400).json({ error: "Nhập lý do xoá FaceID (tối thiểu 5 ký tự)." });
     const staff = await prisma.staff.findUnique({ where: { id } });
     if (!staff || !inStore(req, staff)) return res.status(404).json({ error: "Không tìm thấy nhân viên." });
+    if (staff.id === actor.id && !isOwner(actor.role)) return res.status(403).json({ error: "Không tự xoá FaceID của chính mình — nhờ Chủ chuỗi." });
 
     await prisma.staff.update({
       where: { id },
-      data: { faceDescriptor: null },
+      data: { faceDescriptor: null, faceRegisteredAt: null, facePhotoPath: null },
+    });
+    await deletePrivateFacePhoto(staff.facePhotoPath);
+    audit(actor.id, "STAFF_FACE_RESET", `Staff #${id}`, `Xoá FaceID của ${staff.fullName} — lý do: ${reason}`);
+    void notify({
+      type: "STAFF_FACE",
+      title: "FaceID của bạn đã được xoá",
+      body: `${actor.fullName}: ${reason}. Vào Chấm công để đăng ký lại.`,
+      link: "/app/hr/attendance",
+      storeId: staff.storeId,
+      to: { staffIds: [id] },
     });
     res.json({ message: "Đã xóa dữ liệu khuôn mặt" });
+  });
+
+  /** Ảnh chụp lúc nhân viên đăng ký FaceID — chỉ quản lý chi nhánh / Chủ chuỗi xem để đối chiếu */
+  r.get("/staff/:id/face-photo", ...admin, async (req, res) => {
+    const staff = await prisma.staff.findUnique({ where: { id: Number(req.params.id) }, select: { storeId: true, facePhotoPath: true } });
+    if (!staff || !inStore(req, staff)) return res.status(404).json({ error: "Không tìm thấy nhân viên." });
+    const photo = staff.facePhotoPath ? await readPrivateFacePhoto(staff.facePhotoPath) : null;
+    if (!photo) return res.status(404).json({ error: "Chưa có ảnh." });
+    res.setHeader("Cache-Control", "private, no-store");
+    res.type(photo.type).send(photo.buf);
   });
 
   r.post("/upload-image", ...admin, async (req, res) => {
@@ -362,10 +401,14 @@ export function adminRouter(prisma: PrismaClient) {
         status: true,
         hireDate: true,
         baseSalary: true,
+        cccd: true,
+        avatarUrl: true,
         faceDescriptor: true,
+        faceRegisteredAt: true,
+        facePhotoPath: true,
       },
     });
-    res.json(rows.map(r => ({ ...r, hasFaceData: !!r.faceDescriptor, faceDescriptor: undefined })));
+    res.json(rows.map(({ faceDescriptor, facePhotoPath, ...r }) => ({ ...r, hasFaceData: !!faceDescriptor, hasFacePhoto: !!facePhotoPath })));
   });
 
   r.post("/staff", ...admin, async (req, res) => {
@@ -456,6 +499,7 @@ export function adminRouter(prisma: PrismaClient) {
       phone?: string;
       address?: string;
       dob?: string;
+      cccd?: string | null;
       hireDate?: string;
       imageUrl?: string;
       baseSalary?: number;
@@ -492,6 +536,14 @@ export function adminRouter(prisma: PrismaClient) {
       if (Number.isNaN(parsed.getTime())) return res.status(400).json({ error: "hireDate không hợp lệ." });
       data.hireDate = parsed;
     }
+    if (b.cccd !== undefined && (b.cccd ?? "").trim() !== (target.cccd ?? "")) {
+      const v = (b.cccd ?? "").trim();
+      if (v && !/^\d{12}$/.test(v)) return res.status(400).json({ error: "CCCD gồm đúng 12 chữ số." });
+      if (v && (await prisma.staff.findFirst({ where: { cccd: v, id: { not: id } }, select: { id: true } }))) {
+        return res.status(409).json({ error: "CCCD này đã có trong hồ sơ nhân viên khác." });
+      }
+      data.cccd = v || null;
+    }
     if (b.dob !== undefined) {
       const parsedDob = b.dob ? new Date(b.dob) : null;
       if (parsedDob && Number.isNaN(parsedDob.getTime())) return res.status(400).json({ error: "dob không hợp lệ." });
@@ -499,7 +551,7 @@ export function adminRouter(prisma: PrismaClient) {
     }
     const updated = await prisma.staff.update({ where: { id }, data });
     audit(actor.id, "STAFF_UPDATE", `Staff #${id}`, `${updated.username ?? updated.fullName}${data.baseSalary !== undefined && data.baseSalary !== target.baseSalary ? ` · lương ${target.baseSalary} → ${data.baseSalary}` : ""}`);
-    const { passwordHash: _h, faceDescriptor: _f, ...safe } = updated;
+    const { passwordHash: _h, faceDescriptor: _f, facePhotoPath: _p, ...safe } = updated;
     res.json(safe);
   });
 
@@ -532,6 +584,7 @@ export function adminRouter(prisma: PrismaClient) {
         rankTier: true,
         createdAt: true,
         lastLogin: true,
+        avatarUrl: true,
       },
     });
     res.json(rows);
@@ -982,6 +1035,7 @@ export function adminRouter(prisma: PrismaClient) {
       include: {
         customer: { select: { fullName: true, phone: true } },
         order: { select: { id: true, totalAmount: true } },
+        product: { select: { id: true, name: true } },
         replyBy: { select: { fullName: true } },
       },
     });
@@ -1018,7 +1072,8 @@ export function adminRouter(prisma: PrismaClient) {
       },
       update: {},
     });
-    res.json(s);
+    // Có đủ biến môi trường chưa — thiếu thì bật công tắc nút vẫn ẩn
+    res.json({ ...s, socialConfigured });
   });
 
   // Cấu hình chung cả chuỗi (VAT, điểm, làm tròn) — chỉ Chủ chuỗi sửa
@@ -1037,7 +1092,10 @@ export function adminRouter(prisma: PrismaClient) {
       searchMinCustomers: number;
       searchMinPercent: number;
       searchWindowDays: number;
+      googleLoginEnabled: boolean;
+      facebookLoginEnabled: boolean;
     }>;
+    const boolOr = (v: unknown) => (typeof v === "boolean" ? v : undefined);
     const intIn = (v: unknown, lo: number, hi: number) => (v == null ? undefined : Math.min(hi, Math.max(lo, Math.floor(Number(v)) || lo)));
     const searchMinCustomers = intIn(b.searchMinCustomers, 1, 1000);
     const searchWindowDays = intIn(b.searchWindowDays, 1, 365);
@@ -1062,6 +1120,8 @@ export function adminRouter(prisma: PrismaClient) {
           searchMinCustomers: searchMinCustomers ?? 3,
           searchMinPercent: searchMinPercent ?? 2,
           searchWindowDays: searchWindowDays ?? 30,
+          googleLoginEnabled: boolOr(b.googleLoginEnabled) ?? true,
+          facebookLoginEnabled: boolOr(b.facebookLoginEnabled) ?? true,
         },
         update: {
           vatRatePercent: b.vatRatePercent,
@@ -1077,6 +1137,8 @@ export function adminRouter(prisma: PrismaClient) {
           searchMinCustomers,
           searchMinPercent,
           searchWindowDays,
+          googleLoginEnabled: boolOr(b.googleLoginEnabled),
+          facebookLoginEnabled: boolOr(b.facebookLoginEnabled),
         },
       }),
     );

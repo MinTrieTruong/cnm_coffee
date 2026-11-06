@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { saveDataUrlImage } from "../lib/uploadImage.js";
+import { readPrivateFacePhoto, saveDataUrlImage } from "../lib/uploadImage.js";
 import type { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { signStaffToken } from "../lib/jwt.js";
@@ -53,45 +53,101 @@ export function staffAuthRouter(prisma: PrismaClient) {
     res.json(rows);
   });
 
+  /** Hồ sơ của chính nhân viên (trang "Tài khoản của tôi") — không trả lương, mật khẩu, dữ liệu khuôn mặt */
+  const profileSelect = {
+    id: true, username: true, fullName: true, avatarUrl: true, phone: true, address: true, dob: true, cccd: true,
+    role: true, status: true, hireDate: true, faceRegisteredAt: true, facePhotoPath: true, faceDescriptor: true,
+    store: { select: { name: true } },
+  } as const;
+  type ProfileRow = { faceDescriptor: string | null; facePhotoPath: string | null; [k: string]: unknown };
+  const publicProfile = ({ faceDescriptor, facePhotoPath, ...rest }: ProfileRow) => ({ ...rest, faceRegistered: !!faceDescriptor, hasFacePhoto: !!facePhotoPath });
+
+  r.get("/staff/me/profile", auth, async (req, res) => {
+    const me = (req as StaffRequest).staffRow!;
+    const row = await prisma.staff.findUnique({ where: { id: me.id }, select: profileSelect });
+    if (!row) return res.status(404).json({ error: "Không tìm thấy tài khoản." });
+    res.json(publicProfile(row));
+  });
+
+  /** Ảnh chụp lúc đăng ký FaceID của chính mình (tệp riêng tư, không nằm trong /uploads công khai) */
+  r.get("/staff/me/face-photo", auth, async (req, res) => {
+    const me = (req as StaffRequest).staffRow!;
+    const row = await prisma.staff.findUnique({ where: { id: me.id }, select: { facePhotoPath: true } });
+    const photo = row?.facePhotoPath ? await readPrivateFacePhoto(row.facePhotoPath) : null;
+    if (!photo) return res.status(404).json({ error: "Chưa có ảnh." });
+    res.setHeader("Cache-Control", "private, no-store");
+    res.type(photo.type).send(photo.buf);
+  });
+
   /**
-   * Nhân viên tự cập nhật thông tin cá nhân (không sửa role/status).
+   * Nhân viên tự cập nhật: ảnh đại diện, SĐT, địa chỉ, ngày sinh, CCCD (CCCD chỉ nhập khi còn trống).
+   * Họ tên, vai trò, lương, trạng thái do quản lý sửa. Mỗi lần đổi ghi nhật ký (cũ → mới) vào hồ sơ nhân viên.
    */
   r.patch("/staff/me", auth, async (req, res) => {
     const staff = (req as StaffRequest).staffRow!;
-    const { fullName, phone, avatarDataUrl, removeAvatar } = req.body as { fullName?: string; phone?: string; avatarDataUrl?: string; removeAvatar?: boolean };
-    const data: { fullName?: string; phone?: string | null; avatarUrl?: string | null } = {};
-    // Ảnh đại diện (hiện cạnh tin nhắn nhân viên trong chat với khách)
-    if (avatarDataUrl?.startsWith("data:")) {
+    const b = req.body as { fullName?: string; phone?: string | null; address?: string | null; dob?: string | null; cccd?: string | null; avatarDataUrl?: string; removeAvatar?: boolean };
+    if (b.fullName !== undefined && b.fullName.trim() !== staff.fullName) {
+      return res.status(403).json({ error: "Họ tên do quản lý cập nhật (in trên phiếu lương)." });
+    }
+    const data: { phone?: string | null; address?: string | null; dob?: Date | null; cccd?: string; avatarUrl?: string | null } = {};
+    const changes: string[] = [];
+    const fmtDate = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "trống");
+
+    // Ảnh đại diện (hiện cạnh tin nhắn nhân viên trong chat với khách, menu hồ sơ)
+    if (b.avatarDataUrl?.startsWith("data:")) {
       try {
-        data.avatarUrl = await saveDataUrlImage(avatarDataUrl);
+        data.avatarUrl = await saveDataUrlImage(b.avatarDataUrl);
       } catch {
         return res.status(400).json({ error: "Lỗi lưu ảnh đại diện." });
       }
-    } else if (removeAvatar) data.avatarUrl = null;
-    if (fullName !== undefined) {
-      const clean = fullName.trim();
-      if (!clean) return res.status(400).json({ error: "Họ tên không hợp lệ." });
-      data.fullName = clean;
+      changes.push("Đổi ảnh đại diện");
+    } else if (b.removeAvatar) {
+      data.avatarUrl = null;
+      changes.push("Xoá ảnh đại diện");
     }
-    if (phone !== undefined) {
-      data.phone = phone.trim() || null;
+    if (b.phone !== undefined) {
+      const v = (b.phone ?? "").replace(/[\s.-]/g, "");
+      if (v && !/^(0|\+84)\d{9,10}$/.test(v)) return res.status(400).json({ error: "Số điện thoại không hợp lệ." });
+      if ((v || null) !== staff.phone) {
+        data.phone = v || null;
+        changes.push(`SĐT: ${staff.phone ?? "trống"} → ${v || "trống"}`);
+      }
     }
-    const updated = await prisma.staff.update({
-      where: { id: staff.id },
-      data,
-      select: {
-        id: true,
-        username: true,
-        fullName: true,
-        phone: true,
-        role: true,
-        status: true,
-        hireDate: true,
-        avatarUrl: true,
-      },
-    });
-    audit(staff.id, "STAFF_PROFILE_UPDATE", `Staff #${staff.id}`, "Cập nhật thông tin cá nhân");
-    res.json(updated);
+    if (b.address !== undefined) {
+      const v = (b.address ?? "").trim().slice(0, 255);
+      if ((v || null) !== staff.address) {
+        data.address = v || null;
+        changes.push(`Địa chỉ: ${staff.address ?? "trống"} → ${v || "trống"}`);
+      }
+    }
+    if (b.dob !== undefined) {
+      const d = b.dob ? new Date(b.dob) : null;
+      if (d && Number.isNaN(d.getTime())) return res.status(400).json({ error: "Ngày sinh không hợp lệ." });
+      if (d) {
+        const age = (Date.now() - d.getTime()) / (365.25 * 86_400_000);
+        if (age < 16 || age > 80) return res.status(400).json({ error: "Ngày sinh không hợp lệ (16–80 tuổi)." });
+      }
+      if (fmtDate(d) !== fmtDate(staff.dob)) {
+        data.dob = d;
+        changes.push(`Ngày sinh: ${fmtDate(staff.dob)} → ${fmtDate(d)}`);
+      }
+    }
+    if (b.cccd !== undefined && (b.cccd ?? "").trim() !== (staff.cccd ?? "")) {
+      // CCCD: tự nhập lần đầu; đã có thì chỉ quản lý sửa
+      if (staff.cccd) return res.status(403).json({ error: "CCCD đã lưu — liên hệ quản lý nếu cần sửa." });
+      const v = (b.cccd ?? "").trim();
+      if (!/^\d{12}$/.test(v)) return res.status(400).json({ error: "CCCD gồm đúng 12 chữ số." });
+      if (await prisma.staff.findFirst({ where: { cccd: v, id: { not: staff.id } }, select: { id: true } })) {
+        return res.status(409).json({ error: "CCCD này đã có trong hồ sơ nhân viên khác." });
+      }
+      data.cccd = v;
+      changes.push(`Nhập CCCD ****${v.slice(-4)}`);
+    }
+    const updated = Object.keys(data).length
+      ? await prisma.staff.update({ where: { id: staff.id }, data, select: profileSelect })
+      : await prisma.staff.findUniqueOrThrow({ where: { id: staff.id }, select: profileSelect });
+    if (changes.length) audit(staff.id, "STAFF_PROFILE_UPDATE", `Staff #${staff.id}`, `Tự cập nhật — ${changes.join("; ")}`.slice(0, 500));
+    res.json(publicProfile(updated));
   });
 
   /**
