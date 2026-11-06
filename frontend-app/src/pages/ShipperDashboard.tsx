@@ -6,9 +6,10 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { Camera, CheckCircle2, ChevronDown, ChevronUp, Crosshair, MapPin, Navigation, Package, Phone, Power, RefreshCw, Store, X, XCircle, Bike } from "lucide-react";
 import { mediaUrl } from "../lib/api";
+import { ProofCamera, type ProofShot } from "../components/ProofCamera";
 import { getStaffInfo, staffApi, staffSocket as openStaffSocket, isAdminRole } from "../lib/staffApi";
 import {
-  compressImage, fetchRoadRoute, formatKm, formatVnd, googleMapsDir, haversineKm,
+  fetchRoadRoute, formatKm, formatVnd, googleMapsDir, haversineKm,
   meIcon, stopIcon, storeIcon, type LatLng,
 } from "../lib/delivery";
 
@@ -509,29 +510,21 @@ export function ShipperDashboard() {
 
 /* ═══════════ Bottom sheet: chụp ảnh xác nhận đã giao ═══════════ */
 function ProofSheet({ order, onClose, onDone }: { order: ShipOrder; onClose: () => void; onDone: (shippingFee: number) => void }) {
-  const [photo, setPhoto] = useState<string | null>(null);
+  // Ảnh chụp trực tiếp bằng camera trong app (không chọn từ thư viện), đóng dấu giờ + địa điểm
+  const [shot, setShot] = useState<ProofShot | null>(null);
+  const [camOpen, setCamOpen] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  async function onFile(f: File | undefined) {
-    if (!f) return;
-    try {
-      setPhoto(await compressImage(f));
-      setErr(null);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Không đọc được ảnh");
-    }
-  }
+  const photo = shot?.dataUrl ?? null;
 
   async function submit() {
-    if (!photo) return setErr("Vui lòng chụp ảnh xác nhận");
+    if (!shot) return setErr("Vui lòng chụp ảnh xác nhận");
     setBusy(true);
     try {
       const r = await staffApi<{ shippingFeeEarned: number }>(`/api/shipper/orders/${order.id}/deliver`, {
         method: "POST",
-        body: JSON.stringify({ photo, note }),
+        body: JSON.stringify({ photo: shot.dataUrl, proof: shot.proof, note }),
       });
       onDone(r.shippingFeeEarned);
     } catch (e) {
@@ -548,18 +541,25 @@ function ProofSheet({ order, onClose, onDone }: { order: ShipOrder; onClose: () 
           <button type="button" className="sp-x" onClick={onClose} disabled={busy} aria-label="Đóng"><X size={20} /></button>
         </div>
         <div className="sp-paid-big">Khách đã thanh toán online — không thu tiền</div>
-        <input ref={inputRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => void onFile(e.target.files?.[0])} />
+        {camOpen && (
+          <ProofCamera
+            context={`Đơn #${order.id} · Shipper ${getStaffInfo()?.fullName ?? ""}`}
+            onClose={() => setCamOpen(false)}
+            onCapture={(s) => { setShot(s); setCamOpen(false); setErr(null); }}
+          />
+        )}
         {photo ? (
           <div className="sp-photo">
             <img src={photo} alt="Ảnh xác nhận" />
-            <button type="button" className="sp-btn sp-btn-ghost" onClick={() => inputRef.current?.click()} disabled={busy}>
+            <button type="button" className="sp-btn sp-btn-ghost" onClick={() => setCamOpen(true)} disabled={busy}>
               <Camera size={16} /> Chụp lại
             </button>
           </div>
         ) : (
-          <button type="button" className="sp-photo-empty" onClick={() => inputRef.current?.click()}>
+          <button type="button" className="sp-photo-empty" onClick={() => setCamOpen(true)}>
             <Camera size={32} />
             <span>Chụp ảnh hàng đã giao / giao cho khách</span>
+            <small>Chụp trực tiếp · ảnh tự in giờ và địa điểm</small>
           </button>
         )}
         <input className="input" placeholder="Ghi chú (tuỳ chọn): để ở bảo vệ, giao tận tay…" value={note} onChange={(e) => setNote(e.target.value)} />

@@ -58,6 +58,31 @@
 }
 .o-seg button.active { background: var(--o-surface); color: var(--o-text); font-weight: 600; box-shadow: 0 1px 2px rgba(17, 24, 39, 0.06); }
 
+/* ── Lọc theo trạng thái ── */
+.o-task-tools-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.o-task-filter { display: flex; flex-wrap: wrap; gap: 6px; }
+.o-task-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--o-border);
+  border-radius: 999px;
+  background: var(--o-surface);
+  font: inherit;
+  font-size: 13px;
+  color: var(--o-text-2);
+  cursor: pointer;
+}
+.o-task-filter-btn:hover { border-color: var(--o-border-strong); }
+.o-task-filter-n { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--o-hover); font-size: 12px; font-weight: 600; text-align: center; }
+.o-task-filter-btn.active { border-color: var(--o-primary); background: var(--o-primary-soft); color: var(--o-primary); font-weight: 600; }
+.o-task-filter-btn.is-todo.active { border-color: #fdba74; background: #fff7ed; color: #c2410c; }
+.o-task-filter-btn.is-late.active { border-color: #fca5a5; background: #fef2f2; color: #b91c1c; }
+.o-task-filter-btn.is-done.active { border-color: #86efac; background: #f0fdf4; color: #15803d; }
+.o-task-filter-btn.active .o-task-filter-n { background: rgba(255, 255, 255, 0.7); }
+
 /* ── Thẻ công việc (quản lý) ── */
 .o-task-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; align-items: start; }
 .o-task { gap: 10px; padding: 16px 18px; }

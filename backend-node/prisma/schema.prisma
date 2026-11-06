@@ -402,6 +402,12 @@ model Order {
   routeSeq         Int?      @map("Route_Seq")
   /// Ảnh xác nhận đã giao
   deliveryProofUrl String?   @map("Delivery_Proof_Url") @db.VarChar(1024)
+  /// Ảnh giao hàng: vị trí GPS + lúc chụp (camera trong app) + khoảng cách tới địa chỉ khách — lib/photoProof.ts
+  proofLat         Float?    @map("Proof_Lat")
+  proofLng         Float?    @map("Proof_Lng")
+  proofAccuracy    Int?      @map("Proof_Accuracy")
+  proofTakenAt     DateTime? @map("Proof_Taken_At")
+  proofDistanceM   Int?      @map("Proof_Distance_M")
   /// Ghi chú giao hàng / lý do thất bại
   deliveryNote     String?   @map("Delivery_Note") @db.VarChar(255)
   confirmedAt      DateTime? @map("Confirmed_At")
@@ -1817,6 +1823,12 @@ model WorkTaskAssignee {
   /// Ghi chú của nhân viên khi báo xong
   note     String?   @map("Note") @db.VarChar(500)
   photoUrl String?   @map("Photo_Url") @db.VarChar(1024)
+  /// Ảnh báo xong: vị trí GPS + lúc chụp + khoảng cách tới chi nhánh — lib/photoProof.ts
+  photoLat       Float?    @map("Photo_Lat")
+  photoLng       Float?    @map("Photo_Lng")
+  photoAccuracy  Int?      @map("Photo_Accuracy")
+  photoTakenAt   DateTime? @map("Photo_Taken_At")
+  photoDistanceM Int?      @map("Photo_Distance_M")
   /// Quản lý yêu cầu làm lại: lý do
   redoNote String?   @map("Redo_Note") @db.VarChar(500)
   task     WorkTask  @relation(fields: [taskId], references: [id], onDelete: Cascade)

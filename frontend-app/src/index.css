@@ -3266,3 +3266,17 @@ textarea {
 .supplier-entry-text span { font-size: 0.82rem; color: var(--muted); }
 .supplier-entry-arrow { flex-shrink: 0; color: var(--accent); transition: transform 0.15s; }
 .supplier-entry:hover .supplier-entry-arrow { transform: translateX(3px); }
+
+/* ═══════════ Chụp ảnh bằng chứng (components/ProofCamera.tsx) ═══════════ */
+.proofcam { position: fixed; inset: 0; z-index: 3000; background: #000; display: flex; flex-direction: column; }
+.proofcam-video { flex: 1; width: 100%; min-height: 0; object-fit: cover; background: #000; }
+.proofcam-x { position: absolute; top: max(12px, env(safe-area-inset-top)); right: 12px; width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(0,0,0,0.5); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.proofcam-info { position: absolute; left: 0; right: 0; bottom: calc(110px + env(safe-area-inset-bottom)); padding: 10px 16px; display: flex; flex-direction: column; gap: 4px; color: #fff; font-size: 0.9rem; background: linear-gradient(transparent, rgba(0,0,0,0.6)); }
+.proofcam-info svg { vertical-align: -2px; }
+.proofcam-info .is-err { color: #fecaca; font-weight: 600; }
+.proofcam-info .is-err button { margin-left: 6px; border: 1px solid #fecaca; background: transparent; color: #fff; border-radius: 6px; padding: 2px 8px; font: inherit; cursor: pointer; }
+.proofcam-hint { font-size: 0.78rem; opacity: 0.8; }
+.proofcam-shutter { position: absolute; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: 72px; height: 72px; border-radius: 50%; border: 4px solid #fff; background: rgba(255,255,255,0.25); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.proofcam-shutter:disabled { opacity: 0.4; cursor: not-allowed; }
+.proof-meta { font-size: 0.78rem; color: var(--o-muted, #6b7280); display: block; margin-top: 4px; }
+.proof-meta.is-far { color: var(--o-danger, #b91c1c); font-weight: 600; }

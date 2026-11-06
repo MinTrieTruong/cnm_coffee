@@ -17,6 +17,7 @@
  * Socket: "task:assigned" / "task:redo" tới phòng staff_<id>; "task:update" tới admin_room của chi nhánh.
  */
 import { Router } from "express";
+import { distanceM, parseProof } from "../lib/photoProof.js";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
 import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
@@ -303,10 +304,19 @@ export function tasksRouter(prisma: PrismaClient, io: Server) {
     const id = Number(req.params.id);
     const a = await myAssignment(req as StaffRequest, id);
     if (!a) return res.status(404).json({ error: "Việc này không được giao cho bạn." });
-    const { note, photoDataUrl } = req.body as { note?: string; photoDataUrl?: string };
+    const { note, photoDataUrl, proof } = req.body as { note?: string; photoDataUrl?: string; proof?: unknown };
     let photoUrl = a.photoUrl;
+    let photoMeta: Record<string, unknown> = {};
     if (photoDataUrl) {
       if (!photoDataUrl.startsWith("data:image/")) return res.status(400).json({ error: "Ảnh không hợp lệ." });
+      // Ảnh phải chụp bằng camera trong app, kèm GPS + giờ chụp còn mới
+      const pr = parseProof(proof);
+      if (!pr.ok) return res.status(400).json({ error: pr.error });
+      const store = await prisma.store.findUnique({ where: { id: a.task.storeId }, select: { lat: true, lng: true } });
+      photoMeta = {
+        photoLat: pr.meta.lat, photoLng: pr.meta.lng, photoAccuracy: pr.meta.accuracy, photoTakenAt: pr.meta.takenAt,
+        photoDistanceM: distanceM(pr.meta, store),
+      };
       try {
         photoUrl = await saveDataUrlImage(photoDataUrl);
       } catch (e) {
@@ -316,7 +326,7 @@ export function tasksRouter(prisma: PrismaClient, io: Server) {
     if (a.task.requirePhoto && !photoUrl) return res.status(400).json({ error: "Việc này cần chụp ảnh xác nhận." });
     await prisma.workTaskAssignee.update({
       where: { id: a.id },
-      data: { status: "DONE", doneAt: new Date(), note: note?.trim().slice(0, 500) || null, photoUrl },
+      data: { status: "DONE", doneAt: new Date(), note: note?.trim().slice(0, 500) || null, photoUrl, ...photoMeta },
     });
     notifyManagers(a.task.storeId, { ids: [id] });
     res.json(shape(await prisma.workTask.findUniqueOrThrow({ where: { id }, include })));

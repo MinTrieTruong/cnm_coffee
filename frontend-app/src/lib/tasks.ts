@@ -7,6 +7,9 @@ export type TaskAssignee = {
   doneAt: string | null;
   note: string | null;
   photoUrl: string | null;
+  /** Ảnh báo xong: lúc chụp + khoảng cách tới chi nhánh (máy chủ ghi) */
+  photoTakenAt?: string | null;
+  photoDistanceM?: number | null;
   redoNote: string | null;
   staff: { id: number; fullName: string; role: string };
 };

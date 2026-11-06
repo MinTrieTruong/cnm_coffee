@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Socket } from "socket.io-client";
 import { Bike, Check, MapPin, Phone, X } from "lucide-react";
 import { mediaUrl } from "../lib/api";
+import { ProofInfo } from "./ProofCamera";
 import { getStaffInfo, isAdminRole, staffApi, staffSocket as openStaffSocket } from "../lib/staffApi";
 import { deliveryLabel, formatVnd } from "../lib/delivery";
 
@@ -12,6 +13,9 @@ type BoardOrder = {
   deliveryAddress: string | null;
   deliveryNote: string | null;
   deliveryProofUrl: string | null;
+  /** Ảnh giao hàng: lúc chụp + khoảng cách tới địa chỉ khách (máy chủ ghi) */
+  proofTakenAt?: string | null;
+  proofDistanceM?: number | null;
   createdAt: string;
   shippingFee: number;
   totalAmount: number;
@@ -179,9 +183,12 @@ Khách đã trả ${formatVnd(paidMoney(o))} — sẽ được hoàn 100% thành
                   )
                 )}
                 {o.deliveryProofUrl && (
-                  <a href={mediaUrl(o.deliveryProofUrl)} target="_blank" rel="noreferrer" className="pd-proof">
-                    <img src={mediaUrl(o.deliveryProofUrl)} alt={`Ảnh giao #${o.id}`} />
-                  </a>
+                  <>
+                    <a href={mediaUrl(o.deliveryProofUrl)} target="_blank" rel="noreferrer" className="pd-proof">
+                      <img src={mediaUrl(o.deliveryProofUrl)} alt={`Ảnh giao #${o.id}`} />
+                    </a>
+                    {o.deliveryStatus === "Delivered" && <ProofInfo takenAt={o.proofTakenAt} distanceM={o.proofDistanceM} target="địa chỉ khách" />}
+                  </>
                 )}
 
                 {o.deliveryStatus === "Awaiting_Confirm" && (
