@@ -96,6 +96,7 @@ model InventoryItem {
   supplierReturnItems SupplierReturnItem[]
 
   @@map("Inventory")
+  nutrition     IngredientNutrition?
 }
 
 model Product {
@@ -132,6 +133,7 @@ model Product {
   reviews    Review[]
 
   @@map("Products")
+  nutrition       ProductNutrition[]
 }
 
 /// Định mức nguyên liệu: 1 sản phẩm → bao nhiêu nguyên liệu/ly
@@ -211,6 +213,8 @@ model Customer {
   rankTier          String             @default("Dong") @map("Rank_Tier") @db.VarChar(20)
   createdAt         DateTime           @default(now()) @map("Created_At")
   lastLogin         DateTime?          @map("Last_Login")
+  /// Sở thích ăn uống: ["low_caffeine","no_caffeine","no_milk","low_sugar","low_fat","vegan","no_nuts"] — thực đơn cảnh báo món không hợp
+  dietPrefs         Json?              @map("Diet_Prefs")
   orders            Order[]
   reviews           Review[]
   pointTransactions PointTransaction[]
@@ -2867,4 +2871,67 @@ model SupplierUnitAlias {
 
   @@unique([supplierId, rawName])
   @@map("Supplier_Unit_Aliases")
+}
+
+/// Dinh dưỡng của 1 nguyên liệu (1–1 với Inventory) — món tính bằng công thức × bảng này (lib/nutrition/)
+model IngredientNutrition {
+  itemId        Int       @id @map("Item_ID")
+  /// PER_100 = trên 100 g/ml đơn vị công thức · PER_UNIT = trên 1 cái (bánh…)
+  basis         String    @default("PER_100") @map("Basis") @db.VarChar(10)
+  kcal          Float?    @map("Kcal")
+  fatG          Float?    @map("Fat_G")
+  satFatG       Float?    @map("Sat_Fat_G")
+  sugarG        Float?    @map("Sugar_G")
+  proteinG      Float?    @map("Protein_G")
+  carbG         Float?    @map("Carb_G")
+  caffeineMg    Float?    @map("Caffeine_Mg")
+  /// string[] trong milk | nuts | peanut | gluten | egg | soy
+  allergens     Json?     @map("Allergens")
+  isVegan       Boolean   @default(false) @map("Is_Vegan")
+  /// Nguyên liệu tạo ngọt (đường, siro, sữa đặc…) — co giãn theo mức đường khách chọn
+  isSugarSource Boolean   @default(false) @map("Is_Sugar_Source")
+  /// AI | MANUAL
+  source        String    @default("MANUAL") @map("Source") @db.VarChar(10)
+  /// Độ tin AI (0–1) + ghi chú giả định khi AI gợi ý
+  confidence    Float?    @map("Confidence")
+  note          String?   @map("Note") @db.VarChar(500)
+  /// Cảnh báo kiểm tra bằng code (kcal lệch, caffeine bất thường…)
+  warnings      Json?     @map("Warnings")
+  /// Chưa duyệt thì không dùng để tính dinh dưỡng món cho khách
+  approved      Boolean   @default(false) @map("Approved")
+  approvedById  Int?      @map("Approved_By")
+  approvedAt    DateTime? @map("Approved_At")
+  updatedAt     DateTime  @updatedAt @map("Updated_At")
+  item          InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@map("Ingredient_Nutrition")
+}
+
+/// Dinh dưỡng món theo size (bảng tính sẵn, cập nhật khi đổi công thức / duyệt nguyên liệu)
+model ProductNutrition {
+  productId         Int      @map("Product_ID")
+  /// S | M | L | "-" (món 1 loại)
+  size              String   @map("Size") @db.VarChar(2)
+  kcal              Float    @default(0) @map("Kcal")
+  fatG              Float    @default(0) @map("Fat_G")
+  satFatG           Float    @default(0) @map("Sat_Fat_G")
+  sugarG            Float    @default(0) @map("Sugar_G")
+  proteinG          Float    @default(0) @map("Protein_G")
+  caffeineMg        Float    @default(0) @map("Caffeine_Mg")
+  /// Phần đường đến từ nguyên liệu tạo ngọt (co giãn theo mức đường 0 / 50 / 100%)
+  sugarFromSourcesG Float    @default(0) @map("Sugar_From_Sources_G")
+  kcalFromSources   Float    @default(0) @map("Kcal_From_Sources")
+  allergens         Json?    @map("Allergens")
+  isVegan           Boolean  @default(false) @map("Is_Vegan")
+  /// Mọi nguyên liệu trong công thức đã có dinh dưỡng được duyệt
+  complete          Boolean  @default(false) @map("Complete")
+  /// Nguyên liệu còn thiếu / chưa duyệt: [{ itemId, name }]
+  missing           Json?    @map("Missing")
+  /// { caffeine: none|low|high|null, sugar: low|high|null, fat: low|high|null, allergens: string[], vegan: boolean }
+  labels            Json?    @map("Labels")
+  computedAt        DateTime @default(now()) @map("Computed_At")
+  product           Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([productId, size])
+  @@map("Product_Nutrition")
 }

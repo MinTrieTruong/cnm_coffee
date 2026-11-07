@@ -100,6 +100,8 @@ export type Product = {
   soldOut?: boolean;
   /** Điểm sao trung bình từ đánh giá theo món (null = chưa có đánh giá) */
   rating?: { avg: number; count: number } | null;
+  /** Dinh dưỡng ước tính size mặc định (null = quán tắt hiển thị / chưa tính) */
+  nutrition?: import("./nutrition").NutritionBrief | null;
 };
 
 export type ProductTemps = "BOTH" | "ICED" | "HOT" | "NONE";

@@ -9,10 +9,14 @@ export type SiteTheme = {
   allowToggle: boolean;
   /** Chủ đề dịp lễ đang bật (lib/occasions.ts); until = ngày cuối còn hiện (YYYY-MM-DD), null = tới khi tắt tay */
   occasion?: { id: string; until: string | null; effects: boolean } | null;
+  /** Hiện thông tin dinh dưỡng (nhãn, bảng ước tính, bộ lọc ăn kiêng) cho khách */
+  showNutrition?: boolean;
+  /** Hiện khối "Hợp thời tiết hôm nay" trên trang chủ */
+  showWeatherPicks?: boolean;
 };
 export type ColorMode = "light" | "dark";
 
-export const DEFAULT_THEME: SiteTheme = { preset: "gach-bong", primary: "#1e5a5f", accent: "#e0a531", defaultMode: "light", allowToggle: true, occasion: null };
+export const DEFAULT_THEME: SiteTheme = { preset: "gach-bong", primary: "#1e5a5f", accent: "#e0a531", defaultMode: "light", allowToggle: true, occasion: null, showNutrition: true, showWeatherPicks: true };
 
 /** Bộ màu gợi ý — đã kiểm tra tương phản; tránh trùng nhận diện các chuỗi lớn */
 export const PRESETS: { id: string; name: string; note: string; primary: string; accent: string }[] = [

@@ -12,7 +12,7 @@ import {
   type AccountData, type Section,
 } from "./account/shared";
 import {
-  GiftsSection, InboxSection, OrdersSection, PointsSection, ProfileSection, ReviewsSection, SecuritySection, VouchersSection,
+  DietSection, GiftsSection, InboxSection, OrdersSection, PointsSection, ProfileSection, ReviewsSection, SecuritySection, VouchersSection,
 } from "./account/sections";
 
 /** Ảnh đại diện — bấm để đổi (tải lên ngay, không nằm trong form hồ sơ) */
@@ -73,6 +73,7 @@ function SectionContent({ s, data }: { s: Section; data: AccountData }) {
   switch (s) {
     case "profile": return <ProfileSection data={data} />;
     case "security": return <SecuritySection />;
+    case "diet": return <DietSection />;
     case "orders": return <OrdersSection data={data} />;
     case "reviews": return <ReviewsSection data={data} />;
     case "points": return <PointsSection />;

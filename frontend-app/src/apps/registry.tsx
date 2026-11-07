@@ -46,6 +46,7 @@ const HrRequests = L(() => import("../pages/HrRequests"), "HrRequests");
 const ShipperDashboard = L(() => import("../pages/ShipperDashboard"), "ShipperDashboard");
 const KitchenStats = L(() => import("../modules/kitchen/KitchenStats"), "KitchenStats");
 const IngredientFormula = L(() => import("../pages/IngredientFormula"), "IngredientFormula");
+const IngredientNutrition = L(() => import("../modules/kitchen/IngredientNutrition"), "IngredientNutrition");
 const QrGenerator = L(() => import("../pages/QrGenerator"), "QrGenerator");
 const ProcurementAdmin = L(() => import("../pages/ProcurementAdmin"), "ProcurementAdmin");
 const AdminPayroll = L(() => import("../pages/AdminPayroll"), "AdminPayroll");
@@ -238,6 +239,8 @@ export const APPS: AppDef[] = [
       { id: "kds", label: "KDS", roles: ["Admin", "Kitchen"], supportFor: SUPPORT, component: Kds, layout: "full" },
       { id: "stats", label: "Thống kê pha chế", description: "Tổng ly đã pha, món pha nhiều nhất theo ngày / tháng", roles: ["Admin", "Kitchen"], component: KitchenStats, layout: "erp", ownHeader: true },
       { id: "formulas", label: "Công thức & giá vốn", description: "Định mức nguyên liệu và giá vốn từng món", roles: CHAIN_AND_BRANCH, component: IngredientFormula, layout: "erp" },
+      // Dinh dưỡng món tính từ công thức × bảng này; Chủ chuỗi sửa / duyệt, Quản lý chi nhánh xem
+      { id: "nutrition", label: "Dinh dưỡng nguyên liệu", description: "Calo, caffeine, đường, béo, dị ứng của nguyên liệu — món tự tính từ công thức. AI gợi ý, Chủ chuỗi duyệt.", roles: CHAIN_AND_BRANCH, component: IngredientNutrition, layout: "erp" },
     ],
   },
   {

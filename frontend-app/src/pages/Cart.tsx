@@ -12,6 +12,8 @@ import { StorePicker } from "../components/StorePicker";
 import { formatVnd } from "../lib/site";
 import { useLang } from "../lib/i18n";
 import { PhoneReminder } from "./SocialComplete";
+import { loadNutrition } from "../lib/nutrition";
+import "../styles/nutrition.css";
 
 const SWIPE_OPEN = 88; // độ rộng nút Xoá lộ ra khi vuốt
 
@@ -66,6 +68,27 @@ function SwipeRow({ open, onOpen, onDelete, label, children }: { open: boolean; 
   );
 }
 
+
+/** Tổng caffeine ước tính của giỏ (theo size từng ly) — nhắc khi ≥ 300 mg (khuyến nghị FDA ≤ 400 mg / ngày) */
+function CartCaffeine({ items }: { items: CartItem[] }) {
+  const { t } = useLang();
+  const [mg, setMg] = useState(0);
+  const key = items.map((i) => `${i.productId}:${i.size}:${i.quantity}`).join(",");
+  useEffect(() => {
+    let alive = true;
+    const drinks = items.filter((i) => !i.isCombo && i.productId > 0);
+    void Promise.all(drinks.map((i) => loadNutrition(i.productId).then((d) => {
+      const n = d?.sizes.find((s) => s.size === i.size) ?? d?.sizes.find((s) => s.size === "-");
+      return n?.complete ? n.caffeineMg * i.quantity : 0;
+    }))).then((v) => alive && setMg(Math.round(v.reduce((a, b) => a + b, 0))));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  if (mg < 300) return null;
+  return <p className="c-cart-caffeine" role="note">{t("Giỏ hàng có khoảng {n} mg caffeine (khuyến nghị người lớn ≤ 400 mg / ngày).", { n: mg })}</p>;
+}
 
 export function Cart() {
   const loc = useLocation();
@@ -439,6 +462,7 @@ export function Cart() {
 
           <aside className="c-bill">
             <h2 className="c-pd-h">{t("Hoá đơn tạm")}</h2>
+            <CartCaffeine items={items} />
             <dl className="c-bill-rows">
               <div><dt>{t("Tổng món")}</dt><dd>{items.reduce((acc, it) => acc + it.quantity, 0)}</dd></div>
               <div><dt>{t("Tạm tính")}</dt><dd>{formatVnd(total)}</dd></div>

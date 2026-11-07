@@ -11,6 +11,10 @@ import { voucherStoreError } from "../../lib/stores.js";
 import { AI_CONFIG, gemini, withRetry } from "../gemini.js";
 import { searchKnowledge, type SearchResult } from "../knowledge/search.js";
 import { foldVi } from "../knowledge/text.js";
+import { ALLERGEN_LABEL, DISCLAIMER, fitsDiet, isDiet, type Diet } from "../../lib/nutrition/labels.js";
+import { parseAllergens } from "../../lib/nutrition/compute.js";
+import { parseAliases } from "../../lib/productAliases.js";
+import { siteFlags } from "../../routes/site.js";
 
 export type ToolContext = {
   storeId: number;
@@ -66,6 +70,20 @@ export function toolDeclarations(opts: { webSearch: boolean; handoff: boolean })
       parametersJsonSchema: { type: "object", properties: { cau_hoi: { type: "string" } }, required: ["cau_hoi"] },
     },
     {
+      name: "tra_dinh_duong",
+      description: "Dinh dưỡng ước tính của một món theo size: kcal, caffeine, đường, béo, đạm, chất gây dị ứng (sữa, hạt, gluten…). Dùng khi khách hỏi calo, caffeine, có sữa không…",
+      parametersJsonSchema: { type: "object", properties: { ten_mon: { type: "string", description: "Tên món, VD 'bạc xỉu'" } }, required: ["ten_mon"] },
+    },
+    {
+      name: "tim_mon_theo_che_do_an",
+      description: "Tìm món đang bán ở chi nhánh hợp chế độ ăn: no_caffeine (không caffeine), low_caffeine (ít caffeine), no_milk (không sữa / lactose), low_sugar (ít đường), low_fat (ít béo), vegan (thuần chay), no_nuts (không hạt). Dùng khi khách hỏi 'món nào không caffeine', 'không uống được sữa thì uống gì'.",
+      parametersJsonSchema: {
+        type: "object",
+        properties: { che_do: { type: "array", items: { type: "string", enum: ["no_caffeine", "low_caffeine", "no_milk", "low_sugar", "low_fat", "vegan", "no_nuts"] } } },
+        required: ["che_do"],
+      },
+    },
+    {
       name: "trang_thai_don",
       description: "Tình trạng một đơn hàng của khách (chỉ xem được khi khách đã đăng nhập đúng tài khoản đặt đơn).",
       parametersJsonSchema: { type: "object", properties: { ma_don: { type: "integer", description: "Mã đơn, VD 1052" } }, required: ["ma_don"] },
@@ -89,6 +107,45 @@ export function toolDeclarations(opts: { webSearch: boolean; handoff: boolean })
 }
 
 /* ── Từng công cụ ── */
+
+const DIET_TEXT: Record<Diet, string> = { no_caffeine: "không caffeine", low_caffeine: "ít caffeine", no_milk: "không sữa", low_sugar: "ít đường", low_fat: "ít béo", vegan: "thuần chay", no_nuts: "không hạt" };
+
+/** Dinh dưỡng ước tính của một món (tính từ công thức × nguyên liệu đã duyệt) */
+async function traDinhDuong(ctx: ToolContext, args: { ten_mon?: string }) {
+  if (!(await siteFlags(prisma)).showNutrition) return "Quán chưa công bố thông tin dinh dưỡng. Khách cần thì hỏi nhân viên.";
+  const q = foldVi(args.ten_mon ?? "");
+  const state = await storeMenuState(prisma, ctx.storeId);
+  const products = (await prisma.product.findMany({ where: { isActive: true }, select: { id: true, name: true, aliases: true, nutrition: true } }))
+    .filter((p) => !state.disabled.has(p.id) && (foldVi(p.name).includes(q) || parseAliases(p.aliases).some((a) => foldVi(a).includes(q))))
+    .slice(0, 3);
+  if (!products.length) return `Không tìm thấy món "${args.ten_mon}".`;
+  return [
+    ...products.map((p) => {
+      const sizes = p.nutrition.filter((n) => n.complete).sort((a, b) => "SML-".indexOf(a.size) - "SML-".indexOf(b.size));
+      const allergens = parseAllergens(p.nutrition[0]?.allergens).map((a) => ALLERGEN_LABEL[a]);
+      if (!sizes.length) return `- ${p.name}: chưa đủ dữ liệu dinh dưỡng${allergens.length ? `; chắc chắn có ${allergens.join(", ")}` : ""}.`;
+      return `- ${p.name}: ${sizes.map((n) => `${n.size === "-" ? "" : `size ${n.size}: `}${Math.round(n.kcal)} kcal, caffeine ${Math.round(n.caffeineMg)} mg, đường ${n.sugarG} g, béo ${n.fatG} g`).join("; ")}${allergens.length ? `. Có ${allergens.join(", ")}` : ""}.`;
+    }),
+    `Lưu ý: ${DISCLAIMER} Đường giảm khi chọn ít đường.`,
+  ].join("\n");
+}
+
+async function timMonTheoCheDoAn(ctx: ToolContext, args: { che_do?: string[] }) {
+  if (!(await siteFlags(prisma)).showNutrition) return "Quán chưa công bố thông tin dinh dưỡng. Khách cần thì hỏi nhân viên.";
+  const diets = (args.che_do ?? []).filter(isDiet);
+  if (!diets.length) return "Chưa rõ chế độ ăn khách cần.";
+  const state = await storeMenuState(prisma, ctx.storeId);
+  const products = await prisma.product.findMany({ where: { isActive: true, outOfStock: false }, select: { id: true, name: true, nutrition: true } });
+  const fit = products.filter((p) => {
+    if (state.disabled.has(p.id) || state.soldOut.has(p.id)) return false;
+    const n = p.nutrition.find((x) => x.size === "M") ?? p.nutrition.find((x) => x.size === "-");
+    return !!n && diets.every((d) => fitsDiet({ kcal: n.kcal, fatG: n.fatG, sugarG: n.sugarG, caffeineMg: n.caffeineMg, allergens: parseAllergens(n.allergens), isVegan: n.isVegan, complete: n.complete }, d));
+  });
+  const want = diets.map((d) => DIET_TEXT[d]).join(", ");
+  if (!fit.length) return `Hiện chưa có món nào chắc chắn ${want} theo dữ liệu của quán (món chưa đủ dữ liệu không được tính). Khách hỏi nhân viên để được tư vấn.`;
+  return `Món ${want} (size M, theo công thức chuẩn): ${fit.map((p) => p.name).join(", ")}.
+Lưu ý: ${DISCLAIMER}`;
+}
 
 async function traCuuMon(ctx: ToolContext, args: { tu_khoa?: string; danh_muc?: string }) {
   const [products, categories, state] = await Promise.all([
@@ -258,6 +315,10 @@ export async function runTool(ctx: ToolContext, name: string, args: Record<strin
         return cap(await khuyenMai(ctx));
       case "tim_kien_thuc":
         return cap(await timKienThuc(ctx, args as { cau_hoi?: string }));
+      case "tra_dinh_duong":
+        return cap(await traDinhDuong(ctx, args as { ten_mon?: string }));
+      case "tim_mon_theo_che_do_an":
+        return cap(await timMonTheoCheDoAn(ctx, args as { che_do?: string[] }));
       case "trang_thai_don":
         return cap(await trangThaiDon(ctx, args as { ma_don?: number }));
       case "tim_tren_web":

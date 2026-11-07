@@ -1,10 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { Minus, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Minus, Plus, Trash2 } from "lucide-react";
 import { calculateFinalPrice, mediaUrl, tempChoices, type Product } from "../../lib/api";
 import { addToCart, CART_EVENT, decProduct, drinkNotes, getCart } from "../../lib/cart";
 import { formatVnd } from "../../lib/site";
 import { useLang } from "../../lib/i18n";
+import { cardLabels, prefConflicts, useDietPrefs } from "../../lib/nutrition";
+import "../../styles/nutrition.css";
 
 /** Tiêu đề mục: chữ poster + dòng serif nghiêng + gạch đôi; "Xem tất cả →" bên phải */
 export function SectionHead({ title, sub, more, as: Tag = "h2" }: { title: string; sub?: string; more?: { to: string; label?: string }; as?: "h1" | "h2" }) {
@@ -82,6 +84,27 @@ function useCartQty(productId: number) {
 }
 
 /** Thẻ món: ảnh trên nền kem, tem giảm giá, tên, 1 dòng mô tả, giá gốc gạch + giá bán, nút "+" vuông */
+/** Nhãn dinh dưỡng trên thẻ món (≤ 2) + nhắc nhẹ khi món không hợp sở thích ăn uống của khách (không ẩn món) */
+export function NutritionTags({ p }: { p: Product }) {
+  const { t } = useLang();
+  const [prefs] = useDietPrefs();
+  const labels = cardLabels(p.nutrition);
+  const conflicts = prefConflicts(p.nutrition, prefs);
+  if (!labels.length && !conflicts.length) return null;
+  return (
+    <span className="c-ntags">
+      {conflicts.length > 0 && (
+        <span className="c-ntag is-conflict" title={t("Không hợp sở thích ăn uống của bạn")}>
+          <AlertTriangle size={12} aria-hidden /> {conflicts.slice(0, 2).map((c) => t(c)).join(" · ")}
+        </span>
+      )}
+      {labels.filter((l) => !conflicts.includes(l.text)).map((l) => (
+        <span key={l.key} className={`c-ntag is-${l.tone}`}>{t(l.text)}</span>
+      ))}
+    </span>
+  );
+}
+
 export function ProductCard({ p, line }: { p: Product; line?: ReactNode }) {
   const { t } = useLang();
   const inCart = useCartQty(p.id);
@@ -96,6 +119,7 @@ export function ProductCard({ p, line }: { p: Product; line?: ReactNode }) {
       <div className="c-pcard-body">
         <Link to={`/product/${p.id}`} className="c-pcard-name">{p.name}</Link>
         {line && <p className="c-pcard-line">{line}</p>}
+        <NutritionTags p={p} />
         {p.rating && p.rating.count > 0 && (
           <span className="c-pcard-rating" aria-label={t("{avg} trên 5 sao, {n} đánh giá", { avg: p.rating.avg.toFixed(1), n: p.rating.count })}>
             <span aria-hidden>★</span> {p.rating.avg.toFixed(1)} <span className="c-muted-txt">({p.rating.count})</span>

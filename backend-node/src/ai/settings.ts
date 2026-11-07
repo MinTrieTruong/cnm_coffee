@@ -14,6 +14,8 @@ export const AI_FEATURES = {
   // hourlyPerUser: số lần / phiên trình duyệt / giờ
   VOICE_ORDER_WEB: { label: "Đặt món bằng giọng nói (web khách)", enabled: true, dailyLimit: 500, hourlyPerUser: 10 },
   INVOICE_OCR: { label: "Đọc hoá đơn nhà cung cấp khi nhận hàng", enabled: true, dailyLimit: 200, hourlyPerUser: null },
+  NUTRITION_ASSIST: { label: "Gợi ý dinh dưỡng nguyên liệu", enabled: true, dailyLimit: 100, hourlyPerUser: null },
+  WEATHER_PICKS: { label: "Câu gợi ý món theo thời tiết", enabled: true, dailyLimit: 300, hourlyPerUser: null },
 } as const;
 export type AiFeature = keyof typeof AI_FEATURES;
 

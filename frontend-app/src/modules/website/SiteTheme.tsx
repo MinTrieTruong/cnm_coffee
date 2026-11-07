@@ -235,6 +235,20 @@ export function SiteThemeSettings() {
               </label>
             </Field>
           </FormGroup>
+          <FormGroup title="Nội dung cho khách">
+            <Field label="Dinh dưỡng">
+              <label className="o-row" style={{ gap: 6 }}>
+                <input type="checkbox" checked={f.showNutrition !== false} onChange={(e) => set({ showNutrition: e.target.checked })} />
+                Hiện thông tin dinh dưỡng ước tính (nhãn caffeine / đường / dị ứng, bộ lọc ăn kiêng)
+              </label>
+            </Field>
+            <Field label="Gợi ý theo thời tiết">
+              <label className="o-row" style={{ gap: 6 }}>
+                <input type="checkbox" checked={f.showWeatherPicks !== false} onChange={(e) => set({ showWeatherPicks: e.target.checked })} />
+                Hiện khối "Hợp thời tiết hôm nay" trên trang chủ
+              </label>
+            </Field>
+          </FormGroup>
         </FormGroups>
 
         <div className="o-stack" style={{ gap: 12, position: "sticky", top: 12 }}>

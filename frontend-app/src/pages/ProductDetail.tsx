@@ -10,6 +10,7 @@ import { getUser } from "../lib/session";
 import { ReviewComposer } from "../components/site/ReviewComposer";
 import { Crumbs, ProductImage, listPrice, quickAdd } from "../components/site/parts";
 import { ReviewItem, type PublicReviewRow } from "../components/site/ReviewItem";
+import { NutritionPanel } from "../components/site/NutritionPanel";
 
 type Detail = Product & { sku?: string | null; outOfStock?: boolean; tags?: unknown };
 type Review = PublicReviewRow;
@@ -280,6 +281,7 @@ export function ProductDetail() {
             )}
             {tags.length > 0 && <p className="c-pd-tags">{tags.join(" · ")}</p>}
           </div>
+          <NutritionPanel productId={p.id} size={isFood ? "-" : size} sugarPct={isFood ? 100 : Number(sugar)} />
         </section>
 
         {!!extras?.pairings.length && (

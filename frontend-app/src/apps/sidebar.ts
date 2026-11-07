@@ -66,6 +66,7 @@ import {
   Bot,
   Gauge,
   Sparkles,
+  Apple,
 } from "lucide-react";
 import { APPS, appPath, canSee, leavesOf, listed, type AppDef, type MenuLeaf } from "./registry";
 import type { BadgeKey } from "../lib/navConfig";
@@ -89,7 +90,7 @@ export const SIDEBAR_GROUPS: SidebarGroupDef[] = [
   { id: "overview", label: "Tổng quan", items: ["overview/home", "overview/assistant", "overview/notifications", "hr/broadcast", "overview/branch-proposals"] },
   // Màn thao tác ca: nhân viên dùng hằng ngày, quản lý vào để hỗ trợ ca
   { id: "ops", label: "Vận hành ca", items: ["pos/pos", "tables/floor", "kitchen/kds", "tables/order-status", "delivery/orders", "delivery/shipper", "tables/chat"] },
-  { id: "menu", label: "Thực đơn", items: ["sales/products", "sales/categories", "sales/combos", "kitchen/formulas", "sales/proposals"] },
+  { id: "menu", label: "Thực đơn", items: ["sales/products", "sales/categories", "sales/combos", "kitchen/formulas", "kitchen/nutrition", "sales/proposals"] },
   { id: "stock", label: "Kho & mua hàng", items: ["inventory/stock", "inventory/urgent", "inventory/transfers", "inventory/counts", "inventory/waste", "purchase/orders", "purchase/suppliers"] },
   {
     id: "customers",
@@ -153,6 +154,7 @@ const LEAF_ICONS: Record<string, LucideIcon> = {
   "kitchen/kds": ChefHat,
   "kitchen/stats": BarChart3,
   "kitchen/formulas": FlaskConical,
+  "kitchen/nutrition": Apple,
   "inventory/stock": Warehouse,
   "inventory/urgent": Siren,
   "inventory/transfers": ArrowRightLeft,

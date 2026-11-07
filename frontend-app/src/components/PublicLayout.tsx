@@ -4,7 +4,7 @@ import { clearSession, useSessionUser } from "../lib/session";
 import { CustomerAvatar } from "./CustomerAvatar";
 import { CART_EVENT, getCart } from "../lib/cart";
 import { BottomNav, type MoreSheet } from "./BottomNav";
-import { Coins, Gift, Mail, ReceiptText, ShieldCheck, Star, Ticket, UserRound } from "lucide-react";
+import { Coins, Gift, Mail, ReceiptText, ShieldCheck, Star, Ticket, UserRound, Salad } from "lucide-react";
 import { rankLabel } from "../pages/account/shared";
 import { customerNav } from "../lib/navConfig";
 import { canGoBackInApp } from "../lib/appHistory";
@@ -124,6 +124,7 @@ export function PublicLayout() {
           { id: "acc-vouchers", label: t("Ví voucher"), short: "", icon: Ticket, to: "/account/vouchers" },
           { id: "acc-gifts", label: t("Quà của tôi"), short: "", icon: Gift, to: "/account/gifts" },
           { id: "acc-security", label: t("Bảo mật"), short: "", icon: ShieldCheck, to: "/account/security" },
+          { id: "acc-diet", label: t("Sở thích ăn uống"), short: "", icon: Salad, to: "/account/diet" },
         ],
         onLogout: handleLogout,
         text: { title: t("Tài khoản"), section: t("Tài khoản"), logout: t("Đăng xuất"), close: t("Đóng") },

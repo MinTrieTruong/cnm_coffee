@@ -3,6 +3,20 @@ import type { PrismaClient } from "@prisma/client";
 import { hiddenProductIds, storeFromQuery, storeMenuState } from "../lib/storeProducts.js";
 import { productRatings } from "./reviews.js";
 import { matchesSearch } from "../lib/productAliases.js";
+import { fitsDiet, isDiet, type NutritionValues } from "../lib/nutrition/labels.js";
+import { parseAllergens } from "../lib/nutrition/compute.js";
+import { siteFlags } from "./site.js";
+
+type NutritionRow = { size: string; kcal: number; fatG: number; sugarG: number; caffeineMg: number; proteinG: number; allergens: unknown; isVegan: boolean; complete: boolean; labels: unknown };
+/** Size mặc định của món: M (hoặc "-" với món 1 loại) */
+function defaultNutrition(rows: NutritionRow[]): NutritionValues | null {
+  const n = rows.find((r) => r.size === "M") ?? rows.find((r) => r.size === "-");
+  return n ? { kcal: n.kcal, fatG: n.fatG, sugarG: n.sugarG, caffeineMg: n.caffeineMg, allergens: parseAllergens(n.allergens), isVegan: n.isVegan, complete: n.complete } : null;
+}
+function publicNutrition(rows: NutritionRow[]) {
+  const n = rows.find((r) => r.size === "M") ?? rows.find((r) => r.size === "-");
+  return n ? { size: n.size, kcal: n.kcal, caffeineMg: n.caffeineMg, sugarG: n.sugarG, fatG: n.fatG, proteinG: n.proteinG, complete: n.complete, labels: n.labels } : null;
+}
 
 const AI_URL = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
 
@@ -93,6 +107,9 @@ export function menuRouter(prisma: PrismaClient) {
     const minPrice = req.query.minPrice ? Number(req.query.minPrice) : undefined;
     const maxPrice = req.query.maxPrice ? Number(req.query.maxPrice) : undefined;
     const tagsParam = req.query.tags as string;
+    // Lọc ăn kiêng: diet=no_caffeine,low_caffeine,no_milk,low_sugar,low_fat,vegan,no_nuts
+    const diets = String(req.query.diet ?? "").split(",").filter(isDiet);
+    const { showNutrition } = await siteFlags(prisma);
 
     const categories = await prisma.category.findMany({
       orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
@@ -115,13 +132,21 @@ export function menuRouter(prisma: PrismaClient) {
     let products = (
       await prisma.product.findMany({
         where,
-        include: { category: true },
+        include: { category: true, nutrition: true },
         orderBy: [{ categoryId: "asc" }, { id: "asc" }],
       })
     )
       // Tìm theo tên hoặc tên gọi khác, bỏ dấu ("bx", "ca phe sua")
       .filter((p) => !search || matchesSearch(p, search))
-      .map((p) => ({ ...p, soldOut: p.outOfStock || soldOut.has(p.id), rating: ratings.get(p.id) ?? null }))
+      // Ăn kiêng: theo size mặc định (M, món 1 loại "-"); chỉ món đủ dữ liệu mới lọt bộ lọc loại trừ
+      .filter((p) => !diets.length || (showNutrition && diets.every((d) => { const n = defaultNutrition(p.nutrition); return !!n && fitsDiet(n, d); })))
+      .map(({ nutrition, ...p }) => ({
+        ...p,
+        soldOut: p.outOfStock || soldOut.has(p.id),
+        rating: ratings.get(p.id) ?? null,
+        // Dinh dưỡng ước tính (size mặc định) — ẩn khi Website › Giao diện tắt
+        nutrition: showNutrition ? publicNutrition(nutrition) : null,
+      }))
       // Món hết hàng xuống cuối danh mục (sort ổn định giữ thứ tự còn lại)
       .sort((a, b) => a.categoryId - b.categoryId || Number(a.soldOut) - Number(b.soldOut));
 

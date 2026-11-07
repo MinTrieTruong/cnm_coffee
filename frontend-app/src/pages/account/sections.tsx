@@ -12,6 +12,8 @@ import { ProductImage } from "../../components/site/parts";
 import { SocialButtons } from "../../components/site/SocialLogin";
 import { useSocialConfig, type SocialProvider } from "../../lib/socialLogin";
 import { Pager, usePaged, voucherActive, type AccountData, type CustomerOrder, type MyVoucher, type PublicVoucher } from "./shared";
+import { DIETS, PREF_TEXT, useDietPrefs, type Diet } from "../../lib/nutrition";
+import "../../styles/nutrition.css";
 
 type Msg = { text: string; ok: boolean } | null;
 const Note = ({ msg }: { msg: Msg }) => (msg ? <p className={msg.ok ? "c-acc-ok" : "c-err"} role={msg.ok ? "status" : "alert"}>{msg.text}</p> : null);
@@ -543,5 +545,35 @@ export function InboxSection({ data }: { data: AccountData }) {
       </ul>
       <Pager {...p} />
     </>
+  );
+}
+
+/** Sở thích ăn uống: thực đơn nhắc món không hợp (không ẩn), bộ lọc ăn kiêng bật sẵn lần đầu */
+export function DietSection() {
+  const { t } = useLang();
+  const [prefs, setPrefs] = useDietPrefs();
+  const [msg, setMsg] = useState<Msg>(null);
+  const toggle = async (d: Diet) => {
+    const next = prefs.includes(d) ? prefs.filter((x) => x !== d) : [...prefs, d];
+    try {
+      await setPrefs(next);
+      setMsg({ ok: true, text: t("Đã lưu sở thích ăn uống.") });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? t(e.message) : t("Không lưu được.") });
+    }
+  };
+  return (
+    <div className="c-acc-form">
+      <p className="c-muted-txt">{t("Chọn điều bạn cần lưu ý. Thực đơn sẽ nhắc những món không hợp (không ẩn món), và bật sẵn bộ lọc ăn kiêng khi bạn mở thực đơn.")}</p>
+      <div className="c-prefs">
+        {DIETS.map((d) => (
+          <label key={d} className={prefs.includes(d) ? "is-on" : undefined}>
+            <input type="checkbox" checked={prefs.includes(d)} onChange={() => void toggle(d)} /> {t(PREF_TEXT[d])}
+          </label>
+        ))}
+      </div>
+      <Note msg={msg} />
+      <p className="c-muted-txt" style={{ fontSize: "0.82rem" }}>{t("Thông tin dinh dưỡng là ước tính theo công thức chuẩn. Nếu dị ứng nặng, vui lòng báo nhân viên khi gọi món.")}</p>
+    </div>
   );
 }

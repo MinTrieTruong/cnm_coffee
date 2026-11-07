@@ -57,6 +57,7 @@ import { aiDashboardRouter } from "./routes/aiDashboard.js";
 import { analystRouter } from "./routes/analyst.js";
 import { voiceOrderRouter } from "./routes/voiceOrder.js";
 import { invoiceOcrRouter } from "./routes/invoiceOcr.js";
+import { nutritionRouter } from "./routes/nutrition.js";
 import { resumeKnowledgeQueue } from "./ai/knowledge/ingest.js";
 import { myStatsRouter } from "./routes/myStats.js";
 import { notificationsRouter } from "./routes/notifications.js";
@@ -159,6 +160,8 @@ app.use("/api", analystRouter(prisma));
 app.use("/api", voiceOrderRouter(prisma));
 // Đọc hoá đơn NCC bằng AI khi nhận hàng
 app.use("/api", invoiceOcrRouter(prisma));
+// Dinh dưỡng nguyên liệu / món, sở thích ăn uống của khách
+app.use("/api", nutritionRouter(prisma));
 app.use("/api", myStatsRouter(prisma));
 app.use("/api", notificationsRouter(prisma));
 app.use("/api", comboRouter(prisma));

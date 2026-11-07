@@ -15,6 +15,7 @@ import { announceMenuChange } from "../lib/menuEvents.js";
 import { PRODUCT_TEMPS } from "../lib/menuPrice.js";
 import { cleanAliases } from "../lib/productAliases.js";
 import { invalidateMenuContext } from "../lib/voiceOrder/menuContext.js";
+import { computeProductNutrition } from "../lib/nutrition/compute.js";
 import { socialConfigured } from "../lib/socialAuth.js";
 
 export function adminRouter(prisma: PrismaClient) {
@@ -310,6 +311,8 @@ export function adminRouter(prisma: PrismaClient) {
       ? await prisma.product.update({ where: { id }, data: rest })
       : await prisma.product.findUniqueOrThrow({ where: { id } });
     invalidateMenuContext();
+    // Món chuyển 1 size ↔ nhiều size → bảng dinh dưỡng theo size tính lại
+    if (rest.hasSizes !== undefined) await computeProductNutrition(id).catch((e) => console.error("[nutrition]", e));
     // Chủ chuỗi bật/tắt món cho cả chuỗi → báo mọi chi nhánh đang hoạt động
     if (prev && typeof rest.isActive === "boolean" && rest.isActive !== prev.isActive) {
       const stores = await prisma.store.findMany({ where: { isActive: true }, select: { id: true } });

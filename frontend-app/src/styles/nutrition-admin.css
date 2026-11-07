@@ -1,0 +1,30 @@
+/* ═══════════ Thực đơn › Dinh dưỡng nguyên liệu (modules/kitchen/IngredientNutrition.tsx) ═══════════ */
+.nut-page { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.nut-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.nut-filters { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-right: auto; }
+.nut-filters button { padding: 5px 12px; border: 1px solid var(--o-border-strong); border-radius: 999px; background: var(--o-surface); color: var(--o-text-2); font: inherit; font-size: var(--o-fs-sm); cursor: pointer; }
+.nut-filters button.is-on { border-color: var(--o-primary); background: var(--o-primary-soft); color: var(--o-primary); font-weight: 600; }
+.nut-help { margin: 0; font-size: var(--o-fs-sm); line-height: 1.5; }
+.nut-table td { vertical-align: top; }
+.nut-table td.num, .nut-table th.num { text-align: right; }
+.nut-sel { width: 32px; }
+.nut-name { min-width: 220px; }
+.nut-name b { display: block; }
+.nut-name span { display: block; font-size: var(--o-fs-xs); line-height: 1.4; margin-top: 2px; white-space: normal; }
+.nut-note { color: #6d28d9; }
+.nut-warn { color: #92400e; font-weight: 600; }
+.nut-num { width: 72px; height: 30px; padding: 0 6px; text-align: right; }
+.nut-basis { height: 30px; padding: 0 4px; width: auto; }
+.nut-chips { display: flex; flex-wrap: wrap; gap: 3px; min-width: 170px; }
+.nut-chips button { padding: 1px 7px; border: 1px solid var(--o-border-strong); border-radius: 999px; background: var(--o-surface); color: var(--o-muted); font-size: 11px; cursor: pointer; }
+.nut-chips button.is-on { border-color: var(--o-danger); background: var(--o-danger-bg); color: var(--o-danger); font-weight: 600; }
+.nut-chips button:disabled { cursor: default; }
+.nut-table tr.is-ai td { background: rgba(168, 85, 247, 0.06); }
+.nut-table tr.is-ai td:first-child { box-shadow: inset 3px 0 0 #a855f7; }
+.nut-table tr.is-warn td { background: rgba(245, 158, 11, 0.08); }
+
+/* Màn sửa món › Dinh dưỡng ước tính */
+.nut-card table { width: 100%; border-collapse: collapse; font-size: var(--o-fs-sm); }
+.nut-card th, .nut-card td { padding: 6px 8px; border-bottom: 1px solid var(--o-border); text-align: right; }
+.nut-card th:first-child, .nut-card td:first-child { text-align: left; }
+.nut-card .nut-labels { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }

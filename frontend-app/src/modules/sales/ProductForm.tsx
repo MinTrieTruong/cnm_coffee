@@ -3,7 +3,8 @@ import { X } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { mediaUrl, type ProductTemps } from "../../lib/api";
 import { getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
-import { Alert, Button, Field, FormGroup, FormGroups, FormView, StatusBar, Tabs, errMsg, formatVnd } from "../../components/erp";
+import { Alert, Badge, Button, Field, FormGroup, FormGroups, FormView, StatusBar, Tabs, errMsg, formatVnd } from "../../components/erp";
+import "../../styles/nutrition-admin.css";
 import { ImageField, TagsInput, digits, parseTags, useRecordNav, useResource } from "../shared";
 import { PRODUCTS_BASE, type ProductRow } from "./ProductList";
 
@@ -462,6 +463,54 @@ export function ProductForm({ recordId }: { recordId?: string }) {
           </FormGroups>
         )}
       </div>
+      {!isNew && recordId && <NutritionCard productId={Number(recordId)} />}
     </FormView>
+  );
+}
+
+type NutSize = {
+  size: string; kcal: number; caffeineMg: number; sugarG: number; fatG: number; proteinG: number; complete: boolean;
+  missing: { itemId: number; name: string }[]; allergens: string[];
+  labels: { caffeine: string | null; sugar: string | null; fat: string | null; vegan: boolean; allergens: string[] };
+};
+const ALLERGEN_VI: Record<string, string> = { milk: "sữa", nuts: "hạt", peanut: "đậu phộng", gluten: "gluten", egg: "trứng", soy: "đậu nành" };
+
+/** Dinh dưỡng ước tính theo size (tính từ công thức × nguyên liệu đã duyệt) + nguyên liệu còn thiếu */
+function NutritionCard({ productId }: { productId: number }) {
+  const r = useResource<{ sizes: NutSize[] } | null>(`/api/nutrition/products/${productId}`, null);
+  const sizes = r.data?.sizes ?? [];
+  if (!sizes.length) return null;
+  const missing = sizes[0].missing;
+  const l = sizes.find((x) => x.size === "M")?.labels ?? sizes[0].labels;
+  const tags = [
+    l.caffeine === "none" ? "Không caffeine" : l.caffeine === "low" ? "Ít caffeine" : l.caffeine === "high" ? "Caffeine cao" : "",
+    l.sugar === "high" ? "Nhiều đường" : l.sugar === "low" ? "Ít đường" : "",
+    l.fat === "high" ? "Nhiều béo" : l.fat === "low" ? "Ít béo" : "",
+    l.vegan ? "Thuần chay" : "",
+    ...l.allergens.map((a) => `Có ${ALLERGEN_VI[a] ?? a}`),
+  ].filter(Boolean);
+  return (
+    <div className="o-card nut-card" style={{ marginTop: 16, padding: 16 }}>
+      <strong>Dinh dưỡng ước tính</strong>
+      <div className="o-muted" style={{ fontSize: 12, margin: "2px 0 8px" }}>Tính từ công thức × dinh dưỡng nguyên liệu đã duyệt, mức đường 100%. Khách thấy khi Website › Giao diện bật hiện dinh dưỡng.</div>
+      {missing.length > 0 ? (
+        <Alert tone="warning">
+          Chưa đủ dữ liệu — còn thiếu / chưa duyệt: {missing.map((m) => m.name).join(", ")}.{" "}
+          <Link to="/app/kitchen/nutrition">Mở Dinh dưỡng nguyên liệu</Link>
+        </Alert>
+      ) : (
+        <>
+          <table>
+            <thead><tr><th>Size</th><th>kcal</th><th>Caffeine (mg)</th><th>Đường (g)</th><th>Béo (g)</th><th>Đạm (g)</th></tr></thead>
+            <tbody>
+              {sizes.map((x) => (
+                <tr key={x.size}><td>{x.size === "-" ? "1 phần" : x.size}</td><td>{x.kcal}</td><td>{x.caffeineMg}</td><td>{x.sugarG}</td><td>{x.fatG}</td><td>{x.proteinG}</td></tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="nut-labels">{tags.length ? tags.map((t) => <Badge key={t}>{t}</Badge>) : <span className="o-muted">Không có nhãn</span>}</div>
+        </>
+      )}
+    </div>
   );
 }

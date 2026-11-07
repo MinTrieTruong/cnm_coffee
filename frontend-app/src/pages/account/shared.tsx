@@ -4,9 +4,9 @@ import { getUser, isGuestMode, mergeSessionUser, type SessionUser } from "../../
 import { useLang } from "../../lib/i18n";
 
 /* ── Mục của trang tài khoản (route con /account/:section, dùng chung máy tính + điện thoại) ── */
-export type Section = "profile" | "inbox" | "security" | "orders" | "reviews" | "points" | "vouchers" | "gifts";
+export type Section = "profile" | "inbox" | "security" | "diet" | "orders" | "reviews" | "points" | "vouchers" | "gifts";
 export const SECTIONS: { group: string; items: { id: Section; label: string }[] }[] = [
-  { group: "Tài khoản", items: [{ id: "profile", label: "Thông tin cá nhân" }, { id: "inbox", label: "Hộp thư" }, { id: "security", label: "Bảo mật" }] },
+  { group: "Tài khoản", items: [{ id: "profile", label: "Thông tin cá nhân" }, { id: "inbox", label: "Hộp thư" }, { id: "security", label: "Bảo mật" }, { id: "diet", label: "Sở thích ăn uống" }] },
   { group: "Mua hàng", items: [{ id: "orders", label: "Đơn hàng" }, { id: "reviews", label: "Đánh giá đơn" }] },
   { group: "Ưu đãi#account", items: [{ id: "points", label: "Lịch sử điểm" }, { id: "vouchers", label: "Ví voucher" }, { id: "gifts", label: "Quà của tôi" }] },
 ];

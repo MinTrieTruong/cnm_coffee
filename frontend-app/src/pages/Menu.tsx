@@ -11,6 +11,8 @@ import { useLang } from "../lib/i18n";
 import { Crumbs, ProductCard, SectionHead, listPrice } from "../components/site/parts";
 import { QuickOrderMic, openQuickOrder, useQuickOrder } from "../components/site/QuickOrder";
 import { looksLikeOrder } from "../lib/voiceOrder";
+import { useSiteInfo } from "../lib/site";
+import { DIETS, DIET_TEXT, useDietPrefs, type Diet } from "../lib/nutrition";
 
 type FilterState = { search: string; categoryId: number | "all"; minPrice: string; maxPrice: string; tags: string[] };
 type View = "grid" | "paper";
@@ -75,9 +77,28 @@ function PaperGroup({ name, list, query }: { name: string; list: Product[]; quer
   );
 }
 
+const DIET_APPLIED_KEY = "c-diet-applied";
+
 export function Menu() {
   const { t } = useLang();
   const quick = useQuickOrder();
+  const site = useSiteInfo();
+  const showNutrition = site?.theme?.showNutrition !== false;
+  const [prefs] = useDietPrefs();
+  /** Bộ lọc ăn kiêng (lọc ở server: chỉ món đủ dữ liệu dinh dưỡng mới lọt) */
+  const [diets, setDiets] = useState<Diet[]>([]);
+  // Khách có sở thích ăn uống → bật sẵn chip ở lần đầu mở thực đơn trong phiên (bỏ được)
+  useEffect(() => {
+    if (!prefs.length) return;
+    try {
+      if (sessionStorage.getItem(DIET_APPLIED_KEY)) return;
+      sessionStorage.setItem(DIET_APPLIED_KEY, "1");
+    } catch {
+      /* chế độ riêng tư */
+    }
+    setDiets(prefs);
+  }, [prefs]);
+  const toggleDiet = (d: Diet) => setDiets((cur) => (cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d]));
   const [data, setData] = useState<MenuResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [view, setView] = useState<View>(readView);
@@ -116,8 +137,9 @@ export function Menu() {
     if (filters.minPrice) q.append("minPrice", filters.minPrice);
     if (filters.maxPrice) q.append("maxPrice", filters.maxPrice);
     if (filters.tags.length > 0) q.append("tags", filters.tags.join(","));
+    if (showNutrition && diets.length) q.append("diet", diets.join(","));
     return `?${q.toString()}`;
-  }, [user?.customerId, filters.categoryId, filters.minPrice, filters.maxPrice, filters.tags, search, storeId]);
+  }, [user?.customerId, filters.categoryId, filters.minPrice, filters.maxPrice, filters.tags, search, storeId, diets, showNutrition]);
 
   // Thống kê "khách tìm gì": chỉ ghi khi khách ngừng gõ 1,5 giây (không ghi từng ký tự)
   useEffect(() => {
@@ -158,6 +180,7 @@ export function Menu() {
   }
   function clearAll() {
     setFilters(EMPTY);
+    setDiets([]);
     setParams(new URLSearchParams(), { replace: true });
   }
 
@@ -167,7 +190,7 @@ export function Menu() {
   const groups = categories.map((c) => ({ ...c, list: byCat.get(c.id) ?? [] })).filter((c) => c.list.length);
   const total = groups.reduce((s, c) => s + c.list.length, 0);
   const query = search;
-  const hasFilter = !!(filters.search || filters.categoryId !== "all" || filters.minPrice || filters.maxPrice || filters.tags.length);
+  const hasFilter = !!(filters.search || filters.categoryId !== "all" || filters.minPrice || filters.maxPrice || filters.tags.length || (showNutrition && diets.length));
   const current = filters.categoryId === "all" ? null : categories.find((c) => c.id === filters.categoryId);
   const catName = new Map(categories.map((c) => [c.id, c.name]));
   const priceOn = (r: (typeof PRICES)[number]) => filters.minPrice === r.min && filters.maxPrice === r.max;
@@ -254,6 +277,15 @@ export function Menu() {
             <button type="button" className={view === "paper" ? "is-on" : undefined} aria-pressed={view === "paper"} onClick={() => changeView("paper")}>{t("Menu giấy")}</button>
           </div>
         </div>
+        {showNutrition && (
+          <div className="c-diet" role="group" aria-label={t("Ăn kiêng")}>
+            <span className="c-diet-label">{t("Ăn kiêng")}:</span>
+            {DIETS.map((d) => (
+              <button key={d} type="button" className={diets.includes(d) ? "is-on" : undefined} aria-pressed={diets.includes(d)} onClick={() => toggleDiet(d)}>{t(DIET_TEXT[d])}</button>
+            ))}
+            {diets.length > 0 && <button type="button" className="c-linkish" onClick={() => setDiets([])}>{t("Bỏ chọn")}</button>}
+          </div>
+        )}
         {quick.enabled && looksLikeOrder(filters.search) && (
           <div className="qo-quick-row">
             <button type="button" className="c-btn qo-quick-btn" onClick={() => openQuickOrder({ text: filters.search })}>{t("Đặt nhanh")}</button>
