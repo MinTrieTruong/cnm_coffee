@@ -50,7 +50,7 @@ function Preview({ theme, mode }: { theme: SiteTheme; mode: ColorMode }) {
   // Xem trước luôn hiện chủ đề lễ đã chọn, kể cả khi ngày tự tắt đã qua (để chủ chuỗi thấy trước khi chỉnh ngày)
   const oc = activeOccasion(theme.occasion ? { ...theme, occasion: { ...theme.occasion, until: null } } : theme);
   const box: CSSProperties = { borderRadius: 6, overflow: "hidden", border: "1px solid var(--o-border)", background: n.paper, color: n.ink, fontFamily: "'Be Vietnam Pro', system-ui, sans-serif" };
-  const display: CSSProperties = { fontFamily: "Oswald, 'Arial Narrow', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em" };
+  const display: CSSProperties = { fontFamily: "'Playfair Display', Georgia, serif", fontWeight: 500, letterSpacing: "0" };
   return (
     <div style={box} aria-label={mode === "dark" ? "Xem trước giao diện tối" : "Xem trước giao diện sáng"}>
       <div style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
