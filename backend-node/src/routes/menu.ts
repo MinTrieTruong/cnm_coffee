@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
 import { hiddenProductIds, storeFromQuery, storeMenuState } from "../lib/storeProducts.js";
 import { productRatings } from "./reviews.js";
+import { matchesSearch } from "../lib/productAliases.js";
 
 const AI_URL = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
 
@@ -100,9 +101,6 @@ export function menuRouter(prisma: PrismaClient) {
     // Món chi nhánh tắt → ẩn; món hết hàng (báo hết / hết nguyên liệu) → vẫn trả về với soldOut để khách thấy mờ
     const { disabled, soldOut } = await storeMenuState(prisma, storeFromQuery(req.query.store));
     let where: any = { isActive: true, id: { notIn: [...disabled] } };
-    if (search) {
-      where.name = { contains: search }; // note: MySQL handles case-insensitivity by default
-    }
     if (categoryId && !Number.isNaN(categoryId)) {
       // Chọn danh mục cha → gồm cả món của danh mục con
       where.categoryId = { in: [categoryId, ...categories.filter((c) => c.parentId === categoryId).map((c) => c.id)] };
@@ -121,6 +119,8 @@ export function menuRouter(prisma: PrismaClient) {
         orderBy: [{ categoryId: "asc" }, { id: "asc" }],
       })
     )
+      // Tìm theo tên hoặc tên gọi khác, bỏ dấu ("bx", "ca phe sua")
+      .filter((p) => !search || matchesSearch(p, search))
       .map((p) => ({ ...p, soldOut: p.outOfStock || soldOut.has(p.id), rating: ratings.get(p.id) ?? null }))
       // Món hết hàng xuống cuối danh mục (sort ổn định giữ thứ tự còn lại)
       .sort((a, b) => a.categoryId - b.categoryId || Number(a.soldOut) - Number(b.soldOut));

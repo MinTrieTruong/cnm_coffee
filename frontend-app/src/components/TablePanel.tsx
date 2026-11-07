@@ -13,6 +13,8 @@ import {
   X,
 } from "lucide-react";
 import { apiOrigin, TEMP_TEXT, tempChoices, type ProductTemps, type Temp } from "../lib/api";
+import { PosVoiceBar } from "./VoiceOrder";
+import { voiceNote, type VoiceLine } from "../lib/voiceOrder";
 
 export type PanelProduct = {
   id: number;
@@ -390,9 +392,30 @@ function OrderView({
       return { ...prev, [key]: { ...cur, qty } };
     });
 
+  /**
+   * Món đã xác nhận từ giọng nói → danh sách đang gọi. Cùng món + size + nóng/đá + ghi chú thì cộng dồn;
+   * khác ghi chú (VD 1 ly ít đá, 1 ly không đá) thì tách dòng riêng (khóa có thêm đuôi "|v…", phần gửi bếp bỏ qua đuôi).
+   */
+  const addVoice = (vls: VoiceLine[]) =>
+    setLines((prev) => {
+      const next = { ...prev };
+      for (const vl of vls) {
+        const p = products.find((x) => x.id === vl.productId);
+        if (!p) continue;
+        const size: Size = hasSizes(p) ? vl.size ?? "M" : "M";
+        const note = voiceNote(vl);
+        const base = `${p.id}|${size}|${vl.temp ?? ""}`;
+        const key = Object.keys(next).find((k) => (k === base || k.startsWith(`${base}|v`)) && (next[k].qty === 0 || next[k].note.trim() === note)) ?? `${base}|v${Date.now()}${Math.random().toString(36).slice(2, 5)}`;
+        const cur = next[key] ?? { qty: 0, note: "", showNote: false };
+        next[key] = { qty: cur.qty + vl.qty, note: cur.qty === 0 ? note : cur.note, showNote: !!note || cur.showNote };
+      }
+      return next;
+    });
+
   return (
     <>
       <div className="tp-body tp-body-order">
+        <PosVoiceBar products={products} onAdd={addVoice} />
         <div className="tp-order-tools">
           <input className="o-input" type="search" placeholder="Tìm món…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Tìm món" />
           <input className="o-input" type="tel" placeholder="SĐT khách (tích điểm)" value={phone} onChange={(e) => setPhone(e.target.value)} aria-label="SĐT khách" />
@@ -498,6 +521,22 @@ function OrderView({
           {list.length === 0 && <li className="tp-muted" style={{ padding: 12 }}>Không có món phù hợp.</li>}
         </ul>
       </div>
+      {picked.length > 0 && (
+        <div className="tp-picked" aria-label="Món đã chọn">
+          {picked.map((x) => {
+            const key = Object.keys(lines).find((k) => lines[k] === x.line)!;
+            return (
+              <span key={key} className="tp-picked-item">
+                {x.line.qty}× {x.product.name}
+                {hasSizes(x.product) && x.size !== "M" ? ` ${x.size}` : ""}
+                {x.temp === "HOT" ? " nóng" : ""}
+                {x.line.note.trim() && <em> · {x.line.note.trim()}</em>}
+                <button type="button" onClick={() => setLines((prev) => ({ ...prev, [key]: { ...prev[key], qty: 0 } }))} aria-label={`Bỏ ${x.product.name}`}><X size={12} aria-hidden /></button>
+              </span>
+            );
+          })}
+        </div>
+      )}
       <footer className="tp-foot">
         <div className="tp-total">
           <span>{count ? `${count} món mới` : "Chưa chọn món"}</span>

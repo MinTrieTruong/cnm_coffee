@@ -66,6 +66,7 @@ const ReviewList = L(() => import("../modules/sales/Reviews"), "ReviewList");
 const ReviewForm = L(() => import("../modules/sales/Reviews"), "ReviewForm");
 
 const Dashboard = L(() => import("../modules/overview/Dashboard"), "Dashboard");
+const Analyst = L(() => import("../modules/overview/Analyst"), "Analyst");
 const Revenue = L(() => import("../modules/overview/Revenue"), "Revenue");
 const Profit = L(() => import("../modules/overview/Profit"), "Profit");
 const StoresCompare = L(() => import("../modules/overview/StoresCompare"), "StoresCompare");
@@ -142,6 +143,8 @@ export type MenuLeaf = {
   alias?: string;
   /** Không hiện trong menu (mở từ chỗ khác, vd "Tài khoản của tôi" ở menu hồ sơ) */
   hidden?: boolean;
+  /** Tính năng AI cần bật (GET /api/ai/settings) — tắt thì ẩn khỏi menu */
+  feature?: string;
 };
 
 export type MenuNode = MenuLeaf | { id: string; label: string; children: MenuLeaf[] };
@@ -178,6 +181,8 @@ export const APPS: AppDef[] = [
     icon: LayoutDashboard,
     menus: [
       { id: "home", label: "Bảng điều khiển", roles: "all", component: Dashboard, layout: "erp", ownHeader: true },
+      // Hỏi số liệu bằng tiếng Việt — AI tự tra các báo cáo có sẵn (theo quyền người hỏi)
+      { id: "assistant", label: "Trợ lý AI", roles: CHAIN_AND_BRANCH, component: Analyst, layout: "erp", ownHeader: true, feature: "ANALYST" },
       // Đường dẫn cũ — cùng màn hình với "home", không lặp lại trong menu
       { id: "dashboard", label: "Bảng điều khiển", roles: CHAIN_AND_BRANCH, component: Dashboard, layout: "erp", ownHeader: true, alias: "home" },
       { id: "revenue", label: "Doanh thu", description: "Tiền thực thu theo ngày, món bán chạy và danh sách đơn", roles: CHAIN_AND_BRANCH, component: Revenue, layout: "erp" },

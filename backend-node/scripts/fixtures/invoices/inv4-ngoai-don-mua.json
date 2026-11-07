@@ -1,0 +1,19 @@
+{
+  "readable": true,
+  "invoiceNo": "MP-001401",
+  "lines": {
+    "Nước Cốt Dừa": {
+      "receivedQty": 24,
+      "expiryDate": "2027-10-01"
+    },
+    "Đường Cát": {
+      "receivedQty": 20,
+      "expiryDate": null
+    }
+  },
+  "unmatched": [
+    "cacao"
+  ],
+  "flags": [],
+  "sharpness": 3711
+}

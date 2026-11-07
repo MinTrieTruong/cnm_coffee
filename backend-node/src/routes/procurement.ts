@@ -9,6 +9,8 @@ import { adjustStoreStock, roundQty } from "../lib/inventory.js";
 import { applyIncomingCost, applyOutgoingCost } from "../lib/productCost.js";
 import { createBill, createEntry, openSafeSession } from "../lib/cash.js";
 import { saveDataUrlImage } from "../lib/uploadImage.js";
+import { orderedLines, poLinesInclude } from "../lib/procurement/poLines.js";
+import { normalizeTerm } from "../lib/searchInsights.js";
 import { getStoreSettings } from "../lib/pricing.js";
 import { notify } from "../lib/notify.js";
 import { applySupplierCredits, billRemaining, REJECT_REASONS, RETURN_RESOLUTIONS, returnDeadline, type ReturnResolution } from "../lib/supplierReturns.js";
@@ -21,37 +23,6 @@ export function procurementRouter(prisma: PrismaClient) {
   const purchasingStore = [...purchasing, requireStore];
   const approver = [authStaff, requireRoles("Admin"), requireStore];
   const authSupp = attachSupplier(prisma);
-
-  /** Đơn mua kèm đủ dữ liệu tính số đã đặt / đã nhận của từng mặt hàng */
-  const poLinesInclude = {
-    quote: { include: { items: true, rfq: { include: { requisition: { include: { items: { include: { item: { select: { name: true, unit: true } } } } } } } } } },
-    receipts: { include: { items: true } },
-    cancels: true,
-    // Hàng trả NCC để đổi → phải giao lại
-    returns: { where: { status: "APPROVED", resolution: "REPLACE" }, include: { items: true } },
-  } as const;
-  type PoWithLines = Prisma.PurchaseOrderGetPayload<{ include: typeof poLinesInclude }>;
-
-  /**
-   * Mặt hàng của đơn mua = mặt hàng trong đề xuất có báo giá.
-   * Còn phải giao = đặt − đã nhận − đã hủy (NCC không giao bù) + đã trả để đổi hàng.
-   */
-  function orderedLines(po: PoWithLines) {
-    return po.quote.rfq.requisition.items.flatMap((pi) => {
-      const q = po.quote.items.find((x) => x.itemId === pi.itemId);
-      if (!q) return [];
-      const grnItems = po.receipts.flatMap((g) => g.items.filter((x) => x.itemId === pi.itemId).map((x) => ({ ...x, at: g.createdAt })));
-      const received = grnItems.reduce((a, x) => a + x.receivedQty, 0);
-      const rejected = grnItems.reduce((a, x) => a + x.rejectedQty, 0);
-      const cancelled = po.cancels.filter((c) => c.itemId === pi.itemId).reduce((a, c) => a + c.qty, 0);
-      const replaced = Math.round(po.returns.reduce((a, rt) => a + rt.items.filter((x) => x.itemId === pi.itemId).reduce((b, x) => b + x.qty, 0), 0));
-      const remaining = Math.max(0, pi.qty - received - cancelled + replaced);
-      // Ngày hẹn giao bù: theo đợt nhận mới nhất có chọn chờ giao bù
-      const last = [...grnItems].sort((a, b) => b.at.getTime() - a.at.getTime())[0];
-      const backorderDate = remaining > 0 && last?.shortAction === "BACKORDER" ? last.backorderDate : null;
-      return [{ itemId: pi.itemId, name: pi.item.name, unit: pi.item.unit, ordered: pi.qty, received, rejected, cancelled, replaced, remaining, backorderDate, unitPrice: q.unitPrice }];
-    });
-  }
 
   /** Trạng thái đơn mua sau khi nhận / hủy / đổi hàng: còn phải giao → PENDING/PARTIAL; hết mà có hủy → CLOSED; nhận đủ → DELIVERED */
   async function settlePoStatus(tx: Prisma.TransactionClient, poId: number, closeNote?: string) {
@@ -381,6 +352,14 @@ export function procurementRouter(prisma: PrismaClient) {
       reorder?: boolean;
       /** Ảnh hoá đơn / phiếu giao hàng của NCC (data URL) — bắt buộc khi đợt này có hàng nhập kho (sinh công nợ) */
       invoicePhoto?: string;
+      /** Ảnh hoá đơn đã lưu ở bước đọc bằng AI (/uploads/…) — thay cho invoicePhoto, không phải chụp lại */
+      invoicePhotoUrl?: string;
+      /** Lần đọc hoá đơn bằng AI (lưu giá trị người nhận xác nhận để đo độ chính xác) */
+      extractionId?: number;
+      /** Số hoá đơn NCC (cảnh báo trùng ở lần đọc sau) */
+      invoiceNo?: string;
+      /** Quy đổi đơn vị người nhận xác nhận: tên hàng trên hoá đơn → mặt hàng, 1 đơn vị hoá đơn = factor đơn vị kho */
+      unitAliases?: { rawName?: string; itemId?: number; factor?: number; unitInvoice?: string | null }[];
     };
 
     const po = await prisma.purchaseOrder.findUnique({ where: { id: poId }, include: poLinesInclude });
@@ -407,7 +386,23 @@ export function procurementRouter(prisma: PrismaClient) {
     }
     const taking = lines.filter((l) => l.receivedQty > 0 || (l.rejectedQty ?? 0) > 0 || l.shortAction === "CANCEL");
     if (!taking.length) return res.status(400).json({ error: "Nhập số lượng thực nhận cho ít nhất 1 mặt hàng." });
-    if (taking.some((l) => l.receivedQty > 0) && !body.invoicePhoto) {
+    // Ảnh đã lưu ở bước đọc bằng AI: chỉ nhận đường dẫn do hệ thống cấp, thuộc đúng lần đọc của đơn mua này
+    const extraction = body.extractionId != null
+      ? await prisma.invoiceExtraction.findFirst({ where: { id: Number(body.extractionId), poId, grnId: null }, select: { id: true, imageUrls: true } })
+      : null;
+    if (body.extractionId != null && !extraction) return res.status(400).json({ error: "Lần đọc hoá đơn không hợp lệ hoặc đã dùng." });
+    const savedPhotos = (extraction?.imageUrls ?? []) as string[];
+    if (body.invoicePhotoUrl && (!/^\/uploads\/[0-9a-f-]{36}\.(png|jpe?g|webp)$/i.test(body.invoicePhotoUrl) || !savedPhotos.includes(body.invoicePhotoUrl))) {
+      return res.status(400).json({ error: "Ảnh hoá đơn không hợp lệ." });
+    }
+    const invoiceNo = typeof body.invoiceNo === "string" && body.invoiceNo.trim() ? body.invoiceNo.trim().slice(0, 50) : null;
+    const ordered0 = new Set(ordered.map((o) => o.itemId));
+    const unitAliases = (Array.isArray(body.unitAliases) ? body.unitAliases : [])
+      .map((a) => ({ rawName: normalizeTerm(String(a.rawName ?? "")).slice(0, 150), itemId: Number(a.itemId), factor: Number(a.factor), unitInvoice: typeof a.unitInvoice === "string" ? a.unitInvoice.trim().slice(0, 30) || null : null }))
+      .filter((a) => a.rawName && ordered0.has(a.itemId) && Number.isFinite(a.factor) && a.factor > 0 && a.factor <= 10_000)
+      .slice(0, 50);
+
+    if (taking.some((l) => l.receivedQty > 0) && !body.invoicePhoto && !body.invoicePhotoUrl) {
       return res.status(400).json({ error: "Chụp ảnh hoá đơn / phiếu giao hàng của nhà cung cấp làm chứng từ công nợ." });
     }
 
@@ -422,8 +417,8 @@ export function procurementRouter(prisma: PrismaClient) {
         }
       }
     }
-    let invoicePhoto: string | null = null;
-    if (body.invoicePhoto) {
+    let invoicePhoto: string | null = body.invoicePhotoUrl ?? null;
+    if (!invoicePhoto && body.invoicePhoto) {
       try {
         invoicePhoto = await saveDataUrlImage(body.invoicePhoto);
       } catch (e) {
@@ -439,7 +434,7 @@ export function procurementRouter(prisma: PrismaClient) {
       const lock = await tx.purchaseOrder.updateMany({ where: { id: poId, status: po.status, updatedAt: po.updatedAt }, data: { status: "RECEIVING" } });
       if (!lock.count) return null;
       const g = await tx.goodsReceipt.create({
-        data: { code: `TMP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, storeId: po.storeId, poId, receivedById: staff.id, status: "COMPLETED", note: body.note?.trim().slice(0, 500) || null, invoicePhoto },
+        data: { code: `TMP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, storeId: po.storeId, poId, receivedById: staff.id, status: "COMPLETED", note: body.note?.trim().slice(0, 500) || null, invoicePhoto, invoiceNo },
       });
       // Mã theo id: không trùng khi 2 chi nhánh nhận hàng cùng lúc
       const grnCode = `GRN-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}-${String(g.id).padStart(4, "0")}`;
@@ -494,6 +489,20 @@ export function procurementRouter(prisma: PrismaClient) {
         reason: `Hủy khi nhận ${grnCode}${body.note?.trim() ? `: ${body.note.trim()}` : ""}`,
         staffId: staff.id, grnId: g.id, reorder: body.reorder,
       });
+      // Đọc hoá đơn bằng AI: gắn phiếu nhập + giá trị người nhận xác nhận (đo độ chính xác), ghi nhớ quy đổi đơn vị
+      if (extraction) {
+        await tx.invoiceExtraction.update({
+          where: { id: extraction.id },
+          data: { grnId: g.id, finalLines: taking.map((l) => ({ itemId: l.itemId, receivedQty: l.receivedQty, rejectedQty: l.rejectedQty ?? 0, expiryDate: l.expiryDate || null, note: l.note ?? "" })) },
+        });
+      }
+      for (const a of unitAliases) {
+        await tx.supplierUnitAlias.upsert({
+          where: { supplierId_rawName: { supplierId: po.supplierId, rawName: a.rawName } },
+          update: { itemId: a.itemId, factor: a.factor, unitInvoice: a.unitInvoice, confirmedById: staff.id },
+          create: { supplierId: po.supplierId, rawName: a.rawName, itemId: a.itemId, factor: a.factor, unitInvoice: a.unitInvoice, confirmedById: staff.id },
+        });
+      }
       const status = await settlePoStatus(tx, poId);
       return { grnCode, billAmount, status, reorderCode };
     });

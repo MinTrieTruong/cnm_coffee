@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
+import { X } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { mediaUrl, type ProductTemps } from "../../lib/api";
 import { getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
@@ -25,6 +26,8 @@ type Draft = {
   categoryId: number | "";
   imageUrl: string;
   tags: string[];
+  /** Tên gọi khác / viết tắt cho đặt món bằng giọng nói & tìm kiếm */
+  aliases: string[];
   discountPercent: string;
   isActive: boolean;
   outOfStock: boolean;
@@ -36,7 +39,7 @@ type Draft = {
 
 const EMPTY: Draft = {
   name: "", sku: "", costPrice: "", sellPrice: "", priceSizeS: "", priceSizeL: "",
-  categoryId: "", imageUrl: "", tags: [], discountPercent: "", isActive: true, outOfStock: false, hasSizes: true, temps: "BOTH",
+  categoryId: "", imageUrl: "", tags: [], aliases: [], discountPercent: "", isActive: true, outOfStock: false, hasSizes: true, temps: "BOTH",
 };
 
 const TEMP_OPTIONS: { value: ProductTemps; label: string }[] = [
@@ -45,6 +48,56 @@ const TEMP_OPTIONS: { value: ProductTemps; label: string }[] = [
   { value: "HOT", label: "Chỉ nóng" },
   { value: "NONE", label: "Không áp dụng" },
 ];
+
+const MAX_ALIASES = 10;
+const MAX_ALIAS_LEN = 40;
+
+/** Tên gọi khác dạng thẻ: Enter hoặc dấu phẩy để thêm (≤ 10 tên, mỗi tên ≤ 40 ký tự) */
+function AliasInput({ aliases, onChange, disabled }: { aliases: string[]; onChange: (a: string[]) => void; disabled?: boolean }) {
+  const [text, setText] = useState("");
+  if (disabled) {
+    return aliases.length ? (
+      <span className="o-row" style={{ gap: 4, flexWrap: "wrap" }}>
+        {aliases.map((a) => <span key={a} className="o-badge">{a}</span>)}
+      </span>
+    ) : (
+      <span className="o-muted">—</span>
+    );
+  }
+  const add = () => {
+    const parts = text.split(",").map((t) => t.trim().replace(/\s+/g, " ").slice(0, MAX_ALIAS_LEN)).filter(Boolean);
+    const next = [...aliases];
+    for (const t of parts) if (!next.some((a) => a.toLowerCase() === t.toLowerCase()) && next.length < MAX_ALIASES) next.push(t);
+    onChange(next);
+    setText("");
+  };
+  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      add();
+    } else if (e.key === "Backspace" && !text && aliases.length) onChange(aliases.slice(0, -1));
+  };
+  return (
+    <div className="o-stack" style={{ gap: 6 }}>
+      {aliases.length > 0 && (
+        <div className="o-row" style={{ gap: 4, flexWrap: "wrap" }}>
+          {aliases.map((a) => (
+            <span key={a} className="o-badge">
+              {a}
+              <button type="button" onClick={() => onChange(aliases.filter((x) => x !== a))} aria-label={`Bỏ ${a}`} style={{ border: 0, background: "none", padding: 0, marginLeft: 2, cursor: "pointer", display: "flex", color: "inherit" }}>
+                <X size={12} aria-hidden />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {aliases.length < MAX_ALIASES && (
+        <input className="o-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} onBlur={() => text.trim() && add()} maxLength={MAX_ALIAS_LEN * 3} placeholder="VD: bx, bạc xỉu, bac siu — Enter để thêm" />
+      )}
+      <div className="o-hint">Cách khách hay gọi / viết tắt. Đặt món bằng giọng nói và ô tìm kiếm thực đơn sẽ hiểu các tên này.</div>
+    </div>
+  );
+}
 
 /** Danh mục đồ ăn / bánh → món mới mặc định không size */
 const isFoodCategory = (name?: string) => !!name && /đồ ăn|bánh/i.test(name);
@@ -75,6 +128,7 @@ function toDraft(p: ProductRow): Draft {
     categoryId: p.categoryId,
     imageUrl: p.imageUrl ?? "",
     tags: parseTags(p.tags),
+    aliases: Array.isArray(p.aliases) ? p.aliases.filter((a): a is string => typeof a === "string") : [],
     discountPercent: p.discountPercent != null ? String(p.discountPercent) : "",
     isActive: p.isActive,
     outOfStock: p.outOfStock,
@@ -143,6 +197,7 @@ export function ProductForm({ recordId }: { recordId?: string }) {
             sku: draft.sku.trim() || undefined,
             imageUrl: draft.imageUrl.trim() || undefined,
             tags: draft.tags.length > 0 ? draft.tags : undefined,
+            aliases: draft.aliases,
             discountPercent: draft.discountPercent ? Number(draft.discountPercent) : undefined,
           }),
         });
@@ -166,6 +221,7 @@ export function ProductForm({ recordId }: { recordId?: string }) {
           categoryId: draft.categoryId,
           imageUrl: draft.imageUrl.trim() || null,
           tags: draft.tags.length > 0 ? draft.tags : null,
+          aliases: draft.aliases,
           discountPercent: draft.discountPercent ? Number(draft.discountPercent) : null,
           isActive: draft.isActive,
           outOfStock: draft.outOfStock,
@@ -305,6 +361,9 @@ export function ProductForm({ recordId }: { recordId?: string }) {
           )}
           <Field label="Nhãn">
             <TagsInput tags={draft.tags} onChange={(t) => set("tags", t)} disabled={ro} />
+          </Field>
+          <Field label="Tên gọi khác">
+            <AliasInput aliases={draft.aliases} onChange={(a) => set("aliases", a)} disabled={ro} />
           </Field>
         </FormGroup>
         <FormGroup>

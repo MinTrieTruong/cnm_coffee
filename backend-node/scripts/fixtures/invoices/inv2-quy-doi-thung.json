@@ -1,0 +1,16 @@
+{
+  "readable": true,
+  "invoiceNo": "MP-001302",
+  "lines": {
+    "Sữa Tươi": {
+      "receivedQty": 48,
+      "expiryDate": "2027-01-05"
+    },
+    "Sữa Đặc": {
+      "receivedQty": 24,
+      "expiryDate": null
+    }
+  },
+  "flags": [],
+  "sharpness": 3643
+}

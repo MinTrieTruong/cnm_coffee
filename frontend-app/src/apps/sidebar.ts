@@ -65,6 +65,7 @@ import {
   Library,
   Bot,
   Gauge,
+  Sparkles,
 } from "lucide-react";
 import { APPS, appPath, canSee, leavesOf, listed, type AppDef, type MenuLeaf } from "./registry";
 import type { BadgeKey } from "../lib/navConfig";
@@ -85,7 +86,7 @@ const MANAGERS = ["Owner", "Admin"];
 
 /** Thứ tự theo tần suất dùng trong ngày: làm ca → món → khách → người → tiền → cài đặt → việc cá nhân */
 export const SIDEBAR_GROUPS: SidebarGroupDef[] = [
-  { id: "overview", label: "Tổng quan", items: ["overview/home", "overview/notifications", "hr/broadcast", "overview/branch-proposals"] },
+  { id: "overview", label: "Tổng quan", items: ["overview/home", "overview/assistant", "overview/notifications", "hr/broadcast", "overview/branch-proposals"] },
   // Màn thao tác ca: nhân viên dùng hằng ngày, quản lý vào để hỗ trợ ca
   { id: "ops", label: "Vận hành ca", items: ["pos/pos", "tables/floor", "kitchen/kds", "tables/order-status", "delivery/orders", "delivery/shipper", "tables/chat"] },
   { id: "menu", label: "Thực đơn", items: ["sales/products", "sales/categories", "sales/combos", "kitchen/formulas", "sales/proposals"] },
@@ -115,6 +116,7 @@ export const SIDEBAR_GROUPS: SidebarGroupDef[] = [
 /** Icon từng mục lá, khóa `app/leaf`; thiếu thì dùng icon của app */
 const LEAF_ICONS: Record<string, LucideIcon> = {
   "overview/home": LayoutDashboard,
+  "overview/assistant": Sparkles,
   "overview/notifications": Bell,
   "hr/broadcast": Megaphone,
   "overview/revenue": TrendingUp,
@@ -232,11 +234,12 @@ function toLeaf(app: AppDef, leaf: MenuLeaf, role: string): SideLeaf {
   };
 }
 
-/** Hiện trong menu: mục thường của vai trò, hoặc màn thao tác ca mà quản lý vào để hỗ trợ */
-const showLeaf = (l: MenuLeaf, role: string) => listed(l, role) || (!!l.supportFor && canSee(l, role) && !l.alias && !l.hidden);
+/** Hiện trong menu: mục thường của vai trò, hoặc màn thao tác ca mà quản lý vào để hỗ trợ; mục cần tính năng AI thì tính năng phải đang bật */
+const showLeaf = (l: MenuLeaf, role: string, features: ReadonlySet<string>) =>
+  (!l.feature || features.has(l.feature)) && (listed(l, role) || (!!l.supportFor && canSee(l, role) && !l.alias && !l.hidden));
 
 /** Dựng menu theo vai trò; bỏ nhóm rỗng. Mục registry chưa xếp nhóm nào rơi vào nhóm "Khác" để không bị mất */
-export function buildSidebar(role: string): SideGroup[] {
+export function buildSidebar(role: string, features: ReadonlySet<string> = new Set()): SideGroup[] {
   const all = new Map<string, { app: AppDef; leaf: MenuLeaf }>();
   for (const app of APPS) for (const leaf of leavesOf(app)) all.set(keyOf(app, leaf), { app, leaf });
 
@@ -248,13 +251,13 @@ export function buildSidebar(role: string): SideGroup[] {
       const { key, roles, notRoles } = typeof e === "string" ? { key: e, roles: undefined, notRoles: undefined } : e;
       if ((roles && !roles.includes(role)) || notRoles?.includes(role)) continue;
       const hit = all.get(key);
-      if (!hit || placed.has(key) || !showLeaf(hit.leaf, role)) continue;
+      if (!hit || placed.has(key) || !showLeaf(hit.leaf, role, features)) continue;
       placed.add(key);
       items.push(toLeaf(hit.app, hit.leaf, role));
     }
     if (items.length) groups.push({ id: g.id, label: g.label, items, collapsed: g.collapsed });
   }
-  const rest = [...all].filter(([k, { leaf }]) => !placed.has(k) && showLeaf(leaf, role)).map(([, { app, leaf }]) => toLeaf(app, leaf, role));
+  const rest = [...all].filter(([k, { leaf }]) => !placed.has(k) && showLeaf(leaf, role, features)).map(([, { app, leaf }]) => toLeaf(app, leaf, role));
   if (rest.length) groups.push({ id: "other", label: "Khác", items: rest });
   return groups;
 }

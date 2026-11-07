@@ -6,6 +6,7 @@ import { BottomNav } from "../BottomNav";
 import { staffNav, type NavItem } from "../../lib/navConfig";
 import { refreshBadges, useStaffBadges } from "../../lib/navBadges";
 import { useAttendanceToday } from "../../lib/attendanceReminder";
+import { useAiFeatures } from "../../lib/aiFeatures";
 import { AttendanceReminder } from "./AttendanceReminder";
 import { appPath, canSee, defaultRouteForRole, isLeaf, listed, locate, type MenuLeaf } from "../../apps/registry";
 import { LEAF_BADGES, buildSidebar, leavesOfGroup } from "../../apps/sidebar";
@@ -54,7 +55,8 @@ function Shell() {
   const [peek, setPeek] = useState(false);
   const sourceBadges = useStaffBadges(info?.role, info?.id);
   const role = info?.role ?? "";
-  const groups = useMemo(() => buildSidebar(role), [role]);
+  const aiFeatures = useAiFeatures(role);
+  const groups = useMemo(() => buildSidebar(role, aiFeatures), [role, aiFeatures]);
   const attendance = useAttendanceToday(info ? role : undefined);
   const badges = { ...sourceBadges, attendance: attendance.reminder ? 1 : 0, notifications: unread };
   const onAttendancePage = loc.pathname === "/app/hr/attendance";
@@ -108,7 +110,7 @@ function Shell() {
   const labelOf = (l: MenuLeaf) => (l.labelFor ? l.labelFor(role) : l.label);
   const currentKey = `${app.id}/${leaf.alias ?? leaf.id}`;
   // Mobile: các mục con của app hiện tại, cuộn ngang
-  const appLeaves = app.menus.flatMap((m) => (isLeaf(m) ? [m] : m.children)).filter((l) => listed(l, role));
+  const appLeaves = app.menus.flatMap((m) => (isLeaf(m) ? [m] : m.children)).filter((l) => listed(l, role) && (!l.feature || aiFeatures.has(l.feature)));
   const mobileNav = staffNav(role);
   // "Thêm" trên điện thoại: đủ chức năng theo nhóm sidebar
   const moreGroups = groups.map((g) => ({

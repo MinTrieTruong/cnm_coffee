@@ -3,7 +3,7 @@ import { api } from "./api";
 const KEY = "searchSid";
 
 /** Mã ẩn danh của trình duyệt — đếm khách vãng lai khác nhau khi thống kê tìm kiếm */
-function sessionKey() {
+export function sessionKey() {
   try {
     let v = localStorage.getItem(KEY);
     if (!v) {

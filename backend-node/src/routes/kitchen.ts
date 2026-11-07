@@ -19,7 +19,7 @@ import { audit } from "../lib/audit.js";
 import { announceMenuChange } from "../lib/menuEvents.js";
 
 export const WASTE_REASONS = ["SPILL", "BROKEN", "EXPIRED", "REMAKE", "OTHER"] as const;
-const REASON_LABEL: Record<string, string> = { SPILL: "Đổ", BROKEN: "Bể / vỡ", EXPIRED: "Hư / hết hạn", REMAKE: "Làm lại món", OTHER: "Khác", STOCKTAKE: "Kiểm kê thiếu" };
+export const REASON_LABEL: Record<string, string> = { SPILL: "Đổ", BROKEN: "Bể / vỡ", EXPIRED: "Hư / hết hạn", REMAKE: "Làm lại món", OTHER: "Khác", STOCKTAKE: "Kiểm kê thiếu" };
 
 export function kitchenRouter(prisma: PrismaClient, io: Server) {
   const r = Router();

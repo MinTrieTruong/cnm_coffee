@@ -9,6 +9,8 @@ import type { ColorMode } from "../../lib/siteTheme";
 import { Toggles } from "./Toggles";
 import { AccountMenu } from "./AccountMenu";
 import type { SessionUser } from "../../lib/session";
+import { QuickOrderMic, openQuickOrder, useQuickOrder } from "./QuickOrder";
+import { looksLikeOrder } from "../../lib/voiceOrder";
 
 export const SITE_LINKS = [
   { to: "/menu", label: "Thực đơn", match: (p: string) => p.startsWith("/menu") || p.startsWith("/product") },
@@ -61,16 +63,30 @@ export function SiteHeader({
     setSearchOpen(false);
   }, [loc.pathname, loc.search]);
 
+  const quick = useQuickOrder();
+  const orderLike = quick.enabled && looksLikeOrder(q);
+
   function search(e: FormEvent) {
     e.preventDefault();
     const s = q.trim();
+    // Câu gọi món ("2 bạc xỉu ít đá…") → Đặt nhanh; tên món → tìm kiếm như cũ
+    if (orderLike) {
+      openQuickOrder({ text: s });
+      setQ("");
+      return;
+    }
     nav(s ? `/menu?q=${encodeURIComponent(s)}` : "/menu");
   }
 
   const searchForm = (
     <form className="c-search" role="search" onSubmit={search}>
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Hôm nay bạn muốn uống gì?")} aria-label={t("Tìm món")} />
-      <button type="submit" aria-label={t("Tìm")}><Search size={18} aria-hidden /></button>
+      <QuickOrderMic />
+      {orderLike ? (
+        <button type="submit" className="qo-quick">{t("Đặt nhanh")}</button>
+      ) : (
+        <button type="submit" aria-label={t("Tìm")}><Search size={18} aria-hidden /></button>
+      )}
     </form>
   );
 

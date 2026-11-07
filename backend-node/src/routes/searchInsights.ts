@@ -11,6 +11,7 @@ import { attachStaff, isOwner, requireRoles, type StaffRequest } from "../middle
 import { optionalCustomerAuth } from "../middleware/customer.js";
 import { hiddenProductIds, storeFromQuery } from "../lib/storeProducts.js";
 import { computeSearchInsights, normalizeTerm } from "../lib/searchInsights.js";
+import { matchesSearch } from "../lib/productAliases.js";
 
 export function searchInsightsRouter(prisma: PrismaClient) {
   const r = Router();
@@ -34,9 +35,9 @@ export function searchInsightsRouter(prisma: PrismaClient) {
 
     // Đếm lại kết quả giống hệt thực đơn khách thấy (không tin số trình duyệt gửi)
     const hidden = await hiddenProductIds(prisma, storeId);
-    const resultCount = await prisma.product.count({
-      where: { isActive: true, outOfStock: false, id: { notIn: [...hidden] }, name: { contains: raw } },
-    });
+    const resultCount = (
+      await prisma.product.findMany({ where: { isActive: true, outOfStock: false, id: { notIn: [...hidden] } }, select: { name: true, aliases: true } })
+    ).filter((p) => matchesSearch(p, raw)).length;
     await prisma.searchLog.create({ data: { storeId, customerId, sessionKey: sid, query: raw, term, resultCount } });
     res.status(204).end();
   });

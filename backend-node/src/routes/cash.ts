@@ -3,6 +3,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { attachStaff, isAdminLike, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
 import { inStore, mustStoreId, reqStoreId, storeWhere } from "../lib/storeScope.js";
 import { audit } from "../lib/audit.js";
+import { pnlReport } from "../lib/analytics/finance.js";
 import { saveDataUrlImage } from "../lib/uploadImage.js";
 import { getStoreSettings } from "../lib/pricing.js";
 import {
@@ -634,56 +635,7 @@ export function cashRouter(prisma: PrismaClient) {
     const { from, to } = req.query as { from?: string; to?: string };
     const start = from ? dayRange(from).start : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
     const end = to ? dayRange(to).end : new Date();
-    const sw = storeWhere(req);
-    const [payments, lines, waste, expenses, payslips] = await Promise.all([
-      prisma.payment.findMany({
-        where: { paymentTime: { gte: start, lt: end }, order: { ...sw, status: "Paid" } },
-        select: { method: true, amount: true, order: { select: { id: true, shippingFee: true } } },
-      }),
-      prisma.orderDetail.findMany({
-        where: { order: { ...sw, status: "Paid", createdAt: { gte: start, lt: end } } },
-        select: { quantity: true, product: { select: { costPrice: true } } },
-      }),
-      prisma.wasteLog.aggregate({ where: { ...sw, createdAt: { gte: start, lt: end } }, _sum: { costValue: true } }),
-      prisma.cashEntry.findMany({
-        where: { ...sw, kind: "OUT", status: "APPROVED", category: { notIn: PURCHASE_CATEGORIES }, createdAt: { gte: start, lt: end } },
-        select: { category: true, amount: true },
-      }),
-      prisma.payslip.findMany({ where: { staff: sw }, select: { month: true, year: true, netSalary: true, shippingIncome: true } }),
-    ]);
-    const money = payments.filter((p) => p.method !== "Points");
-    const collected = money.reduce((s, p) => s + p.amount, 0);
-    // Phí ship trừ theo đơn có tiền thu trong kỳ (dòng hoàn ra điểm ở kỳ sau không trừ lại)
-    const orderShip = new Map(payments.filter((p) => p.amount > 0).map((p) => [p.order.id, p.order.shippingFee]));
-    const shippingFee = [...orderShip.values()].reduce((s, v) => s + v, 0);
-    const revenue = collected - shippingFee;
-    const cogs = lines.reduce((s, l) => s + l.quantity * l.product.costPrice, 0);
-    const wasteCost = waste._sum.costValue ?? 0;
-    const expenseByCat = new Map<string, number>();
-    for (const e of expenses) expenseByCat.set(e.category, (expenseByCat.get(e.category) ?? 0) + e.amount);
-    const operating = expenses.reduce((s, e) => s + e.amount, 0);
-    // Lương: các tháng nằm trong kỳ
-    const inRange = (m: number, y: number) => {
-      const d = new Date(y, m - 1, 1);
-      return d >= new Date(start.getFullYear(), start.getMonth(), 1) && d < end;
-    };
-    const salary = payslips.filter((p) => inRange(p.month, p.year)).reduce((s, p) => s + p.netSalary - p.shippingIncome, 0);
-    const grossProfit = revenue - cogs;
-    res.json({
-      from: start.toISOString(),
-      to: end.toISOString(),
-      collected,
-      points: payments.filter((p) => p.method === "Points").reduce((s, p) => s + p.amount, 0),
-      shippingFee,
-      revenue,
-      cogs,
-      grossProfit,
-      wasteCost,
-      operating,
-      operatingByCategory: [...expenseByCat.entries()].map(([category, amount]) => ({ category, label: CATEGORIES[category]?.label ?? category, amount })),
-      salary,
-      netProfit: grossProfit - wasteCost - operating - salary,
-    });
+    res.json(await pnlReport(prisma, storeWhere(req), start, end));
   });
 
   return r;

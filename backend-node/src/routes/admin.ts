@@ -13,6 +13,8 @@ import { getStoreSettings } from "../lib/pricing.js";
 import { adjustStoreStock, roundQty } from "../lib/inventory.js";
 import { announceMenuChange } from "../lib/menuEvents.js";
 import { PRODUCT_TEMPS } from "../lib/menuPrice.js";
+import { cleanAliases } from "../lib/productAliases.js";
+import { invalidateMenuContext } from "../lib/voiceOrder/menuContext.js";
 import { socialConfigured } from "../lib/socialAuth.js";
 
 export function adminRouter(prisma: PrismaClient) {
@@ -215,7 +217,11 @@ export function adminRouter(prisma: PrismaClient) {
       hasSizes?: boolean;
       /** BOTH | ICED | HOT | NONE */
       temps?: string;
+      /** Tên gọi khác ("bx", "bac siu") */
+      aliases?: unknown;
     };
+    const al = cleanAliases(b.aliases);
+    if ("error" in al) return res.status(400).json({ error: al.error });
     if (!b.name || typeof b.sellPrice !== "number" || !b.categoryId) {
       return res.status(400).json({ error: "Thiếu tên, giá bán hoặc danh mục." });
     }
@@ -239,9 +245,11 @@ export function adminRouter(prisma: PrismaClient) {
         isActive: b.isActive ?? true,
         imageUrl: b.imageUrl ?? null,
         tags: b.tags ?? null,
+        aliases: al.aliases.length ? al.aliases : Prisma.DbNull,
         discountPercent: b.discountPercent ?? null,
       },
     });
+    invalidateMenuContext();
     res.status(201).json(p);
   });
 
@@ -262,12 +270,19 @@ export function adminRouter(prisma: PrismaClient) {
       discountPercent: number | null;
       hasSizes: boolean;
       temps: string;
+      aliases: unknown;
     }>;
     if (b.temps !== undefined && !(PRODUCT_TEMPS as readonly string[]).includes(b.temps)) {
       return res.status(400).json({ error: "Nhiệt độ phục vụ không hợp lệ." });
     }
     // outOfStock là trạng thái theo chi nhánh — không ghi vào món chung
-    const { outOfStock, ...rest } = b;
+    const { outOfStock, aliases, ...fields } = b;
+    const rest: Prisma.ProductUncheckedUpdateInput & typeof fields = fields;
+    if (aliases !== undefined) {
+      const al = cleanAliases(aliases);
+      if ("error" in al) return res.status(400).json({ error: al.error });
+      rest.aliases = al.aliases.length ? al.aliases : Prisma.DbNull;
+    }
     // Món 1 loại: bỏ giá S/L và định mức theo size (công thức trừ 1 mức duy nhất)
     if (rest.hasSizes === false) {
       rest.priceSizeS = null;
@@ -294,6 +309,7 @@ export function adminRouter(prisma: PrismaClient) {
     const p = Object.keys(rest).length
       ? await prisma.product.update({ where: { id }, data: rest })
       : await prisma.product.findUniqueOrThrow({ where: { id } });
+    invalidateMenuContext();
     // Chủ chuỗi bật/tắt món cho cả chuỗi → báo mọi chi nhánh đang hoạt động
     if (prev && typeof rest.isActive === "boolean" && rest.isActive !== prev.isActive) {
       const stores = await prisma.store.findMany({ where: { isActive: true }, select: { id: true } });

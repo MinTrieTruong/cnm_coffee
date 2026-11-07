@@ -8,6 +8,7 @@
 import { getRealtime } from "./realtime.js";
 import { toStore } from "./storeScope.js";
 import { notify } from "./notify.js";
+import { invalidateMenuContext } from "./voiceOrder/menuContext.js";
 
 export type MenuChange = {
   /** Chi nhánh; mảng nhiều chi nhánh khi Chủ chuỗi bật/tắt món cả chuỗi */
@@ -23,6 +24,8 @@ export type MenuChange = {
 };
 
 export function announceMenuChange(c: MenuChange) {
+  // Thực đơn gửi cho AI đặt món (cache 60 giây) phải thấy ngay món vừa hết / có lại
+  for (const id of c.storeIds) invalidateMenuContext(id);
   const io = getRealtime();
   const soldOut = c.outOfStock || !c.isAvailable;
   const what = !soldOut ? "Có lại món" : c.outOfStock ? "Tạm hết món" : c.chainWide ? "Ngừng bán toàn chuỗi" : "Ngưng bán";

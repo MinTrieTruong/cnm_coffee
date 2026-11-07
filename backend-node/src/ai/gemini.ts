@@ -4,7 +4,7 @@
  * Khóa GEMINI_API_KEY chỉ nằm ở backend, không bao giờ trả ra ngoài.
  * Thiếu khóa: server vẫn chạy; hàm gọi Gemini ném AiConfigError, kho tri thức lui về tìm theo từ khóa.
  */
-import { ApiError, GoogleGenAI } from "@google/genai";
+import { ApiError, GoogleGenAI, type Part } from "@google/genai";
 
 export const AI_CONFIG = {
   // gemini-2.5-* đã ngừng cấp cho tài khoản mới (11/2026)
@@ -55,6 +55,32 @@ export function aiErrorMessage(e: unknown): string {
   }
   if (e instanceof Error && e.name === "TimeoutError") return "Gemini phản hồi quá lâu (quá 30 giây).";
   return e instanceof Error ? e.message : "Lỗi không xác định khi gọi Gemini.";
+}
+
+/** Âm thanh gửi thẳng cho Gemini (inline, không lưu file): định dạng MediaRecorder / điện thoại hay ghi */
+export const AUDIO_MIME = ["audio/webm", "audio/mp4", "audio/ogg", "audio/wav", "audio/x-wav", "audio/mpeg", "audio/aac"] as const;
+export const AUDIO_MAX_BYTES = 1024 * 1024;
+
+/** "audio/webm;codecs=opus" → "audio/webm"; không hỗ trợ → null */
+export function audioMime(raw: string | undefined): string | null {
+  const base = (raw ?? "").split(";")[0].trim().toLowerCase();
+  if (base === "audio/x-wav") return "audio/wav";
+  return (AUDIO_MIME as readonly string[]).includes(base) ? base : null;
+}
+
+/** Phần nội dung âm thanh cho generateContent (≤ 1 MB ~ 20 giây webm/opus) */
+export function audioPart(data: Buffer, mimeType: string): Part {
+  if (data.byteLength > AUDIO_MAX_BYTES) throw new Error("Đoạn ghi âm quá 1 MB.");
+  return { inlineData: { mimeType, data: data.toString("base64") } };
+}
+
+/** Ảnh gửi thẳng cho Gemini (hoá đơn…): data URL jpeg / png / webp (giao diện đã nén cạnh dài ≤ 2000px) */
+export const IMAGE_MAX_BYTES = 4 * 1024 * 1024;
+export function imagePart(dataUrl: string): Part {
+  const m = /^data:(image\/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=]+)$/i.exec(dataUrl.trim());
+  if (!m) throw new Error("Ảnh phải là JPEG, PNG hoặc WebP.");
+  if ((m[2].length * 3) / 4 > IMAGE_MAX_BYTES) throw new Error("Ảnh quá lớn (tối đa 4 MB).");
+  return { inlineData: { mimeType: m[1].toLowerCase().replace("jpg", "jpeg"), data: m[2] } };
 }
 
 function l2normalize(values: number[]): Float32Array {

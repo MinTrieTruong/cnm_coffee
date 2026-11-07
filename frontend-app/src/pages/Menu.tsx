@@ -9,6 +9,8 @@ import { logMenuSearch } from "../lib/searchLog";
 import { formatVnd } from "../lib/site";
 import { useLang } from "../lib/i18n";
 import { Crumbs, ProductCard, SectionHead, listPrice } from "../components/site/parts";
+import { QuickOrderMic, openQuickOrder, useQuickOrder } from "../components/site/QuickOrder";
+import { looksLikeOrder } from "../lib/voiceOrder";
 
 type FilterState = { search: string; categoryId: number | "all"; minPrice: string; maxPrice: string; tags: string[] };
 type View = "grid" | "paper";
@@ -75,6 +77,7 @@ function PaperGroup({ name, list, query }: { name: string; list: Product[]; quer
 
 export function Menu() {
   const { t } = useLang();
+  const quick = useQuickOrder();
   const [data, setData] = useState<MenuResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [view, setView] = useState<View>(readView);
@@ -100,26 +103,29 @@ export function Menu() {
   const tableId = getTableId();
   const takeawaySid = getTakeawaySessionId();
 
+  // Câu gọi món ("2 bạc xỉu ít đá…") dành cho Đặt nhanh: không lọc thực đơn, không ghi thống kê tìm kiếm
+  const search = quick.enabled && looksLikeOrder(filters.search) ? "" : filters.search;
+
   const qs = useMemo(() => {
     const q = new URLSearchParams();
     if (user?.customerId) q.append("customerId", String(user.customerId));
     // Ẩn món chi nhánh không bán / báo hết
     if (storeId) q.append("store", String(storeId));
-    if (filters.search) q.append("search", filters.search);
+    if (search) q.append("search", search);
     if (filters.categoryId !== "all") q.append("categoryId", String(filters.categoryId));
     if (filters.minPrice) q.append("minPrice", filters.minPrice);
     if (filters.maxPrice) q.append("maxPrice", filters.maxPrice);
     if (filters.tags.length > 0) q.append("tags", filters.tags.join(","));
     return `?${q.toString()}`;
-  }, [user?.customerId, filters, storeId]);
+  }, [user?.customerId, filters.categoryId, filters.minPrice, filters.maxPrice, filters.tags, search, storeId]);
 
   // Thống kê "khách tìm gì": chỉ ghi khi khách ngừng gõ 1,5 giây (không ghi từng ký tự)
   useEffect(() => {
-    const q = filters.search;
+    const q = search;
     if (q.trim().length < 2) return;
     const t = window.setTimeout(() => logMenuSearch(q, storeId), 1500);
     return () => window.clearTimeout(t);
-  }, [filters.search, storeId]);
+  }, [search, storeId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,7 +166,7 @@ export function Menu() {
   for (const p of data?.products ?? []) byCat.set(p.categoryId, [...(byCat.get(p.categoryId) ?? []), p]);
   const groups = categories.map((c) => ({ ...c, list: byCat.get(c.id) ?? [] })).filter((c) => c.list.length);
   const total = groups.reduce((s, c) => s + c.list.length, 0);
-  const query = filters.search;
+  const query = search;
   const hasFilter = !!(filters.search || filters.categoryId !== "all" || filters.minPrice || filters.maxPrice || filters.tags.length);
   const current = filters.categoryId === "all" ? null : categories.find((c) => c.id === filters.categoryId);
   const catName = new Map(categories.map((c) => [c.id, c.name]));
@@ -204,10 +210,22 @@ export function Menu() {
           <label className="c-menu-search">
             <Search size={18} aria-hidden />
             <span className="c-sr">{t("Tìm món")}</span>
-            <input value={filters.search} onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))} placeholder={t("Tìm theo tên món")} />
+            <input
+              value={filters.search}
+              onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+              onKeyDown={(e) => {
+                // Câu gọi món ("2 bạc xỉu ít đá…") + Enter → Đặt nhanh; gõ tên món thì vẫn là tìm kiếm
+                if (e.key === "Enter" && quick.enabled && looksLikeOrder(filters.search)) {
+                  e.preventDefault();
+                  openQuickOrder({ text: filters.search });
+                }
+              }}
+              placeholder={quick.enabled ? t("Tìm món, hoặc nói / gõ món bạn muốn") : t("Tìm theo tên món")}
+            />
             {filters.search && (
               <button type="button" onClick={() => setFilters((f) => ({ ...f, search: "" }))} aria-label={t("Xóa từ khóa")}><X size={16} aria-hidden /></button>
             )}
+            <QuickOrderMic />
           </label>
           <label className="c-filter-sel">
             <span className="c-sr">{t("Mức giá")}</span>
@@ -236,6 +254,18 @@ export function Menu() {
             <button type="button" className={view === "paper" ? "is-on" : undefined} aria-pressed={view === "paper"} onClick={() => changeView("paper")}>{t("Menu giấy")}</button>
           </div>
         </div>
+        {quick.enabled && looksLikeOrder(filters.search) && (
+          <div className="qo-quick-row">
+            <button type="button" className="c-btn qo-quick-btn" onClick={() => openQuickOrder({ text: filters.search })}>{t("Đặt nhanh")}</button>
+            <span>“{filters.search.trim()}”</span>
+          </div>
+        )}
+        {quick.enabled && !filters.search && (
+          <p className="qo-try">
+            {quick.mic ? t("Thử nói:") : t("Thử gõ:")}{" "}
+            <button type="button" onClick={() => openQuickOrder(quick.mic ? { mic: true } : { text: t("Hai bạc xỉu ít đá") })}>“{t("Hai bạc xỉu ít đá")}”</button>
+          </p>
+        )}
       </div>
 
       {err && <p className="c-err">{err}</p>}

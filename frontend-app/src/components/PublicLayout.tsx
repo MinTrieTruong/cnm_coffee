@@ -18,6 +18,7 @@ import { activeOccasion, effectiveTheme } from "../lib/occasions";
 import { FestiveFall, FestiveStrip } from "./site/Festive";
 import { useLang } from "../lib/i18n";
 import "../styles/customer.css";
+import { QuickOrderHost } from "./site/QuickOrder";
 
 /** Tiêu đề trang trên header điện thoại */
 function titleOf(p: string): string {
@@ -150,6 +151,8 @@ export function PublicLayout() {
       <main className="site-main c-main">
         <Outlet />
         <PopupHost />
+        {/* Đặt nhanh bằng giọng nói / câu tự nhiên (mở từ ô tìm kiếm) */}
+        <QuickOrderHost />
         {/* Nút liên hệ nổi: ẩn ở trang thanh toán và trang đăng nhập nhân sự */}
         {!/^\/order\/[^/]+\/checkout/.test(p) && !p.startsWith("/staff") && <FloatingContact />}
       </main>

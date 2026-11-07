@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Banknote, ChevronRight, Download, ReceiptText, ShoppingBag, TrendingUp } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowUp, Banknote, ChevronRight, Download, ReceiptText, ShoppingBag, Sparkles, TrendingUp } from "lucide-react";
 import { activeStoreId, getStaffInfo, isAdminRole, staffApi, staffDownloadBlob } from "../../lib/staffApi";
 import { roleLabel } from "../../lib/roles";
 import {
@@ -20,7 +20,25 @@ import {
 } from "../../components/erp";
 import { BarChart, CHART_COLORS, CHART_DOWN, DonutChart, LineChart, compactVnd } from "../../components/erp/charts";
 import { useResource } from "../shared";
+import { useAiFeatures } from "../../lib/aiFeatures";
+import "../../styles/analyst.css";
 import { FrontlineDashboard, ManagerTodayRow, ShiftCard, TodayTasksCard, WarehouseDashboard, todoItems, type Pending, type Schedule } from "./DashboardStaff";
+
+/** Lối tắt: gõ câu hỏi, Enter → mở Trợ lý AI với câu hỏi đó (ẩn khi tính năng tắt) */
+function AskAssistant({ role }: { role: string }) {
+  const features = useAiFeatures(role);
+  const nav = useNavigate();
+  const [q, setQ] = useState("");
+  if (!features.has("ANALYST")) return null;
+  const go = () => q.trim() && nav(`/app/overview/assistant?q=${encodeURIComponent(q.trim().slice(0, 500))}`);
+  return (
+    <form className="an-ask" onSubmit={(e) => { e.preventDefault(); go(); }} role="search">
+      <Sparkles size={18} aria-hidden />
+      <input value={q} onChange={(e) => setQ(e.target.value)} maxLength={500} placeholder="Hỏi trợ lý AI… VD: Tuần này chi nhánh nào doanh thu giảm?" aria-label="Hỏi trợ lý AI" />
+      <button type="submit" className="an-send" disabled={!q.trim()} aria-label="Hỏi"><ArrowUp size={16} aria-hidden /></button>
+    </form>
+  );
+}
 
 /** Tổng quan › Bảng điều khiển — nội dung theo vai trò */
 export function Dashboard() {
@@ -166,6 +184,7 @@ function ManagerDashboard() {
         }
       />
 
+      <AskAssistant role={role} />
       {!owner && <ShiftCard schedules={today.data.schedules} loading={today.loading} compact />}
       {(error || exportErr) && <Alert>{error ?? exportErr}</Alert>}
 

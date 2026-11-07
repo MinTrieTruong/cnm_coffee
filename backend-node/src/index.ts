@@ -54,6 +54,9 @@ import { knowledgeRouter } from "./routes/knowledge.js";
 import { aiAgentsRouter } from "./routes/aiAgents.js";
 import { resumeAiReplies, startAiLogCleanup } from "./ai/agent/scheduler.js";
 import { aiDashboardRouter } from "./routes/aiDashboard.js";
+import { analystRouter } from "./routes/analyst.js";
+import { voiceOrderRouter } from "./routes/voiceOrder.js";
+import { invoiceOcrRouter } from "./routes/invoiceOcr.js";
 import { resumeKnowledgeQueue } from "./ai/knowledge/ingest.js";
 import { myStatsRouter } from "./routes/myStats.js";
 import { notificationsRouter } from "./routes/notifications.js";
@@ -150,6 +153,12 @@ app.use("/api", tasksRouter(prisma, io));
 app.use("/api", knowledgeRouter(prisma));
 app.use("/api", aiAgentsRouter(prisma));
 app.use("/api", aiDashboardRouter(prisma));
+// Trợ lý AI hỏi số liệu (Owner / Admin) + bật / tắt tính năng AI
+app.use("/api", analystRouter(prisma));
+// Đặt món bằng giọng nói / câu tự nhiên (POS + web khách)
+app.use("/api", voiceOrderRouter(prisma));
+// Đọc hoá đơn NCC bằng AI khi nhận hàng
+app.use("/api", invoiceOcrRouter(prisma));
 app.use("/api", myStatsRouter(prisma));
 app.use("/api", notificationsRouter(prisma));
 app.use("/api", comboRouter(prisma));
