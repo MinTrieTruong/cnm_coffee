@@ -105,19 +105,19 @@ export function NutritionTags({ p }: { p: Product }) {
   );
 }
 
-export function ProductCard({ p, line }: { p: Product; line?: ReactNode }) {
+export function ProductCard({ p, line, to }: { p: Product; line?: ReactNode; to?: string }) {
   const { t } = useLang();
   const inCart = useCartQty(p.id);
   const off = p.discountPercent && p.discountPercent > 0 ? p.discountPercent : 0;
   return (
     <article className={p.soldOut ? "c-pcard is-soldout" : "c-pcard"}>
-      <Link to={`/product/${p.id}`} className="c-pcard-media" aria-label={p.name}>
+      <Link to={to ?? `/product/${p.id}`} className="c-pcard-media" aria-label={p.name}>
         <ProductImage p={p} className="c-pcard-img" />
         {off > 0 && !p.soldOut && <span className="c-stamp c-pcard-stamp">{t("Giảm {n}%", { n: off })}</span>}
         {p.soldOut && <span className="c-pcard-soldout">{t("Hết hàng")}</span>}
       </Link>
       <div className="c-pcard-body">
-        <Link to={`/product/${p.id}`} className="c-pcard-name">{p.name}</Link>
+        <Link to={to ?? `/product/${p.id}`} className="c-pcard-name">{p.name}</Link>
         {line && <p className="c-pcard-line">{line}</p>}
         <NutritionTags p={p} />
         {p.rating && p.rating.count > 0 && (

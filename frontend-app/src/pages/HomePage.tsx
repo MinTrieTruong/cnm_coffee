@@ -7,6 +7,7 @@ import { formatVnd, useMenuData, useSiteInfo } from "../lib/site";
 import { ProductCard, SectionHead, VoucherTicket, type PublicVoucher } from "../components/site/parts";
 import { useLang } from "../lib/i18n";
 import { ReviewList } from "../components/ReviewList";
+import { WeatherPicks } from "../components/site/WeatherPicks";
 
 type Banner = { id: number; imageUrl: string; title: string | null; subtitle: string | null; link: string | null };
 type Post = { id: number; title: string; body: string; imageUrl: string | null; createdAt: string };
@@ -187,6 +188,9 @@ export function HomePage() {
         </nav>
         <BannerCarousel banners={banners} />
       </section>
+
+      {/* Hợp thời tiết hôm nay: 4 món theo thời tiết + giờ ở chi nhánh đang chọn */}
+      <WeatherPicks storeId={storeId} />
 
       {/* Dải voucher vé xé */}
       {vouchers.length > 0 && (

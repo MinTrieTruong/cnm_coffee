@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Check, Minus, Plus } from "lucide-react";
 import { api, TEMP_TEXT, tempChoices, type Product, type Temp } from "../lib/api";
 import { addToCart, drinkNotes } from "../lib/cart";
@@ -93,7 +93,12 @@ export function ProductDetail() {
   const [err, setErr] = useState<string | null>(null);
   const [size, setSize] = useState<Size>("M");
   /** Khách chọn nóng/đá — null = theo mặc định của món (kiểu đầu tiên trong tempChoices) */
-  const [tempPick, setTempPick] = useState<Temp | null>(null);
+  // ?temp=ICED|HOT (từ khối "Hợp thời tiết hôm nay") → chọn sẵn bản đá / nóng nếu món có
+  const [params] = useSearchParams();
+  const [tempPick, setTempPick] = useState<Temp | null>(() => {
+    const q = params.get("temp");
+    return q === "ICED" || q === "HOT" ? q : null;
+  });
   const [icePct, setIcePct] = useState<0 | 50 | 100>(100);
   const [sugar, setSugar] = useState<"0" | "50" | "100">("100");
   const [notes, setNotes] = useState("");

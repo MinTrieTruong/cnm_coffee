@@ -133,6 +133,7 @@ npx tsx scripts/seedInvoiceDemo.ts 1      # Đơn mua mẫu cho đọc hoá đơ
 npx tsx scripts/testInvoiceOcr.ts         # Đọc hoá đơn mẫu → docs/qa/invoice-ocr-ket-qua.md
 npx tsx scripts/testNutrition.ts --suggest   # AI gợi ý dinh dưỡng nguyên liệu chưa duyệt + kiểm tra (--approve: duyệt)
 npx tsx scripts/recomputeNutrition.ts --md   # Tính lại dinh dưỡng mọi món → docs/qa/nutrition-bang-mon.md
+npx tsx scripts/testWeatherPicks.ts 1 --ai    # Gợi ý món theo thời tiết: 5 tình huống (nóng / mưa / sáng / tối / mất mạng) + câu dẫn AI
 ```
 
 ---

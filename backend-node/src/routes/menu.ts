@@ -13,7 +13,7 @@ function defaultNutrition(rows: NutritionRow[]): NutritionValues | null {
   const n = rows.find((r) => r.size === "M") ?? rows.find((r) => r.size === "-");
   return n ? { kcal: n.kcal, fatG: n.fatG, sugarG: n.sugarG, caffeineMg: n.caffeineMg, allergens: parseAllergens(n.allergens), isVegan: n.isVegan, complete: n.complete } : null;
 }
-function publicNutrition(rows: NutritionRow[]) {
+export function publicNutrition(rows: NutritionRow[]) {
   const n = rows.find((r) => r.size === "M") ?? rows.find((r) => r.size === "-");
   return n ? { size: n.size, kcal: n.kcal, caffeineMg: n.caffeineMg, sugarG: n.sugarG, fatG: n.fatG, proteinG: n.proteinG, complete: n.complete, labels: n.labels } : null;
 }

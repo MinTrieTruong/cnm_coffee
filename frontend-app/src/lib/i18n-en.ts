@@ -615,4 +615,12 @@ export const EN: Record<string, string> = {
   "trứng": "egg",
   "đậu nành": "soy",
   "Giỏ hàng có khoảng {n} mg caffeine (khuyến nghị người lớn ≤ 400 mg / ngày).": "Your cart has about {n} mg of caffeine (adults: ≤ 400 mg / day).",
+  "Hợp thời tiết hôm nay": "Made for today's weather",
+  "Bản đá": "Iced",
+  "Bản nóng": "Hot",
+  "cảm giác {n}°C": "feels like {n}°C",
+  "Gợi ý buổi sáng": "Morning picks",
+  "Gợi ý buổi trưa": "Midday picks",
+  "Gợi ý buổi chiều": "Afternoon picks",
+  "Gợi ý buổi tối": "Evening picks",
 };
