@@ -3,10 +3,16 @@
  * Product.costPrice = giá vốn ly size M, tự cập nhật khi sửa định mức hoặc giá nhập thay đổi.
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { stockPerCup } from "./inventory.js";
+import { stockPerCup, type FormulaLike } from "./inventory.js";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 export type SizeCost = { S: number; M: number; L: number };
+
+/**
+ * Giá vốn 1 dòng định mức theo size = lượng kho / ly × giá nhập / đơn vị kho.
+ * Dùng chung cho định mức đã lưu (productCosts) và định mức nháp chưa lưu (lib/menuDraft/evaluate.ts) để số không lệch.
+ */
+export const formulaLineCost = (f: FormulaLike, size: "S" | "M" | "L", unitCostPrice: number) => stockPerCup(f, size) * unitCostPrice;
 
 /** Giá vốn S/M/L của các món có định mức (VND, chưa làm tròn) */
 export async function productCosts(db: Db, productIds?: number[]) {
@@ -17,7 +23,7 @@ export async function productCosts(db: Db, productIds?: number[]) {
   const costs = new Map<number, SizeCost>();
   for (const f of formulas) {
     const c = costs.get(f.productId) ?? costs.set(f.productId, { S: 0, M: 0, L: 0 }).get(f.productId)!;
-    for (const size of ["S", "M", "L"] as const) c[size] += stockPerCup(f, size) * f.item.unitCostPrice;
+    for (const size of ["S", "M", "L"] as const) c[size] += formulaLineCost(f, size, f.item.unitCostPrice);
   }
   return costs;
 }

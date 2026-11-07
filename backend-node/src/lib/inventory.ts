@@ -17,7 +17,7 @@ export function withStoreStock<T extends { storeStocks: { stockQty: number; minL
 /** Làm tròn số lượng kho tới 4 chữ số thập phân (tránh sai số cộng dồn số thực) */
 export const roundQty = (n: number) => Math.round(n * 10_000) / 10_000;
 
-type FormulaLike = {
+export type FormulaLike = {
   itemId: number;
   qtyPerUnit: number;
   qtySizeS: number | null;

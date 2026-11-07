@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, SearchX } from "lucide-react";
+import { Search, SearchX, Sparkles } from "lucide-react";
 import { getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
 import { Alert, Badge, Button, EmptyState, Field, Kpi, Modal, RecordList, errMsg, fmtDateTime, type Tone } from "../../components/erp";
 import { useResource } from "../shared";
+import { MenuDraftModal, useMenuDraftEnabled } from "./MenuDraft";
 
 export type TermStatus = "AVAILABLE" | "NOT_SOLD_HERE" | "MISSING";
 
@@ -66,6 +67,8 @@ export function SearchInsights() {
   const [days, setDays] = useState<number | null>(null);
   const { data, loading, error, reload } = useInsights(days);
   const [open, setOpen] = useState<TermRow | null>(null);
+  const [drafting, setDrafting] = useState<TermRow | null>(null);
+  const aiOn = useMenuDraftEnabled();
   const s = data?.summary;
   const period = data?.days ?? days ?? 30;
   return (
@@ -99,6 +102,15 @@ export function SearchInsights() {
           { key: "trend", label: "So kỳ trước", value: (t) => t.searchers - t.prevSearchers, render: (t) => { const x = trend(t.searchers, t.prevSearchers); return <Badge tone={x.tone}>{x.text}</Badge>; }, optional: true },
           { key: "status", label: "Tình trạng", value: (t) => TERM_STATUS[t.status].label, render: (t) => <TermBadges t={t} /> },
           { key: "last", label: "Tìm gần nhất", value: (t) => t.lastAt, render: (t) => fmtDateTime(t.lastAt), optional: true },
+          // Từ khóa quán chưa có món → AI phác thảo ngay từ danh sách (tắt MENU_DRAFT thì ẩn)
+          ...(aiOn
+            ? [{
+                key: "ai", label: "", value: () => "",
+                render: (t: TermRow) => (t.status === "MISSING" && !t.proposal && !t.dismissed ? (
+                  <span onClick={(e) => e.stopPropagation()}><Button size="sm" icon={Sparkles} onClick={() => setDrafting(t)}>AI phác thảo</Button></span>
+                ) : null),
+              }]
+            : []),
         ]}
         searchText={(t) => `${t.term} ${t.variants.map((v) => v.text).join(" ")}`}
         filters={[
@@ -113,6 +125,7 @@ export function SearchInsights() {
         emptyState={<EmptyState icon={Search} title="Chưa có lượt tìm kiếm nào" hint="Số liệu ghi lại khi khách tìm món trên thực đơn online." />}
       />
       {open && <TermModal t={open} days={period} total={s?.searchers ?? 0} onClose={() => setOpen(null)} onChanged={() => { setOpen(null); void reload(); }} />}
+      {drafting && <MenuDraftModal seed={draftSeed(drafting)} onClose={() => setDrafting(null)} onDone={() => { setDrafting(null); void reload(); }} />}
     </>
   );
 }
@@ -128,11 +141,16 @@ function TermBadges({ t }: { t: TermRow }) {
   );
 }
 
+/** Từ khóa → đầu vào AI phác thảo (Chủ chuỗi xem toàn chuỗi: tồn kho theo chi nhánh có nhiều khách tìm nhất) */
+const draftSeed = (t: TermRow) => ({ term: t.term, display: t.display, searchers: t.zeroSearchers, storeId: t.topStoreId });
+
 /** Chi tiết từ khóa: cách gõ, món khớp, chi nhánh chưa bán, tạo đề xuất / bỏ qua */
 export function TermModal({ t, days, total, onClose, onChanged }: { t: TermRow; days: number; total: number; onClose: () => void; onChanged: () => void }) {
   const [proposing, setProposing] = useState(false);
+  const [drafting, setDrafting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const nav = useNavigate();
+  const aiOn = useMenuDraftEnabled();
   async function toggleDismiss() {
     try {
       await dismiss(t.term, t.dismissed);
@@ -141,6 +159,7 @@ export function TermModal({ t, days, total, onClose, onChanged }: { t: TermRow; 
       setErr(errMsg(e));
     }
   }
+  if (drafting) return <MenuDraftModal seed={draftSeed(t)} onClose={() => setDrafting(false)} onDone={onChanged} />;
   if (proposing) return <ProposeFromSearch t={t} days={days} onClose={() => setProposing(false)} onDone={onChanged} />;
   return (
     <Modal
@@ -149,6 +168,7 @@ export function TermModal({ t, days, total, onClose, onChanged }: { t: TermRow; 
       footer={
         <>
           {t.status === "MISSING" && <Button onClick={() => void toggleDismiss()}>{t.dismissed ? "Huỷ bỏ qua" : "Bỏ qua (không liên quan)"}</Button>}
+          {t.status === "MISSING" && !t.proposal && aiOn && <Button icon={Sparkles} onClick={() => setDrafting(true)}>AI phác thảo</Button>}
           {t.status === "MISSING" && !t.proposal && <Button variant="primary" onClick={() => setProposing(true)}>Tạo đề xuất món</Button>}
           {t.proposal && <Button onClick={() => nav("/app/sales/proposals")}>Xem đề xuất</Button>}
         </>

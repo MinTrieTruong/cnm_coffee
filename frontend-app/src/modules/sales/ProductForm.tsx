@@ -15,6 +15,10 @@ type CostRow = { id: number; hasFormula: boolean; cost: { S: number; M: number; 
 type Proposal = {
   id: number; name: string; description: string | null; recipe: string | null; suggestedPrice: number | null;
   categoryId: number | null; imageUrl: string | null; status: string; staff: { fullName: string }; store: { name: string };
+  /** Từ AI phác thảo: định mức nháp (tạo thành định mức khi lưu món), size, nóng / đá, giá S / L */
+  formulaDraft: { itemId: number | null; newIngredient: { name: string } | null }[] | null;
+  temps: ProductTemps | null; hasSizes: boolean | null; priceS: number | null; priceL: number | null;
+  costNow: { costs: { M: number } } | null;
 };
 
 type Draft = {
@@ -169,6 +173,10 @@ export function ProductForm({ recordId }: { recordId?: string }) {
       sellPrice: p.suggestedPrice != null ? String(p.suggestedPrice) : d.sellPrice,
       categoryId: p.categoryId ?? d.categoryId,
       imageUrl: p.imageUrl ?? d.imageUrl,
+      hasSizes: p.hasSizes ?? d.hasSizes,
+      temps: p.temps ?? d.temps,
+      priceSizeS: p.priceS != null ? String(p.priceS) : d.priceSizeS,
+      priceSizeL: p.priceL != null ? String(p.priceL) : d.priceSizeL,
       tags: d.tags.length ? d.tags : ["🆕 Món Mới"],
     }));
   }, [proposal.data]);
@@ -297,7 +305,20 @@ export function ProductForm({ recordId }: { recordId?: string }) {
           <strong>Tạo từ đề xuất của {proposal.data.staff.fullName}</strong> ({proposal.data.store.name})
           {proposal.data.description && <div>{proposal.data.description}</div>}
           {proposal.data.recipe && <div style={{ whiteSpace: "pre-line", marginTop: 4 }}><em>Nguyên liệu & cách làm:</em> {proposal.data.recipe}</div>}
-          <div className="o-muted" style={{ marginTop: 4 }}>Kiểm tra giá vốn, size, rồi thêm định mức nguyên liệu ở "Định mức NL" sau khi lưu.</div>
+          {proposal.data.formulaDraft?.length ? (
+            <div style={{ marginTop: 4 }}>
+              Lưu món → <b>tự tạo định mức</b> {proposal.data.formulaDraft.filter((l) => l.itemId != null).length} nguyên liệu từ đề xuất
+              {proposal.data.costNow && <> (giá vốn ly M hiện tại ≈ {proposal.data.costNow.costs.M.toLocaleString("vi-VN")}đ)</>}.
+              {proposal.data.formulaDraft.some((l) => l.itemId == null) && (
+                <div style={{ marginTop: 4 }}>
+                  Nguyên liệu mới chưa có trong kho: <b>{proposal.data.formulaDraft.filter((l) => l.itemId == null).map((l) => l.newIngredient?.name).join(", ")}</b> — tạo trong{" "}
+                  <Link to="/app/inventory/stock">Kho</Link> trước, rồi thêm vào định mức ở <Link to="/app/kitchen/formulas">Công thức & giá vốn</Link>.
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="o-muted" style={{ marginTop: 4 }}>Kiểm tra giá vốn, size, rồi thêm định mức nguyên liệu ở "Định mức NL" sau khi lưu.</div>
+          )}
         </Alert>
       )}
       <div className="o-sheet-title">

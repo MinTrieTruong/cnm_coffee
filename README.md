@@ -122,6 +122,7 @@ npx prisma generate
 | `017_invoice_ocr.sql` | Đọc hoá đơn NCC bằng AI khi nhận hàng, số hoá đơn trên phiếu nhập, quy đổi đơn vị |
 | `018_ai_call_log_transcript.sql` | Nhật ký gọi AI lưu câu AI nghe được + tóm tắt kết quả (tra lỗi "nói không được") |
 | `019_nutrition.sql` | Dinh dưỡng nguyên liệu, dinh dưỡng món theo size (tính từ công thức), sở thích ăn uống của khách |
+| `020_menu_draft.sql` | Đề xuất món lưu định mức nháp, giá vốn ước tính, giá S/L, bản AI phác thảo; bật / tắt MENU_DRAFT |
 
 ### Kiểm thử tính năng AI (cần `GEMINI_API_KEY`)
 
@@ -134,6 +135,7 @@ npx tsx scripts/testInvoiceOcr.ts         # Đọc hoá đơn mẫu → docs/qa/
 npx tsx scripts/testNutrition.ts --suggest   # AI gợi ý dinh dưỡng nguyên liệu chưa duyệt + kiểm tra (--approve: duyệt)
 npx tsx scripts/recomputeNutrition.ts --md   # Tính lại dinh dưỡng mọi món → docs/qa/nutrition-bang-mon.md
 npx tsx scripts/testWeatherPicks.ts 1 --ai    # Gợi ý món theo thời tiết: 5 tình huống (nóng / mưa / sáng / tối / mất mạng) + câu dẫn AI
+npx tsx scripts/testMenuDraft.ts 1 --md      # AI phác thảo món mới: 4 đầu vào + kiểm tra giá vốn → docs/qa/menu-draft-ket-qua.md (--no-ai: chỉ kiểm tra code)
 ```
 
 ---
