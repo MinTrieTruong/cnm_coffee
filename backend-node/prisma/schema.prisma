@@ -2809,6 +2809,10 @@ model AiCallLog {
   tokensOut  Int      @default(0) @map("Tokens_Out")
   latencyMs  Int      @default(0) @map("Latency_Ms")
   error      String?  @map("Error") @db.VarChar(500)
+  /// Câu AI nghe / đọc được (để tra khi người dùng báo "nói không được")
+  transcript String?  @map("Transcript") @db.VarChar(500)
+  /// Tóm tắt kết quả: "2 món; chưa có: matcha dừa; hỏi lại: …"
+  summary    String?  @map("Summary") @db.VarChar(500)
   createdAt  DateTime @default(now()) @map("Created_At")
 
   @@index([feature, createdAt])

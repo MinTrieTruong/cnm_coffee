@@ -101,7 +101,8 @@ export function voiceOrderRouter(prisma: PrismaClient) {
     ]);
     if (av.setting.dailyLimit && today >= av.setting.dailyLimit) return res.status(503).json({ unavailable: true, reason: "Đã hết lượt đặt món bằng giọng nói hôm nay." });
     if ((av.setting.hourlyPerUser && perSession >= av.setting.hourlyPerUser) || perIp >= IP_PER_HOUR) {
-      return res.status(429).json({ error: "Bạn thử lại sau ít phút nhé." });
+      const max = av.setting.hourlyPerUser && perSession >= av.setting.hourlyPerUser ? av.setting.hourlyPerUser : IP_PER_HOUR;
+      return res.status(429).json({ error: `Bạn đã đặt nhanh ${max} lần trong 1 giờ qua — thử lại sau ít phút, hoặc chọn món trên thực đơn nhé.` });
     }
 
     // Đầu vào: âm thanh hoặc chữ
@@ -125,14 +126,20 @@ export function voiceOrderRouter(prisma: PrismaClient) {
       }
     }
 
-    const log = (data: { status: "OK" | "ERROR"; model?: string; tokensIn?: number; tokensOut?: number; error?: string }) =>
+    const log = (data: { status: "OK" | "ERROR"; model?: string; tokensIn?: number; tokensOut?: number; error?: string; transcript?: string; summary?: string }) =>
       prisma.aiCallLog
         .create({ data: { feature, storeId, staffId, sessionKey: channel === "WEB" ? sessionKey : null, ipHash: channel === "WEB" ? ip : null, inputKind: audio ? "audio" : "text", latencyMs: Date.now() - t0, ...data } })
         .catch(() => {});
 
     try {
       const out = await parseOrder({ storeId, channel, audio, text: audio ? undefined : text, current, sessionKey, customerId });
-      await log({ status: "OK", model: out.model, tokensIn: out.tokensIn, tokensOut: out.tokensOut });
+      // Lưu câu AI nghe được + tóm tắt để tra khi người dùng báo "nói không được" (không lưu âm thanh)
+      const summary = [
+        `${out.intent}: ${out.lines.length ? out.lines.map((l) => `${l.qty}× ${l.name}`).join(", ") : "không có món"}`,
+        out.unknown.length ? `chưa có: ${out.unknown.map((u) => u.spokenName).join(", ")}` : "",
+        out.clarify ? `hỏi lại: ${out.clarify}` : "",
+      ].filter(Boolean).join(" | ");
+      await log({ status: "OK", model: out.model, tokensIn: out.tokensIn, tokensOut: out.tokensOut, transcript: out.transcript.slice(0, 500) || undefined, summary: summary.slice(0, 500) });
       res.json({ transcript: out.transcript, intent: out.intent, lines: out.lines, unknown: out.unknown, clarify: out.clarify, latencyMs: out.latencyMs });
     } catch (e) {
       const reason = aiErrorMessage(e);

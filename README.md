@@ -102,13 +102,13 @@ npm run db:owner          # tạo tài khoản Chủ chuỗi: owner / owner123 (
 npm run db:seed-store2    # Chi nhánh #2 mẫu + tài khoản Thủ kho `kho` cho Chi nhánh #1
 ```
 
-### Cập nhật DB cho các tính năng sau (005 → 017)
+### Cập nhật DB cho các tính năng sau (005 → 018)
 
 Chạy lần lượt các file chưa chạy trong `backend-node/prisma/sql/` (mỗi file chỉ chạy một lần), rồi `npx prisma generate`. Dừng backend trước để `prisma generate` không bị khoá file trên Windows.
 
 ```bash
 cd backend-node
-for f in prisma/sql/0{05,06,07,08,09,10,11,12,13,14,15,16,17}_*.sql; do
+for f in prisma/sql/0{05,06,07,08,09,10,11,12,13,14,15,16,17,18}_*.sql; do
   docker exec -i cmn-mysql mysql -uroot -proot --default-character-set=utf8mb4 coffee_shop_db < "$f"
 done
 npx prisma generate
@@ -120,13 +120,14 @@ npx prisma generate
 | `015_ai_analyst.sql` | Bật / tắt tính năng AI (`AI_Settings`), Trợ lý AI hỏi số liệu |
 | `016_voice_order.sql` | Đặt món bằng giọng nói: tên gọi khác của món, nhật ký gọi AI |
 | `017_invoice_ocr.sql` | Đọc hoá đơn NCC bằng AI khi nhận hàng, số hoá đơn trên phiếu nhập, quy đổi đơn vị |
+| `018_ai_call_log_transcript.sql` | Nhật ký gọi AI lưu câu AI nghe được + tóm tắt kết quả (tra lỗi "nói không được") |
 
 ### Kiểm thử tính năng AI (cần `GEMINI_API_KEY`)
 
 ```bash
 cd backend-node
 npx tsx scripts/testAnalyst.ts            # Trợ lý hỏi số liệu (--no-ai: chỉ đối chiếu số / phân quyền)
-npx tsx scripts/testVoiceOrder.ts 1       # Đặt món bằng câu tự nhiên → docs/qa/voice-order-ket-qua.md
+npx tsx scripts/testVoiceOrder.ts 1       # Đặt món bằng câu tự nhiên → docs/qa/voice-order-ket-qua.md (--audio: thêm file ghi âm)
 npx tsx scripts/seedInvoiceDemo.ts 1      # Đơn mua mẫu cho đọc hoá đơn (--fresh: tạo thêm)
 npx tsx scripts/testInvoiceOcr.ts         # Đọc hoá đơn mẫu → docs/qa/invoice-ocr-ket-qua.md
 ```
