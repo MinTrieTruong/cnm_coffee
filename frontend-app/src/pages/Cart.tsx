@@ -14,6 +14,8 @@ import { useLang } from "../lib/i18n";
 import { PhoneReminder } from "./SocialComplete";
 import { loadNutrition } from "../lib/nutrition";
 import "../styles/nutrition.css";
+import { UsualStrip } from "../components/site/UsualStrip";
+import { reloadUsual, saveDefaultNote, useUsual, withOrderNote } from "../lib/habits";
 
 const SWIPE_OPEN = 88; // độ rộng nút Xoá lộ ra khi vuốt
 
@@ -144,6 +146,25 @@ export function Cart() {
   useEffect(() => {
     setShippingFee(distanceKm != null ? shippingFeeForDistance(distanceKm) : 0);
   }, [distanceKm]);
+
+  // Thói quen khách: ghi chú mặc định điền sẵn vào "Ghi chú cho quán" (sửa / xoá được) + gợi ý món quen
+  const usual = useUsual(storeId);
+  const [orderNote, setOrderNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (usual && orderNote === null) setOrderNote(usual.savedNote ?? "");
+  }, [usual, orderNote]);
+  const [noteMsg, setNoteMsg] = useState<string | null>(null);
+  async function saveSuggestedNote(note: string) {
+    try {
+      await saveDefaultNote(note);
+      if (!(orderNote ?? "").trim()) setOrderNote(note);
+      setNoteMsg(t("Đã lưu làm ghi chú mặc định."));
+    } catch (e) {
+      setNoteMsg(e instanceof Error ? e.message : t("Không lưu được."));
+    }
+  }
+  const usualSuggest = (usual?.items ?? []).filter((u) => !u.soldOut).slice(0, 3);
+  const hasUsualInCart = items.some((i) => !i.isCombo && (usual?.items ?? []).some((u) => u.productId === i.productId));
 
   const total = cartTotal(items);
   const currentTable = getTableId();
@@ -278,7 +299,8 @@ export function Cart() {
             unitPrice: i.unitPrice,
             size: i.size,
             temp: i.temp ?? null,
-            customNotes: i.notes,
+            // Ghi chú cho quán nối vào ghi chú từng món (KDS / hoá đơn đọc customNotes như cũ)
+            customNotes: i.isCombo ? i.notes : withOrderNote(i.notes, orderNote ?? ""),
             comboId: i.comboId ?? null,
           })),
         }),
@@ -286,6 +308,7 @@ export function Cart() {
       clearCart();
       setPayOpen(false);
       refresh();
+      reloadUsual();
       if (finalOrderType === "Takeaway" || finalOrderType === "Delivery") {
         nav(`/order/${created.id}/checkout`, { replace: true });
         return;
@@ -458,6 +481,14 @@ export function Cart() {
             ))}
           </ul>
           <p className="c-muted-txt c-cart-swipe-hint">{t("Vuốt sang trái trên một món để xoá nhanh.")}</p>
+          {!hasUsualInCart && usualSuggest.length > 0 && (
+            <UsualStrip
+              compact
+              title={t("Thêm món quen?")}
+              items={usualSuggest.map((u) => ({ product: u.product, usual: u.usual, usualNote: u.usualNote, soldOut: u.soldOut }))}
+              onAdded={refresh}
+            />
+          )}
           </div>
 
           <aside className="c-bill">
@@ -481,6 +512,25 @@ export function Cart() {
             </dl>
             {promo.applied && promo.applied.discount === 0 && <p className="c-bill-good">{t("Ưu đãi")} {promo.applied.name}: {promo.applied.text}</p>}
             {promo.next && <p className="c-bill-next">{t("Thêm {n} ly nữa để được {gift}", { n: promo.next.needQty, gift: promo.next.text })} ({promo.next.name})</p>}
+            {user && (
+              <label className="c-bill-note">
+                <span className="c-field-label">{t("Ghi chú cho quán")}</span>
+                <input
+                  className="c-input"
+                  value={orderNote ?? ""}
+                  onChange={(e) => setOrderNote(e.target.value)}
+                  maxLength={120}
+                  placeholder={t("Không ống hút, ít ngọt…")}
+                />
+                {usual?.noteSuggestion && !noteMsg && (
+                  <p className="c-bill-note-hint">
+                    {t("Bạn hay ghi “{note}”.", { note: usual.noteSuggestion })}
+                    <button type="button" className="c-linkish" onClick={() => void saveSuggestedNote(usual.noteSuggestion!)}>{t("Lưu làm ghi chú mặc định?")}</button>
+                  </p>
+                )}
+                {noteMsg && <p className="c-bill-note-hint" role="status">{noteMsg}</p>}
+              </label>
+            )}
             <div className="c-bill-total"><span>{t("Tổng cộng")}</span><span className="c-price">{formatVnd(grand)}</span></div>
             <button type="button" className="c-btn c-btn-block" onClick={() => setPayOpen(true)}>{t("Thanh toán")}</button>
           </aside>

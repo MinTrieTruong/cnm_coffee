@@ -177,18 +177,18 @@ export type UsualItem = Omit<UsualCore, "score"> & { soldOut: boolean; product: 
 /**
  * Món quen của khách (tối đa `limit`): đơn Paid trong `days` ngày (mặc định 90), bỏ món tặng và dòng combo.
  * Món ngừng bán / chi nhánh tắt → bỏ; món hết hàng vẫn trả với `soldOut`.
- * `orderWhere` thêm điều kiện đơn (POS: chỉ đơn tại chi nhánh).
+ * `orderWhere` thêm điều kiện đơn (POS: chỉ đơn tại chi nhánh); `productId` chỉ tính 1 món (trang chi tiết món).
  */
 export async function getUsualItems(
   prisma: PrismaClient,
   customerId: number,
-  opts: { storeId?: number | null; limit?: number; days?: number; now?: Date; orderWhere?: Prisma.OrderWhereInput } = {},
+  opts: { storeId?: number | null; limit?: number; days?: number; now?: Date; orderWhere?: Prisma.OrderWhereInput; productId?: number } = {},
 ): Promise<UsualItem[]> {
   const now = opts.now ?? new Date();
   const since = new Date(now.getTime() - (opts.days ?? 90) * DAY);
   const [details, state] = await Promise.all([
     prisma.orderDetail.findMany({
-      where: { isGift: false, comboId: null, order: { customerId, status: "Paid", createdAt: { gte: since }, ...opts.orderWhere } },
+      where: { isGift: false, comboId: null, ...(opts.productId ? { productId: opts.productId } : {}), order: { customerId, status: "Paid", createdAt: { gte: since }, ...opts.orderWhere } },
       select: {
         productId: true, quantity: true, size: true, temperature: true, customNotes: true,
         order: { select: { paidAt: true, createdAt: true } },

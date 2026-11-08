@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, Minus, Plus, Trash2 } from "lucide-react";
-import { calculateFinalPrice, mediaUrl, tempChoices, type Product } from "../../lib/api";
+import { calculateFinalPrice, mediaUrl, tempChoices, type Product, type Temp, type Usual } from "../../lib/api";
 import { addToCart, CART_EVENT, decProduct, drinkNotes, getCart } from "../../lib/cart";
 import { formatVnd } from "../../lib/site";
 import { useLang } from "../../lib/i18n";
@@ -70,10 +70,13 @@ export function CategoryThumb({ name, images, className }: { name: string; image
 }
 
 /** Giá bán size M (đã trừ giảm giá) — đúng giá ProductDetail tính khi chưa đổi size */
-export const listPrice = (p: Product) => calculateFinalPrice(p.sellPrice, p.discountPercent);
+export const listPrice = (p: Pick<Product, "sellPrice" | "discountPercent">) => calculateFinalPrice(p.sellPrice, p.discountPercent);
+
+/** Trường món đủ để thêm vào giỏ (món quen trả về bản rút gọn của Product) */
+export type CartProduct = Pick<Product, "id" | "name" | "imageUrl" | "sellPrice" | "priceSizeS" | "priceSizeL" | "discountPercent" | "hasSizes" | "temps">;
 
 /** Thêm nhanh 1 món size M, nóng/đá + đường mặc định (như mặc định ở trang chi tiết; món chỉ nóng → nóng) */
-export function quickAdd(p: Product) {
+export function quickAdd(p: CartProduct) {
   const food = p.hasSizes === false;
   const temp = tempChoices(p)[0] ?? null;
   addToCart(p, {
@@ -85,6 +88,58 @@ export function quickAdd(p: Product) {
     sugar: "100",
     notes: food ? "" : drinkNotes({ size: "M", temp, icePct: 100, sugar: "100" }),
   });
+}
+
+/** Giá theo size trước giảm giá — S/L thiếu giá riêng thì −3.000 / +5.000 như trước */
+export function sizePrice(p: Pick<Product, "sellPrice" | "priceSizeS" | "priceSizeL">, s: "S" | "M" | "L") {
+  if (s === "S") return Math.max(0, p.priceSizeS ?? p.sellPrice - 3000);
+  if (s === "L") return p.priceSizeL ?? p.sellPrice + 5000;
+  return p.sellPrice;
+}
+
+const nearest = <T extends number>(v: number | null | undefined, opts: readonly T[], dflt: T): T =>
+  v == null || Number.isNaN(v) ? dflt : opts.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
+
+/** Bộ tuỳ chọn quen → tuỳ chọn giỏ hàng hợp với cấu hình món hiện tại (món ăn: không size/đá/đường) */
+export function usualOptions(p: Pick<Product, "hasSizes" | "temps">, usual: Usual | null | undefined) {
+  const food = p.hasSizes === false;
+  const temps = tempChoices(p);
+  const temp: Temp | null = usual?.temperature && temps.includes(usual.temperature) ? usual.temperature : temps[0] ?? null;
+  return {
+    food,
+    size: (food ? "M" : usual?.size ?? "M") as "S" | "M" | "L",
+    temp,
+    icePct: temp === "ICED" ? nearest(usual?.icePct, [0, 50, 100] as const, 100) : (100 as const),
+    sugar: (food ? "100" : String(nearest(usual?.sugar != null ? Number(usual.sugar) : null, [0, 50, 100] as const, 100))) as "0" | "50" | "100",
+  };
+}
+
+/**
+ * Thêm 1 món theo đúng tuỳ chọn quen của khách ("M · Đá 50% · Đường 50%") + ghi chú quen ("không ống hút").
+ * Không có thói quen → như quickAdd. Người gọi tự chặn món hết hàng.
+ */
+export function quickAddUsual(p: CartProduct, usual?: Usual | null, usualNote?: string | null, quantity = 1) {
+  if (!usual && !usualNote?.trim()) return quickAdd(p);
+  const o = usualOptions(p, usual);
+  addToCart(p, {
+    unitPrice: calculateFinalPrice(o.food ? p.sellPrice : sizePrice(p, o.size), p.discountPercent),
+    quantity,
+    size: o.size,
+    temp: o.temp,
+    icePct: o.icePct,
+    sugar: o.sugar,
+    notes: [o.food ? "" : drinkNotes(o), usualNote?.trim() ?? ""].filter(Boolean).join(" · "),
+  });
+}
+
+/** Dòng phụ tuỳ chọn quen: "M · Đá 50% · Đường 50%" (món ăn → rỗng) */
+export function UsualLine({ p, usual, note }: { p: Pick<Product, "hasSizes" | "temps">; usual?: Usual | null; note?: string | null }) {
+  const { t } = useLang();
+  if (!usual) return null;
+  const o = usualOptions(p, usual);
+  const parts = o.food ? [] : [o.size, o.temp === "HOT" ? t("Nóng") : o.temp === "ICED" ? t("Đá {n}%", { n: o.icePct }) : null, t("Đường {n}%", { n: o.sugar })];
+  const text = [...parts, note?.trim()].filter(Boolean).join(" · ");
+  return text ? <span className="c-usual-line">{text}</span> : null;
 }
 
 /** Tổng số lượng một món đang có trong giỏ (cộng mọi size/tuỳ chọn, không tính combo); tự cập nhật khi giỏ đổi */
@@ -126,7 +181,8 @@ export function NutritionTags({ p }: { p: Product }) {
   );
 }
 
-export function ProductCard({ p, line, to }: { p: Product; line?: ReactNode; to?: string }) {
+/** `onAdd`: thay cách thêm nhanh mặc định (thẻ "Món quen" thêm đúng tuỳ chọn quen) */
+export function ProductCard({ p, line, to, onAdd }: { p: Product; line?: ReactNode; to?: string; onAdd?: () => void }) {
   const { t } = useLang();
   const inCart = useCartQty(p.id);
   const off = p.discountPercent && p.discountPercent > 0 ? p.discountPercent : 0;
@@ -159,10 +215,10 @@ export function ProductCard({ p, line, to }: { p: Product; line?: ReactNode; to?
                 {inCart <= 1 ? <Trash2 size={16} aria-hidden /> : <Minus size={18} aria-hidden />}
               </button>
               <output className="c-add-qty" aria-live="polite">{inCart}</output>
-              <button type="button" className="c-add" onClick={() => quickAdd(p)} aria-label={t("Thêm 1")}><Plus size={18} aria-hidden /></button>
+              <button type="button" className="c-add" onClick={() => (onAdd ? onAdd() : quickAdd(p))} aria-label={t("Thêm 1")}><Plus size={18} aria-hidden /></button>
             </span>
           ) : (
-            <button type="button" className="c-add" onClick={() => quickAdd(p)} aria-label={t("Thêm {name} vào giỏ", { name: p.name })}>
+            <button type="button" className="c-add" onClick={() => (onAdd ? onAdd() : quickAdd(p))} aria-label={t("Thêm {name} vào giỏ", { name: p.name })}>
               <Plus size={18} aria-hidden />
             </button>
           )}

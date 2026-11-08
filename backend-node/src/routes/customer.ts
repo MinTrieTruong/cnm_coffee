@@ -186,6 +186,15 @@ export function customerRouter(prisma: PrismaClient) {
     });
   });
 
+  /** Tuỳ chọn quen của khách với 1 món (trang chi tiết món chọn sẵn); null = chưa gọi món này */
+  r.get("/usual/:productId", customerAuth, async (req, res) => {
+    const customerId = (req as Request & { customerId?: number }).customerId!;
+    const productId = Number(req.params.productId);
+    if (!Number.isInteger(productId) || productId <= 0) return res.status(400).json({ error: "Món không hợp lệ." });
+    const [item] = await getUsualItems(prisma, customerId, { productId, limit: 1 });
+    res.json({ item: item ?? null });
+  });
+
   /** Các dòng của 1 đơn đã thanh toán để "Đặt lại" (kèm cờ hết hàng / ngừng bán tại chi nhánh `?store=`) */
   r.get("/orders/:id/reorder", customerAuth, async (req, res) => {
     const customerId = (req as Request & { customerId?: number }).customerId!;

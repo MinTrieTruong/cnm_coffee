@@ -43,7 +43,7 @@ export function getCart(): CartItem[] {
 }
 
 export function addToCart(
-  product: Product,
+  product: Pick<Product, "id" | "name" | "imageUrl">,
   opts: Omit<CartItem, "productId" | "name" | "imageUrl">,
 ) {
   const items = load();

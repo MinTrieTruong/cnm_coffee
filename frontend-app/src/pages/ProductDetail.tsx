@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Check, Minus, Plus } from "lucide-react";
-import { api, TEMP_TEXT, tempChoices, type Product, type Temp } from "../lib/api";
+import { Check, Minus, Plus, RotateCcw } from "lucide-react";
+import { api, TEMP_TEXT, tempChoices, type Product, type Temp, type Usual } from "../lib/api";
 import { addToCart, drinkNotes } from "../lib/cart";
 import { formatVnd } from "../lib/site";
 import { useLang } from "../lib/i18n";
 import { useCustomerStore, withStore } from "../lib/customerStore";
 import { getUser } from "../lib/session";
 import { ReviewComposer } from "../components/site/ReviewComposer";
-import { Crumbs, ProductImage, listPrice, quickAdd } from "../components/site/parts";
+import { Crumbs, ProductImage, listPrice, quickAdd, sizePrice, usualOptions } from "../components/site/parts";
 import { ReviewItem, type PublicReviewRow } from "../components/site/ReviewItem";
 import { NutritionPanel } from "../components/site/NutritionPanel";
+import "../styles/habits.css";
 
 type Detail = Product & { sku?: string | null; outOfStock?: boolean; tags?: unknown };
 type Review = PublicReviewRow;
@@ -19,12 +20,6 @@ type Extras = { pairings: Product[]; reviews: Review[]; rating?: { avg: number; 
 const SIZES = ["S", "M", "L"] as const;
 type Size = (typeof SIZES)[number];
 
-/** Giá theo size trước giảm giá — S/L thiếu giá riêng thì −3.000 / +5.000 như trước */
-function sizePrice(p: Product, s: Size) {
-  if (s === "S") return Math.max(0, p.priceSizeS ?? p.sellPrice - 3000);
-  if (s === "L") return p.priceSizeL ?? p.sellPrice + 5000;
-  return p.sellPrice;
-}
 const off = (p: Product, n: number) => (p.discountPercent && p.discountPercent > 0 ? Math.round(n * (1 - p.discountPercent / 100)) : n);
 const tagList = (t: unknown): string[] => {
   if (Array.isArray(t)) return t.filter((x): x is string => typeof x === "string");
@@ -104,6 +99,9 @@ export function ProductDetail() {
   const [notes, setNotes] = useState("");
   const [qty, setQty] = useState(1);
   const [added, setAdded] = useState(false);
+  /** Khách đã gọi món này: chọn sẵn size / nóng-đá / đá / đường / ghi chú theo lựa chọn quen (đặt lại mặc định được) */
+  const [usual, setUsual] = useState<{ usual: Usual; usualNote: string | null } | null>(null);
+  const [usualOn, setUsualOn] = useState(false);
   const { storeId } = useCustomerStore();
   const user = getUser();
   /** Đơn đã mua món này mà khách chưa đánh giá món → hiện nút "Viết đánh giá" */
@@ -144,6 +142,48 @@ export function ProductDetail() {
   }, [id, user?.customerId, reviewTick]);
 
   useEffect(() => setThanks(false), [id]);
+
+  useEffect(() => {
+    setUsual(null);
+    setUsualOn(false);
+    if (!id || !user?.customerId) return;
+    let cancelled = false;
+    api<{ item: { usual: Usual; usualNote: string | null } | null }>(`/api/customer/usual/${id}`)
+      .then((d) => !cancelled && setUsual(d.item))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [id, user?.customerId]);
+
+  // Áp lựa chọn quen khi đã có món + thói quen; ?temp= (khối thời tiết) vẫn ưu tiên hơn nóng/đá quen
+  useEffect(() => {
+    if (!p || !usual || String(p.id) !== id) return;
+    applyUsual(p, usual);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p?.id, usual]);
+
+  function applyUsual(prod: Product, u: { usual: Usual; usualNote: string | null }) {
+    const o = usualOptions(prod, u.usual);
+    const q = params.get("temp");
+    if (!o.food) {
+      setSize(o.size);
+      if (q !== "ICED" && q !== "HOT") setTempPick(o.temp);
+      setIcePct(o.icePct);
+      setSugar(o.sugar);
+    }
+    setNotes(u.usualNote ?? "");
+    setUsualOn(true);
+  }
+  function resetDefaults() {
+    const q = params.get("temp");
+    setSize("M");
+    setTempPick(q === "ICED" || q === "HOT" ? q : null);
+    setIcePct(100);
+    setSugar("100");
+    setNotes("");
+    setUsualOn(false);
+  }
 
   if (err || !p) {
     return (
@@ -212,6 +252,19 @@ export function ProductDetail() {
             <span className="c-price">{formatVnd(unitPrice)}</span>
             {hasDiscount && <span className="c-price-old">{formatVnd(basePrice)}</span>}
           </div>
+
+          {usual && (
+            <p className="c-pd-usual" role="status">
+              {usualOn ? (
+                <>
+                  {t("Theo lựa chọn quen của bạn")} ·{" "}
+                  <button type="button" className="c-linkish" onClick={resetDefaults}><RotateCcw size={13} aria-hidden /> {t("Đặt lại mặc định")}</button>
+                </>
+              ) : (
+                <button type="button" className="c-linkish" onClick={() => applyUsual(p, usual)}>{t("Chọn theo lựa chọn quen của bạn")}</button>
+              )}
+            </p>
+          )}
 
           {!isFood && (
             <>

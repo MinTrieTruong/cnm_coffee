@@ -14,6 +14,9 @@ import { useSocialConfig, type SocialProvider } from "../../lib/socialLogin";
 import { Pager, usePaged, voucherActive, type AccountData, type CustomerOrder, type MyVoucher, type PublicVoucher } from "./shared";
 import { DIETS, PREF_TEXT, useDietPrefs, type Diet } from "../../lib/nutrition";
 import "../../styles/nutrition.css";
+import { ReorderButton } from "../../components/site/UsualStrip";
+import { fetchReorder, saveDefaultNote, useDefaultNote } from "../../lib/habits";
+import { useCustomerStore } from "../../lib/customerStore";
 
 type Msg = { text: string; ok: boolean } | null;
 const Note = ({ msg }: { msg: Msg }) => (msg ? <p className={msg.ok ? "c-acc-ok" : "c-err"} role={msg.ok ? "status" : "alert"}>{msg.text}</p> : null);
@@ -262,6 +265,7 @@ function CancelCountdown({ until, onExpire }: { until: string; onExpire: () => v
 
 export function OrdersSection({ data }: { data: AccountData }) {
   const { t, lang } = useLang();
+  const { storeId } = useCustomerStore();
   const p = usePaged(data.orders);
   const tone = (o: CustomerOrder) => (o.status === "Cancelled" || o.status === "Failed" ? "is-bad" : o.status === "Paid" || o.deliveryStatus === "Delivered" ? "is-good" : "is-wait");
 
@@ -301,8 +305,9 @@ export function OrdersSection({ data }: { data: AccountData }) {
             <p className="c-order-items">
               <time dateTime={o.createdAt}>{new Date(o.createdAt).toLocaleString(lang === "en" ? "en-GB" : "vi-VN")}</time> · {o.details.map((d) => `${d.quantity}× ${d.product.name}`).join(", ")}
             </p>
-            {(o.orderType === "Delivery" && o.status !== "Cancelled") || o.refundStatus || o.cancelUntil || ["Pending_Grace", "Confirmed"].includes(o.status) ? (
+            {(o.orderType === "Delivery" && o.status !== "Cancelled") || o.refundStatus || o.cancelUntil || ["Pending_Grace", "Confirmed", "Paid"].includes(o.status) ? (
               <div className="c-order-actions">
+                {o.status === "Paid" && <ReorderButton load={() => fetchReorder(o.id, storeId)} />}
                 {o.orderType === "Delivery" && o.status !== "Cancelled" && (
                   <Link to={`/order/${o.id}/tracking`} className="c-linkbtn">{o.deliveryStatus === "Delivered" ? t("Xem chi tiết giao hàng") : t("Theo dõi đơn")}</Link>
                 )}
@@ -574,6 +579,39 @@ export function DietSection() {
       </div>
       <Note msg={msg} />
       <p className="c-muted-txt" style={{ fontSize: "0.82rem" }}>{t("Thông tin dinh dưỡng là ước tính theo công thức chuẩn. Nếu dị ứng nặng, vui lòng báo nhân viên khi gọi món.")}</p>
+      <DefaultNoteForm />
     </div>
+  );
+}
+
+/** Ghi chú mặc định cho mọi đơn: điền sẵn ở giỏ hàng, thu ngân thấy khi nhập SĐT của bạn */
+function DefaultNoteForm() {
+  const { t } = useLang();
+  const [note, setNote] = useDefaultNote();
+  const [msg, setMsg] = useState<Msg>(null);
+  const [busy, setBusy] = useState(false);
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const saved = await saveDefaultNote(note ?? "");
+      setNote(saved ?? "");
+      setMsg({ ok: true, text: saved ? t("Đã lưu ghi chú mặc định.") : t("Đã xoá ghi chú mặc định.") });
+    } catch (err) {
+      setMsg({ ok: false, text: err instanceof Error ? t(err.message) : t("Không lưu được.") });
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <form className="c-acc-note" onSubmit={(e) => void save(e)}>
+      <label className="c-field-label" htmlFor="c-default-note">{t("Ghi chú mặc định cho mọi đơn")}</label>
+      <div className="c-acc-note-row">
+        <input id="c-default-note" className="c-input" value={note ?? ""} disabled={note === null} maxLength={120} placeholder={t("Ví dụ: Không ống hút, ít ngọt")} onChange={(e) => setNote(e.target.value)} />
+        <button type="submit" className="c-btn" disabled={busy || note === null}>{t("Lưu")}</button>
+      </div>
+      <p className="c-muted-txt" style={{ fontSize: "0.82rem", margin: 0 }}>{t("Tự điền vào ô ghi chú khi bạn đặt món (sửa hoặc xoá được từng đơn). Thu ngân cũng thấy ghi chú này khi tích điểm cho bạn.")}</p>
+      <Note msg={msg} />
+    </form>
   );
 }

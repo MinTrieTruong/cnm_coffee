@@ -8,7 +8,8 @@ import { useCustomerStore } from "../lib/customerStore";
 import { logMenuSearch } from "../lib/searchLog";
 import { formatVnd } from "../lib/site";
 import { useLang } from "../lib/i18n";
-import { Crumbs, ProductCard, SectionHead, listPrice } from "../components/site/parts";
+import { Crumbs, ProductCard, SectionHead, UsualLine, listPrice, quickAddUsual } from "../components/site/parts";
+import { UsualStrip } from "../components/site/UsualStrip";
 import { QuickOrderMic, openQuickOrder, useQuickOrder } from "../components/site/QuickOrder";
 import { looksLikeOrder } from "../lib/voiceOrder";
 import { useSiteInfo } from "../lib/site";
@@ -295,6 +296,13 @@ export function Menu() {
           <p className="qo-try">
             {quick.mic ? t("Thử nói:") : t("Thử gõ:")}{" "}
             <button type="button" onClick={() => openQuickOrder(quick.mic ? { mic: true } : { text: t("Hai bạc xỉu ít đá") })}>“{t("Hai bạc xỉu ít đá")}”</button>
+            {/* Khách có món quen: "Như mọi khi" → điền món quen số 1 đúng tuỳ chọn quen */}
+            {data?.favoritesKind === "usual" && (
+              <>
+                {" "}{t("hoặc")}{" "}
+                <button type="button" onClick={() => openQuickOrder(quick.mic ? { mic: true } : { text: t("Như mọi khi") })}>“{t("Như mọi khi")}”</button>
+              </>
+            )}
           </p>
         )}
       </div>
@@ -303,10 +311,23 @@ export function Menu() {
       {!data && !err && <p className="c-muted-txt">{t("Đang tải thực đơn…")}</p>}
       {data && hasFilter && <p className="c-muted-txt c-menu-count">{total === 0 ? t("Không có món nào khớp bộ lọc.") : t("{n} món", { n: total })}</p>}
 
-      {data && !hasFilter && data.favorites.length > 0 && data.favoritesKind !== "none" && view === "grid" && (
-        <section className="c-menu-group">
-          {data.favoritesKind === "ai" ? <SectionHead title="Có thể bạn sẽ thích" sub="gợi ý cho bạn" /> : <SectionHead title="Món quen của bạn" sub="bạn hay gọi" />}
-          <div className="c-grid">{data.favorites.slice(0, 8).map((p) => <ProductCard key={p.id} p={p} line={catName.get(p.categoryId)} />)}</div>
+      {/* Món quen luôn đứng đầu thực đơn (cả lưới ảnh lẫn menu giấy); thẻ hiện + thêm đúng tuỳ chọn quen */}
+      {data && !hasFilter && data.favorites.length > 0 && data.favoritesKind !== "none" && (
+        <section className="c-menu-group c-menu-usual">
+          {data.favoritesKind === "ai" ? <SectionHead title="Có thể bạn sẽ thích" sub="gợi ý cho bạn" /> : <SectionHead title="Món quen của bạn" sub="bạn hay gọi — bấm + là thêm đúng kiểu quen" />}
+          {view === "grid" ? (
+            <div className="c-grid">
+              {data.favorites.slice(0, 8).map((p) =>
+                data.favoritesKind === "usual" ? (
+                  <ProductCard key={p.id} p={p} line={p.hasSizes === false && !p.usualNote ? catName.get(p.categoryId) : <UsualLine p={p} usual={p.usual} note={p.usualNote} />} onAdd={() => quickAddUsual(p, p.usual, p.usualNote)} />
+                ) : (
+                  <ProductCard key={p.id} p={p} line={catName.get(p.categoryId)} />
+                ),
+              )}
+            </div>
+          ) : (
+            <UsualStrip items={data.favorites.slice(0, 8).map((p) => ({ product: p, usual: p.usual, usualNote: p.usualNote, soldOut: p.soldOut }))} />
+          )}
         </section>
       )}
 

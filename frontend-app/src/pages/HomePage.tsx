@@ -7,6 +7,7 @@ import { floorThousand, formatVnd, useMenuCategories, useMenuData, useSiteInfo }
 import { CategoryThumb, listPrice, NutritionTags, ProductCard, ProductImage, quickAdd, SectionHead, VoucherTicket, type PublicVoucher } from "../components/site/parts";
 import { useLang } from "../lib/i18n";
 import { WeatherPicks } from "../components/site/WeatherPicks";
+import { UsualHome } from "../components/site/UsualStrip";
 import { ArchImage, Divider, Eyebrow, Reveal, SiteImg, Skeleton, StatCounter, useHeroHeader } from "../components/site/lux";
 import type { PublicReviewRow } from "../components/site/ReviewItem";
 import { CustomerAvatar } from "../components/CustomerAvatar";
@@ -404,6 +405,9 @@ export function HomePage() {
           </ul>
         </nav>
       )}
+
+      {/* Khách đã đăng nhập: món quen (thêm đúng tuỳ chọn quen) + đặt lại đơn gần nhất */}
+      <UsualHome storeId={storeId} />
 
       {/* Banner cũ (Website › Banner) thành dải trượt dưới hero */}
       {banners.length > 0 && (
