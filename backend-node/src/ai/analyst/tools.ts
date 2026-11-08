@@ -15,6 +15,7 @@ import { pnlReport } from "../../lib/analytics/finance.js";
 import { attendanceReport } from "../../lib/analytics/attendance.js";
 import { inScope, scopeWhere, type AnalyticsScope, type StoreFilter } from "../../lib/analytics/scope.js";
 import { computeSearchInsights } from "../../lib/searchInsights.js";
+import { computeBehaviorInsights } from "../../lib/behaviorInsights.js";
 import { COMPLAINT_CATEGORIES } from "../../routes/chat.js";
 import { REASON_LABEL } from "../../routes/kitchen.js";
 import { foldVi } from "../knowledge/text.js";
@@ -527,6 +528,31 @@ async function searchDemand(scope: AnalyticsScope, a: Args): Promise<ToolResult>
   };
 }
 
+async function customerBehavior(scope: AnalyticsScope, a: Args): Promise<ToolResult> {
+  const rg = range(a);
+  const { storeId } = storeFilter(scope, a);
+  const ins = await computeBehaviorInsights(prisma, { storeId, from: rg.from, to: rg.to });
+  const s = ins.summary;
+  const rows = [
+    ...ins.topViewed.slice(0, 10).map((p, i) => ({ list: "xem nhiều nhất", rank: i + 1, product: p.name, value: p.views, customers: p.viewers })),
+    ...ins.topAdded.slice(0, 10).map((p, i) => ({ list: "thêm giỏ nhiều nhất", rank: i + 1, product: p.name, value: p.adds, customers: p.adders, qty: p.qty })),
+    ...ins.productFunnel
+      .filter((p) => p.flag)
+      .map((p) => ({ list: p.flag === "VIEW_NO_BUY" ? "xem nhiều, ít mua" : "hay bị bỏ khỏi giỏ", product: p.name, value: p.views, customers: p.viewers, viewToCartPct: p.viewToCartPct, removedQty: p.removes, addQty: p.addQty, orderedQty: p.ordersQty })),
+    ...ins.screens.filter((x) => x.ranked).slice(0, 6).map((x, i) => ({ list: "màn hình ở lâu nhất", rank: i + 1, screen: x.label, medianSec: x.medianSec, value: x.views, exitPct: x.exitPct })),
+  ];
+  return {
+    summary: {
+      from: rg.fromYmd, to: rg.toYmd, visits: s.visits, visitors: s.visitors, productViews: s.productViews, addToCarts: s.addToCarts, orders: s.orders,
+      conversionPct: s.conversionPct, cartAbandonPct: s.cartAbandonPct, avgVisitSec: s.avgVisitSec,
+      prevVisits: s.prev.visits, prevConversionPct: s.prev.conversionPct, prevCartAbandonPct: s.prev.cartAbandonPct,
+    },
+    rows,
+    unit: { visits: "phiên", visitors: "khách", value: "lượt (xem / thêm giỏ)", customers: "khách", qty: "ly", conversionPct: "%", cartAbandonPct: "%", viewToCartPct: "%", exitPct: "%", medianSec: "giây", avgVisitSec: "giây" },
+    note: "Hành vi khách trên web khách (ẩn danh): lượt xem trang món, lượt thêm giỏ, tỉ lệ bỏ giỏ (thêm giỏ mà không đặt trong 24 giờ), thời gian xem màn hình (trung vị, chỉ tính lúc thật sự xem). \"Xem nhiều, ít mua\": ≥ 20 khách xem mà < 5% phiên xem thêm giỏ. Không gồm đơn tại quầy POS.",
+  };
+}
+
 /* ═══════════ Khai báo cho Gemini ═══════════ */
 
 const DATE = { type: "string", description: "YYYY-MM-DD" };
@@ -616,6 +642,11 @@ export const TOOLS: ToolDef[] = [
     name: "search_demand", label: "Khách tìm không thấy",
     description: "Từ khóa khách tìm trên thực đơn mà không ra món (món chuỗi chưa có, hoặc chi nhánh không bán / báo hết) — gợi ý món mới.",
     parameters: obj({ from: DATE, to: DATE, storeId: STORE }), run: searchDemand,
+  },
+  {
+    name: "customer_behavior", label: "Hành vi khách trên web",
+    description: "Khách làm gì trên web trước khi mua: món được xem nhiều nhất, món được thêm giỏ nhiều nhất, món xem nhiều mà ít mua, món hay bị bỏ khỏi giỏ, màn hình khách ở lâu nhất, tỉ lệ đặt đơn và tỉ lệ bỏ giỏ. Dùng cho câu hỏi về lượt xem / thêm giỏ / bỏ giỏ (không phải số ly bán — số ly bán dùng công cụ doanh thu theo món).",
+    parameters: obj({ from: DATE, to: DATE, storeId: STORE }, ["from", "to"]), run: customerBehavior,
   },
 ];
 
