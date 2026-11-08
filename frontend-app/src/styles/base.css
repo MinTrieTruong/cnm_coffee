@@ -1251,6 +1251,17 @@ button.o-status-step { cursor: pointer; }
 .tp-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; overscroll-behavior: contain; }
 .tp-muted { color: var(--o-muted); font-size: var(--o-fs-sm); }
 .tp-customer { margin-bottom: 12px; padding: 8px 10px; background: var(--o-surface-alt); border-radius: var(--o-radius); font-size: var(--o-fs-sm); }
+/* Thẻ thói quen khách khi nhập SĐT tích điểm (components/CustomerHabitCard.tsx) */
+.tp-habit { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; padding: 8px 10px; border: 1px solid var(--o-border); border-left: 3px solid var(--o-primary); border-radius: var(--o-radius); background: var(--o-surface); font-size: var(--o-fs-sm); }
+.tp-habit-head { color: var(--o-text); }
+.tp-habit-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.tp-habit-items li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tp-habit-items em { color: var(--o-muted); font-style: normal; }
+.tp-habit-items .tp-badge { margin-left: 6px; }
+.tp-habit-note { display: flex; align-items: flex-start; gap: 6px; color: var(--o-muted); }
+.tp-habit-note.is-alert { padding: 4px 6px; border-radius: var(--o-radius); background: var(--o-warning-bg); color: var(--o-warning); font-weight: 600; }
+.tp-habit-note svg { flex: none; margin-top: 2px; }
+.tp-customer .tp-habit { margin: 8px 0 0; }
 
 /* Badge trạng thái */
 .tp-badge { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--o-radius); font-size: var(--o-fs-xs); font-weight: 500; white-space: nowrap; }

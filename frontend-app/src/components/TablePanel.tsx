@@ -14,7 +14,8 @@ import {
 } from "lucide-react";
 import { apiOrigin, TEMP_TEXT, tempChoices, type ProductTemps, type Temp } from "../lib/api";
 import { PosVoiceBar } from "./VoiceOrder";
-import { voiceNote, type VoiceLine } from "../lib/voiceOrder";
+import { lineFromProduct, voiceNote, type VoiceLine } from "../lib/voiceOrder";
+import { CustomerHabitCard, type HabitItem } from "./CustomerHabitCard";
 
 export type PanelProduct = {
   id: number;
@@ -263,6 +264,7 @@ function ItemsView({
           <div className="tp-customer">
             Khách <strong>{order.customer.fullName}</strong>
             {order.customer.phone && <> · {order.customer.phone}</>} · {order.customer.points} điểm
+            {order.customer.phone && <CustomerHabitCard phone={order.customer.phone} />}
           </div>
         )}
 
@@ -412,6 +414,15 @@ function OrderView({
       return next;
     });
 
+  /** "+" trên thẻ thói quen: thêm món đúng size / nóng-đá / đá / đường / ghi chú quen (ghi chú dạng giọng nói: "Ít đá · Ít đường") */
+  const addUsual = (it: HabitItem) => {
+    const p = products.find((x) => x.id === it.productId);
+    if (!p) return;
+    const lvl = (v: number | string | null) => (v == null ? null : ([0, 50, 100] as const).reduce((a, b) => (Math.abs(b - Number(v)) < Math.abs(a - Number(v)) ? b : a)));
+    const u = it.usual;
+    addVoice([lineFromProduct(p, { qty: 1, size: u.size ?? "M", temp: u.temperature, ice: lvl(u.icePct), sugar: lvl(u.sugar), note: it.usualNote })]);
+  };
+
   return (
     <>
       <div className="tp-body tp-body-order">
@@ -420,6 +431,7 @@ function OrderView({
           <input className="o-input" type="search" placeholder="Tìm món…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Tìm món" />
           <input className="o-input" type="tel" placeholder="SĐT khách (tích điểm)" value={phone} onChange={(e) => setPhone(e.target.value)} aria-label="SĐT khách" />
         </div>
+        <CustomerHabitCard phone={phone} onAdd={addUsual} />
         {!q && (
           <div className="tp-chips" role="tablist" aria-label="Danh mục">
             {cats.map((c) => (
