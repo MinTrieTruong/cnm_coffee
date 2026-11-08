@@ -2,12 +2,17 @@
  * routes/tracking.ts — Hành vi khách trên web
  *
  * POST /track                          — trình duyệt khách gửi gộp sự kiện (lib/track.ts). Luôn trả 204.
+ * GET  /behavior-insights?from=&to=&days=&channel=&device=   — Quản lý chi nhánh (chi nhánh mình) / Chủ chuỗi
+ * GET  /behavior-insights/product/:id  — chi tiết 1 món (modal khi bấm vào món)
  */
 import express, { Router, type Request } from "express";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { optionalCustomerAuth } from "../middleware/customer.js";
 import { storeFromQuery } from "../lib/storeProducts.js";
 import { CART_SOURCES, CLIENT_EVENT_TYPES, trackingSettings } from "../lib/customerEvents.js";
+import { attachStaff, isOwner, requireRoles, type StaffRequest } from "../middleware/staff.js";
+import { addDaysYmd, bizRange, daysInRange } from "../lib/bizTime.js";
+import { computeBehaviorInsights, productBehavior, type BehaviorFilter } from "../lib/behaviorInsights.js";
 
 const MAX_BATCH = 30;
 const PER_HOUR = 600;
@@ -26,8 +31,27 @@ function idCache(load: () => Promise<number[]>) {
   };
 }
 
+/** Bộ lọc từ query: ?from=&to= (YYYY-MM-DD giờ quán) hoặc ?days= (mặc định 30, tối đa 365) · kênh · thiết bị */
+function filterOf(req: Request): BehaviorFilter {
+  const me = (req as StaffRequest).staffRow!;
+  const q = req.query as Record<string, string | undefined>;
+  const days = Math.min(365, Math.max(1, Number(q.days) || 30));
+  let rg = bizRange(q.from, q.to, days - 1);
+  if (daysInRange(rg.fromYmd, rg.toYmd) > 365) rg = bizRange(addDaysYmd(rg.toYmd, -364), rg.toYmd, 364);
+  if (rg.from > rg.to) rg = bizRange(rg.toYmd, rg.toYmd, 0);
+  return {
+    // Quản lý chi nhánh: chi nhánh mình · Chủ chuỗi: chi nhánh đang chọn hoặc toàn chuỗi
+    storeId: isOwner(me.role) ? (req as StaffRequest).storeId ?? null : me.storeId,
+    from: rg.from,
+    to: rg.to,
+    channel: q.channel === "web" || q.channel === "qr_table" ? q.channel : null,
+    device: q.device === "mobile" || q.device === "desktop" ? q.device : null,
+  };
+}
+
 export function trackingRouter(prisma: PrismaClient) {
   const r = Router();
+  const manager = [attachStaff(prisma), requireRoles("Admin")];
   const productIds = idCache(async () => (await prisma.product.findMany({ select: { id: true } })).map((p) => p.id));
   const comboIds = idCache(async () => (await prisma.combo.findMany({ select: { id: true } })).map((c) => c.id));
   const storeIds = idCache(async () => (await prisma.store.findMany({ select: { id: true } })).map((s) => s.id));
@@ -106,6 +130,17 @@ export function trackingRouter(prisma: PrismaClient) {
     } catch (e) {
       if (!(e instanceof SyntaxError)) console.error("[tracking]", e);
     }
+  });
+
+  r.get("/behavior-insights", ...manager, async (req, res) => {
+    res.json(await computeBehaviorInsights(prisma, filterOf(req)));
+  });
+
+  r.get("/behavior-insights/product/:id", ...manager, async (req, res) => {
+    const id = Number(req.params.id);
+    const out = Number.isInteger(id) && id > 0 ? await productBehavior(prisma, filterOf(req), id) : null;
+    if (!out) return res.status(404).json({ error: "Không tìm thấy món." });
+    res.json(out);
   });
 
   return r;
