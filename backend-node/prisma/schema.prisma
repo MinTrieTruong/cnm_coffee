@@ -34,6 +34,9 @@ model StoreSettings {
   /// Đăng nhập khách bằng Google / Facebook (tắt → ẩn nút, API từ chối)
   googleLoginEnabled   Boolean @default(true) @map("Google_Login_Enabled")
   facebookLoginEnabled Boolean @default(true) @map("Facebook_Login_Enabled")
+  /// Ghi nhận hành vi khách trên web (xem màn hình / món, thêm-bớt giỏ) — Chủ chuỗi tắt được; xoá sau N ngày
+  behaviorTracking      Boolean @default(true) @map("Behavior_Tracking")
+  behaviorRetentionDays Int     @default(90) @map("Behavior_Retention_Days")
 
   /// Thông tin công ty hiện ở header / footer / trang Liên hệ của web khách
   companyName    String @default("TD Coffee") @map("Company_Name") @db.VarChar(150)
@@ -2057,6 +2060,41 @@ model SearchLog {
   @@index([createdAt])
   @@index([term])
   @@map("Search_Logs")
+}
+
+/// Hành vi khách trên web/app khách (xem màn hình, xem món, thêm/bớt giỏ, đặt đơn) — xoá sau N ngày
+model CustomerEvent {
+  id         Int      @id @default(autoincrement()) @map("CE_ID")
+  /// Mã ẩn danh trình duyệt (dùng chung với SearchLog)
+  sessionKey String   @map("Session_Key") @db.VarChar(64)
+  /// Mã phiên: đổi khi khách vắng > 30 phút (client tự sinh)
+  visitId    String   @map("Visit_ID") @db.VarChar(40)
+  customerId Int?     @map("Customer_ID")
+  storeId    Int?     @map("Store_ID")
+  /// PAGE_VIEW | PRODUCT_VIEW | ADD_TO_CART | REMOVE_FROM_CART | CART_VIEW | CHECKOUT_START | ORDER_PLACED
+  type       String   @map("Type") @db.VarChar(24)
+  /// Tên màn hình đã chuẩn hoá: home, menu, product, cart, promotions, blog, account, checkout, tracking, game…
+  screen     String?  @map("Screen") @db.VarChar(32)
+  productId  Int?     @map("Product_ID")
+  comboId    Int?     @map("Combo_ID")
+  qty        Int?     @map("Qty")
+  /// PAGE_VIEW: thời gian khách THỰC SỰ xem (ms, đã trừ lúc ẩn tab / không thao tác)
+  durationMs Int?     @map("Duration_Ms")
+  /// Nguồn thêm giỏ: card_quick | product_detail | voice | usual | combo | reorder
+  source     String?  @map("Source") @db.VarChar(24)
+  orderId    Int?     @map("Order_ID")
+  /// mobile | desktop
+  device     String?  @map("Device") @db.VarChar(10)
+  /// web | qr_table
+  channel    String?  @map("Channel") @db.VarChar(10)
+  createdAt  DateTime @default(now()) @map("Created_At")
+
+  @@index([createdAt])
+  @@index([type, createdAt])
+  @@index([productId, type])
+  @@index([storeId, createdAt])
+  @@index([visitId])
+  @@map("Customer_Events")
 }
 
 /// Từ khóa quản lý bấm "Bỏ qua" (không liên quan) — không gợi ý nữa. storeId null = toàn chuỗi
