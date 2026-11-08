@@ -23,6 +23,7 @@
     "db:seed-staff": "tsx prisma/seed-staff.ts",
     "db:seed-formulas": "tsx prisma/seed-formulas.ts",
     "db:knowledge": "tsx prisma/knowledge-seed.ts",
+    "db:clear-oos": "tsx scripts/clearLegacyOutOfStock.ts",
     "test:chunk": "tsx scripts/test-chunk.ts",
     "seed:brand": "tsx scripts/seedBrandStory.ts"
   },
