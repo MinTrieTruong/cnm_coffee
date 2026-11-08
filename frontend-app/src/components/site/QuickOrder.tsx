@@ -231,7 +231,7 @@ export function QuickOrderHost() {
     let n = 0;
     for (const l of lines) {
       if (l.comboId) {
-        for (let k = 0; k < l.qty; k++) addComboToCart({ id: l.comboId, name: l.name, imageUrl: l.imageUrl, comboPrice: l.unitPrice, originalPrice: l.unitPrice, isHot: false, isActive: true, items: [] });
+        for (let k = 0; k < l.qty; k++) addComboToCart({ id: l.comboId, name: l.name, imageUrl: l.imageUrl, comboPrice: l.unitPrice, originalPrice: l.unitPrice, isHot: false, isActive: true, items: [] }, "voice");
         n += l.qty;
         continue;
       }
@@ -242,7 +242,7 @@ export function QuickOrderHost() {
       const sugar = String(food ? 100 : l.sugar ?? 100) as "0" | "50" | "100";
       // Cùng định dạng trang chi tiết món: "Size L · Đá 50% · Đường 50% · ghi chú"
       const notes = [food ? "" : drinkNotes({ size, temp: l.temp, icePct, sugar }), l.note?.trim() ?? ""].filter(Boolean).join(" · ");
-      addToCart({ id: l.productId, name: l.name, imageUrl: l.imageUrl } as Product, { unitPrice: l.unitPrice, quantity: l.qty, size, temp: l.temp, icePct, sugar, notes });
+      addToCart({ id: l.productId, name: l.name, imageUrl: l.imageUrl } as Product, { unitPrice: l.unitPrice, quantity: l.qty, size, temp: l.temp, icePct, sugar, notes }, "voice");
       n += l.qty;
     }
     close();

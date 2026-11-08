@@ -10,6 +10,7 @@ import { resolveVoucher, voucherHold } from "../lib/vouchers.js";
 import { customerShipping, describeTier, refreshOrderPromotion } from "../lib/promotions.js";
 import { priceLines, type RawLine } from "../lib/menuPrice.js";
 import { optionalCustomerAuth } from "../middleware/customer.js";
+import { recordOrderPlaced } from "../lib/customerEvents.js";
 import { computeBill, computePointsEarned, getStoreSettings } from "../lib/pricing.js";
 import { DS, getStoreLocation, haversineKm, MAX_DELIVERY_KM, onKitchenProgress, shippingFeeForDistance } from "../lib/delivery.js";
 import { customerCancelDeadline, emitRefunded, refundOrderToPoints, RefundError } from "../lib/points.js";
@@ -311,6 +312,9 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       customerLat?: number;
       customerLng?: number;
       shippingFee?: number;
+      /** Mã ẩn danh + mã phiên của lib/track.ts — máy chủ tự ghi ORDER_PLACED */
+      trackSid?: string;
+      visitId?: string;
     };
     const lines = body.lines ?? [];
     if (!lines.length) {
@@ -436,6 +440,8 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       pos.emit("order:confirmed", { orderId: order.id });
       pos.emit("payment:request", { orderId: order.id, tableId: order.tableId, fromCustomer: true });
     }
+    // Hành vi khách: mỗi món 1 dòng ORDER_PLACED (lỗi nuốt trong hàm, không chờ)
+    void recordOrderPlaced(prisma, { orderId: order.id, storeId, customerId, tableId: order.tableId, trackSid: body.trackSid, visitId: body.visitId, lines: priced.lines });
 
     res.status(201).json({
       ...fresh,

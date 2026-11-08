@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, Minus, Plus, Trash2 } from "lucide-react";
 import { calculateFinalPrice, mediaUrl, tempChoices, type Product, type Temp, type Usual } from "../../lib/api";
 import { addToCart, CART_EVENT, decProduct, drinkNotes, getCart } from "../../lib/cart";
+import type { CartSource } from "../../lib/track";
 import { formatVnd } from "../../lib/site";
 import { useLang } from "../../lib/i18n";
 import { cardLabels, prefConflicts, useDietPrefs } from "../../lib/nutrition";
@@ -76,7 +77,7 @@ export const listPrice = (p: Pick<Product, "sellPrice" | "discountPercent">) => 
 export type CartProduct = Pick<Product, "id" | "name" | "imageUrl" | "sellPrice" | "priceSizeS" | "priceSizeL" | "discountPercent" | "hasSizes" | "temps">;
 
 /** Thêm nhanh 1 món size M, nóng/đá + đường mặc định (như mặc định ở trang chi tiết; món chỉ nóng → nóng) */
-export function quickAdd(p: CartProduct) {
+export function quickAdd(p: CartProduct, source: CartSource = "card_quick") {
   const food = p.hasSizes === false;
   const temp = tempChoices(p)[0] ?? null;
   addToCart(p, {
@@ -87,7 +88,7 @@ export function quickAdd(p: CartProduct) {
     icePct: 100,
     sugar: "100",
     notes: food ? "" : drinkNotes({ size: "M", temp, icePct: 100, sugar: "100" }),
-  });
+  }, source);
 }
 
 /** Giá theo size trước giảm giá — S/L thiếu giá riêng thì −3.000 / +5.000 như trước */
@@ -118,8 +119,8 @@ export function usualOptions(p: Pick<Product, "hasSizes" | "temps">, usual: Usua
  * Thêm 1 món theo đúng tuỳ chọn quen của khách ("M · Đá 50% · Đường 50%") + ghi chú quen ("không ống hút").
  * Không có thói quen → như quickAdd. Người gọi tự chặn món hết hàng.
  */
-export function quickAddUsual(p: CartProduct, usual?: Usual | null, usualNote?: string | null, quantity = 1) {
-  if (!usual && !usualNote?.trim()) return quickAdd(p);
+export function quickAddUsual(p: CartProduct, usual?: Usual | null, usualNote?: string | null, quantity = 1, source: CartSource = "usual") {
+  if (!usual && !usualNote?.trim()) return quickAdd(p, source);
   const o = usualOptions(p, usual);
   addToCart(p, {
     unitPrice: calculateFinalPrice(o.food ? p.sellPrice : sizePrice(p, o.size), p.discountPercent),
@@ -129,7 +130,7 @@ export function quickAddUsual(p: CartProduct, usual?: Usual | null, usualNote?: 
     icePct: o.icePct,
     sugar: o.sugar,
     notes: [o.food ? "" : drinkNotes(o), usualNote?.trim() ?? ""].filter(Boolean).join(" · "),
-  });
+  }, source);
 }
 
 /** Dòng phụ tuỳ chọn quen: "M · Đá 50% · Đường 50%" (món ăn → rỗng) */

@@ -88,7 +88,8 @@ let queue: Event[] = [];
 let timer: number | null = null;
 
 function post(events: Event[], beacon: boolean) {
-  const body = JSON.stringify({ events });
+  // sentAt + at: máy chủ tính lại giờ từng sự kiện theo đồng hồ của mình (đồng hồ máy khách có thể lệch)
+  const body = JSON.stringify({ sentAt: Date.now(), events });
   const url = `${apiBase()}/api/track`;
   // fetch keepalive vẫn gửi được khi trang đóng và mang được token khách (sendBeacon không gắn header được)
   try {

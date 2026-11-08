@@ -74,7 +74,7 @@ export function addReorderToCart(r: Reorder): { added: number; skipped: string[]
       skipped.push(l.product.name);
       continue;
     }
-    quickAddUsual(l.product, l.usual, l.note, l.quantity);
+    quickAddUsual(l.product, l.usual, l.note, l.quantity, "reorder");
     added += l.quantity;
   }
   return { added, skipped };

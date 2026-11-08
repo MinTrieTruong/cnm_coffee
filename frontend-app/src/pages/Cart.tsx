@@ -16,6 +16,7 @@ import { loadNutrition } from "../lib/nutrition";
 import "../styles/nutrition.css";
 import { UsualStrip } from "../components/site/UsualStrip";
 import { reloadUsual, saveDefaultNote, useUsual, withOrderNote } from "../lib/habits";
+import { track, trackIds } from "../lib/track";
 
 const SWIPE_OPEN = 88; // độ rộng nút Xoá lộ ra khi vuốt
 
@@ -113,6 +114,11 @@ export function Cart() {
   const [storeLoc, setStoreLoc] = useState<LatLng | null>(null);
   const [savedAddresses, setSavedAddresses] = useState<any[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<number | "new">("new");
+
+  // Vào giỏ có món → CART_VIEW (phễu "Hành vi khách")
+  useEffect(() => {
+    if (getCart().length) track("CART_VIEW", { qty: getCart().reduce((n, i) => n + i.quantity, 0) });
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -280,9 +286,12 @@ export function Cart() {
         }
       }
 
+      track("CHECKOUT_START", { qty: items.reduce((n, i) => n + i.quantity, 0) });
       const created = await api<{ id: number; status: string }>("/api/orders", {
         method: "POST",
         body: JSON.stringify({
+          // Máy chủ tự ghi ORDER_PLACED theo mã ẩn danh / mã phiên này
+          ...trackIds(),
           tableId: finalOrderType === "Dine-in" ? tableId : null,
           storeId,
           customerId: user?.customerId ?? null,

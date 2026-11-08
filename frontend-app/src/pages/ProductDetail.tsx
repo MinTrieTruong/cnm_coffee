@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { Check, Minus, Plus, RotateCcw } from "lucide-react";
 import { api, TEMP_TEXT, tempChoices, type Product, type Temp, type Usual } from "../lib/api";
 import { addToCart, drinkNotes } from "../lib/cart";
+import { trackProductView } from "../lib/track";
 import { formatVnd } from "../lib/site";
 import { useLang } from "../lib/i18n";
 import { useCustomerStore, withStore } from "../lib/customerStore";
@@ -118,7 +119,11 @@ export function ProductDetail() {
     setExtras(null);
     setQty(1);
     api<Detail>(withStore(`/api/products/${id}`, storeId))
-      .then((d) => !cancelled && setP(d))
+      .then((d) => {
+        if (cancelled) return;
+        setP(d);
+        trackProductView(d.id);
+      })
       .catch((e) => !cancelled && setErr(e instanceof Error ? e.message : t("Lỗi")));
     api<Extras>(withStore(`/api/products/${id}/extras`, storeId))
       .then((d) => !cancelled && setExtras(d))
@@ -222,7 +227,7 @@ export function ProductDetail() {
       icePct: isFood || temp === "HOT" ? 100 : icePct,
       sugar: isFood ? "100" : sugar,
       notes: noteParts.join(" · "),
-    });
+    }, "product_detail");
   }
 
   const reviews = extras?.reviews ?? [];
