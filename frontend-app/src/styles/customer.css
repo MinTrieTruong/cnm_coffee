@@ -244,18 +244,19 @@
 .c-tickets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
 .c-ticket {
   --notch: 10px;
+  --stub: 144px; /* đủ cho mã 12 ký tự trên một dòng */
   position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 112px; background: var(--c-surface); border: 1px solid var(--c-rule-strong);
   /* khấc tròn trên + dưới ở đường xé */
-  -webkit-mask: radial-gradient(circle var(--notch) at calc(100% - 118px) 0, #0000 98%, #000) top / 100% 51% no-repeat, radial-gradient(circle var(--notch) at calc(100% - 118px) 100%, #0000 98%, #000) bottom / 100% 51% no-repeat;
-  mask: radial-gradient(circle var(--notch) at calc(100% - 118px) 0, #0000 98%, #000) top / 100% 51% no-repeat, radial-gradient(circle var(--notch) at calc(100% - 118px) 100%, #0000 98%, #000) bottom / 100% 51% no-repeat;
+  -webkit-mask: radial-gradient(circle var(--notch) at calc(100% - var(--stub)) 0, #0000 98%, #000) top / 100% 51% no-repeat, radial-gradient(circle var(--notch) at calc(100% - var(--stub)) 100%, #0000 98%, #000) bottom / 100% 51% no-repeat;
+  mask: radial-gradient(circle var(--notch) at calc(100% - var(--stub)) 0, #0000 98%, #000) top / 100% 51% no-repeat, radial-gradient(circle var(--notch) at calc(100% - var(--stub)) 100%, #0000 98%, #000) bottom / 100% 51% no-repeat;
 }
 .c-ticket-main { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; min-width: 0; }
 .c-ticket-val { font-family: var(--c-font-display); font-weight: 700; font-size: 1.35rem; text-transform: uppercase; color: var(--c-primary); line-height: 1.1; }
 .c-ticket-cond { font-size: 0.85rem; color: var(--c-ink-2); line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .c-ticket-exp { margin-top: auto; font-size: 0.75rem; color: var(--c-muted); }
-.c-ticket-stub { width: 118px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 10px; border-left: 2px dashed var(--c-rule-strong); background: var(--c-paper); text-align: center; }
+.c-ticket-stub { width: var(--stub); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 10px; border-left: 2px dashed var(--c-rule-strong); background: var(--c-paper); text-align: center; }
 .c-ticket-k { font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--c-muted); }
-.c-ticket-code { font-family: var(--c-font-display); font-weight: 700; font-size: 1.05rem; letter-spacing: 0.06em; color: var(--c-ink); word-break: break-all; }
+.c-ticket-code { font-family: var(--c-font-display); font-weight: 700; font-size: 1.05rem; letter-spacing: 0.04em; color: var(--c-ink); white-space: nowrap; }
 .c-ticket-btn { min-height: 32px; padding: 0 10px; border: 1.5px solid var(--c-primary); border-radius: var(--c-radius); background: transparent; color: var(--c-primary); font-family: var(--c-font-display); font-weight: 600; font-size: 0.82rem; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; }
 .c-ticket-btn:hover { background: var(--c-primary); color: var(--c-on-primary); }
 

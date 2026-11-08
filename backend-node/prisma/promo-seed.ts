@@ -1,7 +1,8 @@
 /**
  * Seed dữ liệu mẫu cho trang Khuyến mãi: voucher (công khai + cá nhân), ưu đãi số lượng (BulkPromotion)
  * và bài viết khuyến mãi (Tin tức). Ngày tính từ lúc chạy → luôn còn hạn khi demo.
- * Chạy: npm run db:promos — mã / tên chương trình / tiêu đề bài đã có thì bỏ qua (chạy lại không trùng).
+ * Chạy: npm run db:promos — chạy lại không trùng: voucher / ưu đãi đã có thì chỉ gia hạn (bật lại, dời ngày),
+ * không đổi số lượt đã dùng; bài viết đã có thì bỏ qua.
  */
 import { PrismaClient } from "@prisma/client";
 
@@ -40,8 +41,13 @@ async function main() {
     { code: "QUAYLAI20", description: "Lâu rồi chưa gặp — giảm 20.000đ cho đơn từ 60.000đ", discountValue: 20000, minBillValue: 60000, days: 30, quantity: 300, voucherType: "personal" },
   ];
   let nv = 0;
+  let rv = 0;
   for (const v of vouchers) {
-    if (await prisma.voucher.findUnique({ where: { code: v.code } })) continue;
+    if (await prisma.voucher.findUnique({ where: { code: v.code } })) {
+      await prisma.voucher.update({ where: { code: v.code }, data: { startDate: daysFromNow(-3), endDate: endOfDay(v.days), isActive: true } });
+      rv++;
+      continue;
+    }
     await prisma.voucher.create({
       data: {
         code: v.code, description: v.description, discountValue: v.discountValue, minBillValue: v.minBillValue,
@@ -52,7 +58,7 @@ async function main() {
     });
     nv++;
   }
-  console.log(`Voucher: tạo ${nv}/${vouchers.length} (đã có thì bỏ qua).`);
+  console.log(`Voucher: tạo ${nv}, gia hạn ${rv}.`);
 
   /* ─────────── Ưu đãi số lượng ─────────── */
   const owner = await prisma.staff.findFirst({ where: { role: "Owner" }, select: { id: true } });
@@ -100,8 +106,14 @@ async function main() {
       },
     ];
     let np = 0;
+    let rp = 0;
     for (const p of promos) {
-      if (await prisma.bulkPromotion.findFirst({ where: { name: p.name } })) continue;
+      const cur = await prisma.bulkPromotion.findFirst({ where: { name: p.name }, select: { id: true } });
+      if (cur) {
+        await prisma.bulkPromotion.update({ where: { id: cur.id }, data: { startAt: daysFromNow(-2), endAt: endOfDay(p.days), isActive: true } });
+        rp++;
+        continue;
+      }
       await prisma.bulkPromotion.create({
         data: {
           name: p.name, description: p.description, isActive: true, startAt: daysFromNow(-2), endAt: endOfDay(p.days),
@@ -120,7 +132,7 @@ async function main() {
       });
       np++;
     }
-    console.log(`Ưu đãi số lượng: tạo ${np}/${promos.length}.`);
+    console.log(`Ưu đãi số lượng: tạo ${np}, gia hạn ${rp}.`);
   }
 
   /* ─────────── Bài viết khuyến mãi (Tin tức) ─────────── */

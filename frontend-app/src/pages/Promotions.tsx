@@ -21,6 +21,10 @@ type Voucher = {
   goldHourStart: number | null;
   goldHourEnd: number | null;
 };
+/** Một dòng của GET /api/vouchers/public — server đã lọc còn hiệu lực, công khai; stores rỗng = toàn chuỗi */
+type PublicVoucher = Pick<Voucher, "id" | "code" | "description" | "discountValue" | "minBillValue" | "endDate" | "quantity" | "usedCount" | "goldHourStart" | "goldHourEnd"> & {
+  stores: { store: { id: number; name: string } }[];
+};
 
 function formatDate(s: string) {
   return new Date(s).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
@@ -30,9 +34,10 @@ function getRemainingDays(endDate: string): number {
   return Math.ceil((new Date(endDate).getTime() - Date.now()) / 86_400_000);
 }
 
-/** Dòng phụ trên vé: giờ vàng, số lượt còn, sắp hết hạn */
-function ticketNote(v: Voucher, t: (s: string, vars?: Record<string, string | number>) => string) {
+/** Dòng phụ trên vé: chi nhánh áp dụng, giờ vàng, số lượt còn, sắp hết hạn */
+function ticketNote(v: PublicVoucher, t: (s: string, vars?: Record<string, string | number>) => string) {
   const parts: string[] = [];
+  if (v.stores?.length) parts.push(t("Chỉ tại {s}", { s: v.stores.map((x) => x.store.name).join(", ") }));
   if (v.goldHourStart != null && v.goldHourEnd != null) parts.push(t("Giờ vàng {a}:00–{b}:00", { a: v.goldHourStart, b: v.goldHourEnd }));
   parts.push(t("Còn {n} lượt", { n: Math.max(0, v.quantity - v.usedCount) }));
   const d = getRemainingDays(v.endDate);
@@ -108,7 +113,7 @@ export function Promotions() {
   const [params] = useSearchParams();
   const spotlight = params.get("voucher");
   const { t, date } = useLang();
-  const [vouchers, setVouchers] = useState<Voucher[]>([]);
+  const [vouchers, setVouchers] = useState<PublicVoucher[]>([]);
   const [bulk, setBulk] = useState<BulkPromo[]>([]);
   useEffect(() => {
     api<BulkPromo[]>("/api/promotions/active").then(setBulk).catch(() => setBulk([]));
@@ -117,8 +122,9 @@ export function Promotions() {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    api<Voucher[]>("/api/vouchers/public")
-      .then((data) => setVouchers(data.filter((v) => v.isActive && new Date(v.endDate) > new Date())))
+    // API không trả isActive (đã lọc sẵn phía server) — chỉ bỏ mã vừa hết hạn trong lúc trang đang mở
+    api<PublicVoucher[]>("/api/vouchers/public")
+      .then((data) => setVouchers(data.filter((v) => new Date(v.endDate) > new Date())))
       .catch((e) => setErr(e instanceof Error ? e.message : t("Không tải được khuyến mãi")))
       .finally(() => setLoading(false));
   }, []);

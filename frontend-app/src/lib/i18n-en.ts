@@ -224,6 +224,7 @@ export const EN: Record<string, string> = {
   // Khuyến mãi
   "ưu đãi đang chạy ở quán": "what's on at the shop",
   "Giờ vàng {a}:00–{b}:00": "Happy hour {a}:00–{b}:00",
+  "Chỉ tại {s}": "Only at {s}",
   "Còn {n} lượt": "{n} uses left",
   "hết hạn sau {n} ngày": "expires in {n} days",
   "Voucher không còn hiệu lực.": "This voucher is no longer valid.",
