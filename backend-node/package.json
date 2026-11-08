@@ -23,7 +23,8 @@
     "db:seed-staff": "tsx prisma/seed-staff.ts",
     "db:seed-formulas": "tsx prisma/seed-formulas.ts",
     "db:knowledge": "tsx prisma/knowledge-seed.ts",
-    "test:chunk": "tsx scripts/test-chunk.ts"
+    "test:chunk": "tsx scripts/test-chunk.ts",
+    "seed:brand": "tsx scripts/seedBrandStory.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
