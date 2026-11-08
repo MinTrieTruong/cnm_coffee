@@ -40,6 +40,23 @@ export function useReveal<T extends Element>(threshold = 0.15) {
   return { ref, shown };
 }
 
+/**
+ * Trang có ảnh hero sát đầu: header trong suốt đè lên ảnh (CSS đọc :root[data-c-hero]).
+ * Đếm số hero đang gắn để lúc chuyển trang (hero cũ gỡ sau hero mới gắn) không làm mất cờ.
+ */
+let heroCount = 0;
+export function useHeroHeader(active = true) {
+  useEffect(() => {
+    if (!active) return;
+    heroCount += 1;
+    document.documentElement.dataset.cHero = "1";
+    return () => {
+      heroCount -= 1;
+      if (heroCount <= 0) delete document.documentElement.dataset.cHero;
+    };
+  }, [active]);
+}
+
 /** Hiện dần + trượt 16px khi cuộn tới; delay (ms) để các phần tử cùng hàng nối tiếp nhau */
 export function Reveal({ children, as: Tag = "div", delay = 0, className, style, id }: { children: ReactNode; as?: "div" | "section" | "li" | "article"; delay?: number; className?: string; style?: CSSProperties; id?: string }) {
   const { ref, shown } = useReveal<HTMLElement>();
@@ -124,6 +141,7 @@ export function PageHero({ eyebrow, title, sub, image, crumbs, children, compact
   crumbs?: { to?: string; label: string }[]; children?: ReactNode; compact?: boolean;
 }) {
   const { t } = useLang();
+  useHeroHeader(!!image);
   return (
     <header className={`c-ph${image ? " has-img" : ""}${compact ? " is-compact" : ""}`}>
       {image && (

@@ -19,6 +19,7 @@ import { FestiveFall, FestiveStrip } from "./site/Festive";
 import { useLang } from "../lib/i18n";
 import "../styles/customer.css";
 import "../styles/customer-lux.css";
+import "../styles/customer-nav.css";
 import { QuickOrderHost } from "./site/QuickOrder";
 
 /** Tiêu đề trang trên header điện thoại */
@@ -97,6 +98,11 @@ export function PublicLayout() {
   useEffect(() => {
     document.documentElement.lang = lang;
   }, [lang]);
+  // Tên tab trình duyệt theo trang (trang nội dung có thể đặt lại cụ thể hơn)
+  const pageTitle = t(titleOf(loc.pathname));
+  useEffect(() => {
+    document.title = pageTitle === "TD Coffee" ? "TD Coffee — cà phê Sài Gòn" : `${pageTitle} · TD Coffee`;
+  }, [pageTitle]);
   const navItems = customerNav(loggedIn).map((it) => ({
     ...it,
     label: t(it.label),
@@ -139,15 +145,9 @@ export function PublicLayout() {
 
   return (
     <div className="site-root c-site" style={themeStyle}>
-      <SiteHeader
-        user={user}
-        cartCount={cartCount}
-        onLogout={handleLogout}
-        mobileTitle={t(titleOf(p))}
-        color={color}
-        onBack={isSubPage ? goBack : null}
-      />
+      {/* Dải lời chúc dịp lễ nằm trên header: cuộn đi thì header dính lại, không che hero */}
       {occasion && <FestiveStrip occasion={occasion} />}
+      <SiteHeader user={user} cartCount={cartCount} onLogout={handleLogout} color={color} onBack={isSubPage ? goBack : null} />
       {occasion?.effects && <FestiveFall id={occasion.id} />}
 
       <main className="site-main c-main">
