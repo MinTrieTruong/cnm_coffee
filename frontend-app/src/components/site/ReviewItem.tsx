@@ -15,6 +15,8 @@ export type PublicReviewRow = {
   customer: { fullName: string; avatarUrl?: string | null } | null;
   /** Đánh giá món (danh sách chung hiện tên món); không có = đánh giá chung cho quán */
   product?: { id: number; name: string } | null;
+  /** Chi nhánh của đơn được đánh giá (GET /api/reviews) */
+  storeName?: string;
 };
 
 /** Một đánh giá: avatar trái · tên + sao + ngày · nội dung · ảnh · phản hồi của quán (logo + "TD Coffee phản hồi") */

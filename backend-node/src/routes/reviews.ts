@@ -124,9 +124,10 @@ export function reviewsRouter(prisma: PrismaClient) {
         id: true, rating: true, comment: true, imageUrl: true, adminReply: true, createdAt: true, anonymous: true,
         customer: { select: { fullName: true, avatarUrl: true } },
         product: { select: { id: true, name: true } },
+        order: { select: { store: { select: { name: true } } } },
       },
     });
-    res.json(rows.map(publicReview));
+    res.json(rows.map(({ order, ...r }) => ({ ...publicReview(r), storeName: order.store.name })));
   });
 
   r.post("/reviews/upload-image", customerAuth, async (req, res) => {

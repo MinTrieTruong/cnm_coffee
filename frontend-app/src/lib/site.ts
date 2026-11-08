@@ -81,4 +81,23 @@ export function useMenuData() {
   return menu;
 }
 
+/** Danh mục cho menu / trang chủ: danh mục gốc có danh mục con thì hiện các con (cụ thể hơn), không thì hiện chính nó; kèm ảnh 1 món tiêu biểu */
+export function useMenuCategories() {
+  const menu = useMenuData();
+  const all = menu?.categories ?? [];
+  const products = menu?.products ?? [];
+  const sort = (a: { sortOrder?: number; id: number }, b: { sortOrder?: number; id: number }) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.id - b.id;
+  const leaves = all.filter((c) => !c.parentId).sort(sort).flatMap((r) => {
+    const kids = all.filter((x) => x.parentId === r.id).sort(sort);
+    return kids.length ? kids : [r];
+  });
+  return leaves
+    .map((c) => {
+      const ids = new Set([c.id, ...all.filter((x) => x.parentId === c.id).map((x) => x.id)]);
+      const list = products.filter((p) => ids.has(p.categoryId));
+      return { id: c.id, name: c.name, image: list.find((p) => p.imageUrl)?.imageUrl ?? null, count: list.length };
+    })
+    .filter((c) => c.count > 0);
+}
+
 export const formatVnd = (n: number) => new Intl.NumberFormat("vi-VN").format(n) + "đ";
