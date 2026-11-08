@@ -22,15 +22,14 @@ const NAV: NavItem[] = [
   { id: "menu", label: "Thực đơn", to: "/menu", match: (p) => p.startsWith("/menu") || p.startsWith("/product"), children: "menu" },
   {
     id: "about", label: "Về TD Coffee", to: "/about",
-    match: (p) => ["/our-coffee", "/careers"].some((x) => p.startsWith(x)),
+    match: (p) => ["/about", "/our-coffee", "/careers"].some((x) => p.startsWith(x)),
     children: [
-      { to: "/about", label: "Câu chuyện", desc: "Từ một quầy phin nhỏ ở Gò Vấp", image: "story/tro-chuyen", ready: false },
+      { to: "/about", label: "Câu chuyện", desc: "Từ một chiếc xe đẩy ở Gò Vấp", image: "story/tro-chuyen", ready: true },
       { to: "/our-coffee", label: "Cà phê của chúng tôi", desc: "Vùng trồng, loại hạt, cách rang và pha", image: "story/vuon-ca-phe", ready: false },
       { to: "/careers", label: "Tuyển dụng", desc: "Pha chế, thu ngân, quản lý ca", image: "careers/barista", ready: false },
     ],
   },
-  // Đợt 3 chuyển danh sách cửa hàng sang /stores; hiện vẫn ở /about
-  { id: "stores", label: "Cửa hàng", to: "/about", match: (p) => p.startsWith("/about") || p.startsWith("/stores") },
+  { id: "stores", label: "Cửa hàng", to: "/stores", match: (p) => p.startsWith("/stores") },
   {
     id: "deals", label: "Ưu đãi", to: "/promotions",
     match: (p) => p.startsWith("/promotions") || p.startsWith("/membership"),

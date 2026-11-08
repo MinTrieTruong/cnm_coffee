@@ -114,16 +114,6 @@
 /* ── Dải số liệu ── */
 .c-stats-band .c-stat-n { color: color-mix(in srgb, var(--c-accent) 60%, #fff); }
 
-/* ── Từ hạt đến ly ── */
-.c-steps-body { position: relative; }
-.c-steps-curve { position: absolute; left: 0; right: 0; top: 30px; width: 100%; height: 120px; color: var(--c-rule-strong); pointer-events: none; }
-.c-steps-list { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; margin: 0; padding: 0; list-style: none; }
-.c-step { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; }
-.c-step-img { display: block; width: 156px; height: 156px; border-radius: 50%; overflow: hidden; border: 6px solid var(--c-paper); box-shadow: 0 0 0 1px var(--c-rule), var(--c-shadow); background: var(--c-paper-2); }
-.c-step-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.c-step-n { margin-top: 6px; font-family: var(--c-font-display); font-style: italic; font-weight: 500; font-size: 2.6rem; line-height: 1; color: var(--c-accent-ink); }
-.c-step-title { margin: 0; font-family: var(--c-font-display); font-weight: 500; font-size: 1.3rem; }
-.c-step-text { margin: 0; max-width: 26ch; font-size: 0.95rem; line-height: 1.6; color: var(--c-muted); }
 
 /* ── Voucher cuộn ngang trên nền kem đậm ── */
 .c-voucher-band { background: var(--c-paper-2); border-radius: var(--c-radius-lg); margin-inline: clamp(0px, 2vw, 24px); }
@@ -139,19 +129,6 @@
 .c-game2-title { margin: 0; font-family: var(--c-font-display); font-weight: 500; font-size: clamp(1.6rem, 1.1rem + 1.6vw, 2.4rem); line-height: 1.1; }
 .c-game2-copy p { margin: 0 0 6px; color: var(--c-ink-2); }
 
-/* ── Khách nói gì ── */
-.c-quotes-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); justify-content: center; gap: 20px; margin: 0; padding: 0; list-style: none; }
-.c-quotes-list.is-1 { grid-template-columns: minmax(0, 560px); }
-.c-quotes-list.is-2 { grid-template-columns: repeat(2, minmax(0, 460px)); }
-.c-quote { display: flex; flex-direction: column; gap: 14px; padding: 26px 26px 22px; border-radius: var(--c-radius-lg); background: var(--c-surface); box-shadow: 0 0 0 1px var(--c-rule); }
-.c-quote blockquote { margin: 0; font-family: var(--c-font-display); font-style: italic; font-size: 1.2rem; line-height: 1.55; color: var(--c-ink); }
-.c-quote blockquote::before { content: "“"; display: block; height: 0.6em; margin-bottom: 4px; font-size: 3rem; line-height: 1; color: var(--c-accent); }
-.c-quote-who { display: flex; align-items: center; gap: 12px; margin-top: auto; }
-.c-quote-who span { display: flex; flex-direction: column; min-width: 0; }
-.c-quote-who strong { font-size: 0.95rem; }
-.c-quote-who small { font-size: 0.82rem; color: var(--c-muted); }
-.c-stars { display: inline-flex; gap: 2px; color: var(--c-rule-strong); font-size: 1.05rem; }
-.c-stars .is-on { color: var(--c-accent); }
 
 /* ── Tin tức: 1 bài lớn + 2 bài nhỏ ── */
 .c-news2-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: clamp(20px, 3vw, 40px); }
@@ -176,8 +153,6 @@
   .c-feat-body { grid-template-columns: minmax(0, 1fr); }
   .c-feat-big { max-width: 560px; }
   .c-feat-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .c-steps-list { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 36px; }
-  .c-steps-curve { display: none; }
 }
 @media (max-width: 768px) {
   .c-h2 { padding-top: calc(var(--c-head-h) + 16px); }
@@ -203,12 +178,9 @@
   .c-tabs button { flex: 1 0 auto; padding: 0 12px; }
   .c-story2-in { grid-template-columns: minmax(0, 1fr); }
   .c-story2-media { max-width: 420px; }
-  .c-step-img { width: 120px; height: 120px; }
-  .c-step-n { font-size: 2.1rem; }
   .c-voucher-band { margin-inline: 0; border-radius: 0; }
   .c-game2 { grid-template-columns: minmax(0, 1fr); }
   .c-game2-img { min-height: 0; aspect-ratio: 16 / 9; }
-  .c-quotes-list, .c-quotes-list.is-2 { grid-template-columns: minmax(0, 1fr); }
   .c-news2-grid { grid-template-columns: minmax(0, 1fr); }
   .c-news2-item .c-news2-img { flex-basis: 38%; }
 }

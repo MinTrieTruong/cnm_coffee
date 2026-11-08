@@ -91,7 +91,7 @@ export function Skeleton({ variant = "card", count = 4, className }: { variant?:
 
 /** Trạng thái rỗng: minh họa nét mảnh + 1 câu + 1 nút (chữ truyền vào đã dịch) */
 export function EmptyState({ art = "cup", title, text, action, className }: {
-  art?: "cup" | "bean" | "branch" | "steam" | "spill"; title?: string; text: ReactNode; action?: { to: string; label: string }; className?: string;
+  art?: "cup" | "bean" | "branch" | "steam" | "spill" | "awning" | "person"; title?: string; text: ReactNode; action?: { to: string; label: string }; className?: string;
 }) {
   return (
     <div className={`c-empty ${className ?? ""}`}>

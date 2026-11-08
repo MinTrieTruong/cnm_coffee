@@ -59,7 +59,7 @@ export function SiteFooter({ color }: { color: { mode: ColorMode; setMode: (m: C
       <div className="c-wrap">
         <ul className="c-footer-strip" aria-label={t("Ảnh ở quán")}>
           {STRIP.map((k) => (
-            <li key={k}><Link to="/about" tabIndex={-1} aria-hidden><SiteImg src={k} sizes="(max-width: 768px) 33vw, 200px" /></Link></li>
+            <li key={k}><Link to="/about#gallery" tabIndex={-1} aria-hidden><SiteImg src={k} sizes="(max-width: 768px) 33vw, 200px" /></Link></li>
           ))}
         </ul>
 
@@ -91,7 +91,8 @@ export function SiteFooter({ color }: { color: { mode: ColorMode; setMode: (m: C
             <ul className="c-footer-links">
               <li><Link to="/menu">{t("Thực đơn")}</Link></li>
               <li><Link to="/promotions">{t("Khuyến mãi")}</Link></li>
-              <li><Link to="/about">{t("Cửa hàng")}</Link></li>
+              <li><Link to="/stores">{t("Cửa hàng")}</Link></li>
+              <li><Link to="/about">{t("Câu chuyện")}</Link></li>
               <li><Link to="/blog">{t("Tin tức")}</Link></li>
             </ul>
           </nav>

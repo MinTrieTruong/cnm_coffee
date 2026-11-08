@@ -527,33 +527,7 @@ label.c-pd-opt .c-pd-label { margin-bottom: 0; }
   .c-post.is-featured { grid-template-columns: minmax(0, 1fr); gap: 12px; }
 }
 
-/* ═══════════ CỬA HÀNG / VỀ CHÚNG TÔI ═══════════ */
-.c-about { padding-bottom: 40px; }
-.c-about-intro { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(24px, 4vw, 56px); align-items: center; padding-bottom: 16px; }
-.c-about-lead { margin: 0 0 20px; font-size: 1.08rem; line-height: 1.75; color: var(--c-ink-2); max-width: 58ch; }
-.c-about-facts { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; gap: 0 32px; margin: 0 0 24px; }
-.c-about-facts dt { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-muted); }
-.c-about-facts dd { margin: 2px 0 0; font-family: var(--c-font-display); font-weight: 600; font-size: 1.4rem; color: var(--c-ink); }
-.c-about-facts a { text-decoration: none; color: var(--c-primary); }
-.c-about-cta { display: flex; gap: 12px; flex-wrap: wrap; }
-.c-about-img { aspect-ratio: 4 / 3; overflow: hidden; border-radius: var(--c-radius-md); background: var(--c-paper-2); }
-.c-about-img img { width: 100%; height: 100%; object-fit: cover; }
-.c-store-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 16px; }
-.c-store-card { padding: 16px 18px; background: var(--c-surface); border: 1px solid var(--c-rule); border-top: 4px solid var(--c-primary); }
-.c-store-card h3 { margin: 0 0 6px; font-family: var(--c-font-display); font-weight: 600; font-size: 1.2rem; letter-spacing: 0; }
-.c-store-card p { margin: 0 0 4px; font-size: 0.92rem; line-height: 1.5; }
-.c-store-card-links { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px !important; padding-top: 8px; border-top: 1px dotted var(--c-rule); }
-.c-store-card-links a { font-weight: 600; text-decoration: none; color: var(--c-primary); }
-.c-gallery { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.c-gallery-item { aspect-ratio: 1; overflow: hidden; border-radius: var(--c-radius); background: var(--c-paper-2); }
-.c-gallery-item img { width: 100%; height: 100%; object-fit: cover; }
-@media (max-width: 768px) {
-  .c-about-intro { grid-template-columns: minmax(0, 1fr); }
-  .c-about-img { order: -1; }
-  .c-about-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 12px; }
-  .c-about-facts dd { font-size: 1.1rem; }
-  .c-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
+/* ═══════════ ĐÁNH GIÁ (danh sách chung) ═══════════ */
 .c-review-sort { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 0.88rem; color: var(--c-muted); }
 .c-review-sort .c-input { width: auto; min-height: 36px; padding: 0 8px; }
 .c-review-more { margin-top: 16px; }

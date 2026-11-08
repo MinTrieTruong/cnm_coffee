@@ -1,3 +1,4 @@
+import path from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import basicSsl from "@vitejs/plugin-basic-ssl";
@@ -21,9 +22,14 @@ const silenceClientDisconnects: ProxyOptions["configure"] = (proxy) => {
   });
 };
 
+// Kiểu + kiểm tra dữ liệu dùng chung với backend (trang câu chuyện thương hiệu): backend-node/src/shared
+const SHARED = path.resolve(__dirname, "../backend-node/src/shared");
+
 export default defineConfig({
   plugins: [react()],
+  resolve: { alias: { "@shared": SHARED } },
   server: {
+    fs: { allow: [".", SHARED] },
     port: 5173,
     host: true,
     allowedHosts: true, // Cho phép các host bên ngoài như Ngrok

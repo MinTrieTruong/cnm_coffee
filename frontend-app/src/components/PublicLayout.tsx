@@ -45,7 +45,8 @@ function titleOf(p: string): string {
     ["/account", "Tài khoản"],
     ["/promotions", "Khuyến mãi"],
     ["/blog", "Tin tức"],
-    ["/about", "Cửa hàng"],
+    ["/about", "Câu chuyện"],
+    ["/stores", "Cửa hàng"],
     ["/contact", "Liên hệ"],
     ["/policy/", "Chính sách"],
     ["/game/", "Mini game"],
@@ -60,13 +61,14 @@ function titleOf(p: string): string {
 function parentOf(p: string): string {
   if (p.startsWith("/product/")) return "/menu";
   if (p.startsWith("/blog/")) return "/blog";
+  if (p.startsWith("/stores/")) return "/stores";
   if (p.startsWith("/order/")) return "/account/orders";
   if (p.startsWith("/account/")) return "/account";
   return "/";
 }
 
 /** Trang chính (là tab đáy) — các trang khác coi là trang con, có nút quay lại */
-const ROOT_PAGES = ["/", "/menu", "/account", "/promotions", "/blog", "/about", "/contact"];
+const ROOT_PAGES = ["/", "/menu", "/account", "/promotions", "/blog", "/about", "/stores", "/contact"];
 
 /** Luồng tập trung có thanh hành động riêng → ẩn thanh điều hướng đáy */
 const TABBAR_HIDDEN_PREFIXES = ["/order/", "/staff/login", "/vnpay-return"];

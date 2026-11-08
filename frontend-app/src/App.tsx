@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { PublicLayout } from "./components/PublicLayout";
 import { Welcome } from "./pages/Welcome";
@@ -13,7 +14,6 @@ import { OrderTracking } from "./pages/OrderTracking";
 import { OrderSuccess } from "./pages/OrderSuccess";
 import { StaffLogin } from "./pages/StaffLogin";
 import { Account } from "./pages/Account";
-import { StorePage } from "./pages/StorePage";
 import { VnpayReturn } from "./pages/VnpayReturn";
 import { Promotions } from "./pages/Promotions";
 import { Blog } from "./pages/Blog";
@@ -25,6 +25,12 @@ import { GamePlay } from "./pages/GamePlay";
 import { Policy } from "./pages/Policy";
 import { Contact } from "./pages/Contact";
 import { useTrackAppHistory } from "./lib/appHistory";
+
+// Trang câu chuyện thương hiệu + cửa hàng: tải lười (Leaflet, nhiều mục ảnh)
+const About = lazy(() => import("./pages/About").then((m) => ({ default: m.About })));
+const Stores = lazy(() => import("./pages/Stores").then((m) => ({ default: m.Stores })));
+const StoreDetail = lazy(() => import("./pages/Stores").then((m) => ({ default: m.StoreDetail })));
+const page = (el: React.ReactNode) => <Suspense fallback={<div className="c-wrap c-sec" aria-busy="true" />}>{el}</Suspense>;
 
 function HistoryTracker() {
   useTrackAppHistory();
@@ -51,7 +57,9 @@ export default function App() {
           <Route path="/staff/login" element={<StaffLogin />} />
           <Route path="/account" element={<Account />} />
           <Route path="/account/:section" element={<Account />} />
-          <Route path="/about" element={<StorePage />} />
+          <Route path="/about" element={page(<About />)} />
+          <Route path="/stores" element={page(<Stores />)} />
+          <Route path="/stores/:id" element={page(<StoreDetail />)} />
           <Route path="/menu" element={<Menu />} />
           <Route path="/product/:id" element={<ProductDetail />} />
           <Route path="/cart" element={<Cart />} />

@@ -434,7 +434,7 @@ export function HomePage() {
               <Signature />
               <span>{t("Chủ quán {name}", { name: info?.company.name ?? "TD Coffee" })}</span>
             </div>
-            <Link to="/about" className="c-btn c-btn--outline">{t("Ghé cửa hàng")} <ArrowRight size={16} aria-hidden /></Link>
+            <Link to="/about" className="c-btn c-btn--outline">{t("Đọc câu chuyện")} <ArrowRight size={16} aria-hidden /></Link>
           </Reveal>
         </div>
       </section>
