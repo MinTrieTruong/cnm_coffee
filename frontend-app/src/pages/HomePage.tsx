@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, Check, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { api, mediaUrl, type HomePageResponse, type Product } from "../lib/api";
 import { useCustomerStore, withStore } from "../lib/customerStore";
-import { formatVnd, useMenuCategories, useMenuData, useSiteInfo } from "../lib/site";
+import { floorThousand, formatVnd, useMenuCategories, useMenuData, useSiteInfo } from "../lib/site";
 import { CategoryThumb, listPrice, NutritionTags, ProductCard, ProductImage, quickAdd, SectionHead, VoucherTicket, type PublicVoucher } from "../components/site/parts";
 import { useLang } from "../lib/i18n";
 import { WeatherPicks } from "../components/site/WeatherPicks";
@@ -445,7 +445,7 @@ export function HomePage() {
           <div className="c-wrap">
             <StatCounter value={stats.stores} label={t("chi nhánh ở Sài Gòn")} />
             <StatCounter value={stats.products} label={t("món trên thực đơn")} />
-            <StatCounter value={stats.cups} label={t("ly đã phục vụ")} />
+            <StatCounter value={floorThousand(stats.cups)} suffix="+" label={t("ly đã phục vụ")} />
             {stats.rating != null && <StatCounter value={stats.rating} decimals={1} suffix="/5" label={t("điểm đánh giá trung bình")} />}
           </div>
         </section>

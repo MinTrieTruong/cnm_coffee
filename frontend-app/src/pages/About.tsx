@@ -11,7 +11,7 @@ import type {
   SignatureData, StatsData, StoresData, TeamData, TestimonialsData, ValuesData,
 } from "@shared/brand";
 import { brandEditHref, hm, OPEN_LABEL, openState, useBrandPage, useOwnerEditing, type BrandRefs } from "../lib/brand";
-import { formatVnd } from "../lib/site";
+import { floorThousand, formatVnd } from "../lib/site";
 import { calculateFinalPrice } from "../lib/api";
 import { useLang } from "../lib/i18n";
 import { Divider, Eyebrow, Lightbox, Reveal, StatCounter, useHeroHeader, type LightboxItem } from "../components/site/lux";
@@ -150,7 +150,7 @@ function Hardest({ d, owner }: { d: HardestData; owner: boolean }) {
 /* ─────────── 5. Con số biết nói ─────────── */
 function Stats({ d, refs, owner }: { d: StatsData; owner: boolean } & Ctx) {
   const s = refs.stats;
-  const value = (src: string, manual: number) => (src === "manual" ? manual : src === "stores" ? s?.stores : src === "products" ? s?.products : src === "cups" ? s?.cups : s?.rating) ?? null;
+  const value = (src: string, manual: number) => (src === "manual" ? manual : src === "stores" ? s?.stores : src === "products" ? s?.products : src === "cups" ? (s ? floorThousand(s.cups) : null) : s?.rating) ?? null;
   const items = d.items.map((it) => ({ ...it, n: value(it.source, it.value) })).filter((it) => it.n != null);
   if (!items.length) return null;
   return (

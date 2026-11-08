@@ -103,4 +103,7 @@ export function useMenuCategories() {
     .filter((c) => c.count > 0);
 }
 
+/** Làm tròn xuống hàng nghìn cho số lớn hiện kèm dấu "+" (55.033 → 55.000) */
+export const floorThousand = (n: number) => Math.floor(n / 1000) * 1000;
+
 export const formatVnd = (n: number) => new Intl.NumberFormat("vi-VN").format(n) + "đ";
