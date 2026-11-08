@@ -118,10 +118,18 @@ export function tempChoices(p: { temps?: ProductTemps; hasSizes?: boolean }): Te
   return ["ICED", "HOT"];
 }
 
+/** Bộ tuỳ chọn khách hay chọn cho 1 món (null = món không áp dụng: món ăn không size/đường, món nóng không lượng đá) */
+export type Usual = { size: "S" | "M" | "L" | null; temperature: Temp | null; icePct: number | null; sugar: string | null };
+
+/** Món quen: món kèm bộ tuỳ chọn quen + ghi chú hay gõ (chỉ có khi favoritesKind = "usual") */
+export type FavoriteProduct = Product & { usual?: Usual; usualNote?: string | null; timesOrdered?: number };
+
 export type MenuResponse = {
   categories: Category[];
   products: Product[];
-  favorites: Product[];
+  favorites: FavoriteProduct[];
+  /** usual = món khách hay gọi · ai = gợi ý (khách chưa có thói quen) · none = không hiện khối */
+  favoritesKind?: "usual" | "ai" | "none";
 };
 
 export type ComboItem = {

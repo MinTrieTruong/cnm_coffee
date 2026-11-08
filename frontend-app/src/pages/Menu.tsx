@@ -129,7 +129,6 @@ export function Menu() {
 
   const qs = useMemo(() => {
     const q = new URLSearchParams();
-    if (user?.customerId) q.append("customerId", String(user.customerId));
     // Ẩn món chi nhánh không bán / báo hết
     if (storeId) q.append("store", String(storeId));
     if (search) q.append("search", search);
@@ -304,9 +303,9 @@ export function Menu() {
       {!data && !err && <p className="c-muted-txt">{t("Đang tải thực đơn…")}</p>}
       {data && hasFilter && <p className="c-muted-txt c-menu-count">{total === 0 ? t("Không có món nào khớp bộ lọc.") : t("{n} món", { n: total })}</p>}
 
-      {data && !hasFilter && data.favorites.length > 0 && view === "grid" && (
+      {data && !hasFilter && data.favorites.length > 0 && data.favoritesKind !== "none" && view === "grid" && (
         <section className="c-menu-group">
-          <SectionHead title="Món quen của bạn" sub="bạn hay gọi" />
+          {data.favoritesKind === "ai" ? <SectionHead title="Có thể bạn sẽ thích" sub="gợi ý cho bạn" /> : <SectionHead title="Món quen của bạn" sub="bạn hay gọi" />}
           <div className="c-grid">{data.favorites.slice(0, 8).map((p) => <ProductCard key={p.id} p={p} line={catName.get(p.categoryId)} />)}</div>
         </section>
       )}

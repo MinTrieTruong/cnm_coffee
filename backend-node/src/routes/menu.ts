@@ -6,6 +6,8 @@ import { matchesSearch } from "../lib/productAliases.js";
 import { fitsDiet, isDiet, type NutritionValues } from "../lib/nutrition/labels.js";
 import { parseAllergens } from "../lib/nutrition/compute.js";
 import { siteFlags } from "./site.js";
+import { optionalCustomerAuth } from "../middleware/customer.js";
+import { getUsualItems } from "../lib/customerHabits.js";
 
 type NutritionRow = { size: string; kcal: number; fatG: number; sugarG: number; caffeineMg: number; proteinG: number; allergens: unknown; isVegan: boolean; complete: boolean; labels: unknown };
 /** Size mặc định của món: M (hoặc "-" với món 1 loại) */
@@ -100,8 +102,9 @@ export function menuRouter(prisma: PrismaClient) {
     res.json({ categoryTree: categories, categories: allCategories, flashSale, bestSellers, hotCombos });
   });
 
-  r.get("/menu", async (req, res) => {
-    const customerId = req.query.customerId ? Number(req.query.customerId) : undefined;
+  // Khách lấy từ token (không đọc ?customerId= — tránh xem món hay uống của người khác)
+  r.get("/menu", optionalCustomerAuth, async (req, res) => {
+    const customerId = (req as typeof req & { customerId?: number }).customerId;
     const search = req.query.search as string;
     const categoryId = req.query.categoryId ? Number(req.query.categoryId) : undefined;
     const minPrice = req.query.minPrice ? Number(req.query.minPrice) : undefined;
@@ -167,38 +170,28 @@ export function menuRouter(prisma: PrismaClient) {
       }
     }
 
-    let favorites: typeof products = [];
+    // "Món quen": món khách hay gọi (kèm bộ tuỳ chọn quen) → không có thì gợi ý AI → không có nữa thì ẩn khối
+    type Favorite = (typeof products)[number] & { usual?: Awaited<ReturnType<typeof getUsualItems>>[number]["usual"]; usualNote?: string | null; timesOrdered?: number };
+    let favorites: Favorite[] = [];
+    let favoritesKind: "usual" | "ai" | "none" = "none";
 
-    if (customerId && !Number.isNaN(customerId)) {
-      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const details = await prisma.orderDetail.findMany({
-        where: {
-          order: {
-            customerId,
-            status: "Paid",
-            createdAt: { gte: since },
-          },
-        },
+    if (customerId) {
+      const pmap = new Map(products.map((p) => [p.id, p]));
+      const usual = await getUsualItems(prisma, customerId, { storeId: storeFromQuery(req.query.store), limit: 6 });
+      favorites = usual.flatMap((u) => {
+        const p = pmap.get(u.productId);
+        return p ? [{ ...p, usual: u.usual, usualNote: u.usualNote, timesOrdered: u.timesOrdered }] : [];
       });
-      // Đếm theo món (không tách theo ghi chú size/đá/đường) — tách ra thì cùng một món hiện nhiều lần
-      const freq = new Map<number, number>();
-      for (const d of details) freq.set(d.productId, (freq.get(d.productId) ?? 0) + d.quantity);
-      const pmap = new Map(products.filter((p) => !p.soldOut).map((p) => [p.id, p]));
-      favorites = [...freq.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .map(([pid]) => pmap.get(pid))
-        .filter(Boolean)
-        .slice(0, 3) as typeof products;
-
-      if (favorites.length === 0) {
+      if (favorites.length) favoritesKind = "usual";
+      else {
         try {
           const resp = await fetch(`${AI_URL}/recommendations?customer_id=${customerId}`, {
             signal: AbortSignal.timeout(2500),
           });
           if (resp.ok) {
             const data = (await resp.json()) as { product_ids?: number[] };
-            const ids = data.product_ids ?? [];
-            favorites = ids.map((id) => pmap.get(id)).filter(Boolean) as typeof products;
+            favorites = (data.product_ids ?? []).map((id) => pmap.get(id)).filter((p): p is (typeof products)[number] => !!p && !p.soldOut).slice(0, 6);
+            if (favorites.length) favoritesKind = "ai";
           }
         } catch {
           /* optional AI */
@@ -206,11 +199,7 @@ export function menuRouter(prisma: PrismaClient) {
       }
     }
 
-    if (favorites.length === 0) {
-      favorites = products.filter((p) => !p.soldOut && [7, 9, 11].includes(p.id)).slice(0, 3);
-    }
-
-    res.json({ categories, products, favorites });
+    res.json({ categories, products, favorites, favoritesKind });
   });
 
   return r;

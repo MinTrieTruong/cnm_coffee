@@ -217,3 +217,72 @@ export async function getUsualItems(
 export function usualLabel(u: Usual) {
   return [u.size, u.temperature === "HOT" ? "Nóng" : u.temperature === "ICED" ? `Đá ${u.icePct ?? 100}%` : null, u.sugar != null ? `Đường ${u.sugar}%` : null].filter(Boolean).join(" · ");
 }
+
+/**
+ * Ghi chú tự do khách gõ ở ≥ 3 trong 5 đơn đã thanh toán gần nhất mà chưa lưu làm ghi chú mặc định
+ * → gợi ý "Lưu làm ghi chú mặc định?". null nếu không có.
+ */
+export async function noteSuggestion(prisma: PrismaClient, customerId: number, savedNote: string | null): Promise<string | null> {
+  const orders = await prisma.order.findMany({
+    where: { customerId, status: "Paid" },
+    orderBy: [{ paidAt: "desc" }, { id: "desc" }],
+    take: 5,
+    select: { createdAt: true, details: { where: { isGift: false }, select: { customNotes: true } } },
+  });
+  const saved = savedNote ? noteKey(savedNote) : null;
+  const count = new Map<string, { n: number; text: string }>();
+  for (const o of orders) {
+    const keys = new Map<string, string>();
+    for (const d of o.details) {
+      const free = splitNotes(d.customNotes).free;
+      // Ghi chú đơn được nối vào từng dòng nên một mẩu có thể chứa nhiều ý ("không ống hút · thêm kem")
+      for (const part of free.split(/\s*·\s*/)) if (part) keys.set(noteKey(part), part.trim());
+    }
+    for (const [k, text] of keys) count.set(k, { n: (count.get(k)?.n ?? 0) + 1, text: count.get(k)?.text ?? text });
+  }
+  const best = [...count.entries()].filter(([k, v]) => v.n >= 3 && k !== saved && k.length <= 120 && !(saved ?? "").includes(k)).sort((a, b) => b[1].n - a[1].n)[0];
+  return best ? best[1].text : null;
+}
+
+export type ReorderLine = {
+  productId: number;
+  quantity: number;
+  usual: Usual;
+  /** Ghi chú tự do của dòng (đã tách phần Size / Đá / Đường) */
+  note: string;
+  soldOut: boolean;
+  /** false = món ngừng bán / chi nhánh không bán → không đặt lại được */
+  available: boolean;
+  product: UsualProduct;
+};
+
+/** Các dòng của 1 đơn để "Đặt lại": bỏ món tặng; dòng combo không đặt lại từng món (báo qua `comboSkipped`) */
+export async function reorderLines(prisma: PrismaClient, orderId: number, storeId: number | null) {
+  const [order, state] = await Promise.all([
+    prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true, paidAt: true, createdAt: true,
+        details: { where: { isGift: false }, orderBy: { id: "asc" }, select: { productId: true, quantity: true, size: true, temperature: true, customNotes: true, comboId: true, product: { select: USUAL_PRODUCT_SELECT } } },
+      },
+    }),
+    storeMenuState(prisma, storeId),
+  ]);
+  if (!order) return null;
+  const lines: ReorderLine[] = order.details
+    .filter((d) => d.comboId == null)
+    .map((d) => {
+      const food = d.product.hasSizes === false;
+      const u = fitTemps(lineUsual({ ...d, at: order.createdAt, food }), d.product.temps);
+      return {
+        productId: d.productId,
+        quantity: d.quantity,
+        usual: u,
+        note: splitNotes(d.customNotes).free,
+        soldOut: d.product.outOfStock || state.soldOut.has(d.productId),
+        available: d.product.isActive && !state.disabled.has(d.productId),
+        product: d.product,
+      };
+    });
+  return { orderId: order.id, at: order.paidAt ?? order.createdAt, lines, comboSkipped: order.details.some((d) => d.comboId != null) };
+}

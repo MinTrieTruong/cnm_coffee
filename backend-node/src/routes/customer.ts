@@ -9,6 +9,8 @@ import { getStoreSettings } from "../lib/pricing.js";
 import { DS } from "../lib/delivery.js";
 import { customerCancelDeadline, moneyToPoints, paidMoney } from "../lib/points.js";
 import { logCustomerAuth } from "../lib/customerAccount.js";
+import { getUsualItems, noteSuggestion, reorderLines } from "../lib/customerHabits.js";
+import { storeFromQuery } from "../lib/storeProducts.js";
 
 export function customerRouter(prisma: PrismaClient) {
   const r = Router();
@@ -161,6 +163,52 @@ export function customerRouter(prisma: PrismaClient) {
       totalSpent: agg._sum.totalAmount || 0,
       totalOrders: agg._count.id || 0,
     });
+  });
+
+  /**
+   * Món quen của khách tại chi nhánh `?store=` + ghi chú mặc định + gợi ý lưu ghi chú hay gõ
+   * + đơn đã thanh toán gần nhất (để "Đặt lại"). Chỉ đọc dữ liệu của chính khách (theo token).
+   */
+  r.get("/usual", customerAuth, async (req, res) => {
+    const customerId = (req as Request & { customerId?: number }).customerId!;
+    const storeId = storeFromQuery(req.query.store);
+    const [items, c, last] = await Promise.all([
+      getUsualItems(prisma, customerId, { storeId, limit: 6 }),
+      prisma.customer.findUnique({ where: { id: customerId }, select: { defaultNote: true } }),
+      prisma.order.findFirst({ where: { customerId, status: "Paid" }, orderBy: [{ paidAt: "desc" }, { id: "desc" }], select: { id: true } }),
+    ]);
+    const savedNote = c?.defaultNote ?? null;
+    res.json({
+      items,
+      savedNote,
+      noteSuggestion: await noteSuggestion(prisma, customerId, savedNote),
+      lastOrder: last ? await reorderLines(prisma, last.id, storeId) : null,
+    });
+  });
+
+  /** Các dòng của 1 đơn đã thanh toán để "Đặt lại" (kèm cờ hết hàng / ngừng bán tại chi nhánh `?store=`) */
+  r.get("/orders/:id/reorder", customerAuth, async (req, res) => {
+    const customerId = (req as Request & { customerId?: number }).customerId!;
+    const order = await prisma.order.findFirst({ where: { id: Number(req.params.id), customerId, status: "Paid" }, select: { id: true } });
+    if (!order) return res.status(404).json({ error: "Không tìm thấy đơn đã thanh toán." });
+    res.json(await reorderLines(prisma, order.id, storeFromQuery(req.query.store)));
+  });
+
+  r.get("/default-note", customerAuth, async (req, res) => {
+    const customerId = (req as Request & { customerId?: number }).customerId!;
+    const c = await prisma.customer.findUnique({ where: { id: customerId }, select: { defaultNote: true } });
+    res.json({ defaultNote: c?.defaultNote ?? null });
+  });
+
+  /** Ghi chú mặc định cho mọi đơn (≤ 120 ký tự; rỗng = xoá) */
+  r.put("/default-note", customerAuth, async (req, res) => {
+    const customerId = (req as Request & { customerId?: number }).customerId!;
+    const raw = (req.body as { note?: unknown }).note;
+    if (raw != null && typeof raw !== "string") return res.status(400).json({ error: "Ghi chú không hợp lệ." });
+    const note = (raw ?? "").replace(/\s+/g, " ").trim();
+    if (note.length > 120) return res.status(400).json({ error: "Ghi chú tối đa 120 ký tự." });
+    const c = await prisma.customer.update({ where: { id: customerId }, data: { defaultNote: note || null }, select: { defaultNote: true } });
+    res.json({ defaultNote: c.defaultNote });
   });
 
   return r;
