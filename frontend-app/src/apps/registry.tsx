@@ -33,6 +33,7 @@ const ShiftConfig = L(() => import("../modules/hr/ShiftConfig"), "ShiftConfig");
 const StockRequests = L(() => import("../modules/inventory/StockRequests"), "StockRequests");
 const ProposalList = L(() => import("../modules/sales/Proposals"), "ProposalList");
 const SearchInsights = L(() => import("../modules/sales/SearchInsights"), "SearchInsights");
+const BehaviorInsights = L(() => import("../modules/sales/BehaviorInsights"), "BehaviorInsights");
 const BulkPromotions = L(() => import("../modules/sales/BulkPromotions"), "BulkPromotions");
 const WasteList = L(() => import("../modules/inventory/Waste"), "WasteList");
 const InventoryCounts = L(() => import("../modules/inventory/Counts"), "InventoryCounts");
@@ -208,6 +209,7 @@ export const APPS: AppDef[] = [
       { id: "vouchers", label: "Voucher", description: "Mã giảm giá và điều kiện áp dụng", roles: CHAIN_AND_BRANCH, component: VoucherList, form: VoucherForm, layout: "erp" },
       { id: "proposals", label: "Đề xuất món", description: "Món mới do chi nhánh đề xuất chờ duyệt", roles: CHAIN_AND_BRANCH, component: ProposalList, layout: "erp" },
       { id: "search", label: "Khách tìm kiếm", description: "Khách tìm món gì, bao nhiêu % tìm mà quán chưa có", roles: CHAIN_AND_BRANCH, component: SearchInsights, layout: "erp" },
+      { id: "behavior", label: "Hành vi khách", description: "Khách xem món gì, thêm giỏ món gì, ở lâu màn hình nào", roles: CHAIN_AND_BRANCH, component: BehaviorInsights, layout: "erp", ownHeader: true },
       // Quản lý chi nhánh: chỉ xem (số liệu mua tại chi nhánh mình); sửa thông tin / đặt lại mật khẩu: Chủ chuỗi
       { id: "customers", label: "Khách hàng", description: "Khách thành viên, thói quen, lịch sử mua và tích điểm", roles: CHAIN_AND_BRANCH, component: CustomerList, form: CustomerForm, layout: "erp" },
       { id: "reviews", label: "Đánh giá", description: "Nhận xét của khách về món và chi nhánh", roles: CHAIN_AND_BRANCH, component: ReviewList, form: ReviewForm, layout: "erp" },
