@@ -132,24 +132,24 @@ export function menuRouter(prisma: PrismaClient) {
     }
 
     const ratings = await productRatings(prisma);
-    let products = (
-      await prisma.product.findMany({
-        where,
-        include: { category: true, nutrition: true },
-        orderBy: [{ categoryId: "asc" }, { id: "asc" }],
-      })
-    )
+    const rows = await prisma.product.findMany({
+      where,
+      include: { category: true, nutrition: true },
+      orderBy: [{ categoryId: "asc" }, { id: "asc" }],
+    });
+    const shape = ({ nutrition, ...p }: (typeof rows)[number]) => ({
+      ...p,
+      soldOut: p.outOfStock || soldOut.has(p.id),
+      rating: ratings.get(p.id) ?? null,
+      // Dinh dưỡng ước tính (size mặc định) — ẩn khi Website › Giao diện tắt
+      nutrition: showNutrition ? publicNutrition(nutrition) : null,
+    });
+    let products = rows
       // Tìm theo tên hoặc tên gọi khác, bỏ dấu ("bx", "ca phe sua")
       .filter((p) => !search || matchesSearch(p, search))
       // Ăn kiêng: theo size mặc định (M, món 1 loại "-"); chỉ món đủ dữ liệu mới lọt bộ lọc loại trừ
       .filter((p) => !diets.length || (showNutrition && diets.every((d) => { const n = defaultNutrition(p.nutrition); return !!n && fitsDiet(n, d); })))
-      .map(({ nutrition, ...p }) => ({
-        ...p,
-        soldOut: p.outOfStock || soldOut.has(p.id),
-        rating: ratings.get(p.id) ?? null,
-        // Dinh dưỡng ước tính (size mặc định) — ẩn khi Website › Giao diện tắt
-        nutrition: showNutrition ? publicNutrition(nutrition) : null,
-      }))
+      .map(shape)
       // Món hết hàng xuống cuối danh mục (sort ổn định giữ thứ tự còn lại)
       .sort((a, b) => a.categoryId - b.categoryId || Number(a.soldOut) - Number(b.soldOut));
 
@@ -176,7 +176,8 @@ export function menuRouter(prisma: PrismaClient) {
     let favoritesKind: "usual" | "ai" | "none" = "none";
 
     if (customerId) {
-      const pmap = new Map(products.map((p) => [p.id, p]));
+      // Món quen không phụ thuộc ô tìm kiếm / chip ăn kiêng (thẻ món tự nhắc món không hợp); món chi nhánh tắt đã bị loại
+      const pmap = new Map(rows.map((p) => [p.id, shape(p)]));
       const usual = await getUsualItems(prisma, customerId, { storeId: storeFromQuery(req.query.store), limit: 6 });
       favorites = usual.flatMap((u) => {
         const p = pmap.get(u.productId);

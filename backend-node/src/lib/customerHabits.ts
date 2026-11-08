@@ -39,6 +39,11 @@ function takeOption(tok: string, out: SplitNotes): boolean {
   // POS ghi "Đá" không kèm %
   if (/^Đá$/i.test(tok)) return (out.temp = "ICED"), true;
   if ((m = /^Đường\s+(\d{1,3})\s*%$/i.exec(tok))) return (out.sugar = m[1]), true;
+  // POS / giọng nói ghi mức bằng chữ (lib/voiceOrder LEVEL_TEXT): "Không đá", "Ít đá", "Ít đường", "Không đường"
+  const ice = ({ "không đá": 0, "ít đá": 50, "nhiều đá": 100 } as Record<string, number>)[tok.toLowerCase()];
+  if (ice != null) return (out.temp = "ICED"), (out.icePct = ice), true;
+  const sugar = ({ "không đường": "0", "ít đường": "50", "đường bình thường": "100" } as Record<string, string>)[tok.toLowerCase()];
+  if (sugar != null) return (out.sugar = sugar), true;
   return false;
 }
 
@@ -50,7 +55,8 @@ function takeOption(tok: string, out: SplitNotes): boolean {
 export function splitNotes(customNotes: string | null | undefined): SplitNotes {
   const out: SplitNotes = { free: "" };
   const free: string[] = [];
-  for (const seg of (customNotes ?? "").split(/\s*·\s*/)) {
+  // Nhãn hệ thống tự thêm ("[MANG VỀ — ưu tiên] " — routes/orders.ts) không phải ghi chú của khách
+  for (const seg of (customNotes ?? "").replace(/^(\s*\[[^\]]*\]\s*)+/, "").split(/\s*·\s*/)) {
     const s = seg.trim();
     if (!s) continue;
     if (takeOption(s, out)) continue;

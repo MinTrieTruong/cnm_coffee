@@ -1,5 +1,7 @@
 /* Món quen của khách (components/site/UsualStrip.tsx, Menu, Trang chủ, Giỏ hàng, Chi tiết món, Tài khoản) */
 .c-usual-line { display: block; font-size: 0.8rem; color: var(--c-coffee); line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Thẻ món (dòng phụ 1 dòng, cắt "…") → cho dòng tuỳ chọn quen xuống dòng để thấy đủ */
+.c-pcard-line:has(.c-usual-line) { white-space: normal; overflow: visible; text-overflow: clip; }
 .c-pcard-line .c-usual-line { white-space: normal; }
 
 .c-usual { margin-bottom: 28px; }

@@ -191,6 +191,8 @@ export function Menu() {
   const total = groups.reduce((s, c) => s + c.list.length, 0);
   const query = search;
   const hasFilter = !!(filters.search || filters.categoryId !== "all" || filters.minPrice || filters.maxPrice || filters.tags.length || (showNutrition && diets.length));
+  // Khách chủ động tìm / lọc (không tính chip ăn kiêng tự bật theo sở thích) → ẩn khối món quen
+  const narrowed = !!(filters.search || filters.categoryId !== "all" || filters.minPrice || filters.maxPrice || filters.tags.length);
   const current = filters.categoryId === "all" ? null : categories.find((c) => c.id === filters.categoryId);
   const catName = new Map(categories.map((c) => [c.id, c.name]));
   const priceOn = (r: (typeof PRICES)[number]) => filters.minPrice === r.min && filters.maxPrice === r.max;
@@ -312,7 +314,7 @@ export function Menu() {
       {data && hasFilter && <p className="c-muted-txt c-menu-count">{total === 0 ? t("Không có món nào khớp bộ lọc.") : t("{n} món", { n: total })}</p>}
 
       {/* Món quen luôn đứng đầu thực đơn (cả lưới ảnh lẫn menu giấy); thẻ hiện + thêm đúng tuỳ chọn quen */}
-      {data && !hasFilter && data.favorites.length > 0 && data.favoritesKind !== "none" && (
+      {data && !narrowed && data.favorites.length > 0 && data.favoritesKind !== "none" && (
         <section className="c-menu-group c-menu-usual">
           {data.favoritesKind === "ai" ? <SectionHead title="Có thể bạn sẽ thích" sub="gợi ý cho bạn" /> : <SectionHead title="Món quen của bạn" sub="bạn hay gọi — bấm + là thêm đúng kiểu quen" />}
           {view === "grid" ? (

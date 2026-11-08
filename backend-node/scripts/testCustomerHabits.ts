@@ -24,7 +24,11 @@ const cases: [string | null, ReturnType<typeof splitNotes>][] = [
   ["Size S · Đá 100% · Đường 100% · không ống hút, thêm kem", { size: "S", temp: "ICED", icePct: 100, sugar: "100", free: "không ống hút, thêm kem" }],
   ["Size M, Đá, ít ngọt", { size: "M", temp: "ICED", free: "ít ngọt" }],
   ["Size L, Nóng", { size: "L", temp: "HOT", free: "" }],
+  // POS gọi bằng giọng nói / thẻ thói quen: mức đá, đường bằng chữ
+  ["Size M, Đá, Ít đá · Ít đường · không ống hút", { size: "M", temp: "ICED", icePct: 50, sugar: "50", free: "không ống hút" }],
+  ["Size L, Nóng, Không đường", { size: "L", temp: "HOT", sugar: "0", free: "" }],
   ["hâm nóng giúp em", { free: "hâm nóng giúp em" }],
+  ["[MANG VỀ — ưu tiên] Size M · Đá 100% · Đường 100%", { size: "M", temp: "ICED", icePct: 100, sugar: "100", free: "" }],
   ["Đá bào riêng · Size M", { size: "M", free: "Đá bào riêng" }],
   [null, { free: "" }],
   ["", { free: "" }],
