@@ -6,6 +6,8 @@
  * số lượng 1–20, giá do backend tính (unitPriceOf) — không lấy giá hay tên món từ AI.
  * Câu sửa ("đổi bạc xỉu thành size L", "bỏ croissant") được áp lên giỏ đang xác nhận (`current`) và trả về giỏ đầy đủ.
  * Món không có / đang hết → `unknown` kèm gợi ý, ghi vào SearchLog để hiện ở "Khách tìm kiếm".
+ * Khách web đã đăng nhập: món quen (lib/customerHabits.ts) gửi kèm prompt — "như mọi khi" / "món quen" → món quen số 1;
+ * gọi món quen mà không nói size / nóng-đá / đá / đường / ghi chú → điền theo lựa chọn quen thay vì mặc định 100/100.
  * Không bao giờ tự gửi đơn: người dùng luôn bấm xác nhận.
  */
 import { ThinkingLevel, type Content, type Part } from "@google/genai";
@@ -14,6 +16,7 @@ import { AI_CONFIG, audioPart, gemini, isBusy } from "../../ai/gemini.js";
 import { unitPriceOf, type Size, type Temp } from "../menuPrice.js";
 import { normalizeTerm } from "../searchInsights.js";
 import { buildMenuContext, menuPromptText, type MenuContext, type MenuProduct } from "./menuContext.js";
+import { getUsualItems, type UsualItem } from "../customerHabits.js";
 
 export type Channel = "POS" | "WEB";
 export type Level = 0 | 50 | 100;
@@ -102,7 +105,22 @@ const RESPONSE_SCHEMA = {
   required: ["transcript", "intent", "items", "unknown"],
 };
 
-function systemPrompt(menu: string, channel: Channel) {
+/** Món quen của khách → chữ cho prompt: "1. #7 Bạc Xỉu — size M, đá 50%, đường 50%, ghi chú: không ống hút" */
+function usualPromptText(usual: UsualItem[]) {
+  return usual
+    .map((u, i) => {
+      const o = u.usual;
+      const opts = [o.size ? `size ${o.size}` : "", o.temperature === "HOT" ? "nóng" : o.temperature === "ICED" ? `đá ${o.icePct ?? 100}%` : "", o.sugar != null ? `đường ${o.sugar}%` : "", u.usualNote ? `ghi chú: ${u.usualNote}` : ""].filter(Boolean);
+      return `${i + 1}. #${u.productId} ${u.product.name}${opts.length ? ` — ${opts.join(", ")}` : ""}${u.soldOut ? " (ĐANG HẾT)" : ""}`;
+    })
+    .join("\n");
+}
+
+/** Câu "như mọi khi" / "món quen" / "như cũ" (đã bỏ dấu) */
+const USUAL_PHRASE = /\b(nhu moi khi|nhu cu|nhu thuong le|nhu hom truoc|nhu lan truoc|mon quen|mon hay uong|mon hay goi|as usual|the usual)\b/;
+const fold = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
+
+function systemPrompt(menu: string, channel: Channel, usual = "") {
   return `Bạn là nhân viên nhận order của quán cà phê TD Coffee${channel === "POS" ? " (thu ngân nói lại món khách gọi)" : " (khách tự đặt món trên web)"}.
 Nhiệm vụ: nghe đoạn âm thanh hoặc đọc câu chữ, trả về JSON các món được gọi. KHÔNG trả lời gì khác.
 
@@ -127,7 +145,16 @@ QUY TẮC:
   · clear: xóa cả giỏ (items rỗng).
   · Gọi thêm món mới thì intent "add" (targetLine null). Một câu vừa sửa vừa thêm thì intent "modify", món mới để targetLine null.
 - confidence 0–1: chắc chắn đúng món / số lượng thì ≥ 0,9; nghe không rõ, nhiều món gần giống thì < 0,7. Không đoán bừa.
-- Không hiểu hoặc thiếu thông tin quan trọng → intent "unclear", clarify = một câu hỏi lại ngắn (VD "Bạn muốn Latte nóng hay đá?"). Âm thanh không có tiếng nói / không phải gọi món → items rỗng, clarify nhắc nói lại.`;
+- Không hiểu hoặc thiếu thông tin quan trọng → intent "unclear", clarify = một câu hỏi lại ngắn (VD "Bạn muốn Latte nóng hay đá?"). Âm thanh không có tiếng nói / không phải gọi món → items rỗng, clarify nhắc nói lại.${
+    usual
+      ? `
+
+MÓN QUEN CỦA KHÁCH (xếp theo độ thường gọi):
+${usual}
+- "như mọi khi", "như cũ", "món quen", "như thường lệ", "như lần trước" → thêm món quen số 1 (intent "add", confidence 0,9). "2 ly như mọi khi" → qty 2.
+- Khách gọi tên món (hoặc món quen) mà KHÔNG nói size / nóng-đá / đá / đường / ghi chú → để các trường đó null, hệ thống tự điền theo lựa chọn quen. Không tự chép tuỳ chọn quen vào.`
+      : ""
+  }`;
 }
 
 const levelOf = (v: unknown): Level | null => (LEVELS.includes(Number(v)) && v !== null && v !== "" ? (Number(v) as Level) : null);
@@ -197,6 +224,22 @@ function similar(ctx: MenuContext, spoken: string, sameCategory?: string): MenuP
     .map((x) => x.p);
 }
 
+/** Dòng mới là món quen → trường khách không nói (null) lấy theo lựa chọn quen; trường đã nói giữ nguyên */
+function withUsual(raw: RawItem, usual: UsualItem[]): RawItem {
+  const u = raw.productId ? usual.find((x) => x.productId === Number(raw.productId)) : undefined;
+  if (!u) return raw;
+  const temp = raw.temp ?? u.usual.temperature;
+  return {
+    ...raw,
+    size: raw.size ?? u.usual.size,
+    temp,
+    // Lượng đá quen chỉ dùng khi vẫn uống đá như thói quen
+    ice: raw.ice ?? (temp === u.usual.temperature ? levelOf(u.usual.icePct) : null),
+    sugar: raw.sugar ?? levelOf(u.usual.sugar),
+    note: raw.note ?? u.usualNote,
+  };
+}
+
 const toSuggestion = (p: MenuProduct): Suggestion => ({ id: p.id, name: p.name, imageUrl: p.imageUrl, price: unitPriceOf(p, "M") });
 
 /** Giỏ đang xác nhận → chữ có đánh số cho AI */
@@ -224,6 +267,8 @@ export async function parseOrder(input: {
 }): Promise<ParseResult> {
   const t0 = Date.now();
   const ctx = await buildMenuContext(input.storeId);
+  // Món quen: chỉ khách web đã đăng nhập (token khách), theo chi nhánh đang đặt
+  const usual = input.channel === "WEB" && input.customerId ? await getUsualItems(prisma, input.customerId, { storeId: input.storeId, limit: 5 }).catch(() => []) : [];
   const usage = { in: 0, out: 0 };
   // Model lite mặc định: câu ngắn, cần nhanh (< 10 giây) và rẻ; quá tải thì đổi sang model còn lại
   let model = MODEL;
@@ -250,7 +295,7 @@ export async function parseOrder(input: {
       model: m,
       contents,
       config: {
-        systemInstruction: systemPrompt(menuPromptText(ctx, input.channel === "WEB"), input.channel),
+        systemInstruction: systemPrompt(menuPromptText(ctx, input.channel === "WEB"), input.channel, usualPromptText(usual)),
         temperature: 0.1,
         // Gemini 3.x không tắt hẳn được suy luận (thinkingBudget 0 → lỗi 400); mức LOW ~1 giây
         thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
@@ -303,7 +348,7 @@ export async function parseOrder(input: {
           note: raw.note ?? base.note, confidence: raw.confidence,
         }
       : raw;
-    const n = normalizeLine(ctx, merged, input.channel);
+    const n = normalizeLine(ctx, base ? merged : withUsual(merged, usual), input.channel);
     if ("missing" in n) {
       const ai_s = (ai.unknown ?? []).find((u) => normalizeTerm(u.spokenName ?? "") === normalizeTerm(raw.spokenName ?? ""))?.suggestions ?? [];
       const sugg = ai_s.map((id) => ctx.products.find((p) => p.id === id && !p.outOfStock)).filter((p): p is MenuProduct => !!p);
@@ -325,6 +370,14 @@ export async function parseOrder(input: {
     else lines.push(n);
   }
   lines = lines.filter((_, i) => !removed.has(i));
+
+  // "Như mọi khi" mà AI không ra món (câu quá ngắn / AI bỏ sót) → món quen số 1 với tuỳ chọn quen
+  const said = fold(`${input.text ?? ""} ${ai.transcript ?? ""}`);
+  if (usual.length && USUAL_PHRASE.test(said) && !lines.some((l) => l.changed) && intent !== "remove" && intent !== "clear") {
+    const top = usual.find((u) => !u.soldOut);
+    const n = top ? normalizeLine(ctx, withUsual({ productId: top.productId, qty: 1, confidence: 0.9 }, usual), input.channel) : null;
+    if (n && "name" in n) lines.push({ ...n, changed: true });
+  }
 
   // Món AI xếp vào "không có trong thực đơn"
   for (const u of Array.isArray(ai.unknown) ? ai.unknown : []) {

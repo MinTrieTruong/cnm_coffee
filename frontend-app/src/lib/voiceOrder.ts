@@ -207,8 +207,12 @@ const ORDER_WORDS = new Set(
 /** Câu trông như gọi món (có số / từ chỉ số lượng, tùy chọn; ≥ 2 từ) → hiện "Đặt nhanh"; gõ tên món kiểu tìm kiếm thì vẫn là tìm kiếm */
 export function looksLikeOrder(text: string) {
   const words = text.trim().toLowerCase().split(/[\s,.;]+/).filter(Boolean);
-  return words.length >= 2 && words.some((w) => /\d/.test(w) || ORDER_WORDS.has(w));
+  return (words.length >= 2 && words.some((w) => /\d/.test(w) || ORDER_WORDS.has(w))) || USUAL_PHRASE.test(fold(text));
 }
+
+/** "Như mọi khi" / "món quen" / "như cũ" — khách đã đăng nhập: Đặt nhanh điền món quen số 1 (máy chủ xử lý) */
+const USUAL_PHRASE = /\b(nhu moi khi|nhu cu|nhu thuong le|nhu hom truoc|nhu lan truoc|mon quen|as usual|the usual)\b/;
+const fold = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d");
 
 /** Dòng món mới từ một món của thực đơn (gợi ý / đổi món) */
 export type MenuItemLike = {
