@@ -1,20 +1,8 @@
 import { api } from "./api";
+import { sessionKey } from "./track";
 
-const KEY = "searchSid";
-
-/** Mã ẩn danh của trình duyệt — đếm khách vãng lai khác nhau khi thống kê tìm kiếm */
-export function sessionKey() {
-  try {
-    let v = localStorage.getItem(KEY);
-    if (!v) {
-      v = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      localStorage.setItem(KEY, v);
-    }
-    return v;
-  } catch {
-    return "no-storage";
-  }
-}
+/** Mã ẩn danh trình duyệt dùng chung với ghi nhận hành vi (lib/track.ts) */
+export { sessionKey };
 
 /** Ghi 1 lượt tìm món (gọi khi khách đã ngừng gõ). Lỗi thì bỏ qua — không ảnh hưởng thực đơn. */
 export function logMenuSearch(query: string, storeId: number | null | undefined) {

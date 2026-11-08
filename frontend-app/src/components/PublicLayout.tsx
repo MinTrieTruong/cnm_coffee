@@ -21,6 +21,7 @@ import "../styles/customer.css";
 import "../styles/customer-lux.css";
 import "../styles/customer-nav.css";
 import { QuickOrderHost } from "./site/QuickOrder";
+import { useScreenTimer } from "../lib/track";
 
 /** Tiêu đề trang trên header điện thoại */
 function titleOf(p: string): string {
@@ -76,6 +77,8 @@ const TABBAR_HIDDEN_PREFIXES = ["/order/", "/staff/login", "/vnpay-return"];
 export function PublicLayout() {
   const loc = useLocation();
   const nav = useNavigate();
+  // Thời gian khách thật sự xem từng màn hình (trang "Hành vi khách")
+  useScreenTimer();
   // Tự cập nhật khi đăng nhập / đăng xuất / đổi ảnh đại diện (lib/session phát sự kiện)
   const user = useSessionUser();
   const loggedIn = !!user;

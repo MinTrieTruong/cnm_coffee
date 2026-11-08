@@ -9,6 +9,8 @@ export type SiteInfo = {
   stores: SiteStore[];
   socials: { id: number; type: "ZALO" | "MESSENGER" | "CUSTOM"; label: string; icon: string | null; href: string }[];
   theme: import("./siteTheme").SiteTheme;
+  /** Quán đang bật ghi nhận hành vi khách (lib/track.ts) */
+  tracking?: boolean;
 };
 
 /* Bộ nhớ đệm theo chi nhánh: header, footer, trang chủ dùng chung 1 lần gọi */
@@ -39,6 +41,11 @@ function readStoredInfo(storeId: number | null | undefined): SiteInfo | null {
   }
 }
 
+/** site-info theo chi nhánh (dùng chung bộ nhớ đệm với useSiteInfo) */
+export function loadSiteInfo(storeId: number | null | undefined) {
+  return cached(infoCache, String(storeId ?? ""), () => api<SiteInfo>(`/api/site-info${storeId ? `?storeId=${storeId}` : ""}`));
+}
+
 /** Thông tin công ty, hotline theo chi nhánh khách chọn, danh sách chi nhánh, mạng xã hội (từ nút liên hệ) */
 export function useSiteInfo() {
   const { storeId } = useCustomerStore();
@@ -47,7 +54,7 @@ export function useSiteInfo() {
     let off = false;
     const stored = readStoredInfo(storeId);
     if (stored) setInfo(stored);
-    cached(infoCache, String(storeId ?? ""), () => api<SiteInfo>(`/api/site-info${storeId ? `?storeId=${storeId}` : ""}`))
+    loadSiteInfo(storeId)
       .then((d) => {
         if (off) return;
         setInfo(d);
