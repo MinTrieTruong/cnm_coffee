@@ -7,13 +7,13 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ArrowRight, ChevronDown, Phone, X } from "lucide-react";
-import { mediaUrl } from "../../lib/api";
 import { useMenuCategories, useSiteInfo } from "../../lib/site";
 import { useLang } from "../../lib/i18n";
 import type { SessionUser } from "../../lib/session";
 import { LogoMark } from "../LogoMark";
 import { StorePicker } from "../StorePicker";
 import { SiteImg } from "./lux";
+import { CategoryThumb } from "./parts";
 
 type NavChild = { to: string; label: string; desc: string; image: string; ready: boolean };
 type NavItem = { id: string; label: string; to: string; match: (p: string) => boolean; children?: NavChild[] | "menu" };
@@ -125,7 +125,7 @@ export function MegaNav() {
               {cats.map((c) => (
                 <li key={c.id}>
                   <Link to={`/menu?category=${c.id}`}>
-                    <span className="c-mega-cat-img">{c.image ? <img src={mediaUrl(c.image)} alt="" loading="lazy" /> : <span className="c-noimg" />}</span>
+                    <span className="c-mega-cat-img"><CategoryThumb name={c.name} images={c.images} /></span>
                     <span className="c-mega-cat-txt"><strong>{c.name}</strong><span>{t("{n} món", { n: c.count })}</span></span>
                   </Link>
                 </li>

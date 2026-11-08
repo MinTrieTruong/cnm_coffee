@@ -53,6 +53,22 @@ export function ProductImage({ p, className }: { p: Pick<Product, "name" | "imag
   );
 }
 
+/**
+ * Ảnh tròn đại diện danh mục: thử lần lượt các ảnh (ảnh danh mục → ảnh món), ảnh nào lỗi chuyển ảnh kế tiếp,
+ * hết ảnh thì hiện khối kem nét vẽ ly — không bao giờ hiện icon ảnh vỡ.
+ */
+export function CategoryThumb({ name, images, className }: { name: string; images: string[]; className?: string }) {
+  const [i, setI] = useState(0);
+  const key = images.join("|");
+  useEffect(() => setI(0), [key]);
+  const src = mediaUrl(images[i]);
+  return src ? (
+    <img key={src} className={className} src={src} alt={name} loading="lazy" decoding="async" onError={() => setI((x) => x + 1)} />
+  ) : (
+    <span className={`${className ?? ""} c-noimg`} role="img" aria-label={name} />
+  );
+}
+
 /** Giá bán size M (đã trừ giảm giá) — đúng giá ProductDetail tính khi chưa đổi size */
 export const listPrice = (p: Product) => calculateFinalPrice(p.sellPrice, p.discountPercent);
 

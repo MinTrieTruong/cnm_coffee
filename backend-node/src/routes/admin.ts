@@ -18,6 +18,34 @@ import { invalidateMenuContext } from "../lib/voiceOrder/menuContext.js";
 import { computeProductNutrition } from "../lib/nutrition/compute.js";
 import { socialConfigured } from "../lib/socialAuth.js";
 
+/**
+ * Chỉ nhận các trường được phép (không đưa nguyên body vào Prisma — tránh ghi đè id hay trường khác).
+ * imageUrl: "/uploads/…" hoặc "https://…", ≤ 1024 ký tự; rỗng / null → xoá ảnh. Trả lỗi theo từng ô.
+ */
+export function categoryInput(b: Record<string, unknown>, partial: boolean) {
+  const data: { name?: string; sortOrder?: number; imageUrl?: string | null } = {};
+  const fields: Record<string, string> = {};
+  if (b.name !== undefined || !partial) {
+    const name = typeof b.name === "string" ? b.name.trim() : "";
+    if (!name) fields.name = "Thiếu tên";
+    else if (name.length > 255) fields.name = "Tên tối đa 255 ký tự";
+    else data.name = name;
+  }
+  if (b.sortOrder !== undefined && b.sortOrder !== null && b.sortOrder !== "") {
+    const n = Number(b.sortOrder);
+    if (!Number.isInteger(n) || n < 0 || n > 100000) fields.sortOrder = "Thứ tự phải là số nguyên ≥ 0";
+    else data.sortOrder = n;
+  }
+  if (b.imageUrl !== undefined) {
+    const u = typeof b.imageUrl === "string" ? b.imageUrl.trim() : b.imageUrl === null ? "" : null;
+    if (u === null) fields.imageUrl = "Ảnh không hợp lệ";
+    else if (!u) data.imageUrl = null;
+    else if (u.length > 1024 || !(/^\/uploads\/[\w.-]+$/.test(u) || /^https:\/\/[^\s"'<>]+$/i.test(u))) fields.imageUrl = "Ảnh phải là ảnh tải lên hoặc link https://";
+    else data.imageUrl = u;
+  }
+  return { data, fields };
+}
+
 export function adminRouter(prisma: PrismaClient) {
   const r = Router();
   const auth = attachStaff(prisma);
@@ -326,19 +354,23 @@ export function adminRouter(prisma: PrismaClient) {
   });
 
   r.post("/categories", ...owner, async (req, res) => {
-    const { name, sortOrder } = req.body as { name?: string; sortOrder?: number };
-    if (!name?.trim()) return res.status(400).json({ error: "Thiếu tên" });
+    const { data, fields } = categoryInput((req.body ?? {}) as Record<string, unknown>, false);
+    if (Object.keys(fields).length) return res.status(400).json({ error: Object.values(fields)[0], fields });
     const maxId = (await prisma.category.aggregate({ _max: { id: true } }))._max.id ?? 0;
     const c = await prisma.category.create({
-      data: { id: maxId + 1, name: name.trim(), sortOrder: sortOrder ?? maxId + 1 },
+      data: { id: maxId + 1, name: data.name!, sortOrder: data.sortOrder ?? maxId + 1, imageUrl: data.imageUrl ?? null },
     });
     res.status(201).json(c);
   });
 
   r.patch("/categories/:id", ...owner, async (req, res) => {
     const id = Number(req.params.id);
-    const b = req.body as { name?: string; sortOrder?: number };
-    res.json(await prisma.category.update({ where: { id }, data: b }));
+    if (!Number.isInteger(id)) return res.status(400).json({ error: "Danh mục không hợp lệ" });
+    const { data, fields } = categoryInput((req.body ?? {}) as Record<string, unknown>, true);
+    if (Object.keys(fields).length) return res.status(400).json({ error: Object.values(fields)[0], fields });
+    const c = await prisma.category.update({ where: { id }, data }).catch(() => null);
+    if (!c) return res.status(404).json({ error: "Không tìm thấy danh mục" });
+    res.json(c);
   });
 
   r.delete("/categories/:id", ...owner, async (req, res) => {

@@ -54,6 +54,8 @@ model Category {
   name      String     @map("Category_Name") @db.VarChar(255)
   sortOrder Int        @default(0) @map("Sort_Order")
   parentId  Int?       @map("Parent_ID")
+  /// Ảnh đại diện (tròn trên menu web khách). null → web dùng ảnh món đầu tiên có ảnh
+  imageUrl  String?    @map("Image_URL") @db.VarChar(1024)
   parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
   children  Category[] @relation("CategoryTree")
   products  Product[]

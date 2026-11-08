@@ -4,7 +4,7 @@ import { ArrowRight, Check, ChevronLeft, ChevronRight, Plus } from "lucide-react
 import { api, mediaUrl, type HomePageResponse, type Product } from "../lib/api";
 import { useCustomerStore, withStore } from "../lib/customerStore";
 import { formatVnd, useMenuCategories, useMenuData, useSiteInfo } from "../lib/site";
-import { listPrice, NutritionTags, ProductCard, ProductImage, quickAdd, SectionHead, VoucherTicket, type PublicVoucher } from "../components/site/parts";
+import { CategoryThumb, listPrice, NutritionTags, ProductCard, ProductImage, quickAdd, SectionHead, VoucherTicket, type PublicVoucher } from "../components/site/parts";
 import { useLang } from "../lib/i18n";
 import { WeatherPicks } from "../components/site/WeatherPicks";
 import { ArchImage, Divider, Eyebrow, Reveal, SiteImg, Skeleton, StatCounter, useHeroHeader } from "../components/site/lux";
@@ -396,7 +396,7 @@ export function HomePage() {
             {cats.map((c) => (
               <li key={c.id}>
                 <Link to={`/menu?category=${c.id}`} className="c-cat">
-                  <span className="c-cat-img">{c.image ? <img src={mediaUrl(c.image)} alt="" loading="lazy" /> : <span className="c-noimg" />}</span>
+                  <span className="c-cat-img"><CategoryThumb name={c.name} images={c.images} /></span>
                   <span className="c-cat-name">{c.name}</span>
                 </Link>
               </li>

@@ -76,6 +76,8 @@ export type Category = {
   name: string;
   sortOrder?: number;
   parentId?: number | null;
+  /** Ảnh đại diện (Danh mục › Ảnh đại diện); null → web dùng ảnh món */
+  imageUrl?: string | null;
   children?: Category[];
 };
 

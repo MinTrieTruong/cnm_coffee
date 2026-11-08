@@ -1,12 +1,29 @@
 /**
- * Seed 3 banner trang chủ bằng ảnh món có sẵn (chữ poster đặt trên ảnh). Quản lý thay ảnh thật ở Website › Banner.
- * Chạy: npm run db:site — đã có banner thì bỏ qua.
+ * Dữ liệu mẫu web khách cho CSDL đang chạy. Chạy: npm run db:site — chạy lại nhiều lần không ghi đè dữ liệu chủ quán đã sửa.
+ *  - Ảnh danh mục: chỉ gán cho danh mục đang chưa có ảnh (tìm theo tên)
+ *  - Ảnh món: thay các link Unsplash mẫu đã chết (404) — chỉ đúng các link đó
+ *  - 3 banner trang chủ bằng ảnh món có sẵn (đã có banner thì bỏ qua). Quản lý thay ảnh thật ở Website › Banner.
  */
 import { PrismaClient } from "@prisma/client";
+import { categoryImageByName, categoryImages, deadProductImages } from "./sample-images.js";
 
 const prisma = new PrismaClient();
 
+async function sampleImages() {
+  let cats = 0;
+  for (const c of await prisma.category.findMany({ where: { imageUrl: null } })) {
+    const hit = categoryImageByName.find(([kw]) => c.name.toLocaleLowerCase("vi").includes(kw.toLocaleLowerCase("vi")));
+    if (!hit) continue;
+    await prisma.category.update({ where: { id: c.id }, data: { imageUrl: categoryImages[hit[1]] } });
+    cats++;
+  }
+  let prods = 0;
+  for (const [dead, alive] of Object.entries(deadProductImages)) prods += (await prisma.product.updateMany({ where: { imageUrl: dead }, data: { imageUrl: alive } })).count;
+  console.log(`Ảnh danh mục: gán ${cats}. Ảnh món hỏng: thay ${prods}.`);
+}
+
 async function main() {
+  await sampleImages();
   if (await prisma.banner.count()) {
     console.log("Đã có banner — bỏ qua.");
     return;

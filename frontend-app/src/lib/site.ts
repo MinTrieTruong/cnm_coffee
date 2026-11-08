@@ -81,7 +81,8 @@ export function useMenuData() {
   return menu;
 }
 
-/** Danh mục cho menu / trang chủ: danh mục gốc có danh mục con thì hiện các con (cụ thể hơn), không thì hiện chính nó; kèm ảnh 1 món tiêu biểu */
+/**
+ * Danh mục cho menu / trang chủ: danh mục gốc có danh mục con thì hiện các con (cụ thể hơn), không thì hiện chính nó; kèm ảnh 1 món tiêu biểu */
 export function useMenuCategories() {
   const menu = useMenuData();
   const all = menu?.categories ?? [];
@@ -95,7 +96,9 @@ export function useMenuCategories() {
     .map((c) => {
       const ids = new Set([c.id, ...all.filter((x) => x.parentId === c.id).map((x) => x.id)]);
       const list = products.filter((p) => ids.has(p.categoryId));
-      return { id: c.id, name: c.name, image: list.find((p) => p.imageUrl)?.imageUrl ?? null, count: list.length };
+      // Ảnh theo thứ tự ưu tiên: ảnh danh mục → ảnh các món có ảnh (CategoryThumb thử lần lượt nếu ảnh lỗi)
+      const images = [...new Set([c.imageUrl, ...list.map((p) => p.imageUrl)].filter((u): u is string => !!u))];
+      return { id: c.id, name: c.name, images, count: list.length };
     })
     .filter((c) => c.count > 0);
 }

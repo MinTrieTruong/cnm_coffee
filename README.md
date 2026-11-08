@@ -102,13 +102,13 @@ npm run db:owner          # tạo tài khoản Chủ chuỗi: owner / owner123 (
 npm run db:seed-store2    # Chi nhánh #2 mẫu + tài khoản Thủ kho `kho` cho Chi nhánh #1
 ```
 
-### Cập nhật DB cho các tính năng sau (005 → 021)
+### Cập nhật DB cho các tính năng sau (005 → 022)
 
 Chạy lần lượt các file chưa chạy trong `backend-node/prisma/sql/` (mỗi file chỉ chạy một lần), rồi `npx prisma generate`. Dừng backend trước để `prisma generate` không bị khoá file trên Windows.
 
 ```bash
 cd backend-node
-for f in prisma/sql/0{05,06,07,08,09,10,11,12,13,14,15,16,17,18,19,20,21}_*.sql; do
+for f in prisma/sql/0{05,06,07,08,09,10,11,12,13,14,15,16,17,18,19,20,21,22}_*.sql; do
   docker exec -i cmn-mysql mysql -uroot -proot --default-character-set=utf8mb4 coffee_shop_db < "$f"
 done
 npx prisma generate
@@ -124,6 +124,8 @@ npx prisma generate
 | `019_nutrition.sql` | Dinh dưỡng nguyên liệu, dinh dưỡng món theo size (tính từ công thức), sở thích ăn uống của khách |
 | `020_menu_draft.sql` | Đề xuất món lưu định mức nháp, giá vốn ước tính, giá S/L, bản AI phác thảo; bật / tắt MENU_DRAFT |
 | `021_brand_story.sql` | Trang câu chuyện thương hiệu `/about` (bảng `Brand_Sections`: 15 mục, JSON tiếng Việt + tiếng Anh) và hồ sơ giới thiệu chi nhánh `/stores/:id` (ảnh bìa, câu chuyện, quản lý, tiện ích, góc ngồi, thư viện ảnh trong bảng `Stores`) |
+
+| `022_category_image.sql` | Ảnh đại diện danh mục (`Categories.Image_URL`) — sửa ở Bán hàng › Danh mục; menu "Thực đơn" web khách dùng ảnh này, thiếu thì lấy ảnh món. `npm run db:site` gán ảnh mẫu cho danh mục còn trống + thay link ảnh món mẫu đã chết |
 
 Nội dung mẫu cho trang câu chuyện + hồ sơ mọi chi nhánh (chạy sau `021`, chạy lại không ghi đè phần đã sửa trong quản trị):
 
