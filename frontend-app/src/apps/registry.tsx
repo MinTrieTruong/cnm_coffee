@@ -109,6 +109,7 @@ const BannerList = L(() => import("../modules/website/SiteAdmin"), "BannerList")
 const ContactMessages = L(() => import("../modules/website/SiteAdmin"), "ContactMessages");
 const SiteInfoSettings = L(() => import("../modules/website/SiteAdmin"), "SiteInfoSettings");
 const SiteThemeSettings = L(() => import("../modules/website/SiteTheme"), "SiteThemeSettings");
+const BrandStoryAdmin = L(() => import("../modules/website/BrandStory"), "BrandStoryAdmin");
 const GamesHub = L(() => import("../modules/games/GamesHub"), "GamesHub");
 const GameCampaignDetail = L(() => import("../modules/games/GameCampaignDetail"), "GameCampaignDetail");
 const WinnersPage = L(() => import("../modules/games/WinnerList"), "WinnersPage");
@@ -374,6 +375,7 @@ export const APPS: AppDef[] = [
       { id: "posts", label: "Bài đăng", description: "Tin tức và bài viết trên trang khách", roles: OWNER, component: PostList, form: PostForm, layout: "erp" },
       { id: "banners", label: "Banner", description: "Ảnh banner chạy ở đầu trang chủ — cả chuỗi hoặc theo chi nhánh", roles: CHAIN_AND_BRANCH, component: BannerList, layout: "erp" },
       { id: "theme", label: "Giao diện", description: "Màu trang khách (bộ màu gợi ý hoặc tự chọn), chế độ sáng/tối mặc định", roles: OWNER, component: SiteThemeSettings, layout: "erp" },
+      { id: "brand", label: "Câu chuyện thương hiệu", description: "Mọi ảnh và chữ trên trang Về TD Coffee (/about): hành trình, đội ngũ, món signature…", roles: OWNER, component: BrandStoryAdmin, layout: "erp" },
       { id: "company", label: "Thông tin công ty", description: "Tên, giới thiệu, địa chỉ, SĐT, email, giờ mở cửa hiện ở chân trang và trang Liên hệ", roles: OWNER, component: SiteInfoSettings, layout: "erp" },
     ],
   },
