@@ -2,7 +2,7 @@ import { useEffect, useState, type KeyboardEvent } from "react";
 import { X } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { mediaUrl, type ProductTemps } from "../../lib/api";
-import { getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
+import { activeStoreId, getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
 import { Alert, Badge, Button, Field, FormGroup, FormGroups, FormView, StatusBar, Tabs, errMsg, formatVnd } from "../../components/erp";
 import "../../styles/nutrition-admin.css";
 import { ImageField, TagsInput, digits, parseTags, useRecordNav, useResource } from "../shared";
@@ -148,6 +148,8 @@ export function ProductForm({ recordId }: { recordId?: string }) {
   const products = useResource<ProductRow[]>(isNew ? null : "/api/admin/products", []);
   const cats = useResource<Category[]>("/api/admin/categories", []);
   const record = isNew ? null : products.data.find((p) => String(p.id) === recordId) ?? null;
+  // Hết hàng là trạng thái theo chi nhánh — toàn chuỗi (null) thì không gửi/không hiện
+  const storeId = activeStoreId();
 
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [editing, setEditing] = useState(isNew);
@@ -232,8 +234,9 @@ export function ProductForm({ recordId }: { recordId?: string }) {
           tags: draft.tags.length > 0 ? draft.tags : null,
           aliases: draft.aliases,
           discountPercent: draft.discountPercent ? Number(draft.discountPercent) : null,
-          isActive: draft.isActive,
-          outOfStock: draft.outOfStock,
+          // Chỉ gửi cờ khi người dùng thực sự đổi — tránh bắn thông báo thừa
+          ...(record && draft.isActive !== record.isActive ? { isActive: draft.isActive } : {}),
+          ...(storeId != null && record && draft.outOfStock !== record.outOfStock ? { outOfStock: draft.outOfStock } : {}),
         }),
       });
       await products.reload();
@@ -473,10 +476,14 @@ export function ProductForm({ recordId }: { recordId?: string }) {
                     <input type="checkbox" checked={draft.isActive} disabled={ro} onChange={(e) => set("isActive", e.target.checked)} />
                   </Field>
                   <Field label="Hết hàng">
-                    <label className="o-check">
-                      <input type="checkbox" checked={draft.outOfStock} disabled={ro} onChange={(e) => set("outOfStock", e.target.checked)} />
-                      <span className="o-muted">Hiển thị "Hết hàng" trên menu</span>
-                    </label>
+                    {storeId == null ? (
+                      <span className="o-muted">Hết hàng là trạng thái theo chi nhánh — chọn chi nhánh ở thanh trên để báo hết món.</span>
+                    ) : (
+                      <label className="o-check">
+                        <input type="checkbox" checked={draft.outOfStock} disabled={ro} onChange={(e) => set("outOfStock", e.target.checked)} />
+                        <span className="o-muted">Báo hết món tại chi nhánh đang chọn</span>
+                      </label>
+                    )}
                   </Field>
                 </>
               )}

@@ -306,6 +306,10 @@ export function adminRouter(prisma: PrismaClient) {
     }
     // outOfStock là trạng thái theo chi nhánh — không ghi vào món chung
     const { outOfStock, aliases, ...fields } = b;
+    // Toàn chuỗi (chưa chọn chi nhánh): "còn hàng" không có gì để báo → bỏ qua; báo hết thì phải chọn chi nhánh
+    const storeId = reqStoreId(req);
+    if (outOfStock === true && storeId == null) return res.status(400).json({ error: "Hãy chọn chi nhánh để báo hết món." });
+    const writeStock = typeof outOfStock === "boolean" && storeId != null;
     const rest: Prisma.ProductUncheckedUpdateInput & typeof fields = fields;
     if (aliases !== undefined) {
       const al = cleanAliases(aliases);
@@ -322,9 +326,7 @@ export function adminRouter(prisma: PrismaClient) {
     if (rest.costPrice !== undefined && (await prisma.productFormula.count({ where: { productId: id } })) > 0) delete rest.costPrice;
     const actor = (req as StaffRequest).staffRow!;
     const prev = await prisma.product.findUnique({ where: { id }, select: { isActive: true, name: true } });
-    if (typeof outOfStock === "boolean") {
-      const storeId = reqStoreId(req);
-      if (storeId == null) return res.status(400).json({ error: "Hãy chọn chi nhánh để báo hết món." });
+    if (writeStock) {
       const old = await prisma.storeProduct.findUnique({ where: { storeId_productId: { storeId, productId: id } } });
       const sp = await prisma.storeProduct.upsert({
         where: { storeId_productId: { storeId, productId: id } },
@@ -346,7 +348,7 @@ export function adminRouter(prisma: PrismaClient) {
       const stores = await prisma.store.findMany({ where: { isActive: true }, select: { id: true } });
       announceMenuChange({ storeIds: stores.map((s) => s.id), productId: id, name: p.name, outOfStock: false, isAvailable: p.isActive, actor, chainWide: true });
     }
-    res.json(typeof outOfStock === "boolean" ? { ...p, outOfStock } : p);
+    res.json(writeStock ? { ...p, outOfStock } : p);
   });
 
   r.get("/categories", ...admin, async (_req, res) => {
