@@ -877,12 +877,13 @@ button.o-status-step { cursor: pointer; }
 }
 
 /* Ô/khung của các trang thao tác nhanh cũ: bo góc theo token */
-.o-app .table-tile,
 .o-app .attendance-panel,
 .o-app .attendance-toast,
 .o-app .attendance-modal,
 .o-app .admin-combo-modal { border-radius: var(--o-radius) !important; }
-.o-app .table-tile { box-shadow: none; }
+/* Ô bàn: hình bàn có ghế (TableShape) — khung trong suốt, chữ dưới bàn theo màu chữ khu nhân sự */
+.o-app .table-tile { box-shadow: none; border-radius: var(--o-radius); color: var(--o-text); }
+.o-app .table-tile-meta { color: var(--o-muted); }
 
 /* ═══════════ Mobile (≤ 768px): không sidebar — header gọn + thanh đáy (BottomNav) ═══════════ */
 .o-mobile-head,
