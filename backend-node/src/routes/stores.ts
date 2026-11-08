@@ -44,6 +44,11 @@ const publicSelect = {
   lng: true,
   openTime: true,
   closeTime: true,
+  // Thẻ chi nhánh trên trang /stores (hồ sơ giới thiệu — routes/brand.ts)
+  coverImage: true,
+  tagline: true,
+  openedYear: true,
+  amenities: true,
 } as const;
 
 export function storesRouter(prisma: PrismaClient) {

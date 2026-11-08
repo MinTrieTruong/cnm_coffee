@@ -1291,6 +1291,21 @@ model Store {
   closeTime     String?  @map("Close_Time") @db.VarChar(5)
   isActive      Boolean  @default(true) @map("Is_Active")
   createdAt     DateTime @default(now()) @map("Created_At")
+  /// ─── Hồ sơ trang giới thiệu (/stores/:id) — kiểu ở src/shared/brand.ts (StoreProfile) ───
+  /// Ảnh: { url, small, alt, focus: { x, y } }
+  coverImage    Json?    @map("Cover_Image")
+  story         String?  @map("Story") @db.Text
+  openedYear    Int?     @map("Opened_Year")
+  /// Một câu riêng của quán, VD "Quán có cây bàng trăm tuổi trước cửa"
+  tagline       String?  @map("Tagline") @db.VarChar(140)
+  managerName   String?  @map("Manager_Name") @db.VarChar(80)
+  managerPhoto  Json?    @map("Manager_Photo")
+  managerQuote  String?  @map("Manager_Quote") @db.VarChar(300)
+  /// Mảng khóa tiện ích: wifi, outlet, parking, aircon, outdoor, pets, quiet
+  amenities     Json?    @map("Amenities")
+  /// Mảng { image, caption }
+  galleryImages Json?    @map("Gallery_Images")
+  favoriteSpots Json?    @map("Favorite_Spots")
 
   staff                 Staff[]
   zones                 Zone[]
@@ -2948,4 +2963,20 @@ model ProductNutrition {
 
   @@id([productId, size])
   @@map("Product_Nutrition")
+}
+
+/// Trang câu chuyện thương hiệu (/about): mỗi mục một dòng, chủ chuỗi sửa ở Website › Câu chuyện thương hiệu.
+/// Data / Data_En theo kiểu BrandDataMap[key] trong src/shared/brand.ts; thiếu Data_En thì trang tiếng Anh hiện tiếng Việt.
+model BrandSection {
+  id         Int      @id @default(autoincrement()) @map("Section_ID")
+  /// hero | founder | journey | hardest | stats | values | farm | team | signature | stores | community | testimonials | press | gallery | future
+  key        String   @unique @map("Section_Key") @db.VarChar(30)
+  sortOrder  Int      @default(0) @map("Sort_Order")
+  isVisible  Boolean  @default(true) @map("Is_Visible")
+  data       Json     @map("Data")
+  dataEn     Json?    @map("Data_En")
+  updatedAt  DateTime @default(now()) @updatedAt @map("Updated_At")
+  updatedBy  Int?     @map("Updated_By")
+
+  @@map("Brand_Sections")
 }

@@ -6,6 +6,7 @@ import { getStoreSettings } from "../lib/pricing.js";
 import { reqStoreId } from "../lib/storeScope.js";
 import { attachStaff, isOwner, requireRoles, type StaffRequest } from "../middleware/staff.js";
 import { mergeButtons } from "./contactButtons.js";
+import { siteStats } from "../lib/siteStats.js";
 
 const idOf = (req: Request) => Number(req.params.id);
 const storeParam = (req: Request) => {
@@ -141,26 +142,8 @@ export function siteRouter(prisma: PrismaClient) {
 
   /* ═══════════ Banner trang chủ ═══════════ */
 
-  /** GET /site/stats — số liệu trang chủ: chi nhánh, món đang bán, ly đã phục vụ (đơn đã thanh toán), điểm đánh giá TB. Đệm 5 phút. */
-  let statsCache: { at: number; data: unknown } | null = null;
-  r.get("/site/stats", async (_req, res) => {
-    if (statsCache && Date.now() - statsCache.at < 5 * 60_000) return res.json(statsCache.data);
-    const [stores, products, cups, rating] = await Promise.all([
-      prisma.store.count({ where: { isActive: true } }),
-      prisma.product.count({ where: { isActive: true } }),
-      prisma.orderDetail.aggregate({ where: { order: { status: "Paid" } }, _sum: { quantity: true } }),
-      prisma.review.aggregate({ where: { hidden: false }, _avg: { rating: true }, _count: { _all: true } }),
-    ]);
-    const data = {
-      stores,
-      products,
-      cups: cups._sum.quantity ?? 0,
-      rating: rating._count._all ? Math.round((rating._avg.rating ?? 0) * 10) / 10 : null,
-      reviews: rating._count._all,
-    };
-    statsCache = { at: Date.now(), data };
-    res.json(data);
-  });
+  /** GET /site/stats — số liệu trang chủ (lib/siteStats.ts, đệm 5 phút) */
+  r.get("/site/stats", async (_req, res) => res.json(await siteStats(prisma)));
 
   r.get("/banners", async (req, res) => {
     const storeId = storeParam(req);
