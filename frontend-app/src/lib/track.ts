@@ -86,6 +86,8 @@ const device = (): "mobile" | "desktop" => {
 
 let queue: Event[] = [];
 let timer: number | null = null;
+/** Lần vào giỏ gần nhất — effect chạy 2 lần (StrictMode) / render lại không tính thêm lượt */
+let lastCartView = 0;
 
 function post(events: Event[], beacon: boolean) {
   // sentAt + at: máy chủ tính lại giờ từng sự kiện theo đồng hồ của mình (đồng hồ máy khách có thể lệch)
@@ -139,6 +141,10 @@ function ensureTimer() {
 export function track(type: TrackType, payload: Payload = {}) {
   try {
     if (!allowedHere()) return;
+    if (type === "CART_VIEW") {
+      if (Date.now() - lastCartView < 2000) return;
+      lastCartView = Date.now();
+    }
     queue.push({
       type,
       ...payload,
