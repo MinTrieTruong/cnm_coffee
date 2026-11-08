@@ -30,7 +30,7 @@ type SiteTheme = {
   showWeatherPicks: boolean;
 };
 /** Màu mặc định "gạch bông Sài Gòn" — trùng customer-tokens.css */
-const DEFAULT_THEME: SiteTheme = { preset: "espresso-kem", primary: "#4a2c1d", accent: "#c08a4b", defaultMode: "light", allowToggle: true, occasion: null, showNutrition: true, showWeatherPicks: true };
+const DEFAULT_THEME: SiteTheme = { preset: "gach-bong", primary: "#1e5a5f", accent: "#e0a531", defaultMode: "light", allowToggle: true, occasion: null, showNutrition: true, showWeatherPicks: true };
 /** Chủ đề dịp lễ — trùng frontend lib/occasions.ts */
 const OCCASION_IDS = ["tet", "8-3", "30-4", "noel"];
 const YMD = /^\d{4}-\d{2}-\d{2}$/;

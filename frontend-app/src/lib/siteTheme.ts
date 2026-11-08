@@ -16,12 +16,11 @@ export type SiteTheme = {
 };
 export type ColorMode = "light" | "dark";
 
-export const DEFAULT_THEME: SiteTheme = { preset: "espresso-kem", primary: "#4a2c1d", accent: "#c08a4b", defaultMode: "light", allowToggle: true, occasion: null, showNutrition: true, showWeatherPicks: true };
+export const DEFAULT_THEME: SiteTheme = { preset: "gach-bong", primary: "#1e5a5f", accent: "#e0a531", defaultMode: "light", allowToggle: true, occasion: null, showNutrition: true, showWeatherPicks: true };
 
 /** Bộ màu gợi ý — đã kiểm tra tương phản; tránh trùng nhận diện các chuỗi lớn */
 export const PRESETS: { id: string; name: string; note: string; primary: string; accent: string }[] = [
-  { id: "espresso-kem", name: "Espresso & Kem", note: "Nâu espresso, vàng đồng, nền kem — mặc định", primary: "#4a2c1d", accent: "#c08a4b" },
-  { id: "gach-bong", name: "Gạch bông", note: "Xanh men gạch bông, vàng nghệ", primary: "#1e5a5f", accent: "#e0a531" },
+  { id: "gach-bong", name: "Gạch bông", note: "Xanh men gạch bông, vàng nghệ — mặc định", primary: "#1e5a5f", accent: "#e0a531" },
   { id: "rang-moc", name: "Rang mộc", note: "Nâu hạt rang, vàng mật ong", primary: "#5b3a24", accent: "#d9a441" },
   { id: "che-xanh", name: "Chè xanh", note: "Xanh rêu trầm, vàng chanh", primary: "#3d5a3a", accent: "#d8c04a" },
   { id: "muc-tim", name: "Mực tím", note: "Tím mực học trò, cam đào", primary: "#4a3a6b", accent: "#ec9a5c" },
@@ -59,8 +58,8 @@ function ensure(color: string, bg: string, min: number, toward: string) {
 
 /* Nền trung tính — trùng customer-tokens.css (sáng) và khối dark trong đó */
 export const NEUTRAL = {
-  light: { paper: "#faf6f0", surface: "#ffffff", ink: "#2b1d14" },
-  dark: { paper: "#16100c", surface: "#1d1510", ink: "#f1e8dc" },
+  light: { paper: "#f4efe6", surface: "#fffdf8", ink: "#1d2423" },
+  dark: { paper: "#141a1a", surface: "#1b2323", ink: "#ece6da" },
 };
 
 /** Biến CSS phụ thuộc màu chủ đạo / màu nhấn cho từng chế độ (nền trung tính nằm trong CSS) */
@@ -69,12 +68,12 @@ export function paletteVars(theme: Pick<SiteTheme, "primary" | "accent">, mode: 
   const dark = mode === "dark";
   // Màu chủ đạo dùng cả làm chữ (giá, liên kết) trên nền giấy lẫn làm nền nút → đủ 4.5:1 với giấy
   const primary = dark ? ensure(theme.primary, n.paper, 4.6, "#ffffff") : ensure(theme.primary, n.paper, 4.6, "#000000");
-  const onPrimary = contrast("#fffaf3", primary) >= 4.5 ? "#fffaf3" : "#16100c";
+  const onPrimary = contrast("#fffdf8", primary) >= 4.5 ? "#fffdf8" : "#141a1a";
   const accent = theme.accent;
-  const onAccent = contrast("#2b1d14", accent) >= 4.5 ? "#2b1d14" : "#fffaf3";
+  const onAccent = contrast("#1d2423", accent) >= 4.5 ? "#1d2423" : "#fffdf8";
   // Thanh điều hướng (nền màu lớn): ở chế độ tối dùng bản đậm của màu gốc + chữ sáng, thay vì màu đã làm sáng cho chữ
-  const bar = dark ? ensure(mix(theme.primary, "#000000", 0.3), "#fffaf3", 4.6, "#000000") : primary;
-  const onBar = dark ? "#fffaf3" : onPrimary;
+  const bar = dark ? ensure(mix(theme.primary, "#000000", 0.3), "#fffdf8", 4.6, "#000000") : primary;
+  const onBar = dark ? "#fffdf8" : onPrimary;
   const [r, g, b] = hexToRgb(primary);
   return {
     "--c-primary": primary,
@@ -83,8 +82,6 @@ export function paletteVars(theme: Pick<SiteTheme, "primary" | "accent">, mode: 
     "--c-bar": bar,
     "--c-on-bar": onBar,
     "--c-accent": accent,
-    // Màu nhấn dùng làm CHỮ (eyebrow, từ nghiêng nhấn trong tiêu đề): đẩy cho đủ 4.5:1 với nền
-    "--c-accent-ink": ensure(accent, n.paper, 4.6, dark ? "#ffffff" : "#000000"),
     "--c-on-accent": onAccent,
     // Footer: màu chủ đạo pha đen thật đậm (sáng) / gần nền (tối)
     "--c-footer": dark ? mix(theme.primary, "#000000", 0.82) : mix(theme.primary, "#000000", 0.55),
