@@ -25,7 +25,8 @@
     "db:knowledge": "tsx prisma/knowledge-seed.ts",
     "db:clear-oos": "tsx scripts/clearLegacyOutOfStock.ts",
     "test:chunk": "tsx scripts/test-chunk.ts",
-    "seed:brand": "tsx scripts/seedBrandStory.ts"
+    "seed:brand": "tsx scripts/seedBrandStory.ts",
+    "test:habits": "tsx scripts/testCustomerHabits.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

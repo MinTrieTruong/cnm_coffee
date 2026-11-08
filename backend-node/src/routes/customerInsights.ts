@@ -16,6 +16,7 @@ import { isOwner, type StaffRequest } from "../middleware/staff.js";
 import { reqStoreId } from "../lib/storeScope.js";
 import { addPoints } from "../lib/points.js";
 import { audit } from "../lib/audit.js";
+import { mode, optionsOf } from "../lib/customerHabits.js";
 
 const DAY = 86_400_000;
 /** Mốc hạng theo tổng chi tiêu tích luỹ (khớp lib/rank.ts) */
@@ -55,23 +56,6 @@ const visitAt = (o: { paidAt: Date | null; createdAt: Date }) => o.paidAt ?? o.c
 
 /** Buổi trong ngày theo giờ quán */
 const partOf = (h: number) => (h >= 6 && h < 11 ? 0 : h >= 11 && h < 14 ? 1 : h >= 14 && h < 18 ? 2 : 3);
-
-/** Đường / đá từ ghi chú đồ uống ("Size M · Đá 100% · Đường 50%") */
-function optionsOf(notes: string | null) {
-  const sugar = /Đường (\d+)%/.exec(notes ?? "")?.[1];
-  const ice = /Đá (\d+)%/.exec(notes ?? "")?.[1];
-  return { sugar: sugar ? `${sugar}%` : null, ice: ice ? `${ice}%` : null };
-}
-
-/** Giá trị xuất hiện nhiều nhất (bỏ null) */
-function mode(values: (string | null | undefined)[]) {
-  const c = new Map<string, number>();
-  for (const v of values) if (v) c.set(v, (c.get(v) ?? 0) + 1);
-  let best: string | null = null;
-  let n = 0;
-  for (const [k, v] of c) if (v > n) [best, n] = [k, v];
-  return best;
-}
 
 export function customerInsightsRouter(prisma: PrismaClient) {
   const r = Router();
