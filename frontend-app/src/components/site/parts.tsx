@@ -7,17 +7,22 @@ import { formatVnd } from "../../lib/site";
 import { useLang } from "../../lib/i18n";
 import { cardLabels, prefConflicts, useDietPrefs } from "../../lib/nutrition";
 import "../../styles/nutrition.css";
+import { Divider, Eyebrow } from "./lux";
 
-/** Tiêu đề mục: chữ poster + dòng serif nghiêng + gạch đôi; "Xem tất cả →" bên phải */
-export function SectionHead({ title, sub, more, as: Tag = "h2" }: { title: string; sub?: string; more?: { to: string; label?: string }; as?: "h1" | "h2" }) {
+/** Đầu mục: nhãn nhỏ (eyebrow) + tiêu đề serif chữ thường + vạch chia có chấm + 1 dòng phụ; "xem tất cả" bên phải */
+export function SectionHead({ title, sub, eyebrow, more, center, as: Tag = "h2" }: {
+  title: ReactNode; sub?: string; eyebrow?: string; more?: { to: string; label?: string }; center?: boolean; as?: "h1" | "h2";
+}) {
   const { t } = useLang();
   return (
-    <div className="c-sec-head">
-      <Tag className="c-sec-title">
-        {t(title)}
-        {sub && <span className="c-sec-sub">— {t(sub)}</span>}
-      </Tag>
-      {more && <Link to={more.to} className="c-sec-more">{t(more.label ?? "Xem tất cả")} →</Link>}
+    <div className={`c-sec-head${center ? " is-center" : ""}`}>
+      <div className="c-sec-head-txt">
+        {eyebrow && <Eyebrow>{t(eyebrow)}</Eyebrow>}
+        <Tag className="c-sec-title">{typeof title === "string" ? t(title) : title}</Tag>
+        <Divider center={center} />
+        {sub && <p className="c-sec-sub">{t(sub)}</p>}
+      </div>
+      {more && <Link to={more.to} className="c-sec-more">{t(more.label ?? "Xem tất cả")} <span aria-hidden>→</span></Link>}
     </div>
   );
 }

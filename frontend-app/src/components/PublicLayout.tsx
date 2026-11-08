@@ -18,6 +18,7 @@ import { activeOccasion, effectiveTheme } from "../lib/occasions";
 import { FestiveFall, FestiveStrip } from "./site/Festive";
 import { useLang } from "../lib/i18n";
 import "../styles/customer.css";
+import "../styles/customer-lux.css";
 import { QuickOrderHost } from "./site/QuickOrder";
 
 /** Tiêu đề trang trên header điện thoại */
