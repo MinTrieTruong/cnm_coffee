@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } fro
 import { Link, useLocation } from "react-router-dom";
 import { KeyRound, LogOut, MoreHorizontal, X } from "lucide-react";
 import { isActive, type BadgeKey, type NavItem } from "../lib/navConfig";
+import type { SearchIndex } from "../apps/sidebarSearch";
+import { SearchCore } from "./erp/SidebarSearch";
 
 /* ───────── Ẩn thanh từ trong trang (vd POS đang mở bill) ───────── */
 const hiders = new Set<string>();
@@ -56,6 +58,8 @@ export type MoreSheet = {
   apps?: NavItem[];
   /** Danh sách đầy đủ theo nhóm (dựng từ SIDEBAR_GROUPS) — có thì thay cho `apps` + `items` */
   groups?: { label: string; items: NavItem[] }[];
+  /** Ô "Tìm chức năng…" đầu sheet (khu nhân viên): chỉ mục dựng từ chính các nhóm sidebar của vai trò */
+  search?: { index: SearchIndex; currentKey: string };
   profile?: { name: string; role: string; avatar?: ReactNode };
   onChangePassword?: () => void;
   onLogout?: () => void;
@@ -93,6 +97,11 @@ export function BottomNav({
   const setSheetOpen = (v: boolean) => setOpenId(v ? "more" : null);
   const sheet = openId === "more" ? more : openId ? menus?.[openId] : undefined;
   const keyboard = useKeyboardOpen();
+  /** Đang gõ trong ô tìm của sheet → thay danh sách nhóm bằng kết quả */
+  const [searching, setSearching] = useState(false);
+  useEffect(() => {
+    if (!sheetOpen) setSearching(false);
+  }, [sheetOpen]);
   const pageHides = useSyncExternalStore(subscribe, () => hiders.size > 0);
   const visible = !hidden && !pageHides && !keyboard;
 
@@ -170,6 +179,17 @@ export function BottomNav({
               <button type="button" className="bn-close" onClick={() => setSheetOpen(false)} aria-label={sheet.text?.close ?? "Đóng"}><X size={20} /></button>
             </div>
             <div className="bn-sheet-body">
+              {sheet.search && sheet.groups && (
+                <SearchCore
+                  index={sheet.search.index}
+                  badges={badges}
+                  currentKey={sheet.search.currentKey}
+                  variant="sheet"
+                  onQueryChange={(q) => setSearching(!!q.trim())}
+                  onPicked={() => setSheetOpen(false)}
+                />
+              )}
+              {!searching && <>
               {sheet.groups?.map((g) => (
                 <div key={g.label} className="bn-group">
                   <div className="bn-section">{g.label}</div>
@@ -232,6 +252,7 @@ export function BottomNav({
                   <LogOut size={20} aria-hidden /> <span>{sheet.text?.logout ?? "Đăng xuất"}</span>
                 </button>
               )}
+              </>}
             </div>
           </div>
         </div>

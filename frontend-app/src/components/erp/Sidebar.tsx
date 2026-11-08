@@ -3,8 +3,10 @@ import { Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight, ChevronUp, KeyRound, LogOut, Store } from "lucide-react";
 import { LogoMark } from "../LogoMark";
 import { StoreSwitcher } from "./StoreSwitcher";
+import { SidebarSearch } from "./SidebarSearch";
 import type { BadgeKey } from "../../lib/navConfig";
 import type { SideGroup, SideItem, SideLeaf } from "../../apps/sidebar";
+import type { SearchIndex } from "../../apps/sidebarSearch";
 
 const OPEN_KEY = "td.sidebar.open";
 
@@ -48,6 +50,8 @@ export function Sidebar({
   onChangePassword,
   onLogout,
   bell,
+  searchIndex,
+  disableSlash,
 }: {
   groups: SideGroup[];
   currentKey: string;
@@ -59,6 +63,10 @@ export function Sidebar({
   onLogout: () => void;
   /** Chuông thông báo (đặt cạnh logo; khi thu gọn nằm dưới logo) */
   bell?: ReactNode;
+  /** Chỉ mục ô "Tìm chức năng…" (buildSearchIndex(groups) — dùng chung với sheet "Thêm" trên điện thoại) */
+  searchIndex: SearchIndex;
+  /** Tắt phím "/" (trang có ô nhập riêng: POS, KDS…) — Ctrl+K vẫn dùng được */
+  disableSlash?: boolean;
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>(readOpen);
   const [pop, setPop] = useState<Pop | null>(null);
@@ -196,6 +204,7 @@ export function Sidebar({
           {bell}
         </div>
         <StoreSwitcher variant="side" iconOnly={collapsed} />
+        <SidebarSearch index={searchIndex} badges={badges} currentKey={currentKey} collapsed={collapsed} disableSlash={disableSlash} />
       </div>
       <button type="button" className="o-side-collapse" onClick={onToggle} aria-label={collapsed ? "Mở rộng sidebar" : "Thu gọn sidebar"} title={collapsed ? "Mở rộng" : "Thu gọn"}>
         <ChevronLeft size={14} strokeWidth={2} aria-hidden />

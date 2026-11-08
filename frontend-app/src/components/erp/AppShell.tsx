@@ -10,6 +10,7 @@ import { useAiFeatures } from "../../lib/aiFeatures";
 import { AttendanceReminder } from "./AttendanceReminder";
 import { appPath, canSee, defaultRouteForRole, isLeaf, listed, locate, type MenuLeaf } from "../../apps/registry";
 import { LEAF_BADGES, buildSidebar, leavesOfGroup } from "../../apps/sidebar";
+import { buildSearchIndex, pushRecent } from "../../apps/sidebarSearch";
 import { Sidebar } from "./Sidebar";
 import { StoreSwitcher } from "./StoreSwitcher";
 import { PageHeader } from "./dashboard";
@@ -57,11 +58,19 @@ function Shell() {
   const role = info?.role ?? "";
   const aiFeatures = useAiFeatures(role);
   const groups = useMemo(() => buildSidebar(role, aiFeatures), [role, aiFeatures]);
+  // Chỉ mục "Tìm chức năng…" dựng một lần, dùng chung cho sidebar desktop và sheet "Thêm" trên điện thoại
+  const searchIndex = useMemo(() => buildSearchIndex(groups), [groups]);
   const attendance = useAttendanceToday(info ? role : undefined);
   const badges = { ...sourceBadges, attendance: attendance.reminder ? 1 : 0, notifications: unread };
   const onAttendancePage = loc.pathname === "/app/hr/attendance";
 
   useEffect(() => setPeek(false), [loc.pathname]);
+  // "Gần đây" của ô tìm chức năng: ghi nhận màn vừa mở (`app/leaf`)
+  const openedKey = locate(loc.pathname);
+  const recentKey = openedKey ? `${openedKey.app.id}/${openedKey.leaf.alias ?? openedKey.leaf.id}` : null;
+  useEffect(() => {
+    if (recentKey) pushRecent(recentKey);
+  }, [recentKey]);
   // Vừa rời màn có badge (duyệt đơn, mua hàng, tồn kho…) → badge tính lại ngay, không đợi 60 giây
   const prevPath = useRef(loc.pathname);
   useEffect(() => {
@@ -141,6 +150,8 @@ function Shell() {
         onChangePassword={() => nav("/app/hr/me")}
         onLogout={logout}
         bell={<NotificationBell variant="side" />}
+        searchIndex={searchIndex}
+        disableSlash={full}
       />
 
       <div className="o-main">
@@ -178,6 +189,7 @@ function Shell() {
           items: mobileNav.more,
           apps: mobileNav.moreApps,
           groups: moreGroups,
+          search: { index: searchIndex, currentKey },
           profile: { name: info.fullName ?? "Nhân viên", role: roleLabel(role) },
           onChangePassword: () => nav("/app/hr/me"),
           onLogout: logout,
