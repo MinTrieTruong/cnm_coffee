@@ -167,12 +167,14 @@ function HeroFloat({ picks }: { picks: Product[] }) {
     return () => window.clearTimeout(tm);
   }, [added]);
   const p = picks[i];
+  // Cả câu là một khóa dịch, {em} = cụm chữ nghiêng → tiếng Anh tự xếp lại thứ tự từ
+  const heroTitle = t("Cà phê {em} Sài Gòn").split("{em}");
   return (
     <section className="c-h2 c-grain c-tile c-spotlights" aria-labelledby="c-h2-title">
       <div className="c-wrap c-h2-in">
         <div className="c-h2-copy">
           <Eyebrow>{t("Cà phê phin · Sài Gòn")}</Eyebrow>
-          <h1 id="c-h2-title" className="c-h2-title">{t("Cà phê")} <em>{t("đúng vị")}</em> {t("Sài Gòn")}</h1>
+          <h1 id="c-h2-title" className="c-h2-title">{heroTitle[0]}<em>{t("đúng vị")}</em>{heroTitle[1]}</h1>
           <Divider />
           <p className="c-h2-sub">{t("Robusta rang mộc, pha phin từng ly, sữa đặc rót tay. Ghé quán ngồi lại, hoặc đặt mang về khi đang vội.")}</p>
           <div className="c-h2-cta">

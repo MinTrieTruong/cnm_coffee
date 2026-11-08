@@ -829,11 +829,11 @@ a.c-rv-name:hover { color: var(--c-primary); }
 
 /* Nút sáng/tối + ngôn ngữ */
 .c-toggles { display: inline-flex; align-items: center; gap: 4px; }
-.c-toggle { min-width: 40px; height: 40px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border: 1.5px solid var(--c-rule-strong); border-radius: var(--c-radius); background: var(--c-surface); color: var(--c-ink); font-family: var(--c-font-display); font-weight: 600; font-size: 0.85rem; letter-spacing: 0; cursor: pointer; }
+.c-toggle { min-width: 40px; height: 40px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border: 1.5px solid var(--c-rule-strong); border-radius: var(--c-radius); background: var(--c-surface); color: var(--c-ink); font-family: var(--c-font-body); font-weight: 600; font-size: 0.8rem; letter-spacing: 0.04em; cursor: pointer; }
 .c-toggle:hover { border-color: var(--c-ink); }
 .c-toggle[aria-pressed="true"] { background: var(--c-ink); border-color: var(--c-ink); color: var(--c-paper); }
 .c-lang { display: inline-flex; border: 1.5px solid var(--c-rule-strong); border-radius: var(--c-radius); overflow: hidden; }
-.c-lang button { height: 37px; padding: 0 9px; border: 0; background: var(--c-surface); color: var(--c-ink-2); font-family: var(--c-font-display); font-weight: 600; font-size: 0.85rem; letter-spacing: 0; cursor: pointer; }
+.c-lang button { height: 37px; padding: 0 9px; border: 0; background: var(--c-surface); color: var(--c-ink-2); font-family: var(--c-font-body); font-weight: 600; font-size: 0.8rem; letter-spacing: 0.04em; cursor: pointer; }
 .c-lang button + button { border-left: 1.5px solid var(--c-rule-strong); }
 .c-lang button[aria-pressed="true"] { background: var(--c-ink); color: var(--c-paper); }
 .c-footer .c-toggle, .c-footer .c-lang button { background: transparent; color: var(--c-on-footer); border-color: rgba(239, 231, 216, 0.4); }

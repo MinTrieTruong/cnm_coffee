@@ -626,9 +626,8 @@ export const EN: Record<string, string> = {
   "Gợi ý buổi tối": "Evening picks",
   // Giao diện v2 · đợt 1: header, footer, trang chủ
   "Cà phê phin · Sài Gòn": "Phin coffee · Saigon",
-  "Cà phê": "Coffee",
-  "đúng vị": "the true taste",
-  "Sài Gòn": "of Saigon",
+  "Cà phê {em} Sài Gòn": "Saigon coffee, {em}",
+  "đúng vị": "brewed right",
   "Robusta rang mộc, pha phin từng ly, sữa đặc rót tay. Ghé quán ngồi lại, hoặc đặt mang về khi đang vội.": "Plain-roasted Robusta, brewed by phin one cup at a time, condensed milk poured by hand. Stay a while, or order to go when you're in a hurry.",
   "Đặt món ngay": "Order now",
   "Món nổi bật": "Featured drinks",
