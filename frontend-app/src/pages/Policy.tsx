@@ -4,7 +4,7 @@ import { POLICIES, policyHref } from "../components/site/SiteFooter";
 import { useSiteInfo } from "../lib/site";
 
 /** Nội dung chính sách — trang tĩnh, viết theo đúng cách hệ thống đang vận hành */
-const CONTENT: Record<string, { title: string; body: (ctx: { phone: string; email: string }) => ReactNode }> = {
+const CONTENT: Record<string, { title: string; body: (ctx: { phone: string; email: string; trackingDays: number }) => ReactNode }> = {
   "dat-hang": {
     title: "Chính sách đặt hàng",
     body: () => (
@@ -21,7 +21,7 @@ const CONTENT: Record<string, { title: string; body: (ctx: { phone: string; emai
   },
   privacy: {
     title: "Chính sách quyền riêng tư",
-    body: ({ email, phone }) => (
+    body: ({ email, phone, trackingDays }) => (
       <>
         <p>Quán chỉ thu thập thông tin cần để phục vụ đơn hàng và chương trình thành viên. Trang này nói rõ quán thu thập gì, dùng vào việc gì và bạn có quyền gì với dữ liệu của mình.</p>
         <h2>Thông tin quán thu thập</h2>
@@ -31,6 +31,8 @@ const CONTENT: Record<string, { title: string; body: (ctx: { phone: string; emai
           <li>Lịch sử đơn hàng, điểm thưởng, voucher, đánh giá và lượt chơi mini game.</li>
           <li>Nhật ký đăng nhập: thời điểm, phương thức đăng nhập và địa chỉ IP, để phát hiện truy cập bất thường.</li>
         </ul>
+        <h2>Cách bạn dùng trang web</h2>
+        <p>Để cải thiện thực đơn, quán ghi nhận <strong>ẩn danh</strong> món được xem, món thêm / bớt khỏi giỏ hàng và thời gian xem từng trang (theo một mã ngẫu nhiên lưu trên trình duyệt; nếu bạn đã đăng nhập thì gắn với tài khoản). Quán không thu thập địa chỉ IP hay vị trí cho mục này, không gửi sang dịch vụ quảng cáo / phân tích bên ngoài, và tự xoá sau {trackingDays} ngày.</p>
         <h2>Đăng nhập bằng Google hoặc Facebook</h2>
         <p>Khi bạn chọn “Tiếp tục với Google” hoặc “Tiếp tục với Facebook”, quán chỉ nhận <strong>mã định danh tài khoản, tên, email (nếu bạn cho phép) và ảnh đại diện</strong>. Quán không nhận mật khẩu, danh sách bạn bè, bài viết hay bất kỳ quyền đăng bài nào thay bạn.</p>
         <p>Thông tin này chỉ dùng để tạo và đăng nhập tài khoản thành viên. Bạn có thể hủy liên kết bất cứ lúc nào trong Tài khoản › Bảo mật.</p>
@@ -63,7 +65,7 @@ const CONTENT: Record<string, { title: string; body: (ctx: { phone: string; emai
           <li>Google: Tài khoản Google › Bảo mật › Kết nối của bạn với ứng dụng và dịch vụ bên thứ ba › chọn ứng dụng của quán › Xoá kết nối.</li>
         </ul>
         <h2>Dữ liệu được xoá</h2>
-        <p>Họ tên, số điện thoại, email, ảnh đại diện, địa chỉ đã lưu, liên kết Google / Facebook, nhật ký đăng nhập, điểm thưởng và voucher chưa dùng.</p>
+        <p>Họ tên, số điện thoại, email, ảnh đại diện, địa chỉ đã lưu, liên kết Google / Facebook, nhật ký đăng nhập, lịch sử xem món / giỏ hàng trên web, điểm thưởng và voucher chưa dùng.</p>
         <h2>Dữ liệu quán phải giữ lại</h2>
         <p>Hoá đơn bán hàng được giữ theo quy định kế toán, thuế nhưng được tách khỏi thông tin cá nhân của bạn (không còn tên, số điện thoại).</p>
       </>
@@ -113,7 +115,7 @@ export function Policy({ slug: fixed }: { slug?: string }) {
       <div className="c-policy-grid">
         <article className="c-prose">
           <h1 className="c-sec-title">{page.title}</h1>
-          {page.body({ phone: info?.hotline.value ?? "", email: info?.company.email ?? "" })}
+          {page.body({ phone: info?.hotline.value ?? "", email: info?.company.email ?? "", trackingDays: info?.trackingDays ?? 90 })}
         </article>
         <aside className="c-policy-nav">
           {POLICIES.map((p) => (

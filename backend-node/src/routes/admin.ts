@@ -17,6 +17,7 @@ import { cleanAliases } from "../lib/productAliases.js";
 import { invalidateMenuContext } from "../lib/voiceOrder/menuContext.js";
 import { computeProductNutrition } from "../lib/nutrition/compute.js";
 import { socialConfigured } from "../lib/socialAuth.js";
+import { resetTrackingSettings } from "../lib/customerEvents.js";
 
 /**
  * Chỉ nhận các trường được phép (không đưa nguyên body vào Prisma — tránh ghi đè id hay trường khác).
@@ -1147,54 +1148,62 @@ export function adminRouter(prisma: PrismaClient) {
       searchWindowDays: number;
       googleLoginEnabled: boolean;
       facebookLoginEnabled: boolean;
+      behaviorTracking: boolean;
+      behaviorRetentionDays: number;
     }>;
     const boolOr = (v: unknown) => (typeof v === "boolean" ? v : undefined);
     const intIn = (v: unknown, lo: number, hi: number) => (v == null ? undefined : Math.min(hi, Math.max(lo, Math.floor(Number(v)) || lo)));
     const searchMinCustomers = intIn(b.searchMinCustomers, 1, 1000);
     const searchWindowDays = intIn(b.searchWindowDays, 1, 365);
+    const behaviorRetentionDays = intIn(b.behaviorRetentionDays, 7, 365);
     const searchMinPercent = b.searchMinPercent == null ? undefined : Math.min(100, Math.max(0, Number(b.searchMinPercent) || 0));
     const supplierReturnDays = b.supplierReturnDays == null ? undefined : Math.min(90, Math.max(1, Math.floor(Number(b.supplierReturnDays)) || 7));
     const cancelWindowMinutes = b.cancelWindowMinutes == null ? undefined : Math.min(120, Math.max(0, Math.floor(Number(b.cancelWindowMinutes)) || 0));
-    res.json(
-      await prisma.storeSettings.upsert({
-        where: { id: 1 },
-        create: {
-          id: 1,
-          vatRatePercent: b.vatRatePercent ?? 10,
-          pointPerVnd: b.pointPerVnd ?? 10000,
-          pointValueVnd: b.pointValueVnd ?? 1,
-          cashRoundTo: b.cashRoundTo ?? 1000,
-          pointEarnEveryVnd: b.pointEarnEveryVnd ?? 1000,
-          pointEarnEach: b.pointEarnEach ?? 100,
-          faceMatchThreshold: b.faceMatchThreshold ?? 0.5,
-          pettyCashLimit: b.pettyCashLimit ?? 200000,
-          cancelWindowMinutes: cancelWindowMinutes ?? 5,
-          supplierReturnDays: supplierReturnDays ?? 7,
-          searchMinCustomers: searchMinCustomers ?? 3,
-          searchMinPercent: searchMinPercent ?? 2,
-          searchWindowDays: searchWindowDays ?? 30,
-          googleLoginEnabled: boolOr(b.googleLoginEnabled) ?? true,
-          facebookLoginEnabled: boolOr(b.facebookLoginEnabled) ?? true,
-        },
-        update: {
-          vatRatePercent: b.vatRatePercent,
-          pointPerVnd: b.pointPerVnd,
-          pointValueVnd: b.pointValueVnd,
-          cashRoundTo: b.cashRoundTo,
-          pointEarnEveryVnd: b.pointEarnEveryVnd,
-          pointEarnEach: b.pointEarnEach,
-          faceMatchThreshold: b.faceMatchThreshold,
-          pettyCashLimit: b.pettyCashLimit,
-          cancelWindowMinutes,
-          supplierReturnDays,
-          searchMinCustomers,
-          searchMinPercent,
-          searchWindowDays,
-          googleLoginEnabled: boolOr(b.googleLoginEnabled),
-          facebookLoginEnabled: boolOr(b.facebookLoginEnabled),
-        },
-      }),
-    );
+    const saved = await prisma.storeSettings.upsert({
+      where: { id: 1 },
+      create: {
+        id: 1,
+        vatRatePercent: b.vatRatePercent ?? 10,
+        pointPerVnd: b.pointPerVnd ?? 10000,
+        pointValueVnd: b.pointValueVnd ?? 1,
+        cashRoundTo: b.cashRoundTo ?? 1000,
+        pointEarnEveryVnd: b.pointEarnEveryVnd ?? 1000,
+        pointEarnEach: b.pointEarnEach ?? 100,
+        faceMatchThreshold: b.faceMatchThreshold ?? 0.5,
+        pettyCashLimit: b.pettyCashLimit ?? 200000,
+        cancelWindowMinutes: cancelWindowMinutes ?? 5,
+        supplierReturnDays: supplierReturnDays ?? 7,
+        searchMinCustomers: searchMinCustomers ?? 3,
+        searchMinPercent: searchMinPercent ?? 2,
+        searchWindowDays: searchWindowDays ?? 30,
+        googleLoginEnabled: boolOr(b.googleLoginEnabled) ?? true,
+        facebookLoginEnabled: boolOr(b.facebookLoginEnabled) ?? true,
+        behaviorTracking: boolOr(b.behaviorTracking) ?? true,
+        behaviorRetentionDays: behaviorRetentionDays ?? 90,
+      },
+      update: {
+        vatRatePercent: b.vatRatePercent,
+        pointPerVnd: b.pointPerVnd,
+        pointValueVnd: b.pointValueVnd,
+        cashRoundTo: b.cashRoundTo,
+        pointEarnEveryVnd: b.pointEarnEveryVnd,
+        pointEarnEach: b.pointEarnEach,
+        faceMatchThreshold: b.faceMatchThreshold,
+        pettyCashLimit: b.pettyCashLimit,
+        cancelWindowMinutes,
+        supplierReturnDays,
+        searchMinCustomers,
+        searchMinPercent,
+        searchWindowDays,
+        googleLoginEnabled: boolOr(b.googleLoginEnabled),
+        facebookLoginEnabled: boolOr(b.facebookLoginEnabled),
+        behaviorTracking: boolOr(b.behaviorTracking),
+        behaviorRetentionDays,
+      },
+    });
+    // POST /api/track đọc lại công tắc ngay (không chờ hết đệm 60 giây)
+    resetTrackingSettings();
+    res.json(saved);
   });
 
   // Báo cáo doanh thu: xem reports.ts (/reports/revenue — tách tiền thật, điểm, phí ship)

@@ -11,6 +11,8 @@ export type SiteInfo = {
   theme: import("./siteTheme").SiteTheme;
   /** Quán đang bật ghi nhận hành vi khách (lib/track.ts) */
   tracking?: boolean;
+  /** Số ngày lưu dữ liệu hành vi (chính sách quyền riêng tư) */
+  trackingDays?: number;
 };
 
 /* Bộ nhớ đệm theo chi nhánh: header, footer, trang chủ dùng chung 1 lần gọi */

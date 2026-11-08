@@ -90,6 +90,7 @@ export function siteRouter(prisma: PrismaClient) {
       theme: readTheme(s.siteTheme),
       // Web khách chỉ gửi sự kiện hành vi khi quán bật ghi nhận (lib/track.ts)
       tracking: s.behaviorTracking,
+      trackingDays: s.behaviorRetentionDays,
       hotline: { value: hotline, display: formatVnPhone(hotline), href: `tel:${hotline}` },
       stores,
       // Mạng xã hội ở footer = nút liên hệ đang bật (Zalo, Messenger, TikTok…) — không ghi cứng link

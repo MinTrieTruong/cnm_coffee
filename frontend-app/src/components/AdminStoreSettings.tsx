@@ -18,6 +18,9 @@ type StoreSettingsPayload = {
   searchWindowDays: number;
   googleLoginEnabled?: boolean;
   facebookLoginEnabled?: boolean;
+  /** Ghi nhận hành vi khách trên web (trang "Hành vi khách") + số ngày lưu */
+  behaviorTracking?: boolean;
+  behaviorRetentionDays?: number;
   /** Backend đã có đủ biến môi trường cho từng nhà cung cấp */
   socialConfigured?: { GOOGLE: boolean; FACEBOOK: boolean };
 };
@@ -48,6 +51,8 @@ export function AdminStoreSettings({
   const [searchDays, setSearchDays] = useState(String(settings.searchWindowDays ?? 30));
   const [googleOn, setGoogleOn] = useState(settings.googleLoginEnabled ?? true);
   const [facebookOn, setFacebookOn] = useState(settings.facebookLoginEnabled ?? true);
+  const [trackOn, setTrackOn] = useState(settings.behaviorTracking ?? true);
+  const [trackDays, setTrackDays] = useState(String(settings.behaviorRetentionDays ?? 90));
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -65,6 +70,8 @@ export function AdminStoreSettings({
     setSearchDays(String(settings.searchWindowDays ?? 30));
     setGoogleOn(settings.googleLoginEnabled ?? true);
     setFacebookOn(settings.facebookLoginEnabled ?? true);
+    setTrackOn(settings.behaviorTracking ?? true);
+    setTrackDays(String(settings.behaviorRetentionDays ?? 90));
   }, [settings]);
 
   async function save(e: FormEvent) {
@@ -89,6 +96,8 @@ export function AdminStoreSettings({
           searchWindowDays: Number(searchDays),
           googleLoginEnabled: googleOn,
           facebookLoginEnabled: facebookOn,
+          behaviorTracking: trackOn,
+          behaviorRetentionDays: Number(trackDays),
         }),
       });
       await onSaved();
@@ -191,6 +200,19 @@ export function AdminStoreSettings({
               </div>
             ))}
             <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>Tắt thì nút trên trang Đăng nhập / Đăng ký ẩn đi và máy chủ từ chối đăng nhập bằng phương thức đó. Hướng dẫn tạo app: docs/social-login-setup.md.</p>
+          </div>
+
+          {/* Hành vi khách trên web */}
+          <div style={{ border: "1px solid var(--border)", padding: "1.25rem", borderRadius: "10px", background: "var(--surface2)" }}>
+            <h3 style={{ margin: "0 0 1rem", fontSize: "1.05rem" }}>Hành vi khách trên web</h3>
+            <div className="field" style={{ marginBottom: "0.75rem" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer", fontWeight: 600 }}>
+                <input type="checkbox" checked={trackOn} onChange={(e) => setTrackOn(e.target.checked)} style={{ width: 18, height: 18, accentColor: "var(--accent)" }} />
+                Ghi nhận hành vi khách trên web
+              </label>
+            </div>
+            <label style={{ fontSize: "0.85rem", display: "block", maxWidth: 220 }}>Lưu trong (ngày)<input className="input" type="number" min={7} max={365} value={trackDays} onChange={(e) => setTrackDays(e.target.value)} /></label>
+            <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>Ẩn danh: món được xem, thêm / bớt giỏ, thời gian xem từng màn hình — cho trang Bán hàng › Hành vi khách. Không lưu IP / vị trí; tự xoá sau số ngày trên. Tắt thì web khách ngừng gửi (số liệu cũ vẫn giữ tới hạn xoá).</p>
           </div>
 
           {/* AI Config Box */}
