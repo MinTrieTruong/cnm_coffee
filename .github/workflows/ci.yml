@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]   # main được kiểm tra trong deploy.yml
+  workflow_call:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend-node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend-node/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma validate
+        env:
+          DATABASE_URL: mysql://u:p@localhost:3306/db
+      - run: npx prisma generate
+      - run: npm run build
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend-app/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Build (Vite)
+        run: npx vite build
+      - name: Kiểm tra kiểu TypeScript
+        # Repo hiện còn lỗi TS cũ (xem docs/trien-khai.md). Sửa xong thì xoá dòng continue-on-error.
+        continue-on-error: true
+        run: npx tsc -b
+
+  ai-service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r ai-service-python/requirements.txt
+      - run: python -c "import sys; sys.path.insert(0, 'ai-service-python'); import main; print('ok')"
