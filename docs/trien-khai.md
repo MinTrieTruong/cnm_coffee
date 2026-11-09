@@ -59,6 +59,10 @@ Railway **Hobby: 5 USD/tháng**, đã bao gồm 5 USD tài nguyên. Phần dùng
 
 ## 4. Các bước bạn cần làm (lần đầu, khoảng 30–45 phút)
 
+### Bước 0. Merge PR #3 trước
+
+Railway build từ nhánh `main`, nên `main` phải có các Dockerfile trước đã. Merge [PR #3](https://github.com/MinTrieTruong/cnm_coffee/pull/3) vào `main`. Việc merge không làm deploy gì cả.
+
 ### Bước 1. Tạo tài khoản và project
 
 1. Vào **railway.com**, đăng nhập bằng **GitHub** (tài khoản `MinTrieTruong`).
@@ -80,7 +84,7 @@ Làm 3 lần: **+ Create → GitHub Repo → MinTrieTruong/cnm_coffee**. Với m
 | Lần 2 | `backend` | `/backend-node` |
 | Lần 3 | `web` | `/frontend-app` |
 
-Với cả 3 service, cũng trong **Settings → Source**: nhánh `main`, bật **Wait for CI**. Công tắc này chỉ hiện sau khi PR #3 đã được merge (repo cần có workflow chạy khi push `main`). Nếu Railway hỏi cập nhật quyền GitHub thì bấm đồng ý.
+Với cả 3 service, cũng trong **Settings → Source**: nhánh `main`, bật **Wait for CI**. Nếu Railway hỏi cập nhật quyền GitHub thì bấm đồng ý.
 
 Tên service phải đặt đúng `MySQL`, `backend`, `ai`, `web`, vì các biến ở bước sau tham chiếu theo tên.
 
@@ -160,9 +164,7 @@ railway ssh -s backend -- npm run db:seed
 
 3. Mở tên miền của `web`. Đăng nhập `admin` / `staff123` rồi **đổi mật khẩu tất cả tài khoản demo ngay**.
 
-### Bước 7. Merge PR để bật CI/CD
-
-Merge [PR #3](https://github.com/MinTrieTruong/cnm_coffee/pull/3) vào `main`. Quay lại bước 3 bật **Wait for CI** cho 3 service nếu lúc trước chưa thấy công tắc. Từ giờ:
+### Bước 7. Quy trình CI/CD từ giờ
 
 1. Code trên nhánh riêng → mở Pull Request → **CI** chạy kiểm tra.
 2. Merge vào `main` → CI chạy lại → xanh thì Railway tự deploy (khoảng 3–6 phút).
