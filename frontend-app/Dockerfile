@@ -4,7 +4,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY . .
-# URL công khai của API, ví dụ https://tdcoffee.vn (cùng tên miền với web)
+# URL công khai của web/API (cùng tên miền), ví dụ https://tdcoffee.up.railway.app
+# Railway tự truyền biến VITE_API_URL của service vào đây lúc build
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
 # Dùng `vite build` (bỏ qua tsc) — kiểm tra kiểu chạy riêng trong CI

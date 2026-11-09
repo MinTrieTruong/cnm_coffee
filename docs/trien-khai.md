@@ -1,66 +1,208 @@
-# Triển khai TD Coffee lên host thật (có CI/CD)
+# Triển khai TD Coffee lên Railway (có CI/CD)
 
-> Mục tiêu: mỗi lần `git push` lên nhánh `main`, GitHub Actions tự kiểm tra code, build image Docker và cập nhật lên server. Web chạy HTTPS trên tên miền riêng.
+> Mục tiêu: mỗi lần `git push` lên nhánh `main`, GitHub Actions kiểm tra code. CI xanh thì Railway tự build và deploy bản mới. Web chạy HTTPS.
 
-## 1. Hệ thống gồm những gì
+## 1. Kiến trúc trên Railway
 
-| Thành phần | Công nghệ | Ghi chú khi deploy |
-|---|---|---|
-| Giao diện | Vite + React (`frontend-app`) | Build ra file tĩnh. Cần biến `VITE_API_URL` lúc build |
-| API | Express + Prisma + **Socket.io** (`backend-node`) | Chạy **liên tục** (có worker ân hạn 60s, worker giao hàng, socket realtime). Lưu ảnh vào thư mục `uploads/` trên ổ đĩa |
-| CSDL | MySQL 8 | Schema đồng bộ bằng `prisma db push` (repo không có migrations) |
-| AI gợi ý món | FastAPI (`ai-service-python`) | Nhẹ, nội bộ, backend gọi qua `AI_SERVICE_URL` |
-| Redis | có trong docker-compose cũ | Code hiện **không dùng** → bỏ khi deploy |
+Một project Railway gồm **4 service**:
 
-Ba điều quyết định cách deploy:
-
-1. **Backend phải chạy liên tục** (Socket.io + worker chạy trong tiến trình) → không hợp với kiểu serverless (Vercel Functions, Netlify Functions).
-2. **Ảnh upload lưu ra ổ đĩa** và frontend dùng đường dẫn tương đối `/uploads/...` → web và API nên **chung một tên miền**, và cần ổ đĩa bền (volume).
-3. **Chấm công bằng khuôn mặt (camera)** và thanh toán chỉ chạy trên **HTTPS**.
-
-## 2. So sánh phương án
-
-| | A. VPS + Docker Compose (**đề xuất**) | B. Railway (PaaS) | C. Vercel (web) + Railway (API) |
+| Service (đặt đúng tên này) | Lấy từ | Vai trò | Ra Internet? |
 |---|---|---|---|
-| Cách chạy | 1 máy ảo, chạy 4 container: MySQL, API, AI, Caddy (web + HTTPS) | Mỗi thư mục là 1 service, Railway tự build khi push | Web trên Vercel, API + MySQL trên Railway |
-| CI/CD | GitHub Actions: kiểm tra → build image lên GHCR → SSH vào VPS cập nhật | Có sẵn (auto-deploy từ GitHub) | Có sẵn ở cả hai |
-| Chung tên miền, ảnh `/uploads` | Có (Caddy chia `/api`, `/uploads`, `/socket.io` cho backend) | Phải cấu hình thêm | **Không**: ảnh `/uploads/...` sẽ lỗi nếu không sửa code |
-| Dữ liệu | Bạn tự sao lưu (đã có script `deploy/backup-db.sh`) | Railway lo, có volume | Railway lo |
-| Chi phí ước tính/tháng | **~12–15 USD** (VPS 2 GB RAM Singapore, ~300–400k VNĐ) hoặc VPS Việt Nam ~150–250k VNĐ | Gói Hobby 5 USD + tiền dùng thực tế, thường **~10–25 USD**, khó đoán trước | ~10–25 USD (Railway) + Vercel miễn phí |
-| Độ khó | Trung bình (làm theo hướng dẫn dưới, ~1–2 giờ lần đầu) | Dễ nhất | Dễ, nhưng phải sửa code ảnh |
-| Điểm cộng cho đồ án | Thể hiện được Docker, reverse proxy, CI/CD đầy đủ | Nhanh có link demo | — |
+| `MySQL` | Database có sẵn của Railway | CSDL | Không |
+| `backend` | thư mục `backend-node` | API + Socket.io + worker, lưu ảnh upload vào **Volume** | Không |
+| `ai` | thư mục `ai-service-python` | Gợi ý món | Không |
+| `web` | thư mục `frontend-app` | Caddy: phục vụ giao diện React, chuyển `/api`, `/uploads`, `/socket.io` sang `backend` qua mạng nội bộ | **Có** (tên miền duy nhất) |
 
-Giá trên là ước tính tháng 11/2026, nên kiểm tra lại trên trang giá của nhà cung cấp trước khi mua. Thêm **tên miền** ~250–300k VNĐ/năm (.com) hoặc dùng tên miền con miễn phí nếu chưa muốn mua.
+```
+Khách ──HTTPS──► web (Caddy) ──┬─ /, /menu, ...                ─► file React
+                               └─ /api, /uploads, /socket.io   ─► backend.railway.internal:4000
+                                                                   ├─► MySQL (nội bộ)
+                                                                   └─► ai.railway.internal:8000
+```
 
-**Đề xuất: phương án A.** Chọn VPS **2 GB RAM, 1–2 vCPU, Ubuntu 24.04**, đặt ở **Singapore** (DigitalOcean, Vultr, Linode) hoặc nhà cung cấp Việt Nam (Vietnix, AZDIGI, BizFly Cloud…) để khách ở VN truy cập nhanh. 1 GB RAM sẽ thiếu vì MySQL 8 + Node khá tốn bộ nhớ.
-
-## 3. Các file đã thêm vào repo
-
-| File | Vai trò |
-|---|---|
-| `backend-node/Dockerfile` | Build API. Khi khởi động tự chạy `prisma db push` rồi `node dist/index.js` |
-| `ai-service-python/Dockerfile` | Chạy FastAPI bằng uvicorn |
-| `frontend-app/Dockerfile` + `frontend-app/Caddyfile` | Build React, rồi Caddy phục vụ web, chuyển `/api`, `/uploads`, `/socket.io` sang backend và **tự cấp HTTPS** |
-| `deploy/docker-compose.prod.yml` | Ghép 4 container trên VPS, có volume cho MySQL, ảnh upload, chứng chỉ |
-| `deploy/.env.production.example` | Mẫu biến môi trường cho VPS |
-| `deploy/backup-db.sh` | Sao lưu MySQL hằng ngày, giữ 14 bản |
-| `.github/workflows/ci.yml` | Kiểm tra mỗi Pull Request: build backend, build frontend, kiểm tra kiểu TS, import service AI |
-| `.github/workflows/deploy.yml` | Push lên `main` → chạy CI → build 3 image lên GitHub Container Registry → SSH vào VPS cập nhật → kiểm tra `/api/health` |
+Vì sao làm vậy: web và API **chung một tên miền**. Ảnh upload lưu dạng `/uploads/...` và Socket.io chạy được ngay mà không phải sửa code hay cấu hình CORS.
 
 Luồng CI/CD:
 
 ```
-git push main ─► CI (build + kiểm tra) ─► build image ─► ghcr.io/mintrietruong/cnm-coffee-{backend,ai,web}
-                                                         │
-                                                         ▼
-                                   SSH vào VPS: docker compose pull && up -d ─► kiểm tra /api/health
+git push main ─► GitHub Actions "CI" (build backend, build frontend, kiểm tra AI)
+                    │ xanh
+                    ▼
+           Railway ("Wait for CI") ─► build Dockerfile từng service ─► deploy
 ```
 
-Mỗi image được gắn tag theo mã commit, nên muốn quay lại bản cũ chỉ cần chạy lại workflow ở commit cũ (xem mục 6).
+Nếu CI đỏ, Railway bỏ qua bản đó và web vẫn chạy bản cũ.
 
-## 4. Các bước bạn cần làm (lần đầu)
+## 2. Chi phí dự kiến
 
-### Bước 1. Mua VPS và tên miền
+Railway **Hobby: 5 USD/tháng**, đã bao gồm 5 USD tài nguyên. Phần dùng vượt mới tính thêm: RAM 10 USD/GB/tháng, CPU 20 USD/vCPU/tháng, ổ Volume 0,15 USD/GB/tháng, băng thông ra 0,05 USD/GB. Build miễn phí.
+
+| Service | RAM ước tính | Chi phí ước tính/tháng |
+|---|---|---|
+| MySQL | 0,4–0,5 GB | 4–5 USD |
+| backend | 0,2–0,3 GB | 2–3 USD |
+| web (Caddy) + ai | ~0,1 GB | ~1 USD |
+| CPU lúc ít khách + volume | | 1–2 USD |
+| **Tổng** | | **khoảng 8–12 USD/tháng (~200–300k VNĐ)**, trong đó 5 USD là phí gói |
+
+Đây là ước tính cho lượng khách của đồ án. Xem số thực tế ở tab **Usage** sau vài ngày. Nên đặt **Usage Limit** (Workspace → Usage) khoảng 20 USD để không bị tính quá tay. Tên miền riêng là tuỳ chọn (~250–300k VNĐ/năm), vì Railway đã cho sẵn tên miền dạng `xxx.up.railway.app`.
+
+## 3. Các file trong repo phục vụ deploy
+
+| File | Vai trò |
+|---|---|
+| `backend-node/Dockerfile` | Build API. Mỗi lần khởi động tự chạy `prisma db push` (đồng bộ bảng, **không** xoá dữ liệu) rồi chạy server |
+| `ai-service-python/Dockerfile` | Chạy FastAPI. Biến `HOST`, `PORT` chỉnh được |
+| `frontend-app/Dockerfile` + `Caddyfile` | Build React, Caddy phục vụ web và làm reverse proxy. Biến `SITE_ADDRESS`, `BACKEND_UPSTREAM` chỉnh được |
+| `.github/workflows/ci.yml` | CI: chạy cho mỗi Pull Request và mỗi lần push `main` |
+| `deploy/`, `.github/workflows/deploy-vps.yml` | Phương án dự phòng nếu sau này chuyển sang VPS riêng (Phụ lục), không ảnh hưởng Railway |
+
+## 4. Các bước bạn cần làm (lần đầu, khoảng 30–45 phút)
+
+### Bước 1. Tạo tài khoản và project
+
+1. Vào **railway.com**, đăng nhập bằng **GitHub** (tài khoản `MinTrieTruong`).
+2. Nâng cấp lên gói **Hobby** và nhập thẻ thanh toán (Visa/Mastercard).
+3. Khi Railway xin quyền truy cập GitHub, cho phép repo `cnm_coffee`.
+4. **New Project → Empty Project**.
+
+### Bước 2. Thêm MySQL
+
+Trong project: **+ Create → Database → MySQL**. Giữ tên service là `MySQL`.
+
+### Bước 3. Thêm 3 service từ GitHub
+
+Làm 3 lần: **+ Create → GitHub Repo → MinTrieTruong/cnm_coffee**. Với mỗi service vừa tạo, mở **Settings**:
+
+| | Đổi tên service (ô tên ở đầu Settings) | Settings → Source → **Root Directory** |
+|---|---|---|
+| Lần 1 | `ai` | `/ai-service-python` |
+| Lần 2 | `backend` | `/backend-node` |
+| Lần 3 | `web` | `/frontend-app` |
+
+Với cả 3 service, cũng trong **Settings → Source**: nhánh `main`, bật **Wait for CI**. Công tắc này chỉ hiện sau khi PR #3 đã được merge (repo cần có workflow chạy khi push `main`). Nếu Railway hỏi cập nhật quyền GitHub thì bấm đồng ý.
+
+Tên service phải đặt đúng `MySQL`, `backend`, `ai`, `web`, vì các biến ở bước sau tham chiếu theo tên.
+
+### Bước 4. Khai báo biến cho từng service
+
+Mở service → tab **Variables** → **Raw Editor**, dán khối tương ứng rồi bấm **Update Variables**. Cú pháp `${{...}}` là để Railway tự điền giá trị, cứ để nguyên.
+
+**`ai`**
+
+```
+HOST=::
+PORT=8000
+```
+
+**`web`.** Trước tiên vào **Settings → Networking → Generate Domain**, nhập cổng **8080**. Bạn sẽ được tên miền dạng `web-production-xxxx.up.railway.app`. Sau đó dán biến:
+
+```
+PORT=8080
+SITE_ADDRESS=:8080
+BACKEND_UPSTREAM=${{backend.RAILWAY_PRIVATE_DOMAIN}}:4000
+VITE_API_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}
+```
+
+**`backend`.** Điền `JWT_SECRET` bằng một chuỗi ngẫu nhiên dài, ví dụ lấy từ lệnh `openssl rand -hex 32` hoặc từ trang tạo mật khẩu:
+
+```
+NODE_ENV=production
+PORT=4000
+DATABASE_URL=${{MySQL.MYSQL_URL}}
+JWT_SECRET=
+STORE_NAME=TD Coffee
+AI_SERVICE_URL=http://${{ai.RAILWAY_PRIVATE_DOMAIN}}:8000
+PUBLIC_APP_URL=https://${{web.RAILWAY_PUBLIC_DOMAIN}}
+FRONTEND_URL=https://${{web.RAILWAY_PUBLIC_DOMAIN}}
+CORS_ORIGIN=https://${{web.RAILWAY_PUBLIC_DOMAIN}}
+```
+
+Nếu dùng thanh toán, thêm các biến sau (để trống thì tính năng đó không chạy). URL IPN/return khai với cổng thanh toán là `https://<tên-miền-web>/api/...`:
+
+```
+VIETQR_BANK_ID=
+VIETQR_ACCOUNT_NO=
+VIETQR_ACCOUNT_NAME=
+SEPAY_ENV=sandbox
+SEPAY_MERCHANT_ID=
+SEPAY_SECRET_KEY=
+VNPAY_TMN_CODE=
+VNPAY_HASH_SECRET=
+VNPAY_URL=
+MOMO_PARTNER_CODE=
+MOMO_ACCESS_KEY=
+MOMO_SECRET_KEY=
+MOMO_ENDPOINT=
+MOMO_IPN_URL=
+```
+
+### Bước 5. Ổ lưu ảnh và kiểm tra sức khoẻ cho backend
+
+1. Chuột phải vào service `backend` (hoặc **⌘K / Ctrl+K**) → **Attach Volume**, đặt Mount path là **`/app/uploads`**. Thiếu bước này thì ảnh upload sẽ mất sau mỗi lần deploy.
+2. `backend` → **Settings → Deploy → Healthcheck Path**: `/api/health`.
+3. Không bấm Generate Domain cho `backend`, `ai`, `MySQL`. Chỉ `web` ra Internet.
+
+### Bước 6. Deploy lần đầu
+
+1. Bấm **Deploy** (hoặc **Apply changes**) ở góc trên. Railway build 3 service, mất khoảng 3–6 phút. Xem tiến độ ở tab **Deployments** của từng service.
+2. Khi `backend` báo **Active**, nạp dữ liệu mẫu **một lần duy nhất**. Trên máy bạn:
+
+```bash
+npm i -g @railway/cli
+railway login
+cd cnm_coffee            # thư mục repo trên máy
+railway link             # chọn project vừa tạo
+railway ssh -s backend -- npm run db:seed
+```
+
+(Lần đầu `railway ssh` sẽ hỏi tạo/đăng ký SSH key, cứ đồng ý.)
+
+3. Mở tên miền của `web`. Đăng nhập `admin` / `staff123` rồi **đổi mật khẩu tất cả tài khoản demo ngay**.
+
+### Bước 7. Merge PR để bật CI/CD
+
+Merge [PR #3](https://github.com/MinTrieTruong/cnm_coffee/pull/3) vào `main`. Quay lại bước 3 bật **Wait for CI** cho 3 service nếu lúc trước chưa thấy công tắc. Từ giờ:
+
+1. Code trên nhánh riêng → mở Pull Request → **CI** chạy kiểm tra.
+2. Merge vào `main` → CI chạy lại → xanh thì Railway tự deploy (khoảng 3–6 phút).
+
+### Bước 8 (tuỳ chọn). Gắn tên miền riêng
+
+1. `web` → **Settings → Networking → Custom Domain**, nhập ví dụ `tdcoffee.com` hoặc `app.tdcoffee.com`.
+2. Railway hiện bản ghi DNS (thường là `CNAME`). Thêm bản ghi đó ở trang quản lý tên miền. Railway tự cấp HTTPS.
+3. Bấm **Redeploy** cho `web` và `backend` để các biến `RAILWAY_PUBLIC_DOMAIN` nhận tên miền mới (giao diện build lại với URL mới).
+4. In lại mã QR bàn nếu đã in theo tên miền cũ.
+
+## 5. Vận hành và xử lý sự cố
+
+| Việc | Cách làm |
+|---|---|
+| Xem log | Mở service → **Deployments** → bấm vào bản đang chạy → **View Logs** |
+| Quay lại bản trước | Service → **Deployments** → bản cũ → **⋮ → Redeploy** |
+| Backend không lên, log báo `prisma db push` có nguy cơ mất dữ liệu | Bạn vừa xoá/đổi cột trong `schema.prisma`. Sao lưu trước, rồi chạy `railway ssh -s backend -- npx prisma db push --accept-data-loss` |
+| Web lỗi 502 | `backend` chưa chạy, hoặc `BACKEND_UPSTREAM` sai tên service. Kiểm tra log `backend` |
+| Gợi ý món AI không ra | Kiểm tra `ai` có biến `HOST=::`, `PORT=8000`, và `AI_SERVICE_URL` của backend |
+| Sao lưu CSDL | Service `MySQL` → tab **Backups** (nếu gói có). Hoặc trên máy bạn: lấy `MYSQL_PUBLIC_URL` ở tab Variables của MySQL rồi chạy `mysqldump` (cần bật TCP Proxy của MySQL) |
+| Chi phí | Tab **Usage** của workspace. Nên đặt Usage Limit |
+
+Lưu ý: backend gắn Volume nên mỗi lần deploy sẽ gián đoạn vài giây. Socket.io tự kết nối lại, không mất dữ liệu.
+
+## 6. Việc nên làm thêm trong code
+
+- **Frontend còn lỗi TypeScript.** `tsc -b` báo 30 lỗi, phần lớn là biến không dùng, nhưng có 5 lỗi thật. Đáng chú ý nhất là `StaffTables.tsx` gọi hàm `mergeOrders` **không tồn tại**, nên nút "Gộp" đơn sẽ lỗi khi bấm. Docker build dùng `vite build` nên vẫn deploy được, và bước kiểm tra kiểu trong CI tạm để không chặn. Sửa xong thì xoá dòng `continue-on-error: true` trong `.github/workflows/ci.yml`.
+- **CORS** đang mở cho mọi nguồn (`origin: true`). Vì web và API chung tên miền nên có thể siết lại theo `CORS_ORIGIN`.
+- Không chạy lại `db:seed` trên server thật.
+- Khi schema ổn định, nên chuyển từ `prisma db push` sang `prisma migrate` để thay đổi CSDL an toàn hơn.
+
+---
+
+## Phụ lục: phương án VPS riêng (dự phòng)
+
+Nếu sau này muốn tự chủ hơn hoặc tiết kiệm hơn khi đông khách, repo đã có sẵn cấu hình chạy trên một VPS (2 GB RAM, Ubuntu 24.04, khoảng 12–15 USD/tháng): `deploy/docker-compose.prod.yml`, `deploy/.env.production.example`, `deploy/backup-db.sh` và workflow **Deploy VPS** (chạy tay ở tab Actions). Workflow này build image lên GHCR, SSH vào VPS chạy `docker compose pull && up -d`. Trên VPS, Caddy tự xin HTTPS cho tên miền.
+
+
+#### Bước 1. Mua VPS và tên miền
 
 1. Tạo VPS Ubuntu 24.04, 2 GB RAM. Khi tạo, chọn đăng nhập bằng **SSH key** (nếu nhà cung cấp hỏi).
 2. Ghi lại **địa chỉ IP** của VPS.
@@ -68,7 +210,7 @@ Mỗi image được gắn tag theo mã commit, nên muốn quay lại bản cũ
    - `A` · tên `@` (hoặc `app`) · giá trị = IP VPS
 4. Đợi vài phút đến vài giờ để DNS cập nhật. Kiểm tra: `ping ten-mien-cua-ban.com` ra đúng IP.
 
-### Bước 2. Cài Docker trên VPS
+#### Bước 2. Cài Docker trên VPS
 
 SSH vào VPS bằng tài khoản root rồi chạy:
 
@@ -89,7 +231,7 @@ fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /
 echo '/swapfile none swap sw 0 0' >> /etc/fstab
 ```
 
-### Bước 3. Tạo SSH key cho GitHub Actions
+#### Bước 3. Tạo SSH key cho GitHub Actions
 
 Trên **máy của bạn** (không phải VPS):
 
@@ -109,7 +251,7 @@ chown -R deploy:deploy /home/deploy/.ssh && chmod 700 /home/deploy/.ssh && chmod
 
 Thử từ máy bạn: `ssh -i tdcoffee_deploy deploy@IP_VPS` phải vào được.
 
-### Bước 4. Tạo file `.env` trên VPS
+#### Bước 4. Tạo file `.env` trên VPS
 
 ```bash
 su - deploy
@@ -126,7 +268,7 @@ Dán nội dung từ `deploy/.env.production.example` rồi điền:
 
 Sau đó: `chmod 600 .env`
 
-### Bước 5. Khai báo bí mật trên GitHub
+#### Bước 5. Khai báo bí mật trên GitHub
 
 Vào repo trên GitHub → **Settings → Secrets and variables → Actions**:
 
@@ -146,9 +288,9 @@ Tab **Variables** → *New repository variable*:
 
 Tuỳ chọn: **Settings → Environments → production** → bật *Required reviewers* nếu muốn phải bấm duyệt trước mỗi lần deploy.
 
-### Bước 6. Deploy lần đầu
+#### Bước 6. Deploy lần đầu
 
-1. Merge Pull Request chứa các file triển khai vào `main`. Workflow **Deploy** sẽ tự chạy (xem ở tab **Actions**).
+1. Tab **Actions → Deploy VPS → Run workflow** (mỗi lần muốn cập nhật server đều bấm như vậy, hoặc đổi trigger trong `deploy-vps.yml` về `push: main` nếu bỏ Railway).
 2. Lần đầu, image trên GHCR ở chế độ riêng tư; workflow tự đăng nhập GHCR bằng token tạm thời nên không cần làm gì thêm.
 3. Khi workflow xanh, nạp dữ liệu mẫu **một lần duy nhất** (trên VPS, user `deploy`):
 
@@ -166,37 +308,5 @@ crontab -e
 0 3 * * * /opt/tdcoffee/backup-db.sh >> /opt/tdcoffee/backup.log 2>&1
 ```
 
-Từ giờ, mỗi lần push lên `main` là web tự cập nhật sau khoảng 3–6 phút.
+Nếu bỏ hẳn Railway, sửa `on:` trong `deploy-vps.yml` thành `push: branches: [main]` để mỗi lần push là server tự cập nhật.
 
-## 5. Quy trình làm việc hằng ngày
-
-1. Tạo nhánh mới, code, push → mở Pull Request. Workflow **CI** chạy kiểm tra.
-2. CI xanh → merge vào `main` → workflow **Deploy** tự đưa lên server.
-3. Nếu chỉ muốn deploy lại mà không đổi code: tab **Actions → Deploy → Run workflow**.
-
-## 6. Xử lý sự cố thường gặp
-
-| Hiện tượng | Cách xử lý |
-|---|---|
-| Xem log | `cd /opt/tdcoffee && docker compose logs -f backend` (hoặc `web`, `mysql`) |
-| Web không có HTTPS | Kiểm tra DNS đã trỏ đúng IP, cổng 80/443 đã mở; xem `docker compose logs web` |
-| Backend không lên, log báo `prisma db push` có nguy cơ mất dữ liệu | Bạn vừa đổi schema theo kiểu xoá/đổi cột. Sao lưu DB trước, rồi chạy tay: `docker compose run --rm backend npx prisma db push --accept-data-loss` |
-| Quay lại bản trước | Tab **Actions** → chọn lần Deploy cũ còn chạy tốt → *Re-run all jobs*. Hoặc trên VPS: `IMAGE_TAG=<mã-commit-cũ> docker compose up -d` |
-| Khôi phục DB | `gunzip -c backups/db-YYYY-MM-DD.sql.gz \| docker compose exec -T mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" coffee_shop_db` |
-| Hết RAM | Nâng VPS lên 4 GB, hoặc kiểm tra swap (`free -h`) |
-
-## 7. Việc nên làm thêm trong code
-
-- **Frontend còn lỗi TypeScript.** `npm run build` (có `tsc -b`) hiện báo 30 lỗi, phần lớn là biến khai báo mà không dùng, nhưng có 5 lỗi thật, đáng chú ý nhất là `StaffTables.tsx` gọi hàm `mergeOrders` **không tồn tại** (nút "Gộp" đơn sẽ lỗi khi bấm). Vì vậy Docker build dùng `vite build`, và bước kiểm tra kiểu trong CI tạm để không chặn. Sửa xong thì xoá dòng `continue-on-error: true` trong `.github/workflows/ci.yml`.
-- **CORS** đang mở cho mọi nguồn (`origin: true`). Vì web và API chung tên miền nên có thể siết lại theo `CORS_ORIGIN`.
-- **Đổi mật khẩu tài khoản demo** và không chạy lại `db:seed` trên server thật.
-- Nên chuyển từ `prisma db push` sang `prisma migrate` khi schema đã ổn định, để thay đổi CSDL an toàn hơn.
-
-## 8. Nếu muốn dùng Railway thay vì VPS (phương án B)
-
-1. Tạo tài khoản railway.app, chọn gói Hobby, *New Project → Deploy from GitHub repo*.
-2. Thêm database **MySQL** từ Railway.
-3. Tạo 3 service từ cùng repo, đặt *Root Directory* lần lượt `backend-node`, `ai-service-python`, `frontend-app` (Railway sẽ dùng các Dockerfile ở trên).
-4. Backend: đặt biến `DATABASE_URL` = `${{MySQL.MYSQL_URL}}`, `JWT_SECRET`, `AI_SERVICE_URL` = địa chỉ nội bộ của service AI; gắn **Volume** vào `/app/uploads`.
-5. Frontend: Caddyfile hiện trỏ tới `backend:4000` (tên trong docker-compose). Trên Railway cần đổi thành địa chỉ nội bộ của service backend và cho Caddy nghe cổng `$PORT`. Nếu chọn phương án này, nhờ Claude chỉnh giúp.
-6. Railway tự build và deploy mỗi lần push, workflow `deploy.yml` khi đó có thể tắt, chỉ giữ `ci.yml`.

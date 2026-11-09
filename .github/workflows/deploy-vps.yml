@@ -1,8 +1,8 @@
-name: Deploy
+# Phương án dự phòng: deploy lên VPS riêng (xem docs/trien-khai.md, phụ lục).
+# Đang dùng Railway nên workflow này chỉ chạy khi bấm tay (Actions → Deploy VPS → Run workflow).
+name: Deploy VPS
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:

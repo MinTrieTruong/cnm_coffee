@@ -45,7 +45,7 @@ services:
     image: ghcr.io/${GH_OWNER}/cnm-coffee-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
-      DOMAIN: ${DOMAIN}
+      SITE_ADDRESS: ${DOMAIN}
     ports:
       - "80:80"
       - "443:443"
