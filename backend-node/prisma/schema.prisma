@@ -1496,8 +1496,76 @@ model HrConfig {
   overtimeRatePercent Int @default(15) @map("Overtime_Rate_Percent")
   /// Mỗi phiếu làm thêm tối đa N phút
   maxOvertimeMinutes  Int @default(240) @map("Max_Overtime_Minutes")
+  /// Hạn gửi nguyện vọng xếp ca: ngày N của tháng trước tháng cần xếp
+  wishDeadlineDay     Int @default(20) @map("Wish_Deadline_Day")
+  /// Số ràng buộc tối đa trong một bản nguyện vọng
+  maxWishRules        Int @default(15) @map("Max_Wish_Rules")
 
   @@map("Hr_Configs")
+}
+
+/// Nguyện vọng xếp ca của 1 nhân viên cho 1 tháng: câu gốc + các ràng buộc (ShiftWishRule) — xem lib/shiftWish
+model ShiftWish {
+  id          Int             @id @default(autoincrement()) @map("Wish_ID")
+  storeId     Int             @map("Store_ID")
+  staffId     Int             @map("Staff_ID")
+  /// "YYYY-MM"
+  month       String          @map("Month") @db.Char(7)
+  rawText     String?         @map("Raw_Text") @db.Text
+  /// DRAFT | CONFIRMED
+  status      String          @default("DRAFT") @map("Status") @db.VarChar(10)
+  /// Xác nhận sau hạn chót
+  late        Boolean         @default(false) @map("Late")
+  submittedAt DateTime?       @map("Submitted_At")
+  createdAt   DateTime        @default(now()) @map("Created_At")
+  updatedAt   DateTime        @updatedAt @map("Updated_At")
+  rules       ShiftWishRule[]
+
+  @@unique([staffId, month])
+  @@index([storeId, month])
+  @@map("Shift_Wishes")
+}
+
+/// Một ràng buộc: UNAVAILABLE | PREFER | AVOID | MAX_SHIFTS | MIN_SHIFTS | DAY_OFF_PATTERN
+model ShiftWishRule {
+  id         Int       @id @default(autoincrement()) @map("Rule_ID")
+  wishId     Int       @map("Wish_ID")
+  type       String    @map("Type") @db.VarChar(20)
+  /// ["YYYY-MM-DD"]
+  dates      Json?     @map("Dates")
+  /// [0..6], 0 = CN
+  weekdays   Json?     @map("Weekdays")
+  fromDate   DateTime? @map("From_Date") @db.Date
+  toDate     DateTime? @map("To_Date") @db.Date
+  /// Mã ca (ShiftTemplate.code); null = mọi ca (hoặc theo timeFrom–timeTo)
+  shiftCodes Json?     @map("Shift_Codes")
+  /// Khung giờ (phút trong ngày)
+  timeFrom   Int?      @map("Time_From")
+  timeTo     Int?      @map("Time_To")
+  count      Int?      @map("Count")
+  /// WEEK | MONTH | RANGE
+  period     String?   @map("Period") @db.VarChar(10)
+  /// Đoạn câu gốc sinh ra ràng buộc
+  quote      String?   @map("Quote") @db.VarChar(255)
+  /// AI | MANUAL
+  source     String    @default("MANUAL") @map("Source") @db.VarChar(10)
+  confidence Float?    @map("Confidence")
+  wish       ShiftWish @relation(fields: [wishId], references: [id], onDelete: Cascade)
+
+  @@index([wishId])
+  @@map("Shift_Wish_Rules")
+}
+
+/// Trạng thái lịch tháng của chi nhánh: publishedAt ≠ null = đã công bố (khóa sửa nguyện vọng)
+model ScheduleMonth {
+  id            Int       @id @default(autoincrement()) @map("SM_ID")
+  storeId       Int       @map("Store_ID")
+  month         String    @map("Month") @db.Char(7)
+  publishedAt   DateTime? @map("Published_At")
+  publishedById Int?      @map("Published_By_ID")
+
+  @@unique([storeId, month])
+  @@map("Schedule_Months")
 }
 
 /// Đơn gắn với 1 ca: làm thêm giờ / xin về sớm / đi muộn / khác

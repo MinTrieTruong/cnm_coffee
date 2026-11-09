@@ -17,6 +17,9 @@ export const AI_FEATURES = {
   NUTRITION_ASSIST: { label: "Gợi ý dinh dưỡng nguyên liệu", enabled: true, dailyLimit: 100, hourlyPerUser: null },
   WEATHER_PICKS: { label: "Câu gợi ý món theo thời tiết", enabled: true, dailyLimit: 300, hourlyPerUser: null },
   MENU_DRAFT: { label: "AI phác thảo món mới", enabled: true, dailyLimit: 50, hourlyPerUser: 10 },
+  // hourlyPerUser: số lần / nhân viên / giờ
+  SHIFT_WISH_AI: { label: "Hiểu nguyện vọng xếp ca viết tự nhiên", enabled: true, dailyLimit: 300, hourlyPerUser: 10 },
+  SHIFT_EXPLAIN_AI: { label: "Giải thích kết quả xếp ca", enabled: true, dailyLimit: 100, hourlyPerUser: null },
 } as const;
 export type AiFeature = keyof typeof AI_FEATURES;
 

@@ -25,6 +25,8 @@ type Config = {
   maxShiftsPerWeek: number;
   overtimeRatePercent: number;
   maxOvertimeMinutes: number;
+  wishDeadlineDay: number;
+  maxWishRules: number;
 };
 type Payload = { config: Config; templates: Template[]; roles: string[] };
 
@@ -45,6 +47,8 @@ const RULE_FIELDS: { key: keyof Config; label: string; hint: string; unit: strin
   { key: "maxShiftsPerWeek", label: "Số ca tối đa mỗi tuần", hint: "Mỗi nhân viên, tính từ Thứ 2 đến Chủ nhật", unit: "ca" },
   { key: "overtimeRatePercent", label: "Phụ cấp làm thêm giờ", hint: "1 giờ làm thêm được trả = lương 1 giờ × (100% + mức này). VD 15% → 115%", unit: "% / giờ" },
   { key: "maxOvertimeMinutes", label: "Làm thêm tối đa mỗi phiếu", hint: "Nhân viên xin làm thêm không quá số phút này cho 1 ca", unit: "phút" },
+  { key: "wishDeadlineDay", label: "Hạn gửi nguyện vọng xếp ca", hint: "Ngày trong tháng trước tháng cần xếp (1–28). Sau hạn vẫn gửi được nhưng ghi \"gửi muộn\"", unit: "ngày" },
+  { key: "maxWishRules", label: "Số ràng buộc nguyện vọng tối đa", hint: "Mỗi nhân viên, mỗi tháng (1–30)", unit: "ràng buộc" },
 ];
 
 /** Nhân sự › Cấu hình ca & chấm công — Chủ chuỗi đặt, áp dụng cho mọi chi nhánh */

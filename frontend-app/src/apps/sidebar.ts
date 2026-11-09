@@ -10,6 +10,7 @@ import {
   Building2,
   CalendarCheck,
   CalendarDays,
+  CalendarHeart,
   CalendarPlus,
   ChefHat,
   ClipboardCheck,
@@ -110,7 +111,7 @@ export const SIDEBAR_GROUPS: SidebarGroupDef[] = [
   {
     id: "mine",
     label: "Của tôi",
-    items: ["hr/attendance", "hr/my-schedule", { key: "hr/schedule", notRoles: MANAGERS }, "hr/open-shifts", "hr/my-tasks", "hr/payslips", "hr/requests"],
+    items: ["hr/attendance", "hr/my-schedule", "hr/shift-wishes", { key: "hr/schedule", notRoles: MANAGERS }, "hr/open-shifts", "hr/my-tasks", "hr/payslips", "hr/requests"],
   },
 ];
 
@@ -173,6 +174,7 @@ const LEAF_ICONS: Record<string, LucideIcon> = {
   "hr/my-tasks": ListTodo,
   "hr/schedule": CalendarDays,
   "hr/my-schedule": CalendarCheck,
+  "hr/shift-wishes": CalendarHeart,
   "hr/open-shifts": CalendarPlus,
   "hr/attendance": Clock,
   "hr/warnings": Siren,
@@ -232,6 +234,7 @@ export const LEAF_KEYWORDS: Record<string, string[]> = {
   "hr/employees": ["nhân viên", "tài khoản nhân viên"],
   "hr/schedule": ["xếp ca", "lịch làm"],
   "hr/my-schedule": ["lịch làm", "ca của tôi"],
+  "hr/shift-wishes": ["nguyện vọng", "đăng ký ca", "xin ca", "bận"],
   "hr/approvals": ["duyệt đơn", "xin nghỉ"],
   "hr/requests": ["xin nghỉ", "đổi ca", "đơn từ"],
   "hr/payroll": ["lương", "tiền lương", "chốt lương"],

@@ -37,7 +37,9 @@ export type NotifyType =
   | "BRANCH_PROPOSAL"
   | "INVENTORY_COUNT"
   /** Nhân viên vừa đăng ký FaceID / quản lý xoá FaceID */
-  | "STAFF_FACE";
+  | "STAFF_FACE"
+  /** Nhắc gửi nguyện vọng xếp ca */
+  | "SHIFT_WISH";
 
 export type Audience = {
   /** Gửi đích danh */

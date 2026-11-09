@@ -3,6 +3,7 @@ import { CalendarCheck, CalendarPlus, ChevronLeft, ChevronRight, Sparkles } from
 import { activeStoreId, getStaffInfo, isAdminRole, staffApi, staffSocket } from "../../lib/staffApi";
 import { ROLE_LABEL } from "../../lib/roles";
 import { Alert, Badge, Button, ControlPanel, Field, Modal, errMsg, type Tone } from "../../components/erp";
+import { ShiftWishPanel } from "./ShiftWishPanel";
 
 type ShiftDef = { code: string; name: string; label: string; startMin: number; endMin: number; hours: number; color: string; isActive: boolean };
 type StaffMini = { id: number; fullName: string; role: string };
@@ -186,6 +187,7 @@ export function Schedule() {
         {needStore && <Alert tone="info">Chọn một chi nhánh ở thanh trên cùng để xem và xếp lịch.</Alert>}
         {err && <Alert>{err}</Alert>}
         {note && <Alert tone="info">{note}</Alert>}
+        {mgmt && !needStore && <ShiftWishPanel month={key} />}
 
         {board && (
           <>

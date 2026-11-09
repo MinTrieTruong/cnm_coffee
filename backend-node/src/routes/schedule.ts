@@ -355,6 +355,16 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
       }),
     ]);
 
+    // Công bố theo tháng: ghi dấu "đã công bố" (khóa sửa nguyện vọng xếp ca của tháng đó)
+    const month = typeof req.body?.month === "string" && monthDays(req.body.month) ? (req.body.month as string) : null;
+    if (month) {
+      await prisma.scheduleMonth.upsert({
+        where: { storeId_month: { storeId, month } },
+        create: { storeId, month, publishedAt: new Date(), publishedById: me.id },
+        update: { publishedAt: new Date(), publishedById: me.id },
+      });
+    }
+
     const affected = await prisma.workSchedule.findMany({
       where: { ...where, status: "APPROVED" }, select: { staffId: true }, distinct: ["staffId"],
     });

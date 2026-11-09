@@ -30,6 +30,7 @@ const Kds = L(() => import("../pages/Kds"), "Kds");
 const WorkSchedule = L(() => import("../pages/WorkSchedule"), "WorkSchedule");
 const Schedule = L(() => import("../modules/hr/Schedule"), "Schedule");
 const ShiftConfig = L(() => import("../modules/hr/ShiftConfig"), "ShiftConfig");
+const ShiftWishes = L(() => import("../pages/ShiftWishes"), "ShiftWishes");
 const StockRequests = L(() => import("../modules/inventory/StockRequests"), "StockRequests");
 const ProposalList = L(() => import("../modules/sales/Proposals"), "ProposalList");
 const SearchInsights = L(() => import("../modules/sales/SearchInsights"), "SearchInsights");
@@ -320,6 +321,7 @@ export const APPS: AppDef[] = [
             layout: "erp",
           },
           { id: "my-schedule", label: "Lịch cá nhân", description: "Ca làm của bạn và đăng ký ca", roles: STAFF, component: WorkSchedule, layout: "legacy" },
+          { id: "shift-wishes", label: "Nguyện vọng xếp ca", description: "Gửi ngày / ca muốn làm, không làm được cho tháng tới", roles: SHIFT_STAFF, component: ShiftWishes, layout: "erp" },
           { id: "open-shifts", label: "Ca trống cần người", description: "Nhận ca của đồng nghiệp xin nghỉ — ai bấm trước được ca", roles: SHIFT_STAFF, component: OpenShifts, layout: "erp", ownHeader: true },
           { id: "attendance", label: "Chấm công", roles: "all", component: Attendance, layout: "full" },
           { id: "warnings", label: "Cảnh báo chấm công", description: "Đi muộn, về sớm, quên chấm công", roles: CHAIN_AND_BRANCH, component: AttendanceWarnings, layout: "erp" },

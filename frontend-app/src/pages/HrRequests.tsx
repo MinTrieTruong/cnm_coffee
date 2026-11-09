@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { getStaffInfo, staffApi } from "../lib/staffApi";
 import { ROLE_LABEL } from "../lib/roles";
@@ -59,11 +60,21 @@ export function useShiftNames() {
 /** Nhân sự › Đơn từ của tôi */
 export function HrRequests() {
   const me = getStaffInfo();
+  // ?tab=LEAVE&date=YYYY-MM-DD&toDate=YYYY-MM-DD (VD từ màn nguyện vọng xếp ca) → mở sẵn đơn nghỉ đã điền ngày
+  const [params, setParams] = useSearchParams();
+  const [prefill] = useState(() => {
+    const ymd = (v: string | null) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+    const date = params.get("tab") === "LEAVE" ? ymd(params.get("date")) : null;
+    return date ? { date, ...(ymd(params.get("toDate")) ? { toDate: ymd(params.get("toDate"))! } : {}) } : null;
+  });
   const [tab, setTab] = useState<HrTab>("LEAVE");
   const [items, setItems] = useState<HrItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [form, setForm] = useState(false);
+  const [form, setForm] = useState(!!prefill);
+  useEffect(() => {
+    if (prefill) setParams({}, { replace: true });
+  }, [prefill, setParams]);
   const names = useShiftNames();
   const endpoint = HR_TABS.find((t) => t.id === tab)!.endpoint;
 
@@ -144,7 +155,7 @@ export function HrRequests() {
           </section>
         )}
       </div>
-      {form && <RequestForm tab={tab} names={names} onClose={() => setForm(false)} onSent={() => { setForm(false); void load(); }} />}
+      {form && <RequestForm tab={tab} names={names} initial={tab === "LEAVE" ? prefill ?? undefined : undefined} onClose={() => setForm(false)} onSent={() => { setForm(false); void load(); }} />}
     </div>
   );
 }
@@ -157,9 +168,9 @@ export function SwapState({ it }: { it: HrItem }) {
   return <Badge>Chờ người nhận đồng ý</Badge>;
 }
 
-function RequestForm({ tab, names, onClose, onSent }: { tab: HrTab; names: Map<string, string>; onClose: () => void; onSent: () => void }) {
+function RequestForm({ tab, names, initial, onClose, onSent }: { tab: HrTab; names: Map<string, string>; initial?: Record<string, string>; onClose: () => void; onSent: () => void }) {
   const me = getStaffInfo();
-  const [v, setV] = useState<Record<string, string>>({ type: "OVERTIME", adjustmentType: "FORGET_CHECKIN" });
+  const [v, setV] = useState<Record<string, string>>({ type: "OVERTIME", adjustmentType: "FORGET_CHECKIN", ...initial });
   const [otRule, setOtRule] = useState<{ overtimeRatePercent: number; maxOvertimeMinutes: number } | null>(null);
   const [shifts, setShifts] = useState<Sched[]>([]);
   const [mates, setMates] = useState<{ id: number; fullName: string; role: string }[]>([]);

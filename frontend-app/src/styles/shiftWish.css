@@ -1,0 +1,74 @@
+/* Nhân sự › Nguyện vọng xếp ca (pages/ShiftWishes.tsx) và thẻ nguyện vọng ở màn xếp lịch (modules/hr/Schedule.tsx) */
+.o-sw-month { width: auto; }
+.o-sw-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: var(--o-fs-sm); }
+.o-sw-hint { margin: 0; font-size: var(--o-fs-sm); }
+.o-sw-text { width: 100%; min-height: 120px; resize: vertical; line-height: 1.5; }
+.o-sw-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.o-sw-count { font-size: var(--o-fs-xs); }
+.o-sw-leave { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px; border-left: 3px solid var(--o-info); }
+.o-sw-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.o-sw-inline { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.o-sw-inline > .o-field { flex: 1 1 140px; }
+
+/* Thẻ ràng buộc */
+.o-sw-rules { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.o-sw-rule { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: start; gap: 10px; padding: 10px 12px; border: 1px solid var(--o-border); border-left-width: 4px; border-radius: var(--o-radius); background: var(--o-surface); }
+.o-sw-rule.is-unavailable { border-left-color: var(--o-danger); }
+.o-sw-rule.is-prefer { border-left-color: var(--o-success); }
+.o-sw-rule.is-avoid { border-left-color: var(--o-warning); }
+.o-sw-rule.is-max_shifts, .o-sw-rule.is-min_shifts, .o-sw-rule.is-day_off_pattern { border-left-color: var(--o-border-strong); }
+.o-sw-rule.is-low { border-color: var(--o-warning); background: var(--o-warning-bg); }
+.o-sw-rule-icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; background: var(--o-surface-alt); color: var(--o-text-2); }
+.is-unavailable .o-sw-rule-icon { background: var(--o-danger-bg); color: var(--o-danger); }
+.is-prefer .o-sw-rule-icon { background: var(--o-success-bg); color: var(--o-success); }
+.is-avoid .o-sw-rule-icon { background: var(--o-warning-bg); color: var(--o-warning); }
+.o-sw-rule-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: var(--o-fs-sm); overflow-wrap: anywhere; }
+.o-sw-rule-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.o-sw-rule-act { display: inline-flex; gap: 2px; }
+.o-sw-quote { margin: 0; font-size: var(--o-fs-xs); font-style: italic; color: var(--o-muted); }
+
+/* Chip chọn ngày / thứ / ca */
+.o-sw-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.o-sw-chip { padding: 4px 10px; border: 1px solid var(--o-border-strong); border-radius: 999px; background: var(--o-surface); font: inherit; font-size: var(--o-fs-sm); color: var(--o-text); cursor: pointer; }
+.o-sw-chip:hover { background: var(--o-hover); }
+.o-sw-chip.is-on { border-color: var(--o-primary); background: var(--o-primary-soft); color: var(--o-primary); font-weight: 600; }
+
+/* Lịch xem trước */
+.o-sw-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 6px; font-size: var(--o-fs-xs); color: var(--o-text-2); }
+.o-sw-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.o-sw-legend i { display: inline-block; width: 14px; height: 6px; border-radius: 3px; background: var(--o-surface-alt); border: 1px solid var(--o-border); }
+.o-sw-cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin-top: 8px; }
+.o-sw-cal-head { text-align: center; font-size: var(--o-fs-xs); font-weight: 600; color: var(--o-muted); }
+.o-sw-day { display: flex; flex-direction: column; gap: 3px; min-height: 52px; padding: 4px; border: 1px solid var(--o-border); border-radius: var(--o-radius); background: var(--o-surface); }
+.o-sw-day-num { font-size: var(--o-fs-xs); color: var(--o-text-2); }
+.o-sw-bar { display: block; height: 6px; border-radius: 3px; background: var(--o-surface-alt); border: 1px solid var(--o-border); }
+.o-sw-bar.is-no, .o-sw-legend i.is-no { background: var(--o-danger); border-color: var(--o-danger); }
+.o-sw-bar.is-want, .o-sw-legend i.is-want { background: var(--o-success); border-color: var(--o-success); }
+.o-sw-bar.is-avoid, .o-sw-legend i.is-avoid { background: var(--o-warning); border-color: var(--o-warning); }
+
+/* Màn xếp lịch (quản lý): thẻ nguyện vọng + bản đồ nhiệt */
+.o-sw-mgr-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.o-sw-mgr-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.o-sw-mgr-filters .o-input { width: auto; }
+.o-sw-heat-wrap { min-width: 0; overflow-x: auto; }
+.o-sw-heat { border-collapse: separate; border-spacing: 2px; font-size: var(--o-fs-xs); }
+.o-sw-heat th { padding: 2px 4px; font-weight: 600; color: var(--o-muted); white-space: nowrap; }
+.o-sw-heat th.is-weekend { color: var(--o-primary); }
+.o-sw-heat td { padding: 0; }
+.o-sw-heat-cell { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 34px; height: 34px; border: 1px solid var(--o-border); border-radius: 4px; background: var(--o-surface); font: inherit; line-height: 1.1; color: var(--o-text); cursor: pointer; }
+.o-sw-heat-cell small { font-size: 10px; color: var(--o-success); }
+.o-sw-heat-cell.is-short { border-color: var(--o-danger); background: var(--o-danger-bg); color: var(--o-danger); font-weight: 600; }
+.o-sw-heat-cell.is-tight { border-color: var(--o-warning); background: var(--o-warning-bg); }
+.o-sw-heat-cell.is-on { outline: 2px solid var(--o-primary); outline-offset: 1px; }
+.o-sw-people { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.o-sw-people li + li { border-top: 1px solid var(--o-border); }
+.o-sw-people button { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 8px 4px; border: 0; background: none; font: inherit; font-size: var(--o-fs-sm); text-align: left; color: inherit; cursor: pointer; }
+.o-sw-people button:hover { background: var(--o-hover); }
+.o-sw-counts { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+
+@media (max-width: 560px) {
+  .o-sw-rule { grid-template-columns: 28px minmax(0, 1fr); }
+  .o-sw-rule-icon { width: 28px; height: 28px; }
+  .o-sw-rule-act { grid-column: 2; justify-content: flex-end; }
+  .o-sw-day { min-height: 44px; padding: 3px; }
+}
