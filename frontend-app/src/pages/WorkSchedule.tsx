@@ -1,4 +1,4 @@
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Heart } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { Socket } from "socket.io-client";
 import { format, startOfWeek, addWeeks, eachDayOfInterval, addDays, isSameDay, parseISO } from "date-fns";
@@ -8,6 +8,8 @@ import { staffApi, getStaffInfo, staffSocket as openStaffSocket } from "../lib/s
 
 /** Ca làm lấy từ cấu hình của Chủ chuỗi (API trả kèm lịch) */
 type ShiftDef = { code: string; name: string; label: string; hours: number; color: string; isActive: boolean };
+
+type WishSummary = { preferMet: number; preferTotal: number; text: string | null };
 
 type WS = {
   id: number;
@@ -32,6 +34,18 @@ export function WorkSchedule() {
   const [shifts, setShifts] = useState<ShiftDef[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  /** Nguyện vọng xếp ca của tháng chứa tuần đang xem (theo thứ Năm): "đáp ứng a/b" + câu giải thích, ca khớp nguyện vọng */
+  const wishMonth = format(addDays(weekMon, 3), "yyyy-MM");
+  const [wish, setWish] = useState<{ summary: WishSummary | null; met: Set<number> }>({ summary: null, met: new Set() });
+  useEffect(() => {
+    let alive = true;
+    staffApi<{ schedules: (WS & { wishMet?: boolean })[]; wishSummary: WishSummary | null }>(`/api/schedule/my?month=${wishMonth}`)
+      .then((r) => alive && setWish({ summary: r.wishSummary, met: new Set(r.schedules.filter((s) => s.wishMet && s.status === "APPROVED").map((s) => s.id)) }))
+      .catch(() => alive && setWish({ summary: null, met: new Set() }));
+    return () => {
+      alive = false;
+    };
+  }, [wishMonth, saved]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -90,6 +104,19 @@ export function WorkSchedule() {
 
       {err && <p style={{ color: "#b91c1c", marginBottom: "0.75rem", fontSize: "0.85rem" }}>{err}</p>}
 
+      {wish.summary && (
+        <div style={{ display: "flex", gap: "0.6rem", alignItems: "flex-start", marginBottom: "0.9rem", padding: "0.65rem 0.85rem", borderRadius: 10, background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)", fontSize: "0.85rem", color: "#1f2937" }}>
+          <Heart size={16} color="var(--o-success)" aria-hidden style={{ flex: "none", marginTop: 2 }} />
+          <div>
+            <div style={{ fontWeight: 700 }}>
+              Nguyện vọng tháng {Number(wishMonth.slice(5))}/{wishMonth.slice(0, 4)}: được đáp ứng {wish.summary.preferMet}/{wish.summary.preferTotal}
+            </div>
+            {wish.summary.text && <div style={{ color: "#4b5563", marginTop: 2 }}>{wish.summary.text}</div>}
+            <div style={{ color: "#6b7280", fontSize: "0.75rem", marginTop: 2 }}>Ca có chấm xanh là ca đúng nguyện vọng của bạn.</div>
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <p style={{ textAlign: "center", color: "var(--muted)", padding: "3rem" }}>Đang tải…</p>
       ) : (
@@ -128,13 +155,17 @@ export function WorkSchedule() {
                     const isAssigned = !!ws;
                     return (
                       <td key={toDateStr(day)} style={{ padding: "0.45rem", textAlign: "center", background: si % 2 === 0 ? "#f9fafb" : "#fff" }}>
-                        <div style={{
+                        <div title={ws && wish.met.has(ws.id) ? "Đúng nguyện vọng của bạn" : undefined} style={{
+                          position: "relative",
                           borderRadius: 6, padding: "0.5rem 0.25rem",
                           background: isAssigned ? "rgba(34,197,94,0.18)" : "transparent",
                           border: isAssigned ? "1.5px solid rgba(34,197,94,0.5)" : "1.5px dashed rgba(0,0,0,0.05)",
                           minHeight: 52, display: "flex", flexDirection: "column",
                           alignItems: "center", justifyContent: "center", gap: "0.3rem",
                         }}>
+                          {ws && wish.met.has(ws.id) && (
+                            <span aria-label="Đúng nguyện vọng" style={{ position: "absolute", top: 4, right: 4, width: 7, height: 7, borderRadius: "50%", background: "var(--o-success)" }} />
+                          )}
                           {isAssigned ? (
                             <>
                               <CheckCircle2 size={16} color="var(--o-success)" aria-label="Có ca" />

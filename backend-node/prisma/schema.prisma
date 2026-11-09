@@ -1563,9 +1563,34 @@ model ScheduleMonth {
   month         String    @map("Month") @db.Char(7)
   publishedAt   DateTime? @map("Published_At")
   publishedById Int?      @map("Published_By_ID")
+  /// Lần chạy tự xếp đang nằm trong bản nháp / đã công bố (ScheduleRun)
+  appliedRunId  Int?      @map("Applied_Run_ID")
 
   @@unique([storeId, month])
   @@map("Schedule_Months")
+}
+
+/// Một lần chạy "Tự xếp lịch tháng" — lib/autoSchedule.ts; giữ lại để so sánh / áp dụng lại phương án
+model ScheduleRun {
+  id           Int      @id @default(autoincrement()) @map("Run_ID")
+  storeId      Int      @map("Store_ID")
+  month        String   @map("Month") @db.Char(7)
+  seed         Int      @map("Seed")
+  useWishes    Boolean  @default(true) @map("Use_Wishes")
+  includeLate  Boolean  @default(false) @map("Include_Late")
+  /// AutoMetrics
+  metrics      Json     @map("Metrics")
+  /// UnmetWish[]
+  unmetWishes  Json     @map("Unmet_Wishes")
+  /// [{ date, code, role, staffId|null, startMin, endMin, reason }]
+  assignments  Json     @map("Assignments")
+  /// { summary, perStaff: { [staffId]: text }, source: "AI" | "TEMPLATE" }
+  explanations Json?    @map("Explanations")
+  createdById  Int?     @map("Created_By_ID")
+  createdAt    DateTime @default(now()) @map("Created_At")
+
+  @@index([storeId, month])
+  @@map("Schedule_Runs")
 }
 
 /// Đơn gắn với 1 ca: làm thêm giờ / xin về sớm / đi muộn / khác

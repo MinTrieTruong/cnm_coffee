@@ -126,3 +126,44 @@ export function describeRule(r: WishRule, shifts: WishShift[], days: string[]): 
       return `Muốn nghỉ cố định ${joinVi((r.weekdays ?? []).map((x) => WD_LONG[x]))} hằng tuần`;
   }
 }
+
+/* ═══════════ Kết quả tự xếp lịch (lib/autoSchedule.ts ở backend) ═══════════ */
+
+export type UnmetCause = "FULL_BY_OTHERS" | "MAX_WEEK_REACHED" | "REST_RULE" | "NO_SLOT_FOR_ROLE" | "ON_LEAVE" | "SELF_UNAVAILABLE" | "BALANCE_TRADEOFF";
+export type SlotReason = "PREFER_MET" | "ONLY_CANDIDATE" | "BALANCE" | "SAME_SHIFT_TYPE" | "FILLED_SHORTAGE";
+export type UnmetWish = { staffId: number; ruleId: number; date: string; code: string; cause: UnmetCause; detail: string };
+export type RunMetrics = {
+  preferMet: number;
+  preferTotal: number;
+  avoidViolated: number;
+  hardViolations: number;
+  existingConflicts: number;
+  shortages: number;
+  shiftsStdDevByRole: Record<string, number>;
+  shiftsSpreadByRole: Record<string, number>;
+  cost: number;
+  perStaff: { staffId: number; shifts: number; weekendShifts: number; preferMet: number; preferTotal: number }[];
+  iterations: number;
+  ms: number;
+};
+export type Explanations = { summary: string; perStaff: Record<string, string>; source: "AI" | "TEMPLATE" };
+
+/** Giống CAUSE_TEXT ở backend (lib/shiftWish/explain.ts) */
+export const CAUSE_TEXT: Record<UnmetCause, string> = {
+  FULL_BY_OTHERS: "ca đó đã đủ người",
+  MAX_WEEK_REACHED: "tuần đó đã đủ số ca tối đa",
+  REST_RULE: "vướng ca khác hoặc chưa đủ giờ nghỉ giữa 2 ca",
+  NO_SLOT_FOR_ROLE: "ngày đó không cần thêm người ở vị trí này",
+  ON_LEAVE: "đang nghỉ phép ngày đó",
+  SELF_UNAVAILABLE: "trùng ngày đã báo không thể làm",
+  BALANCE_TRADEOFF: "để chia đều số ca giữa mọi người",
+};
+export const REASON_TEXT: Record<SlotReason, string> = {
+  PREFER_MET: "Đúng nguyện vọng của nhân viên",
+  ONLY_CANDIDATE: "Chỉ người này làm được ô này",
+  BALANCE: "Chia đều số ca trong tháng",
+  SAME_SHIFT_TYPE: "Giữ cùng loại ca người này hay làm",
+  FILLED_SHORTAGE: "Điền vào chỗ đang thiếu người",
+};
+export const prefPct = (m: Pick<RunMetrics, "preferMet" | "preferTotal">) => (m.preferTotal ? Math.round((m.preferMet / m.preferTotal) * 100) : 100);
+export const maxSpread = (m: Pick<RunMetrics, "shiftsSpreadByRole">) => Math.max(0, ...Object.values(m.shiftsSpreadByRole ?? {}));

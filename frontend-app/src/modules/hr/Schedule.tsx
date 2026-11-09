@@ -3,7 +3,9 @@ import { CalendarCheck, CalendarPlus, ChevronLeft, ChevronRight, Sparkles } from
 import { activeStoreId, getStaffInfo, isAdminRole, staffApi, staffSocket } from "../../lib/staffApi";
 import { ROLE_LABEL } from "../../lib/roles";
 import { Alert, Badge, Button, ControlPanel, Field, Modal, errMsg, type Tone } from "../../components/erp";
-import { ShiftWishPanel } from "./ShiftWishPanel";
+import { ShiftWishPanel, type WishSummary } from "./ShiftWishPanel";
+import { AutoDialog, AutoRunPanel, type RunsData } from "./AutoRunPanel";
+import { REASON_TEXT, wishCells, type Explanations, type SlotReason } from "../../lib/shiftWish";
 
 type ShiftDef = { code: string; name: string; label: string; startMin: number; endMin: number; hours: number; color: string; isActive: boolean };
 type StaffMini = { id: number; fullName: string; role: string };
@@ -68,8 +70,26 @@ export function Schedule() {
   /** Form ca bổ sung (có thể điền sẵn người / ngày khi mở từ ô lịch) */
   const [extra, setExtra] = useState<{ staffId?: number; day?: string } | null>(null);
   const [shortages, setShortages] = useState<AutoResult["shortages"] | null>(null);
+  /** Nguyện vọng của tháng (từ ShiftWishPanel) và các lần tự xếp */
+  const [wishData, setWishData] = useState<WishSummary | null>(null);
+  const [runs, setRuns] = useState<RunsData | null>(null);
+  const [autoOpen, setAutoOpen] = useState(false);
+  const [lastAuto, setLastAuto] = useState<{ useWishes: boolean; includeLate: boolean }>({ useWishes: true, includeLate: false });
 
   const key = monthKey(month);
+  const loadRuns = useCallback(async () => {
+    if (needStore || !mgmt) return;
+    try {
+      setRuns(await staffApi<RunsData>(`/api/schedule/admin/runs?month=${key}`));
+    } catch {
+      setRuns(null);
+    }
+  }, [key, needStore, mgmt]);
+  useEffect(() => {
+    setRuns(null);
+    void loadRuns();
+  }, [loadRuns]);
+  const onExplained = useCallback((ex: Explanations) => setRuns((r) => (r?.applied ? { ...r, applied: { ...r.applied, explanations: ex } } : r)), []);
   const load = useCallback(async () => {
     if (needStore) return;
     setLoading(true);
@@ -109,6 +129,16 @@ export function Schedule() {
     return m;
   }, [live]);
   const extrasOfMonth = live.filter((s) => s.isExtra);
+  // Chấm xanh: ca khớp nguyện vọng "muốn" (đã xác nhận) của người đó; tooltip: lý do thuật toán chọn
+  const preferOf = useMemo(() => {
+    const m = new Map<number, Set<string>>();
+    for (const p of wishData?.staff ?? []) {
+      if (p.status !== "CONFIRMED" && p.status !== "LATE") continue;
+      m.set(p.id, wishCells(p.rules, wishData!.days, wishData!.shifts).prefer);
+    }
+    return m;
+  }, [wishData]);
+  const reasonOf = useMemo(() => new Map((runs?.applied?.reasons ?? []).map((r) => [`${r.staffId}|${r.date}|${r.code}`, r.reason as SlotReason])), [runs]);
   const counts = useMemo(() => {
     const c: Partial<Record<Status, number>> = {};
     for (const s of live) c[s.status] = (c[s.status] ?? 0) + 1;
@@ -144,19 +174,31 @@ export function Schedule() {
     }
   }
 
-  const autoFill = () => {
-    if (!confirm(`Tự xếp lịch tháng ${month.getMonth() + 1}/${month.getFullYear()}?\nBản nháp cũ của tháng sẽ được xếp lại; ca đã công bố giữ nguyên.`)) return;
+  const autoFill = () => setAutoOpen(true);
+  /** Chạy tự xếp (không truyền seed → máy chủ bốc seed mới = phương án khác) */
+  const runAuto = (o: { useWishes: boolean; includeLate: boolean }) => {
+    setLastAuto(o);
     void run(async () => {
-      const r = await staffApi<AutoResult>("/api/schedule/admin/auto", { method: "POST", body: JSON.stringify({ month: key }) });
+      const r = await staffApi<AutoResult>("/api/schedule/admin/auto", { method: "POST", body: JSON.stringify({ month: key, ...o }) });
       setShortages(r.shortages);
+      setAutoOpen(false);
+      await loadRuns();
       return `Đã xếp ${r.generatedCount} ca nháp${r.openCount ? `, còn ${r.openCount} chỗ chưa có người` : ""}. Kiểm tra rồi bấm "Công bố" để nhân viên thấy lịch.`;
     });
   };
+  const applyRun = (id: number) =>
+    void run(async () => {
+      const r = await staffApi<{ generatedCount: number; openCount: number }>(`/api/schedule/admin/runs/${id}/apply`, { method: "POST" });
+      setShortages(null);
+      await loadRuns();
+      return `Đã dùng phương án lần #${id}: ${r.generatedCount} ca nháp${r.openCount ? `, ${r.openCount} chỗ chưa có người` : ""}.`;
+    });
   const publish = () => {
     if (!confirm(`Công bố lịch tháng ${month.getMonth() + 1}/${month.getFullYear()}? Nhân viên sẽ nhận được lịch và chấm công theo lịch này.`)) return;
     void run(async () => {
       const r = await staffApi<{ count: number; openCount: number }>("/api/schedule/admin/publish", { method: "POST", body: JSON.stringify({ month: key }) });
       setShortages(null);
+      await loadRuns();
       return `Đã công bố ${r.count} ca${r.openCount ? ` · ${r.openCount} ca trống cần người nhận` : ""}.`;
     });
   };
@@ -187,7 +229,18 @@ export function Schedule() {
         {needStore && <Alert tone="info">Chọn một chi nhánh ở thanh trên cùng để xem và xếp lịch.</Alert>}
         {err && <Alert>{err}</Alert>}
         {note && <Alert tone="info">{note}</Alert>}
-        {mgmt && !needStore && <ShiftWishPanel month={key} />}
+        {mgmt && !needStore && <ShiftWishPanel month={key} onData={setWishData} />}
+        {mgmt && !needStore && runs?.applied && board && (
+          <AutoRunPanel
+            data={runs}
+            staff={board.staffList}
+            shiftName={(c) => defs.get(c)?.name ?? c}
+            busy={busy}
+            onRerun={() => runAuto(lastAuto)}
+            onApply={applyRun}
+            onExplained={onExplained}
+          />
+        )}
 
         {board && (
           <>
@@ -241,13 +294,20 @@ export function Schedule() {
                             const ws = byCell.get(`${st.id}|${d}`) ?? null;
                             const def = ws ? defs.get(ws.shiftCode) : undefined;
                             const extras = extrasByCell.get(`${st.id}|${d}`) ?? [];
+                            const wish = !!ws && !!preferOf.get(st.id)?.has(`${d}|${ws.shiftCode}`);
+                            const why = ws ? reasonOf.get(`${st.id}|${d}|${ws.shiftCode}`) : undefined;
                             return (
                               <td
                                 key={d}
                                 className={`o-sched-cell ${isWeekend(d) ? "we" : ""} ${mgmt ? "clickable" : ""}`}
                                 onClick={mgmt ? () => setCell({ staff: st, day: d, ws }) : undefined}
-                                title={[ws ? `${def?.name ?? ws.shiftCode} · ${STATUS[ws.status].label}` : "", ...extras.map((x) => `Ca bổ sung ${hm(x.startMin)}–${hm(x.endMin)}`)].filter(Boolean).join("\n") || undefined}
+                                title={[
+                                  ws ? `${def?.name ?? ws.shiftCode} · ${STATUS[ws.status].label}` : "",
+                                  wish ? "Đúng nguyện vọng của nhân viên" : why ? `Lý do xếp: ${REASON_TEXT[why]}` : "",
+                                  ...extras.map((x) => `Ca bổ sung ${hm(x.startMin)}–${hm(x.endMin)}`),
+                                ].filter(Boolean).join("\n") || undefined}
                               >
+                                {wish && <span className="o-sched-wish" aria-label="Đúng nguyện vọng" />}
                                 {ws && (
                                   <span className={`o-sched-chip ${ws.status === "DRAFT" || ws.status === "PENDING" ? "draft" : ""}`} style={{ background: def?.color ?? "#6b7280", borderColor: def?.color }}>
                                     {short(def?.name ?? ws.shiftCode)}
@@ -288,7 +348,7 @@ export function Schedule() {
               </table>
             </div>
             <p className="o-muted">
-              Ô viền nét đứt là ca nháp, nhân viên chưa thấy. Hàng "Đủ người?" màu đỏ là ca còn thiếu người. Bấm vào để xếp người hoặc nhận ca trống.
+              Ô viền nét đứt là ca nháp, nhân viên chưa thấy. Chấm xanh: ca đúng nguyện vọng của nhân viên. Hàng "Đủ người?" màu đỏ là ca còn thiếu người. Bấm vào để xếp người hoặc nhận ca trống.
             </p>
 
             {extrasOfMonth.length > 0 && (
@@ -298,6 +358,19 @@ export function Schedule() {
         )}
       </div>
 
+      {autoOpen && (
+        <AutoDialog
+          monthLabel={`tháng ${month.getMonth() + 1}/${month.getFullYear()}`}
+          wishCount={wishData ? {
+            sent: wishData.staff.filter((s) => s.status === "CONFIRMED" || s.status === "LATE").length,
+            late: wishData.staff.filter((s) => s.status === "LATE").length,
+            total: wishData.staff.length,
+          } : null}
+          busy={busy}
+          onClose={() => setAutoOpen(false)}
+          onRun={runAuto}
+        />
+      )}
       {cell && board && (
         <CellModal
           {...cell}
@@ -349,8 +422,9 @@ function CellModal({ staff, day, ws, extras, defs, allDefs, onClose, onDone, onA
     setSaving(true);
     setErr(null);
     try {
-      await fn();
-      onDone(msg);
+      // Gán / đổi ca trái nguyện vọng "không thể" của người đó: vẫn lưu, báo ngay
+      const r = (await fn()) as { wishWarning?: string | null } | undefined;
+      onDone(r?.wishWarning ? `${msg} Lưu ý: ${r.wishWarning}` : msg);
     } catch (e) {
       setErr(errMsg(e));
       setSaving(false);

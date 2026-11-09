@@ -7,7 +7,7 @@ import { describeRule, dm, hhmm, isWeekendDay, WD_SHORT, weekdayOf, WISH_TYPE_UI
 import "../../styles/shiftWish.css";
 
 type HeatCell = { date: string; code: string; role: string; need: number; available: number; unavailable: number[]; prefer: number[]; onLeave: number[] };
-type WishStaff = {
+export type WishStaff = {
   id: number;
   fullName: string;
   role: string;
@@ -17,7 +17,7 @@ type WishStaff = {
   counts: Partial<Record<WishType, number>>;
   rules: WishRule[];
 };
-type Summary = { month: string; deadline: string; pastDeadline: boolean; published: boolean; days: string[]; shifts: WishShift[]; staff: WishStaff[]; heat: HeatCell[] };
+export type WishSummary = { month: string; deadline: string; pastDeadline: boolean; published: boolean; days: string[]; shifts: WishShift[]; staff: WishStaff[]; heat: HeatCell[] };
 
 const STATUS_UI: Record<WishStaff["status"], { label: string; tone: Tone }> = {
   NONE: { label: "Chưa gửi", tone: "neutral" },
@@ -28,8 +28,8 @@ const STATUS_UI: Record<WishStaff["status"], { label: string; tone: Tone }> = {
 const roleName = (r: string) => ROLE_LABEL[r] ?? r;
 
 /** Màn xếp lịch (quản lý): nguyện vọng của tháng — số người đã gửi, nhắc, bản đồ nhiệt ngày × ca, câu gốc từng người */
-export function ShiftWishPanel({ month }: { month: string }) {
-  const [data, setData] = useState<Summary | null>(null);
+export function ShiftWishPanel({ month, onData }: { month: string; onData?: (d: WishSummary | null) => void }) {
+  const [data, setData] = useState<WishSummary | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -40,12 +40,15 @@ export function ShiftWishPanel({ month }: { month: string }) {
 
   const load = useCallback(async () => {
     try {
-      setData(await staffApi<Summary>(`/api/shift-wishes?month=${month}`));
+      const d = await staffApi<WishSummary>(`/api/shift-wishes?month=${month}`);
+      setData(d);
+      onData?.(d);
       setErr(null);
     } catch (e) {
       setErr(errMsg(e));
+      onData?.(null);
     }
-  }, [month]);
+  }, [month, onData]);
   useEffect(() => {
     setPick(null);
     setMsg(null);

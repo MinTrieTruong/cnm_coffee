@@ -66,7 +66,25 @@
 .o-sw-people button:hover { background: var(--o-hover); }
 .o-sw-counts { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 
+/* Kết quả tự xếp lịch (modules/hr/AutoRunPanel.tsx) */
+.o-sw-check { display: flex; align-items: flex-start; gap: 8px; font-size: var(--o-fs-sm); cursor: pointer; }
+.o-sw-check input { margin-top: 3px; }
+.o-sw-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.o-sw-summary { padding: 10px 12px; border-radius: var(--o-radius); background: var(--o-surface-alt); }
+.o-sw-summary p { margin: 6px 0 0; font-size: var(--o-fs-sm); line-height: 1.5; }
+.o-sw-summary .o-badge { display: inline-flex; align-items: center; gap: 4px; }
+.o-sw-h4 { margin: 0 0 6px; font-size: var(--o-fs-sm); font-weight: 600; }
+.o-sw-unmet { margin: 0; padding-left: 18px; font-size: var(--o-fs-sm); display: flex; flex-direction: column; gap: 2px; }
+.o-sw-runs { width: 100%; border-collapse: collapse; font-size: var(--o-fs-sm); white-space: nowrap; }
+.o-sw-runs th { padding: 6px 8px; text-align: left; font-weight: 600; color: var(--o-muted); border-bottom: 1px solid var(--o-border); }
+.o-sw-runs td { padding: 6px 8px; border-bottom: 1px solid var(--o-border); }
+.o-sw-runs tr.is-on td { background: var(--o-primary-soft); }
+/* Chấm xanh trên ô lịch: ca đúng nguyện vọng "muốn" */
+.o-sched-cell { position: relative; }
+.o-sched-wish { position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border-radius: 50%; background: var(--o-success); box-shadow: 0 0 0 1px var(--o-surface); }
+
 @media (max-width: 560px) {
+  .o-sw-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .o-sw-rule { grid-template-columns: 28px minmax(0, 1fr); }
   .o-sw-rule-icon { width: 28px; height: 28px; }
   .o-sw-rule-act { grid-column: 2; justify-content: flex-end; }

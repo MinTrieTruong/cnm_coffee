@@ -7,8 +7,11 @@
  * POST   /schedule/admin              — Quản lý gán ca
  * PUT    /schedule/:id                — Quản lý sửa / duyệt / gán người cho ca trống
  * DELETE /schedule/:id                — Xoá ca
- * POST   /schedule/admin/auto         — Tự xếp lịch tháng (tạo bản Nháp)
- * POST   /schedule/admin/publish      — Công bố: Nháp/Chờ → Đã duyệt, Nháp chưa có người → Ca trống
+ * POST   /schedule/admin/auto         — Tự xếp lịch tháng (tạo bản Nháp) — có nguyện vọng nhân viên, lưu lần chạy (ScheduleRun)
+ * GET    /schedule/admin/runs         — Các lần chạy tự xếp của tháng (so sánh chỉ số)
+ * POST   /schedule/admin/runs/:id/apply   — Dùng lại phương án của một lần chạy làm bản nháp
+ * POST   /schedule/admin/runs/:id/explain — Lời giải thích (AI hoặc mẫu câu theo mã)
+ * POST   /schedule/admin/publish      — Công bố: Nháp/Chờ → Đã duyệt, Nháp chưa có người → Ca trống; gửi mỗi người câu giải thích
  * GET    /schedule/open               — Ca trống tôi nhận được (cùng vị trí, ngày đó chưa có ca)
  * POST   /schedule/open/:id/claim     — Nhận ca trống (ai bấm trước được ca)
  */
@@ -20,9 +23,15 @@ import type { Server } from "socket.io";
 import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
 import { inStore, mustStoreId, storeWhere, toStore } from "../lib/storeScope.js";
 import { getHrConfig, getShiftTemplates, shiftDefsOf, SHIFT_ROLES } from "../lib/hrConfig.js";
-import { autoSchedule } from "../lib/autoSchedule.js";
+import { autoSchedule, type AutoMetrics, type AutoWish, type UnmetWish } from "../lib/autoSchedule.js";
 import { announceOpenShifts, claimOpenShift, closeOpenShift, EXTRA_SHIFT_NAME, openShiftsFor, shiftStart } from "../lib/openShifts.js";
 import { notify as notifyStaff, recallNotification } from "../lib/notify.js";
+import { bizDayStart, bizToday } from "../lib/bizTime.js";
+import { aiErrorMessage } from "../ai/gemini.js";
+import { getAiSetting, isAiEnabled } from "../ai/settings.js";
+import { expandRule, ruleFromRow, toAutoWish, wishCells } from "../lib/shiftWish/normalize.js";
+import { wishContext } from "../lib/shiftWish/context.js";
+import { aiExplain, templateExplain, type Explanations } from "../lib/shiftWish/explain.js";
 
 function pad2(n: number) { return String(n).padStart(2, "0"); }
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
@@ -70,6 +79,47 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
 
   const templateOf = async (code: string) => prisma.shiftTemplate.findUnique({ where: { code } });
 
+  /** Nguyện vọng đã xác nhận của tháng (kèm gửi muộn nếu `includeLate`) → dạng thuật toán */
+  async function loadWishes(month: string, staffIds: number[], includeLate: boolean) {
+    const w = await wishContext(prisma, month);
+    const rows = await prisma.shiftWish.findMany({
+      where: { month, staffId: { in: staffIds }, status: "CONFIRMED", ...(includeLate ? {} : { late: false }) },
+      include: { rules: true },
+    });
+    const map = new Map<number, AutoWish[]>();
+    if (w) for (const x of rows) map.set(x.staffId, x.rules.map((r) => toAutoWish(r.id, ruleFromRow(r), w.ctx)));
+    return map;
+  }
+
+  /** Người được gán có báo "không thể" đúng ô này không → câu cảnh báo (vẫn cho lưu) */
+  async function wishWarning(staffId: number, date: string, code: string) {
+    const month = date.slice(0, 7);
+    const [wish, w] = await Promise.all([
+      prisma.shiftWish.findUnique({ where: { staffId_month: { staffId, month } }, include: { rules: true } }),
+      wishContext(prisma, month),
+    ]);
+    if (!wish || wish.status !== "CONFIRMED" || !w) return null;
+    const hit = wish.rules.map(ruleFromRow).find((r) => {
+      if (r.type !== "UNAVAILABLE") return false;
+      const { dates, codes } = expandRule(r, w.ctx);
+      return (!dates || dates.includes(date)) && codes.includes(code);
+    });
+    if (!hit) return null;
+    const who = await prisma.staff.findUnique({ where: { id: staffId }, select: { fullName: true } });
+    return `${who?.fullName ?? "Nhân viên"} đã báo không thể làm ca này${hit.quote ? `: «${hit.quote}»` : ""}.`;
+  }
+
+  /** Lời giải thích của lần chạy: đã lưu → dùng lại; chưa có → mẫu câu theo mã */
+  async function explanationsOf(run: { id: number; metrics: unknown; unmetWishes: unknown; explanations: unknown; storeId: number }) {
+    if (run.explanations) return run.explanations as Explanations;
+    const m = run.metrics as AutoMetrics;
+    const [staff, templates] = await Promise.all([
+      prisma.staff.findMany({ where: { id: { in: m.perStaff.map((p) => p.staffId) } }, select: { id: true, fullName: true } }),
+      getShiftTemplates(prisma),
+    ]);
+    return templateExplain(m, run.unmetWishes as UnmetWish[], staff, templates);
+  }
+
   /** Người đó đã có ca trùng giờ trong ngày chưa (trừ ca `exceptId`) */
   async function overlapping(staffId: number, workDate: Date, startMin: number, endMin: number, exceptId?: number) {
     const sameDay = await prisma.workSchedule.findMany({
@@ -113,7 +163,7 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
         include: { staff: { select: { id: true, fullName: true, role: true } } },
       });
       notify(storeId, [staffId], "schedule:new", { staffId, date });
-      res.json({ ok: true, schedule: created });
+      res.json({ ok: true, schedule: created, wishWarning: await wishWarning(staffId, date.slice(0, 10), tpl.code) });
     } catch (e: any) {
       if (e.code === "P2002") return res.status(400).json({ error: "Nhân viên đã được gán ca này trong ngày." });
       res.status(500).json({ error: "Lỗi máy chủ." });
@@ -218,7 +268,31 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
       }),
       getShiftTemplates(prisma),
     ]);
-    res.json({ weekStart: from, weekEnd: to, schedules, shiftDefs: shiftDefsOf(templates) });
+
+    // Xem theo tháng đã công bố: ca nào khớp nguyện vọng "muốn" + "đáp ứng a/b" và câu giải thích của lần xếp đã áp dụng
+    let wishSummary: { preferMet: number; preferTotal: number; text: string | null } | null = null;
+    let preferCells = new Set<string>();
+    const month = typeof req.query.month === "string" ? req.query.month : null;
+    if (month && me.storeId) {
+      const [sm, wish, w] = await Promise.all([
+        prisma.scheduleMonth.findUnique({ where: { storeId_month: { storeId: me.storeId, month } } }),
+        prisma.shiftWish.findUnique({ where: { staffId_month: { staffId: me.id, month } }, include: { rules: true } }),
+        wishContext(prisma, month),
+      ]);
+      if (wish?.status === "CONFIRMED" && w) preferCells = wishCells(wish.rules.map(ruleFromRow), w.ctx).prefer;
+      const run = sm?.publishedAt && sm.appliedRunId ? await prisma.scheduleRun.findUnique({ where: { id: sm.appliedRunId } }) : null;
+      const mine = run ? (run.metrics as AutoMetrics).perStaff.find((p) => p.staffId === me.id) : null;
+      if (run && mine && wish?.status === "CONFIRMED") {
+        const ex = await explanationsOf(run);
+        wishSummary = { preferMet: mine.preferMet, preferTotal: mine.preferTotal, text: ex.perStaff[String(me.id)] ?? null };
+      }
+    }
+    res.json({
+      weekStart: from, weekEnd: to,
+      schedules: schedules.map((s) => ({ ...s, wishMet: preferCells.has(`${ymd(s.workDate)}|${s.shiftCode}`) })),
+      shiftDefs: shiftDefsOf(templates),
+      wishSummary,
+    });
   });
 
   /* ── GET /schedule/open — Ca trống tôi nhận được ── */
@@ -315,7 +389,9 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
       // Quản lý tự xếp người cho ca trống → thu hồi lời mời; bỏ người khỏi ca → mời người khác nhận
       if (existing.status === "OPEN_SHIFT" && updated.status !== "OPEN_SHIFT") void closeOpenShift(id);
       else if (updated.status === "OPEN_SHIFT" && existing.staffId != null) void announceOpenShifts([id], "Ca vừa trống người");
-      res.json(updated);
+      // Gán / đổi người hoặc đổi ca: cảnh báo nếu trái nguyện vọng "không thể" của người đó (vẫn lưu)
+      const changed = updated.staffId != null && (updated.staffId !== existing.staffId || updated.shiftCode !== existing.shiftCode);
+      res.json({ ...updated, wishWarning: changed ? await wishWarning(updated.staffId!, ymd(updated.workDate), updated.shiftCode) : null });
     } catch (e: any) {
       if (e.code === "P2002") return res.status(400).json({ error: "Nhân viên đã được gán ca này trong ngày." });
       res.status(500).json({ error: "Lỗi máy chủ." });
@@ -369,6 +445,28 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
       where: { ...where, status: "APPROVED" }, select: { staffId: true }, distinct: ["staffId"],
     });
     notify(storeId, affected.map((a) => a.staffId), "schedule:published", { weekStart: from, weekEnd: to });
+    // Công bố tháng có ca mới: báo từng người, kèm câu giải thích nguyện vọng của họ (lần tự xếp đang áp dụng)
+    if (month && approved.count > 0) {
+      void (async () => {
+        const sm = await prisma.scheduleMonth.findUnique({ where: { storeId_month: { storeId, month } } });
+        const run = sm?.appliedRunId ? await prisma.scheduleRun.findUnique({ where: { id: sm.appliedRunId } }) : null;
+        const ex = run ? await explanationsOf(run) : null;
+        const label = `${month.slice(5)}/${month.slice(0, 4)}`;
+        for (const { staffId } of affected) {
+          if (staffId == null) continue;
+          await notifyStaff({
+            type: "SCHEDULE_PUBLISHED",
+            title: `Lịch tháng ${label} đã công bố`,
+            body: ex?.perStaff[String(staffId)] ?? "Xem ca của bạn trong Lịch cá nhân.",
+            link: "/app/hr/my-schedule",
+            storeId,
+            to: { staffIds: [staffId] },
+            dedupeKey: `schedule-published:${storeId}:${month}:${staffId}`,
+            dedupeMinutes: 10,
+          });
+        }
+      })().catch((e) => console.error("[schedule] gửi thông báo công bố lỗi:", e));
+    }
     // Ca trống trong 3 ngày tới: mời nhận ngay (ca xa hơn do tác vụ nền mời dần — lib/openShifts)
     const soon = new Date(Date.now() + 3 * 86_400_000);
     const openIds = await prisma.workSchedule.findMany({
@@ -379,66 +477,121 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
     res.json({ ok: true, count: approved.count, openCount: open.count });
   });
 
-  /* ── POST /schedule/admin/auto — Tự xếp lịch tháng ── */
-  r.post("/schedule/admin/auto", ...mgmtOnly, async (req: Request, res) => {
-    const { month } = req.body as { month?: string };
-    const days = month ? monthDays(month) : null;
-    if (!days) return res.status(400).json({ error: "Thiếu tháng (YYYY-MM)." });
-
-    const storeId = mustStoreId(req);
+  /** Dữ liệu đầu vào thuật toán của tháng: ca mẫu, nhân viên, ca đã có (± 6 ngày), nghỉ phép */
+  async function autoInput(storeId: number, days: string[]) {
     const from = dateOnly(days[0]);
     const to = dateOnly(days[days.length - 1]);
     // Lấy thêm 6 ngày trước/sau để xét giờ nghỉ & số ca/tuần ở 2 đầu tháng
     const padFrom = new Date(from.getTime() - 6 * 86_400_000);
     const padTo = new Date(to.getTime() + 6 * 86_400_000);
-    const todayStr = ymd(new Date());
+    const [templates, config, staff] = await Promise.all([
+      getShiftTemplates(prisma, true),
+      getHrConfig(prisma),
+      prisma.staff.findMany({
+        where: { storeId, status: "Active", role: { in: [...SHIFT_ROLES] } },
+        select: { id: true, role: true },
+        orderBy: { id: "asc" }, // thứ tự cố định để cùng seed ra cùng kết quả
+      }),
+    ]);
+    const staffIds = staff.map((s) => s.id);
+    const [existingRows, leaves] = await Promise.all([
+      prisma.workSchedule.findMany({
+        where: { storeId, workDate: { gte: padFrom, lte: padTo }, status: { in: ["APPROVED", "PENDING", "OPEN_SHIFT", "DRAFT"] } },
+        orderBy: { id: "asc" },
+      }),
+      prisma.leaveRequest.findMany({
+        where: { userId: { in: staffIds }, status: "APPROVED", date: { lte: to }, OR: [{ toDate: null }, { toDate: { gte: from } }] },
+      }),
+    ]);
+    const leaveMap = new Map<number, Set<string>>();
+    for (const l of leaves) {
+      const set = leaveMap.get(l.userId) ?? leaveMap.set(l.userId, new Set()).get(l.userId)!;
+      for (let t = l.date.getTime(); t <= (l.toDate ?? l.date).getTime(); t += 86_400_000) set.add(ymd(new Date(t)));
+    }
+    const roleOf = new Map(staff.map((s) => [s.id, s.role]));
+    return {
+      templates, config, staff, staffIds, leaveMap, from, to,
+      existing: existingRows.map((w) => ({
+        staffId: w.staffId, date: ymd(w.workDate), code: w.shiftCode,
+        role: w.role ?? (w.staffId ? roleOf.get(w.staffId) ?? null : null),
+        startMin: w.startMin, endMin: w.endMin,
+      })),
+    };
+  }
 
-    try {
-      const [templates, config, staff] = await Promise.all([
-        getShiftTemplates(prisma, true),
-        getHrConfig(prisma),
-        prisma.staff.findMany({
-          where: { storeId, status: "Active", role: { in: [...SHIFT_ROLES] } },
-          select: { id: true, role: true },
-        }),
-      ]);
-      if (templates.length === 0) return res.status(400).json({ error: "Chưa có ca làm nào đang dùng. Chủ chuỗi cần cấu hình ca trước." });
+  /** Xoá bản nháp của tháng, giữ ca đã duyệt / đã chấm công */
+  const clearDrafts = (storeId: number, from: Date, to: Date) =>
+    prisma.workSchedule.deleteMany({ where: { storeId, workDate: { gte: from, lte: to }, status: "DRAFT", actualCheckIn: null } });
 
-      // Xoá bản nháp cũ của tháng, giữ ca đã duyệt / đã chấm công
-      await prisma.workSchedule.deleteMany({ where: { storeId, workDate: { gte: from, lte: to }, status: "DRAFT", actualCheckIn: null } });
-
-      const staffIds = staff.map((s) => s.id);
-      const [existingRows, leaves] = await Promise.all([
-        prisma.workSchedule.findMany({
-          where: { storeId, workDate: { gte: padFrom, lte: padTo }, status: { in: ["APPROVED", "PENDING", "OPEN_SHIFT", "DRAFT"] } },
-        }),
-        prisma.leaveRequest.findMany({
-          where: { userId: { in: staffIds }, status: "APPROVED", date: { lte: to }, OR: [{ toDate: null }, { toDate: { gte: from } }] },
-        }),
-      ]);
-
-      const leaveMap = new Map<number, Set<string>>();
-      for (const l of leaves) {
-        const set = leaveMap.get(l.userId) ?? leaveMap.set(l.userId, new Set()).get(l.userId)!;
-        for (let t = l.date.getTime(); t <= (l.toDate ?? l.date).getTime(); t += 86_400_000) set.add(ymd(new Date(t)));
+  type Assignment = { date: string; code: string; role: string; staffId: number | null; startMin: number; endMin: number; reason?: string };
+  /** Ghi bản nháp từ phương án đã lưu (bỏ ngày đã qua, người đã có ca khác trong ngày, chỗ trống ở ô nay đã đủ người) */
+  async function writeDrafts(storeId: number, from: Date, to: Date, list: Assignment[]) {
+    await clearDrafts(storeId, from, to);
+    const today = ymd(new Date());
+    const kept = await prisma.workSchedule.findMany({ where: { storeId, workDate: { gte: from, lte: to }, status: { not: "REJECTED" } } });
+    const busyDay = new Set(kept.filter((w) => w.staffId != null).map((w) => `${w.staffId}|${ymd(w.workDate)}`));
+    // Ca có sau lần chạy (VD gán tay) chiếm chỗ của ô → bỏ bớt chỗ trống tương ứng
+    const taken = new Map<string, number>();
+    for (const w of kept) taken.set(`${ymd(w.workDate)}|${w.shiftCode}|${w.role}`, (taken.get(`${ymd(w.workDate)}|${w.shiftCode}|${w.role}`) ?? 0) + 1);
+    const data = [];
+    for (const a of list) {
+      const k = `${a.date}|${a.code}|${a.role}`;
+      if (a.date < today) continue;
+      if (a.staffId != null && busyDay.has(`${a.staffId}|${a.date}`)) continue;
+      if (a.staffId == null && (taken.get(k) ?? 0) > 0) {
+        taken.set(k, taken.get(k)! - 1);
+        continue;
       }
+      if (a.staffId != null) busyDay.add(`${a.staffId}|${a.date}`);
+      data.push({ storeId, staffId: a.staffId, workDate: dateOnly(a.date), shiftCode: a.code, role: a.role, startMin: a.startMin, endMin: a.endMin, status: "DRAFT" as const });
+    }
+    if (data.length) await prisma.workSchedule.createMany({ data });
+    return data;
+  }
+
+  const setApplied = (storeId: number, month: string, runId: number) =>
+    prisma.scheduleMonth.upsert({ where: { storeId_month: { storeId, month } }, create: { storeId, month, appliedRunId: runId }, update: { appliedRunId: runId } });
+
+  /* ── POST /schedule/admin/auto — Tự xếp lịch tháng ──
+     Body: { month, useWishes? (mặc định true), includeLate? (mặc định false), seed? (không có thì bốc ngẫu nhiên, trả lại trong kết quả) } */
+  r.post("/schedule/admin/auto", ...mgmtOnly, async (req: Request, res) => {
+    const me = (req as StaffRequest).staffRow!;
+    const b = req.body as { month?: string; useWishes?: boolean; includeLate?: boolean; seed?: number };
+    const month = b.month;
+    const days = month ? monthDays(month) : null;
+    if (!month || !days) return res.status(400).json({ error: "Thiếu tháng (YYYY-MM)." });
+    const useWishes = b.useWishes !== false;
+    const includeLate = b.includeLate === true;
+    const seed = Number.isInteger(b.seed) && b.seed! > 0 && b.seed! < 2 ** 31 ? b.seed! : Math.floor(Math.random() * 1_000_000) + 1;
+
+    const storeId = mustStoreId(req);
+    try {
+      // Xoá bản nháp cũ trước khi đọc "ca đã có" (nháp cũ không được giữ lại)
+      await clearDrafts(storeId, dateOnly(days[0]), dateOnly(days[days.length - 1]));
+      const inp = await autoInput(storeId, days);
+      if (inp.templates.length === 0) return res.status(400).json({ error: "Chưa có ca làm nào đang dùng. Chủ chuỗi cần cấu hình ca trước." });
 
       // Không xếp lại những ngày đã qua
+      const todayStr = ymd(new Date());
       const futureDays = days.filter((d) => d >= todayStr);
-      const roleOf = new Map(staff.map((s) => [s.id, s.role]));
-      const { slots, shortages } = autoSchedule({
+      const wishes = useWishes ? await loadWishes(month, inp.staffIds, includeLate) : undefined;
+      const { slots, shortages, metrics, unmetWishes } = autoSchedule({
         days: futureDays,
-        templates: templates.map((t) => ({ code: t.code, startMin: t.startMin, endMin: t.endMin, staffing: t.staffing })),
-        staff,
-        existing: existingRows.map((w) => ({
-          staffId: w.staffId, date: ymd(w.workDate), code: w.shiftCode,
-          role: w.role ?? (w.staffId ? roleOf.get(w.staffId) ?? null : null),
-          startMin: w.startMin, endMin: w.endMin,
-        })),
-        leaves: leaveMap,
-        rules: { minRestHours: config.minRestHours, maxShiftsPerWeek: config.maxShiftsPerWeek },
+        templates: inp.templates.map((t) => ({ code: t.code, startMin: t.startMin, endMin: t.endMin, staffing: t.staffing })),
+        staff: inp.staff,
+        existing: inp.existing,
+        leaves: inp.leaveMap,
+        rules: { minRestHours: inp.config.minRestHours, maxShiftsPerWeek: inp.config.maxShiftsPerWeek },
+        wishes,
+        options: { seed },
       });
 
+      const run = await prisma.scheduleRun.create({
+        data: {
+          storeId, month, seed, useWishes, includeLate, createdById: me.id,
+          metrics: metrics as object, unmetWishes: unmetWishes as object[], assignments: slots as object[],
+        },
+      });
       if (slots.length > 0) {
         await prisma.workSchedule.createMany({
           data: slots.map((s) => ({
@@ -447,6 +600,7 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
           })),
         });
       }
+      await setApplied(storeId, month, run.id);
 
       toStore(io, "admin_room", storeId).emit("schedule:updated", { month });
       res.json({
@@ -454,11 +608,107 @@ export function scheduleRouter(prisma: PrismaClient, io: Server) {
         generatedCount: slots.filter((s) => s.staffId != null).length,
         openCount: slots.filter((s) => s.staffId == null).length,
         shortages,
+        runId: run.id,
+        seed,
+        wishesUsed: wishes?.size ?? 0,
+        metrics,
+        unmetWishes,
       });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: "Lỗi xếp lịch tự động." });
     }
+  });
+
+  /* ── GET /schedule/admin/runs?month= — Các lần chạy tự xếp gần nhất (so sánh chỉ số) ── */
+  r.get("/schedule/admin/runs", ...mgmtOnly, async (req, res) => {
+    const storeId = mustStoreId(req);
+    const month = typeof req.query.month === "string" ? req.query.month : "";
+    if (!monthDays(month)) return res.status(400).json({ error: "Thiếu tháng (YYYY-MM)." });
+    const [runs, sm] = await Promise.all([
+      prisma.scheduleRun.findMany({ where: { storeId, month }, orderBy: { id: "desc" }, take: 10 }),
+      prisma.scheduleMonth.findUnique({ where: { storeId_month: { storeId, month } } }),
+    ]);
+    const applied = runs.find((x) => x.id === sm?.appliedRunId) ?? (sm?.appliedRunId ? await prisma.scheduleRun.findUnique({ where: { id: sm.appliedRunId } }) : null);
+    res.json({
+      published: !!sm?.publishedAt,
+      appliedRunId: sm?.appliedRunId ?? null,
+      runs: runs.map((x) => ({
+        id: x.id, seed: x.seed, useWishes: x.useWishes, includeLate: x.includeLate, createdAt: x.createdAt,
+        metrics: x.metrics, unmetCount: (x.unmetWishes as unknown[]).length, hasExplain: !!x.explanations,
+      })),
+      // Lần đang áp dụng: đủ chi tiết cho thẻ chỉ số, danh sách chưa đáp ứng, lý do từng ô
+      applied: applied
+        ? {
+            id: applied.id, seed: applied.seed, useWishes: applied.useWishes, metrics: applied.metrics, unmetWishes: applied.unmetWishes, explanations: applied.explanations,
+            reasons: (applied.assignments as Assignment[])
+              .filter((a) => a.staffId != null && a.reason)
+              .map((a) => ({ date: a.date, code: a.code, staffId: a.staffId, reason: a.reason })),
+          }
+        : null,
+    });
+  });
+
+  /** Lần chạy thuộc chi nhánh của request */
+  const runOf = async (req: Request) => {
+    const id = Number(req.params.id);
+    const run = Number.isInteger(id) ? await prisma.scheduleRun.findUnique({ where: { id } }) : null;
+    return run && inStore(req, run) ? run : null;
+  };
+
+  /* ── POST /schedule/admin/runs/:id/apply — Dùng phương án của lần chạy này làm bản nháp ── */
+  r.post("/schedule/admin/runs/:id/apply", ...mgmtOnly, async (req, res) => {
+    const run = await runOf(req);
+    if (!run) return res.status(404).json({ error: "Không tìm thấy lần chạy." });
+    const sm = await prisma.scheduleMonth.findUnique({ where: { storeId_month: { storeId: run.storeId, month: run.month } } });
+    if (sm?.publishedAt) return res.status(409).json({ error: "Lịch tháng này đã công bố — muốn đổi thì sửa từng ca." });
+    const days = monthDays(run.month)!;
+    const written = await writeDrafts(run.storeId, dateOnly(days[0]), dateOnly(days[days.length - 1]), run.assignments as Assignment[]);
+    await setApplied(run.storeId, run.month, run.id);
+    toStore(io, "admin_room", run.storeId).emit("schedule:updated", { month: run.month });
+    res.json({ ok: true, generatedCount: written.filter((d) => d.staffId != null).length, openCount: written.filter((d) => d.staffId == null).length });
+  });
+
+  /* ── POST /schedule/admin/runs/:id/explain { staffId? } — Lời giải thích (AI nếu bật, không thì mẫu câu theo mã) ── */
+  r.post("/schedule/admin/runs/:id/explain", ...mgmtOnly, async (req, res) => {
+    const me = (req as StaffRequest).staffRow!;
+    const run = await runOf(req);
+    if (!run) return res.status(404).json({ error: "Không tìm thấy lần chạy." });
+    const staffId = Number((req.body as { staffId?: number }).staffId) || null;
+    const pick = (ex: Explanations) => (staffId ? { ...ex, perStaff: { [String(staffId)]: ex.perStaff[String(staffId)] ?? "" } } : ex);
+    if ((run.explanations as Explanations | null)?.source === "AI") return res.json({ explanations: pick(run.explanations as Explanations), note: null });
+
+    const FEATURE = "SHIFT_EXPLAIN_AI";
+    const m = run.metrics as AutoMetrics;
+    const unmet = run.unmetWishes as UnmetWish[];
+    const [staff, templates] = await Promise.all([
+      prisma.staff.findMany({ where: { id: { in: m.perStaff.map((p) => p.staffId) } }, select: { id: true, fullName: true } }),
+      getShiftTemplates(prisma),
+    ]);
+    let ex: Explanations = templateExplain(m, unmet, staff, templates);
+    let note: string | null = null;
+    if (await isAiEnabled(FEATURE)) {
+      const setting = await getAiSetting(FEATURE);
+      const today = setting.dailyLimit ? await prisma.aiCallLog.count({ where: { feature: FEATURE, createdAt: { gte: bizDayStart(bizToday()) } } }) : 0;
+      if (setting.dailyLimit && today >= setting.dailyLimit) note = "Hôm nay AI đã hết lượt viết giải thích — dùng mẫu câu.";
+      else {
+        const t0 = Date.now();
+        const log = (data: { status: "OK" | "ERROR"; model?: string; tokensIn?: number; tokensOut?: number; error?: string; summary?: string }) =>
+          prisma.aiCallLog.create({ data: { feature: FEATURE, storeId: run.storeId, staffId: me.id, inputKind: "text", latencyMs: Date.now() - t0, ...data } }).catch(() => {});
+        try {
+          const out = await aiExplain(m, unmet, staff, templates, run.month);
+          ex = out.explanations;
+          if (out.rejected) note = `${out.rejected} câu AI viết sai số liệu đã được thay bằng mẫu câu.`;
+          await log({ status: "OK", model: out.model, tokensIn: out.tokensIn, tokensOut: out.tokensOut, summary: `lần chạy ${run.id}; thay ${out.rejected} câu bằng mẫu` });
+        } catch (e) {
+          const reason = aiErrorMessage(e);
+          note = `AI lỗi (${reason}) — dùng mẫu câu.`;
+          await log({ status: "ERROR", error: reason.slice(0, 500) });
+        }
+      }
+    }
+    await prisma.scheduleRun.update({ where: { id: run.id }, data: { explanations: ex as object } });
+    res.json({ explanations: pick(ex), note });
   });
 
   return r;

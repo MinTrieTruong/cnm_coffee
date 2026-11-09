@@ -298,6 +298,22 @@ export function validateRules(raw: unknown, ctx: WishContext): ValidateResult {
   return { rules: out, warnings, narrow };
 }
 
+/** WishRule → dạng thuật toán xếp ca dùng (lib/autoSchedule.ts → AutoWish) */
+export function toAutoWish(ruleId: number, r: WishRule, ctx: Pick<WishContext, "days" | "templates">) {
+  const { dates, codes } = expandRule(r, ctx);
+  return {
+    ruleId,
+    type: r.type,
+    dates: dates ? new Set(dates) : null,
+    codes: new Set(codes),
+    count: r.count,
+    period: r.period,
+    rangeFrom: r.fromDate,
+    rangeTo: r.toDate,
+    weekdays: r.weekdays ? new Set(r.weekdays) : null,
+  };
+}
+
 /** Rule đọc từ DB (cột JSON / Date) → WishRule */
 export function ruleFromRow(row: {
   type: string; dates: unknown; weekdays: unknown; fromDate: Date | null; toDate: Date | null; shiftCodes: unknown;
