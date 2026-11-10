@@ -1,0 +1,643 @@
+import { useEffect, useMemo, useState } from "react";
+import {
+  ArrowLeft,
+  ArrowRightLeft,
+  Combine,
+  Minus,
+  NotebookPen,
+  Plus,
+  Receipt,
+  Scissors,
+  Sparkles,
+  Utensils,
+  X,
+} from "lucide-react";
+import { apiOrigin, TEMP_TEXT, tempChoices, type ProductTemps, type Temp } from "../lib/api";
+import { PosVoiceBar } from "./VoiceOrder";
+import { lineFromProduct, voiceNote, type VoiceLine } from "../lib/voiceOrder";
+import { CustomerHabitCard, type HabitItem } from "./CustomerHabitCard";
+
+export type PanelProduct = {
+  id: number;
+  name: string;
+  sellPrice: number;
+  imageUrl: string | null;
+  categoryId: number;
+  priceSizeS?: number | null;
+  priceSizeL?: number | null;
+  discountPercent?: number | null;
+  /** false = món 1 loại (bánh…): không chọn size */
+  hasSizes?: boolean;
+  /** BOTH | ICED | HOT | NONE — món chỉ nóng / chỉ đá không cho chọn kiểu kia */
+  temps?: ProductTemps;
+};
+
+type Size = "S" | "M" | "L";
+const SIZES: Size[] = ["S", "M", "L"];
+/** Giá 1 ly theo size, đã trừ % giảm giá — cùng quy tắc máy chủ (lib/menuPrice): S/L trống → M − 3.000đ / M + 5.000đ */
+function priceFor(p: PanelProduct, size: Size) {
+  const base = size === "S" ? p.priceSizeS ?? Math.max(0, p.sellPrice - 3000) : size === "L" ? p.priceSizeL ?? p.sellPrice + 5000 : p.sellPrice;
+  return p.discountPercent && p.discountPercent > 0 ? Math.round(base * (1 - p.discountPercent / 100)) : base;
+}
+export type PanelCategory = { id: number; name: string };
+export type PanelTable = { id: number; name: string; status: string; location: string | null };
+export type PanelDetail = {
+  id: number;
+  quantity: number;
+  unitPrice: number;
+  size?: string | null;
+  customNotes: string | null;
+  kdsStatus: string;
+  product: { id: number; name: string };
+};
+export type PanelOrder = {
+  id: number;
+  createdAt: string;
+  subTotal: number;
+  status?: string;
+  customer: { id: number; fullName: string; phone: string | null; points: number } | null;
+  details: PanelDetail[];
+};
+export type OrderLine = { productId: number; quantity: number; size: Size; temp?: Temp | null; customNotes?: string };
+
+type Mode = "items" | "order" | "move" | "merge" | "split";
+
+const vnd = (n: number) => new Intl.NumberFormat("vi-VN").format(n) + " đ";
+
+const STATUS: Record<string, { label: string; tone: string }> = {
+  Empty: { label: "Trống", tone: "neutral" },
+  Occupied: { label: "Có khách", tone: "info" },
+  Waiting_Pay: { label: "Gọi tính tiền", tone: "warning" },
+  Cleaning: { label: "Đã thanh toán", tone: "success" },
+};
+
+const KDS: Record<string, { label: string; tone: string }> = {
+  Hold: { label: "Chờ xác nhận", tone: "neutral" },
+  Waiting: { label: "Chờ pha", tone: "neutral" },
+  Cooking: { label: "Đang pha", tone: "warning" },
+  Ready: { label: "Chờ bưng", tone: "danger" },
+  Served: { label: "Đã phục vụ", tone: "success" },
+  Cancelled: { label: "Đã huỷ", tone: "neutral" },
+};
+
+/**
+ * Khung thông tin bàn (ngăn bên phải trên máy tính, toàn màn hình trên điện thoại):
+ * món hiện có, gọi món, yêu cầu thanh toán, chuyển / gộp bàn, tách bill, báo trống.
+ */
+export function TablePanel({
+  table,
+  order,
+  loading,
+  tables,
+  products,
+  categories,
+  canSplit,
+  initialPhone,
+  onClose,
+  onSendOrder,
+  onCancelItem,
+  onRequestPayment,
+  onMove,
+  onMerge,
+  onSplit,
+  onClear,
+}: {
+  table: PanelTable;
+  order: PanelOrder | null;
+  loading: boolean;
+  tables: PanelTable[];
+  products: PanelProduct[];
+  categories: PanelCategory[];
+  /** Phục vụ không tách bill (chỉ thu ngân / quản lý) */
+  canSplit: boolean;
+  initialPhone: string;
+  onClose: () => void;
+  onSendOrder: (lines: OrderLine[], customerPhone: string) => Promise<boolean>;
+  onCancelItem: (orderId: number, detailId: number) => Promise<void>;
+  onRequestPayment: (orderId: number) => Promise<void>;
+  onMove: (targetId: number) => Promise<boolean>;
+  onMerge: (targetId: number) => Promise<boolean>;
+  onSplit: (orderId: number, items: { orderItemId: number; quantity: number }[]) => Promise<boolean>;
+  onClear: () => Promise<void>;
+}) {
+  const [mode, setMode] = useState<Mode>("items");
+  const [busy, setBusy] = useState(false);
+  const run = async <T,>(fn: () => Promise<T>) => {
+    setBusy(true);
+    try {
+      return await fn();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Đổi bàn → về màn món hiện có
+  useEffect(() => setMode("items"), [table.id]);
+
+  // Esc đóng khung (hoặc quay lại bước trước)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (mode === "items") onClose();
+      else setMode("items");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mode, onClose]);
+
+  const st = STATUS[table.status] ?? STATUS.Empty;
+  const unpaid = !!order && order.status !== "Paid";
+  const liveItems = order?.details.filter((d) => d.kdsStatus !== "Cancelled") ?? [];
+
+  const title = {
+    items: table.name,
+    order: `Gọi món · ${table.name}`,
+    move: `Chuyển ${table.name} sang…`,
+    merge: `Gộp ${table.name} vào…`,
+    split: `Tách bill · ${table.name}`,
+  }[mode];
+
+  return (
+    <div className="tp-scrim" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <aside className="tp" role="dialog" aria-modal="true" aria-labelledby="tp-title">
+        <header className="tp-head">
+          {mode !== "items" && (
+            <button type="button" className="tp-icon-btn" onClick={() => setMode("items")} aria-label="Quay lại">
+              <ArrowLeft size={20} aria-hidden />
+            </button>
+          )}
+          <div className="tp-head-text">
+            <h2 id="tp-title" className="tp-title">{title}</h2>
+            {mode === "items" && (
+              <div className="tp-sub">
+                <span className={`tp-badge tone-${st.tone}`}>{st.label}</span>
+                {table.location && <span>{table.location}</span>}
+                {order && <span>Đơn #{order.id} · vào {new Date(order.createdAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</span>}
+              </div>
+            )}
+          </div>
+          <button type="button" className="tp-icon-btn" onClick={onClose} aria-label="Đóng">
+            <X size={20} aria-hidden />
+          </button>
+        </header>
+
+        {loading ? (
+          <div className="tp-body"><p className="tp-muted">Đang tải bàn…</p></div>
+        ) : mode === "items" ? (
+          <ItemsView
+            order={order}
+            liveItems={liveItems}
+            table={table}
+            unpaid={unpaid}
+            canSplit={canSplit}
+            busy={busy}
+            setMode={setMode}
+            onCancelItem={(d) => run(() => onCancelItem(order!.id, d))}
+            onRequestPayment={() => run(() => onRequestPayment(order!.id))}
+            onClear={() => run(onClear)}
+          />
+        ) : mode === "order" ? (
+          <OrderView
+            products={products}
+            categories={categories}
+            initialPhone={initialPhone}
+            busy={busy}
+            onSend={async (lines, phone) => {
+              const ok = await run(() => onSendOrder(lines, phone));
+              if (ok) setMode("items");
+            }}
+          />
+        ) : mode === "move" || mode === "merge" ? (
+          <PickTableView
+            hint={mode === "move" ? "Chọn bàn trống để chuyển khách và đơn sang." : "Chọn bàn đang có đơn. Món của bàn này sẽ gộp vào đơn của bàn đó."}
+            tables={tables.filter((t) => t.id !== table.id && (mode === "move" ? t.status === "Empty" : t.status === "Occupied" || t.status === "Waiting_Pay"))}
+            busy={busy}
+            onPick={async (id) => {
+              const ok = await run(() => (mode === "move" ? onMove(id) : onMerge(id)));
+              if (ok) onClose();
+            }}
+          />
+        ) : (
+          <SplitView
+            details={liveItems}
+            busy={busy}
+            onSplit={async (items) => {
+              const ok = await run(() => onSplit(order!.id, items));
+              if (ok) setMode("items");
+            }}
+          />
+        )}
+      </aside>
+    </div>
+  );
+}
+
+/* ── Món hiện có + thao tác ── */
+function ItemsView({
+  order,
+  liveItems,
+  table,
+  unpaid,
+  canSplit,
+  busy,
+  setMode,
+  onCancelItem,
+  onRequestPayment,
+  onClear,
+}: {
+  order: PanelOrder | null;
+  liveItems: PanelDetail[];
+  table: PanelTable;
+  unpaid: boolean;
+  canSplit: boolean;
+  busy: boolean;
+  setMode: (m: Mode) => void;
+  onCancelItem: (detailId: number) => Promise<void>;
+  onRequestPayment: () => Promise<void>;
+  onClear: () => Promise<void>;
+}) {
+  const hasOrder = !!order && unpaid;
+  return (
+    <>
+      <div className="tp-body">
+        {order?.customer && (
+          <div className="tp-customer">
+            Khách <strong>{order.customer.fullName}</strong>
+            {order.customer.phone && <> · {order.customer.phone}</>} · {order.customer.points} điểm
+            {order.customer.phone && <CustomerHabitCard phone={order.customer.phone} />}
+          </div>
+        )}
+
+        <div className="tp-actions">
+          <ActionBtn icon={ArrowRightLeft} label="Chuyển bàn" disabled={!hasOrder || busy} onClick={() => setMode("move")} />
+          <ActionBtn icon={Combine} label="Gộp bàn" disabled={!hasOrder || busy} onClick={() => setMode("merge")} />
+          {canSplit && <ActionBtn icon={Scissors} label="Tách bill" disabled={!hasOrder || liveItems.reduce((s, d) => s + d.quantity, 0) < 2 || busy} onClick={() => setMode("split")} />}
+          <ActionBtn icon={Receipt} label="Yêu cầu thanh toán" disabled={!hasOrder || table.status === "Waiting_Pay" || busy} onClick={() => void onRequestPayment()} />
+          {table.status === "Cleaning" && <ActionBtn icon={Sparkles} label="Báo trống" disabled={busy} onClick={() => void onClear()} />}
+        </div>
+
+        <h3 className="tp-section-title">
+          Món hiện có
+          {order?.status === "Paid" && <span className="tp-badge tone-success">Đã thanh toán</span>}
+        </h3>
+        {liveItems.length === 0 ? (
+          <div className="tp-empty">
+            <Utensils size={24} aria-hidden />
+            <p>Bàn chưa gọi món.</p>
+          </div>
+        ) : (
+          <ul className="tp-items">
+            {liveItems.map((d) => {
+              const k = KDS[d.kdsStatus] ?? { label: d.kdsStatus, tone: "neutral" };
+              const cancellable = unpaid && ["Hold", "Waiting"].includes(d.kdsStatus);
+              return (
+                <li key={d.id} className="tp-item">
+                  <div className="tp-item-main">
+                    <div className="tp-item-name">
+                      <span className="tp-qty">{d.quantity}×</span> {d.product.name}
+                      {d.size && d.size !== "M" && <span className="tp-muted"> (size {d.size})</span>}
+                    </div>
+                    {d.customNotes && <div className="tp-item-note">{d.customNotes}</div>}
+                    <span className={`tp-badge tone-${k.tone}`}>{k.label}</span>
+                  </div>
+                  <div className="tp-item-side">
+                    <div className="tp-money">{vnd(d.unitPrice * d.quantity)}</div>
+                    {cancellable && (
+                      <button type="button" className="tp-link-danger" disabled={busy} onClick={() => void onCancelItem(d.id)}>
+                        Huỷ
+                      </button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      <footer className="tp-foot">
+        <div className="tp-total">
+          <span>Tạm tính</span>
+          <strong>{vnd(order?.subTotal ?? 0)}</strong>
+        </div>
+        <button type="button" className="o-btn o-btn-primary tp-cta" disabled={busy || order?.status === "Paid"} onClick={() => setMode("order")}>
+          <Plus size={18} aria-hidden /> Gọi món
+        </button>
+      </footer>
+    </>
+  );
+}
+
+function ActionBtn({ icon: Icon, label, disabled, onClick }: { icon: typeof X; label: string; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button type="button" className="tp-action" disabled={disabled} onClick={onClick}>
+      <Icon size={20} aria-hidden />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+/* ── Gọi món ── */
+type Line = { qty: number; note: string; showNote: boolean };
+
+function OrderView({
+  products,
+  categories,
+  initialPhone,
+  busy,
+  onSend,
+}: {
+  products: PanelProduct[];
+  categories: PanelCategory[];
+  initialPhone: string;
+  busy: boolean;
+  onSend: (lines: OrderLine[], phone: string) => Promise<void>;
+}) {
+  const cats = categories.filter((c) => products.some((p) => p.categoryId === c.id));
+  const [cat, setCat] = useState<number | null>(cats[0]?.id ?? null);
+  const [q, setQ] = useState("");
+  /** Mỗi món × size là 1 dòng riêng: khoá "id|size" */
+  const [lines, setLines] = useState<Record<string, Line>>({});
+  /** Size đang chọn cho từng món (mặc định M) */
+  const [sizeOf, setSizeOf] = useState<Record<number, Size>>({});
+  /** Nóng/đá đang chọn cho từng món (mặc định kiểu đầu tiên món cho phép) */
+  const [tempOf, setTempOf] = useState<Record<number, Temp>>({});
+  const tempFor = (p: PanelProduct): Temp | null => {
+    const ch = tempChoices(p);
+    const want = tempOf[p.id];
+    return ch.length === 0 ? null : want && ch.includes(want) ? want : ch[0];
+  };
+  const [phone, setPhone] = useState(initialPhone);
+  // Món 1 loại (bánh…) không chọn size — theo cờ hasSizes của món (máy chủ cũng ép size M)
+  const hasSizes = (p: PanelProduct) => p.hasSizes !== false;
+
+  const list = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    return products.filter((p) => (term ? p.name.toLowerCase().includes(term) : cat == null || p.categoryId === cat));
+  }, [products, cat, q]);
+
+  const picked = Object.entries(lines)
+    .filter(([, l]) => l.qty > 0)
+    .map(([key, l]) => {
+      const [id, size, temp] = key.split("|");
+      return { product: products.find((p) => p.id === Number(id)), size: size as Size, temp: (temp || null) as Temp | null, line: l };
+    })
+    .filter((x): x is { product: PanelProduct; size: Size; temp: Temp | null; line: Line } => !!x.product);
+  const count = picked.reduce((s, x) => s + x.line.qty, 0);
+  const total = picked.reduce((s, x) => s + priceFor(x.product, x.size) * x.line.qty, 0);
+
+  const keyOf = (p: PanelProduct) => `${p.id}|${hasSizes(p) ? sizeOf[p.id] ?? "M" : "M"}|${tempFor(p) ?? ""}`;
+  const change = (key: string, d: number) =>
+    setLines((prev) => {
+      const cur = prev[key] ?? { qty: 0, note: "", showNote: false };
+      const qty = Math.max(0, cur.qty + d);
+      return { ...prev, [key]: { ...cur, qty } };
+    });
+
+  /**
+   * Món đã xác nhận từ giọng nói → danh sách đang gọi. Cùng món + size + nóng/đá + ghi chú thì cộng dồn;
+   * khác ghi chú (VD 1 ly ít đá, 1 ly không đá) thì tách dòng riêng (khóa có thêm đuôi "|v…", phần gửi bếp bỏ qua đuôi).
+   */
+  const addVoice = (vls: VoiceLine[]) =>
+    setLines((prev) => {
+      const next = { ...prev };
+      for (const vl of vls) {
+        const p = products.find((x) => x.id === vl.productId);
+        if (!p) continue;
+        const size: Size = hasSizes(p) ? vl.size ?? "M" : "M";
+        const note = voiceNote(vl);
+        const base = `${p.id}|${size}|${vl.temp ?? ""}`;
+        const key = Object.keys(next).find((k) => (k === base || k.startsWith(`${base}|v`)) && (next[k].qty === 0 || next[k].note.trim() === note)) ?? `${base}|v${Date.now()}${Math.random().toString(36).slice(2, 5)}`;
+        const cur = next[key] ?? { qty: 0, note: "", showNote: false };
+        next[key] = { qty: cur.qty + vl.qty, note: cur.qty === 0 ? note : cur.note, showNote: !!note || cur.showNote };
+      }
+      return next;
+    });
+
+  /** "+" trên thẻ thói quen: thêm món đúng size / nóng-đá / đá / đường / ghi chú quen (ghi chú dạng giọng nói: "Ít đá · Ít đường") */
+  const addUsual = (it: HabitItem) => {
+    const p = products.find((x) => x.id === it.productId);
+    if (!p) return;
+    const lvl = (v: number | string | null) => (v == null ? null : ([0, 50, 100] as const).reduce((a, b) => (Math.abs(b - Number(v)) < Math.abs(a - Number(v)) ? b : a)));
+    const u = it.usual;
+    addVoice([lineFromProduct(p, { qty: 1, size: u.size ?? "M", temp: u.temperature, ice: lvl(u.icePct), sugar: lvl(u.sugar), note: it.usualNote })]);
+  };
+
+  return (
+    <>
+      <div className="tp-body tp-body-order">
+        <PosVoiceBar products={products} onAdd={addVoice} />
+        <div className="tp-order-tools">
+          <input className="o-input" type="search" placeholder="Tìm món…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Tìm món" />
+          <input className="o-input" type="tel" placeholder="SĐT khách (tích điểm)" value={phone} onChange={(e) => setPhone(e.target.value)} aria-label="SĐT khách" />
+        </div>
+        <CustomerHabitCard phone={phone} onAdd={addUsual} />
+        {!q && (
+          <div className="tp-chips" role="tablist" aria-label="Danh mục">
+            {cats.map((c) => (
+              <button key={c.id} type="button" role="tab" aria-selected={cat === c.id} className={cat === c.id ? "tp-chip active" : "tp-chip"} onClick={() => setCat(c.id)}>
+                {c.name}
+              </button>
+            ))}
+          </div>
+        )}
+        <ul className="tp-menu">
+          {list.map((p) => {
+            const sized = hasSizes(p);
+            const size: Size = sized ? sizeOf[p.id] ?? "M" : "M";
+            const key = keyOf(p);
+            const l = lines[key];
+            const qty = l?.qty ?? 0;
+            const temps = tempChoices(p);
+            const temp = tempFor(p);
+            // Các lựa chọn khác (size / nóng-đá) của món này đã chọn (để phục vụ thấy tổng)
+            const others = Object.entries(lines)
+              .filter(([k, v]) => k.startsWith(`${p.id}|`) && k !== key && v.qty > 0)
+              .map(([k, v]) => {
+                const [, s, tp] = k.split("|");
+                return `${sized ? s : ""}${tp ? ` ${TEMP_TEXT[tp as Temp].toLowerCase()}` : ""}×${v.qty}`.trim();
+              });
+            const img = p.imageUrl ? (p.imageUrl.startsWith("http") ? p.imageUrl : `${apiOrigin()}${p.imageUrl}`) : null;
+            return (
+              <li key={p.id} className={qty > 0 ? "tp-menu-item picked" : "tp-menu-item"}>
+                {img ? <img src={img} alt="" className="tp-thumb" loading="lazy" /> : <span className="tp-thumb" />}
+                <div className="tp-menu-main">
+                  <div className="tp-item-name">{p.name}</div>
+                  <div className="tp-muted">
+                    {vnd(priceFor(p, size))}
+                    {others.length > 0 && <span> · đã chọn {others.join(", ")}</span>}
+                  </div>
+                  {sized && (
+                    <div className="tp-sizes" role="group" aria-label={`Size ${p.name}`} style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                      {SIZES.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          className={s === size ? "tp-chip active" : "tp-chip"}
+                          style={{ padding: "2px 10px", minWidth: 32 }}
+                          aria-pressed={s === size}
+                          title={vnd(priceFor(p, s))}
+                          onClick={() => setSizeOf((prev) => ({ ...prev, [p.id]: s }))}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {temps.length > 1 && temp && (
+                    <div role="group" aria-label={`Nóng / đá ${p.name}`} style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                      {temps.map((tp) => (
+                        <button
+                          key={tp}
+                          type="button"
+                          className={tp === temp ? "tp-chip active" : "tp-chip"}
+                          style={{ padding: "2px 10px" }}
+                          aria-pressed={tp === temp}
+                          onClick={() => setTempOf((prev) => ({ ...prev, [p.id]: tp }))}
+                        >
+                          {TEMP_TEXT[tp]}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {temps.length === 1 && <div className="tp-muted" style={{ marginTop: 4 }}>Chỉ {TEMP_TEXT[temps[0]].toLowerCase()}</div>}
+                  {l?.showNote && (
+                    <input
+                      className="o-input tp-note-input"
+                      placeholder="Ít đá, ít ngọt…"
+                      value={l.note}
+                      onChange={(e) => setLines((prev) => ({ ...prev, [key]: { ...prev[key], note: e.target.value } }))}
+                      autoFocus
+                    />
+                  )}
+                </div>
+                <div className="tp-stepper">
+                  {qty > 0 && (
+                    <>
+                      <button type="button" className="tp-step" aria-label={`Ghi chú ${p.name}`} onClick={() => setLines((prev) => ({ ...prev, [key]: { ...prev[key], showNote: !prev[key].showNote } }))}>
+                        <NotebookPen size={16} aria-hidden />
+                      </button>
+                      <button type="button" className="tp-step" aria-label={`Bớt ${p.name}`} onClick={() => change(key, -1)}>
+                        <Minus size={16} aria-hidden />
+                      </button>
+                      <span className="tp-step-qty" aria-live="polite">{qty}</span>
+                    </>
+                  )}
+                  <button type="button" className="tp-step tp-step-add" aria-label={`Thêm ${p.name}`} onClick={() => change(key, 1)}>
+                    <Plus size={16} aria-hidden />
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+          {list.length === 0 && <li className="tp-muted" style={{ padding: 12 }}>Không có món phù hợp.</li>}
+        </ul>
+      </div>
+      {picked.length > 0 && (
+        <div className="tp-picked" aria-label="Món đã chọn">
+          {picked.map((x) => {
+            const key = Object.keys(lines).find((k) => lines[k] === x.line)!;
+            return (
+              <span key={key} className="tp-picked-item">
+                {x.line.qty}× {x.product.name}
+                {hasSizes(x.product) && x.size !== "M" ? ` ${x.size}` : ""}
+                {x.temp === "HOT" ? " nóng" : ""}
+                {x.line.note.trim() && <em> · {x.line.note.trim()}</em>}
+                <button type="button" onClick={() => setLines((prev) => ({ ...prev, [key]: { ...prev[key], qty: 0 } }))} aria-label={`Bỏ ${x.product.name}`}><X size={12} aria-hidden /></button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+      <footer className="tp-foot">
+        <div className="tp-total">
+          <span>{count ? `${count} món mới` : "Chưa chọn món"}</span>
+          <strong>{vnd(total)}</strong>
+        </div>
+        <button
+          type="button"
+          className="o-btn o-btn-primary tp-cta"
+          disabled={!count || busy}
+          onClick={() =>
+            void onSend(
+              picked.map((x) => ({
+                productId: x.product.id,
+                quantity: x.line.qty,
+                size: x.size,
+                temp: x.temp,
+                // Ghi size, nóng/đá vào ghi chú cho pha chế (giống đơn khách tự đặt)
+                customNotes: [hasSizes(x.product) ? `Size ${x.size}` : "", x.temp ? TEMP_TEXT[x.temp] : "", x.line.note.trim()].filter(Boolean).join(", ") || undefined,
+              })),
+              phone.trim(),
+            )
+          }
+        >
+          {busy ? "Đang gửi…" : "Gửi bếp"}
+        </button>
+      </footer>
+    </>
+  );
+}
+
+/* ── Chọn bàn đích (chuyển / gộp) ── */
+function PickTableView({ hint, tables, busy, onPick }: { hint: string; tables: PanelTable[]; busy: boolean; onPick: (id: number) => Promise<void> }) {
+  return (
+    <div className="tp-body">
+      <p className="tp-muted" style={{ marginTop: 0 }}>{hint}</p>
+      {tables.length === 0 ? (
+        <p className="tp-empty-text">Không có bàn phù hợp.</p>
+      ) : (
+        <div className="tp-pick">
+          {tables.map((t) => (
+            <button key={t.id} type="button" className="tp-pick-btn" disabled={busy} onClick={() => void onPick(t.id)}>
+              <strong>{t.name.replace("Bàn ", "")}</strong>
+              <span>{t.location ?? ""}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Tách bill ── */
+function SplitView({ details, busy, onSplit }: { details: PanelDetail[]; busy: boolean; onSplit: (items: { orderItemId: number; quantity: number }[]) => Promise<void> }) {
+  const [moved, setMoved] = useState<Record<number, number>>({});
+  const set = (id: number, d: number, max: number) => setMoved((m) => ({ ...m, [id]: Math.min(max, Math.max(0, (m[id] ?? 0) + d)) }));
+  const items = Object.entries(moved).filter(([, q]) => q > 0).map(([id, q]) => ({ orderItemId: Number(id), quantity: q }));
+  const total = details.reduce((s, d) => s + (moved[d.id] ?? 0) * d.unitPrice, 0);
+  // Không cho tách hết món sang bill mới
+  const all = details.every((d) => (moved[d.id] ?? 0) === d.quantity);
+  return (
+    <>
+      <div className="tp-body">
+        <p className="tp-muted" style={{ marginTop: 0 }}>Chọn số lượng từng món chuyển sang bill mới.</p>
+        <ul className="tp-items">
+          {details.map((d) => (
+            <li key={d.id} className="tp-item">
+              <div className="tp-item-main">
+                <div className="tp-item-name">{d.product.name}</div>
+                <div className="tp-muted">Còn lại ở bill gốc: {d.quantity - (moved[d.id] ?? 0)}</div>
+              </div>
+              <div className="tp-stepper">
+                <button type="button" className="tp-step" aria-label={`Bớt ${d.product.name}`} onClick={() => set(d.id, -1, d.quantity)}><Minus size={16} aria-hidden /></button>
+                <span className="tp-step-qty">{moved[d.id] ?? 0}</span>
+                <button type="button" className="tp-step tp-step-add" aria-label={`Thêm ${d.product.name}`} onClick={() => set(d.id, 1, d.quantity)}><Plus size={16} aria-hidden /></button>
+              </div>
+            </li>
+          ))}
+        </ul>
+        {all && items.length > 0 && <p className="tp-error">Phải giữ lại ít nhất 1 món ở bill gốc.</p>}
+      </div>
+      <footer className="tp-foot">
+        <div className="tp-total">
+          <span>Bill mới</span>
+          <strong>{vnd(total)}</strong>
+        </div>
+        <button type="button" className="o-btn o-btn-primary tp-cta" disabled={!items.length || all || busy} onClick={() => void onSplit(items)}>
+          Tách bill
+        </button>
+      </footer>
+    </>
+  );
+}

@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { categoryImages } from "./sample-images.js";
 
 const prisma = new PrismaClient();
 
@@ -10,11 +11,12 @@ const productImages: Record<number, string> = {
   4: "https://images.unsplash.com/photo-1570968915860-54d5c301fa9f?w=800&q=80",
   5: "https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=800&q=80",
   6: "https://images.unsplash.com/photo-1597481499750-3e6b22637e12?w=800&q=80",
-  7: "https://images.unsplash.com/photo-1558857563-b37103387b5f?w=800&q=80",
+  // 7, 9, 11: link cũ đã 404 trên Unsplash — thay ảnh còn sống (kiểm tra 11/2026)
+  7: "https://images.unsplash.com/photo-1525803377221-4f6ccdaa5133?w=800&q=80",
   8: "https://images.unsplash.com/photo-1525385133512-2f3bdd039054?w=800&q=80",
-  9: "https://images.unsplash.com/photo-1556679343-c1306c40fc7a?w=800&q=80",
+  9: "https://images.unsplash.com/photo-1558857563-b371033873b8?w=800&q=80",
   10: "https://images.unsplash.com/photo-1515825838458-f2a94b20105a?w=800&q=80",
-  11: "https://images.unsplash.com/photo-1515823064-d6e0c04616e7?w=800&q=80",
+  11: "https://images.unsplash.com/photo-1582785513054-8d1bf9d69c1a?w=800&q=80",
   12: "https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=800&q=80",
 };
 
@@ -34,6 +36,9 @@ async function main() {
   await prisma.customer.deleteMany();
   await prisma.workSchedule.deleteMany();
   await prisma.auditLog.deleteMany();
+  await prisma.stockTransfer.deleteMany();
+  await prisma.storeProduct.deleteMany();
+  await prisma.storeInventory.deleteMany();
   await prisma.staff.deleteMany();
   await prisma.productFormula.deleteMany();
   await prisma.product.deleteMany();
@@ -41,33 +46,45 @@ async function main() {
   await prisma.category.deleteMany();
   await prisma.cafeTable.deleteMany();
 
+  // Chi nhánh mặc định — mọi dữ liệu mẫu bên dưới thuộc chi nhánh này
+  const store = await prisma.store.upsert({
+    where: { id: 1 },
+    update: {},
+    create: { id: 1, code: "CN1", name: "TD Coffee - Chi nhánh 1" },
+  });
+
   // ── Danh mục phân cấp (Mega Menu) ──────────────────────────────
   // Cấp 1: Danh mục gốc
   await prisma.category.create({ data: { id: 100, name: "Thức Uống", sortOrder: 1, parentId: null } });
-  await prisma.category.create({ data: { id: 200, name: "Đồ Ăn Nhẹ", sortOrder: 2, parentId: null } });
+  await prisma.category.create({ data: { id: 200, name: "Đồ Ăn Nhẹ", sortOrder: 2, parentId: null, imageUrl: categoryImages[200] } });
 
   // Cấp 2: Danh mục con
-  await prisma.category.create({ data: { id: 1, name: "Cà Phê Phin & Truyền Thống", sortOrder: 1, parentId: 100 } });
-  await prisma.category.create({ data: { id: 2, name: "Cà Phê Pha Máy (Espresso)", sortOrder: 2, parentId: 100 } });
-  await prisma.category.create({ data: { id: 3, name: "Trà Trái Cây (Syrup/Mứt)", sortOrder: 3, parentId: 100 } });
-  await prisma.category.create({ data: { id: 4, name: "Trà Sữa & Trân Châu", sortOrder: 4, parentId: 100 } });
-  await prisma.category.create({ data: { id: 5, name: "Matcha & Sữa Tươi", sortOrder: 5, parentId: 100 } });
+  await prisma.category.create({ data: { id: 1, name: "Cà Phê Phin & Truyền Thống", sortOrder: 1, parentId: 100, imageUrl: categoryImages[1] } });
+  await prisma.category.create({ data: { id: 2, name: "Cà Phê Pha Máy (Espresso)", sortOrder: 2, parentId: 100, imageUrl: categoryImages[2] } });
+  await prisma.category.create({ data: { id: 3, name: "Trà Trái Cây (Syrup/Mứt)", sortOrder: 3, parentId: 100, imageUrl: categoryImages[3] } });
+  await prisma.category.create({ data: { id: 4, name: "Trà Sữa & Trân Châu", sortOrder: 4, parentId: 100, imageUrl: categoryImages[4] } });
+  await prisma.category.create({ data: { id: 5, name: "Matcha & Sữa Tươi", sortOrder: 5, parentId: 100, imageUrl: categoryImages[5] } });
 
+  const inventorySeed = [
+    { id: 1, name: "Cà Phê Phin Robusta (Bịch 1Kg)", stockQty: 15, minLevel: 3, unit: "Bịch" },
+    { id: 2, name: "Cà Phê Máy Arabica (Bịch 1Kg)", stockQty: 10, minLevel: 2, unit: "Bịch" },
+    { id: 3, name: "Sữa Đặc Ngôi Sao (Lon)", stockQty: 48, minLevel: 12, unit: "Lon" },
+    { id: 4, name: "Sữa Tươi Thanh Trùng 1L (Hộp)", stockQty: 24, minLevel: 6, unit: "Hộp" },
+    { id: 5, name: "Trà Đen Lộc Phát (Bịch 1Kg)", stockQty: 10, minLevel: 2, unit: "Bịch" },
+    { id: 6, name: "Trà Oolong Nướng (Bịch 1Kg)", stockQty: 10, minLevel: 2, unit: "Bịch" },
+    { id: 7, name: "Bột Matcha Nhật Bản (Bịch 500g)", stockQty: 8, minLevel: 2, unit: "Bịch" },
+    { id: 8, name: "Bột Sữa Béo Indo (Bịch 1Kg)", stockQty: 15, minLevel: 3, unit: "Bịch" },
+    { id: 9, name: "Syrup Đường Đen Đài Loan (Chai 2.5Kg)", stockQty: 6, minLevel: 2, unit: "Chai" },
+    { id: 10, name: "Trân Châu Đen (Bịch 1Kg)", stockQty: 20, minLevel: 5, unit: "Bịch" },
+    { id: 11, name: "Thạch Trái Cây (Hộp 1Kg)", stockQty: 10, minLevel: 2, unit: "Hộp" },
+    { id: 12, name: "Ly Nhựa Kèm Nắp (Cái)", stockQty: 1000, minLevel: 200, unit: "Cái" },
+  ];
+  // Danh mục nguyên liệu dùng chung; số tồn thuộc chi nhánh
   await prisma.inventoryItem.createMany({
-    data: [
-      { id: 1, name: "Cà Phê Phin Robusta (Bịch 1Kg)", stockQty: 15, minLevel: 3, unit: "Bịch" },
-      { id: 2, name: "Cà Phê Máy Arabica (Bịch 1Kg)", stockQty: 10, minLevel: 2, unit: "Bịch" },
-      { id: 3, name: "Sữa Đặc Ngôi Sao (Lon)", stockQty: 48, minLevel: 12, unit: "Lon" },
-      { id: 4, name: "Sữa Tươi Thanh Trùng 1L (Hộp)", stockQty: 24, minLevel: 6, unit: "Hộp" },
-      { id: 5, name: "Trà Đen Lộc Phát (Bịch 1Kg)", stockQty: 10, minLevel: 2, unit: "Bịch" },
-      { id: 6, name: "Trà Oolong Nướng (Bịch 1Kg)", stockQty: 10, minLevel: 2, unit: "Bịch" },
-      { id: 7, name: "Bột Matcha Nhật Bản (Bịch 500g)", stockQty: 8, minLevel: 2, unit: "Bịch" },
-      { id: 8, name: "Bột Sữa Béo Indo (Bịch 1Kg)", stockQty: 15, minLevel: 3, unit: "Bịch" },
-      { id: 9, name: "Syrup Đường Đen Đài Loan (Chai 2.5Kg)", stockQty: 6, minLevel: 2, unit: "Chai" },
-      { id: 10, name: "Trân Châu Đen (Bịch 1Kg)", stockQty: 20, minLevel: 5, unit: "Bịch" },
-      { id: 11, name: "Thạch Trái Cây (Hộp 1Kg)", stockQty: 10, minLevel: 2, unit: "Hộp" },
-      { id: 12, name: "Ly Nhựa Kèm Nắp (Cái)", stockQty: 1000, minLevel: 200, unit: "Cái" },
-    ],
+    data: inventorySeed.map(({ stockQty: _q, minLevel: _m, ...it }) => it),
+  });
+  await prisma.storeInventory.createMany({
+    data: inventorySeed.map((it) => ({ storeId: store.id, itemId: it.id, stockQty: it.stockQty, minLevel: it.minLevel })),
   });
 
   const products = [
@@ -103,6 +120,7 @@ async function main() {
         location: `Tầng ${Math.floor(i / 20) + 1}`,
         capacity: 4,
         qrCode: `http://localhost:5173/?table=${id}`,
+        storeId: store.id,
         status: id === 1 ? "Occupied" : "Empty",
       };
     }),
@@ -124,10 +142,12 @@ async function main() {
   const staffPass = await bcrypt.hash("staff123", 10);
   await prisma.staff.createMany({
     data: [
-      { id: 1, username: "admin", passwordHash: staffPass, fullName: "Quản lý", role: "Admin", hireDate: new Date() },
-      { id: 2, username: "cashier", passwordHash: staffPass, fullName: "Thu ngân Demo", role: "Cashier", hireDate: new Date() },
-      { id: 3, username: "kitchen", passwordHash: staffPass, fullName: "Pha chế Demo", role: "Kitchen", hireDate: new Date() },
-      { id: 4, username: "waiter", passwordHash: staffPass, fullName: "Phục vụ Demo", role: "Waiter", hireDate: new Date() },
+      { id: 1, username: "admin", passwordHash: staffPass, fullName: "Quản lý", role: "Admin", storeId: store.id, hireDate: new Date() },
+      { id: 2, username: "cashier", passwordHash: staffPass, fullName: "Thu ngân Demo", role: "Cashier", storeId: store.id, hireDate: new Date() },
+      { id: 3, username: "kitchen", passwordHash: staffPass, fullName: "Pha chế Demo", role: "Kitchen", storeId: store.id, hireDate: new Date() },
+      { id: 4, username: "waiter", passwordHash: staffPass, fullName: "Phục vụ Demo", role: "Waiter", storeId: store.id, hireDate: new Date() },
+      { id: 6, username: "kho", passwordHash: staffPass, fullName: "Thủ kho Demo", role: "Warehouse", storeId: store.id, hireDate: new Date() },
+      { id: 5, username: "owner", passwordHash: staffPass, fullName: "Chủ chuỗi", role: "Owner", storeId: null, hireDate: new Date() },
     ],
   });
 
@@ -153,6 +173,7 @@ async function main() {
   await prisma.order.create({
     data: {
       id: 1,
+      storeId: store.id,
       tableId: 1,
       customerId: 1,
       staffId: 3,

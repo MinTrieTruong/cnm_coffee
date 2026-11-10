@@ -1,0 +1,16 @@
+{
+  "name": "TD Coffee — Nhân viên",
+  "short_name": "TD Nhân viên",
+  "description": "Khu vực nhân sự TD Coffee: thông báo, chấm công, giao việc, bán hàng",
+  "start_url": "/app/overview/home",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#6f4e37",
+  "lang": "vi",
+  "icons": [
+    { "src": "/logo-td-coffee.png", "sizes": "any", "type": "image/png", "purpose": "any" },
+    { "src": "/logo-td-coffee.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
+

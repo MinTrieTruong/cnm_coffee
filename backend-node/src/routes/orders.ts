@@ -3,25 +3,43 @@ import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
 import type { Request } from "express";
 import { randomUUID } from "crypto";
-import { attachStaff, requireRoles } from "../middleware/staff.js";
+import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
+import { inStore, storeWhere, toStore } from "../lib/storeScope.js";
+import { resolveCustomerStore } from "../lib/stores.js";
+import { resolveVoucher, voucherHold } from "../lib/vouchers.js";
+import { customerShipping, describeTier, refreshOrderPromotion } from "../lib/promotions.js";
+import { priceLines, type RawLine } from "../lib/menuPrice.js";
 import { optionalCustomerAuth } from "../middleware/customer.js";
+import { recordOrderPlaced } from "../lib/customerEvents.js";
 import { computeBill, computePointsEarned, getStoreSettings } from "../lib/pricing.js";
-import { DS, getStoreLocation, haversineKm, onKitchenProgress, releaseOrderToKitchen, shippingFeeForDistance } from "../lib/delivery.js";
+import { DS, getStoreLocation, haversineKm, MAX_DELIVERY_KM, onKitchenProgress, shippingFeeForDistance } from "../lib/delivery.js";
+import { customerCancelDeadline, emitRefunded, refundOrderToPoints, RefundError } from "../lib/points.js";
+import { verifyToken, type StaffPayload } from "../lib/jwt.js";
+import { canViewOrder } from "../lib/orderAccess.js";
 
-type CartLine = {
-  productId: number;
-  quantity: number;
-  unitPrice: number;
-  customNotes?: string;
-  /// Nếu thuộc combo: comboId để lưu vào OrderDetail
-  comboId?: number | null;
-};
+/** Dòng giỏ hàng khách gửi lên. unitPrice của trình duyệt chỉ để tham khảo — máy chủ tự tính lại giá (lib/menuPrice). */
+type CartLine = RawLine & { unitPrice?: number };
 
 const GRACE_MS = 15_000; // 15 giây ân hạn
 
+/** Nhân viên đang hoạt động nếu request mang token nhân sự (không bắt buộc) */
+async function staffFromToken(prisma: PrismaClient, req: Request) {
+  const h = req.headers.authorization;
+  const token = h?.startsWith("Bearer ") ? h.slice(7) : null;
+  if (!token) return null;
+  try {
+    const p = verifyToken<StaffPayload>(token);
+    if (p.typ !== "staff") return null;
+    const s = await prisma.staff.findUnique({ where: { id: p.sub } });
+    return s && s.status === "Active" ? s : null;
+  } catch {
+    return null;
+  }
+}
+
 export function ordersRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
-  const kitchenAuth = [attachStaff(prisma), requireRoles("Kitchen", "Admin")];
+  const kitchenAuth = [attachStaff(prisma), requireRoles("Kitchen", "Admin"), requireStore];
 
   r.get("/orders/:id", async (req, res) => {
     const id = Number(req.params.id);
@@ -31,6 +49,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       include: { details: { include: { product: true } }, table: true },
     });
     if (!order) return res.status(404).json({ error: "Không tìm thấy đơn" });
+    if (!(await canViewOrder(prisma, req, order))) return res.status(403).json({ error: "Bạn không có quyền xem đơn này." });
     res.json(order);
   });
 
@@ -38,16 +57,24 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
   r.get("/orders/:id/bill", async (req, res) => {
     const id = Number(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ" });
+    const owner = await prisma.order.findUnique({ where: { id }, select: { customerId: true, sessionId: true, tableId: true, storeId: true } });
+    if (!owner) return res.status(404).json({ error: "Không tìm thấy đơn" });
+    if (!(await canViewOrder(prisma, req, owner))) return res.status(403).json({ error: "Bạn không có quyền xem đơn này." });
+    await refreshOrderPromotion(prisma, id);
     const order = await prisma.order.findUnique({
       where: { id },
       include: {
         details: { include: { product: true }, orderBy: { id: "asc" } },
         table: true,
+        store: { select: { name: true, address: true } },
         customer: { select: { id: true, fullName: true, phone: true, points: true } },
         payments: { orderBy: { id: "asc" } },
       },
     });
     if (!order) return res.status(404).json({ error: "Không tìm thấy đơn" });
+    const promo = order.promoId
+      ? await prisma.bulkPromotion.findUnique({ where: { id: order.promoId }, include: { tiers: true } })
+      : null;
     const settings = await getStoreSettings(prisma);
     const computed = computeBill(
       order.subTotal,
@@ -59,9 +86,10 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     const isPaid = order.status === "Paid";
     // vatAmount: luôn tính lại từ computed (tránh order.vatAmount = 0 do bug cũ)
     const vatAmount = order.vatAmount > 0 ? order.vatAmount : computed.vatAmount;
+    // Tổng khách trả = tiền hàng (sau giảm, có VAT) + phí ship (thu hộ shipper)
     const totalAmount = isPaid
-      ? (order.totalAmount > 0 ? order.totalAmount : computed.totalAmount)
-      : computed.totalAmount;
+      ? (order.totalAmount > 0 ? order.totalAmount : computed.totalAmount + customerShipping(order))
+      : computed.totalAmount + customerShipping(order);
 
     // Điểm còn lại của khách (chưa dùng — để frontend hiển thị)
     const customerPoints = order.customer?.points ?? 0;
@@ -77,12 +105,15 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     const cashPaid = isPaid
       ? order.payments.filter(p => p.method !== "Points").reduce((s, p) => s + p.amount, 0)
       : totalAmount;
+    // Phí ship là tiền của shipper — không tích điểm
     const pointsEarnedPreview = order.customerId
-      ? computePointsEarned(cashPaid, settings.pointEarnEveryVnd, settings.pointEarnEach)
+      ? computePointsEarned(Math.max(0, cashPaid - customerShipping(order)), settings.pointEarnEveryVnd, settings.pointEarnEach)
       : 0;
 
     res.json({
-      storeName: process.env.STORE_NAME ?? "TD Coffee",
+      storeName: order.store.name,
+      storeAddress: order.store.address,
+      storeId: order.storeId,
       orderId: order.id,
       status: order.status,
       orderType: order.orderType,
@@ -100,7 +131,14 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
         quantity: d.quantity,
         unitPrice: d.unitPrice,
         lineTotal: d.quantity * d.unitPrice,
+        isGift: d.isGift,
       })),
+      // Ưu đãi số lượng đang áp (giảm đã nằm trong discountAmt)
+      promotion: promo && {
+        id: promo.id, name: promo.name, discount: order.promoDiscount, qty: order.promoQty, allowVoucher: promo.allowVoucher,
+        shippingDiscount: order.shippingDiscount, giftValue: order.giftValue,
+      },
+      shippingDiscount: order.shippingDiscount,
       subTotal: order.subTotal,
       discountAmt: order.discountAmt,
       // Điểm đã áp dụng (sau khi gọi redeem-points hoặc khi đơn đã Paid)
@@ -108,6 +146,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       pointsRedeemAmt: order.pointsRedeemAmt,
       vatRatePercent: settings.vatRatePercent,
       vatAmount,
+      shippingFee: order.shippingFee,
       totalAmount,
       cashRoundTo: settings.cashRoundTo,
       pointsEarnedPreview,
@@ -136,6 +175,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
 
     const { pointsToUse: rawPts, remove } = req.body as { pointsToUse?: number; remove?: boolean };
 
+    await refreshOrderPromotion(prisma, id);
     const order = await prisma.order.findUnique({
       where: { id },
       include: { customer: true },
@@ -148,8 +188,9 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       return res.status(400).json({ error: "Chỉ khách đăng nhập mới dùng điểm được" });
     }
 
+    // Điểm của khách nào chỉ khách đó (đúng token) được áp vào đơn — không token cũng bị chặn
     const reqCustomerId = (req as Request & { customerId?: number }).customerId;
-    if (reqCustomerId && reqCustomerId !== order.customerId) {
+    if (reqCustomerId !== order.customerId) {
       return res.status(403).json({ error: "Không có quyền trên đơn này" });
     }
 
@@ -181,9 +222,11 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       settings.vatRatePercent,
     );
 
+    // Phí ship không chịu VAT / giảm giá — cộng nguyên vào tổng khách trả
+    const newTotal = totalAmount + customerShipping(order);
     await prisma.order.update({
       where: { id },
-      data: { pointsUsed: pointsToUse, pointsRedeemAmt, vatAmount, totalAmount },
+      data: { pointsUsed: pointsToUse, pointsRedeemAmt, vatAmount, totalAmount: newTotal },
     });
 
     return res.json({
@@ -191,7 +234,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       pointsUsed: pointsToUse,
       pointsRedeemAmt,
       vatAmount,
-      newTotal: totalAmount,
+      newTotal,
     });
   });
 
@@ -202,7 +245,8 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
   r.post("/orders/:id/request-payment", optionalCustomerAuth, async (req, res) => {
     const id = Number(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ" });
-    const body = req.body as { sessionId?: string | null; tableId?: number | null; discountVoucherAmt?: number; voucherCode?: string | null };
+    const body = req.body as { sessionId?: string | null; tableId?: number | null; voucherCode?: string | null };
+    await refreshOrderPromotion(prisma, id);
     const order = await prisma.order.findUnique({
       where: { id },
       include: { payments: true, customer: true, table: true },
@@ -212,6 +256,10 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     }
     if (order.payments.length > 0) {
       return res.status(400).json({ error: "Đơn đã thanh toán." });
+    }
+    // Đơn giao hàng không nhận COD — bắt buộc thanh toán online trước khi quán nhận đơn
+    if (order.orderType === "Delivery") {
+      return res.status(400).json({ error: "Đơn giao hàng cần thanh toán online (VNPay / chuyển khoản) trước." });
     }
     const reqCustomerId = (req as Request & { customerId?: number }).customerId;
     if (order.customerId) {
@@ -231,42 +279,20 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     } else {
       return res.status(400).json({ error: "Không xác định được quyền trên đơn này." });
     }
+    // Giá trị giảm lấy từ DB, không tin số tiền trình duyệt gửi lên (POS thu theo giá trị này)
+    const v = await resolveVoucher(prisma, body.voucherCode, order);
+    if ("error" in v) return res.status(400).json({ error: v.error });
     if (order.tableId) {
       await prisma.cafeTable.update({
         where: { id: order.tableId },
         data: { status: "Waiting_Pay" },
       });
     }
-    const discountVoucherAmt = body.discountVoucherAmt ?? 0;
-    const voucherCode = body.voucherCode ?? null;
-    if (discountVoucherAmt > 0 || voucherCode) {
-      await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          cancelReason: voucherCode ? `VOUCHER:${voucherCode}:${discountVoucherAmt}` : null,
-        }
-      });
+    if (v.voucherCode) {
+      await prisma.order.update({ where: { id: order.id }, data: { cancelReason: voucherHold(v) } });
     }
 
-    if (order.orderType === "Delivery") {
-      // COD: chốt số tiền shipper cần thu (bill + phí ship), chuyển sang chờ thu ngân xác nhận
-      const settings = await getStoreSettings(prisma);
-      const { vatAmount, totalAmount } = computeBill(
-        order.subTotal,
-        order.discountAmt + order.pointsRedeemAmt + Math.max(0, discountVoucherAmt),
-        0,
-        settings.pointValueVnd,
-        settings.vatRatePercent,
-      );
-      await prisma.order.update({
-        where: { id: order.id },
-        data: { vatAmount, totalAmount: totalAmount + order.shippingFee },
-      });
-      await releaseOrderToKitchen(prisma, io, order.id);
-      return res.json({ ok: true, isDelivery: true });
-    }
-
-    io.to("pos").emit("payment:request", {
+    toStore(io, "pos", order.storeId).emit("payment:request", {
       orderId: order.id,
       tableId: order.tableId,
       fromCustomer: true,
@@ -274,10 +300,10 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     res.json({ ok: true });
   });
 
-  r.post("/orders", async (req, res) => {
+  r.post("/orders", optionalCustomerAuth, async (req, res) => {
     const body = req.body as {
       tableId?: number | null;
-      customerId?: number | null;
+      storeId?: number | null;
       orderType?: string;
       sessionId?: string | null;
       payMode?: "now" | "later";
@@ -286,12 +312,14 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       customerLat?: number;
       customerLng?: number;
       shippingFee?: number;
+      /** Mã ẩn danh + mã phiên của lib/track.ts — máy chủ tự ghi ORDER_PLACED */
+      trackSid?: string;
+      visitId?: string;
     };
     const lines = body.lines ?? [];
     if (!lines.length) {
       return res.status(400).json({ error: "Giỏ hàng trống." });
     }
-    const subTotal = lines.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
     const orderType = body.orderType ?? "Dine-in";
     const payMode = body.payMode ?? "later";
     const isTakeaway = orderType.toLowerCase().includes("take") || orderType === "Takeaway";
@@ -302,33 +330,53 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     if (!isTakeaway && !isDelivery && !body.tableId) {
       return res.status(400).json({ error: "Đơn tại quán bắt buộc phải có thông tin bàn." });
     }
+    // Khách lấy từ token đăng nhập, không tin customerId trình duyệt gửi lên
+    const customerId = (req as Request & { customerId?: number }).customerId ?? null;
+    // Đơn giao hàng trả trước, hủy thì hoàn ra điểm → bắt buộc có tài khoản
+    if (isDelivery && !customerId) {
+      return res.status(401).json({ error: "Vui lòng đăng nhập để đặt giao hàng." });
+    }
+    // Tài khoản tạo từ Google / Facebook chưa bổ sung SĐT → shipper không liên lạc được
+    if (isDelivery && !(await prisma.customer.findUnique({ where: { id: customerId! }, select: { phone: true } }))?.phone) {
+      return res.status(400).json({ code: "PHONE_REQUIRED", error: "Vui lòng bổ sung số điện thoại trong tài khoản để đặt giao hàng." });
+    }
     if (isDelivery && !body.deliveryAddress) {
       return res.status(400).json({ error: "Đơn giao hàng bắt buộc phải có địa chỉ." });
     }
     if (isDelivery && (typeof body.customerLat !== "number" || typeof body.customerLng !== "number")) {
       return res.status(400).json({ error: "Vui lòng ghim vị trí giao hàng trên bản đồ." });
     }
-    // Phí ship tính phía server theo khoảng cách từ quán
+    // Đơn tại bàn theo chi nhánh của bàn; mang về/giao hàng theo chi nhánh khách chọn
+    const resolved = await resolveCustomerStore(prisma, isTakeaway || isDelivery ? null : body.tableId, body.storeId);
+    if ("error" in resolved) return res.status(400).json({ error: resolved.error });
+    const { storeId } = resolved;
+
+    // Giá do máy chủ tính theo món / size / % giảm giá / combo — không tin giá trình duyệt gửi lên
+    const priced = await priceLines(prisma, storeId, lines);
+    if ("error" in priced) return res.status(400).json({ error: priced.error });
+    const subTotal = priced.lines.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
+
+    // Phí ship tính phía server theo khoảng cách từ chi nhánh
     let shippingFee = 0;
     if (isDelivery) {
-      const store = await getStoreLocation(prisma);
-      shippingFee = shippingFeeForDistance(
-        haversineKm(store, { lat: body.customerLat as number, lng: body.customerLng as number }),
-      );
+      const store = await getStoreLocation(prisma, storeId);
+      const km = haversineKm(store, { lat: body.customerLat as number, lng: body.customerLng as number });
+      if (km > MAX_DELIVERY_KM) {
+        return res.status(400).json({ error: `Địa chỉ cách quán ${km.toFixed(1)} km, ngoài phạm vi giao hàng (tối đa ${MAX_DELIVERY_KM} km).` });
+      }
+      shippingFee = shippingFeeForDistance(km);
     }
     
     const sessionId =
       (isTakeaway || isDelivery) ? body.sessionId ?? randomUUID() : null;
 
-    const maxOrder = (await prisma.order.aggregate({ _max: { id: true } }))._max.id ?? 0;
-    const maxDetail = (await prisma.orderDetail.aggregate({ _max: { id: true } }))._max.id ?? 0;
     const graceEndsAt = immediatePay ? null : new Date(Date.now() + GRACE_MS);
 
     const order = await prisma.order.create({
       data: {
-        id: maxOrder + 1,
+        storeId,
         tableId: body.tableId ?? null,
-        customerId: body.customerId ?? null,
+        customerId,
         staffId: null,
         sessionId,
         orderType,
@@ -343,18 +391,21 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
         status: immediatePay ? "Confirmed" : "Pending_Grace",
         graceEndsAt,
         details: {
-          create: lines.map((l, i) => {
+          create: priced.lines.map((l) => {
             const base = (l.customNotes ?? "").trim();
             const taPrefix = isTakeaway ? "[MANG VỀ — ưu tiên] " : "";
             const merged = `${taPrefix}${base}`.trim();
             return {
-              id: maxDetail + i + 1,
               productId: l.productId,
               quantity: l.quantity,
               unitPrice: l.unitPrice,
+              size: l.size,
+              temperature: l.temperature,
               customNotes: merged || null,
               priority: isTakeaway,
-              comboId: l.comboId ?? null,
+              comboId: l.comboId,
+              comboRef: l.comboRef,
+              comboQty: l.comboQty,
               // immediatePay: giữ Hold — chỉ chuyển Waiting sau khi thanh toán xong
               // payLater: giữ Hold — graceWorker chuyển sang Waiting sau ân hạn
               kdsStatus: "Hold",
@@ -372,34 +423,94 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       });
     }
 
-    io.to("pos").emit("order:pending_grace", {
+    // Ưu đãi số lượng: đạt bậc → giảm giá / miễn ship / thêm món tặng
+    const applied = await refreshOrderPromotion(prisma, order.id);
+    const fresh = applied
+      ? await prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { details: { include: { product: true } }, table: true } })
+      : order;
+
+    const pos = toStore(io, "pos", storeId);
+    pos.emit("order:pending_grace", {
       orderId: order.id,
       tableId: order.tableId,
       payMode,
     });
     if (immediatePay && !isDelivery) {
       // KHÔNG emit order:new ngay — chờ sau khi thanh toán mới đẩy vào bếp
-      io.to("pos").emit("order:confirmed", { orderId: order.id });
-      io.to("pos").emit("payment:request", { orderId: order.id, tableId: order.tableId, fromCustomer: true });
+      pos.emit("order:confirmed", { orderId: order.id });
+      pos.emit("payment:request", { orderId: order.id, tableId: order.tableId, fromCustomer: true });
     }
+    // Hành vi khách: mỗi món 1 dòng ORDER_PLACED (lỗi nuốt trong hàm, không chờ)
+    void recordOrderPlaced(prisma, { orderId: order.id, storeId, customerId, tableId: order.tableId, trackSid: body.trackSid, visitId: body.visitId, lines: priced.lines });
 
     res.status(201).json({
-      ...order,
+      ...fresh,
+      promotion: applied && { name: applied.promoName, discount: applied.discount, freeShipping: applied.tier.freeShipping, text: describeTier(applied.tier) },
       graceSeconds: 15,
     });
   });
 
-  r.post("/orders/:id/cancel", async (req, res) => {
+  /**
+   * Hủy đơn. Người gọi phải là: khách đặt đơn (token), đúng phiên mang về / bàn, hoặc nhân viên chi nhánh.
+   * Đơn giao hàng đã trả online: khách tự hủy trong `cancelWindowMinutes` khi quán chưa nhận → hoàn 100% ra điểm.
+   */
+  r.post("/orders/:id/cancel", optionalCustomerAuth, async (req, res) => {
     const id = Number(req.params.id);
-    const { cancelReason } = (req.body || {}) as { cancelReason?: string };
+    const { cancelReason, sessionId, tableId } = (req.body || {}) as { cancelReason?: string; sessionId?: string | null; tableId?: number | null };
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ" });
     const order = await prisma.order.findUnique({ where: { id } });
     if (!order) return res.status(404).json({ error: "Không tìm thấy đơn" });
+
+    const reqCustomerId = (req as Request & { customerId?: number }).customerId;
+    const staff = await staffFromToken(prisma, req);
+    const isStaff = !!staff && (staff.role === "Owner" || staff.storeId === order.storeId);
+    const isOwnerCustomer = order.customerId
+      ? reqCustomerId === order.customerId
+      : order.sessionId
+        ? !!sessionId && sessionId === order.sessionId
+        : order.tableId != null && Number(tableId) === order.tableId;
+    if (!isStaff && !isOwnerCustomer) {
+      return res.status(403).json({ error: "Bạn không có quyền hủy đơn này." });
+    }
+
+    if (order.orderType === "Delivery" && order.status === "Paid") {
+      if (!isOwnerCustomer) return res.status(400).json({ error: "Đơn giao hàng đã thanh toán — quán hủy trên bảng Đơn giao hàng." });
+      if (order.deliveryStatus !== DS.AwaitingConfirm) {
+        return res.status(400).json({ error: "Quán đã nhận đơn, không thể tự hủy. Vui lòng liên hệ quán." });
+      }
+      const settings = await getStoreSettings(prisma);
+      const deadline = customerCancelDeadline(order, settings.cancelWindowMinutes)!;
+      if (Date.now() > deadline.getTime()) {
+        return res.status(400).json({ error: `Đã quá ${settings.cancelWindowMinutes} phút kể từ lúc thanh toán, không thể tự hủy. Vui lòng liên hệ quán.` });
+      }
+      try {
+        const r2 = await refundOrderToPoints(prisma, id, {
+          mode: "full",
+          by: "Customer",
+          reason: cancelReason?.trim() || "Khách hàng tự hủy",
+          expect: { deliveryStatus: DS.AwaitingConfirm },
+          extra: { deliveryStatus: DS.Rejected, deliveryNote: "Khách hủy đơn" },
+        });
+        emitRefunded(io, r2);
+        return res.json({ ok: true, refundPoints: r2.refundPoints, totalReturned: r2.totalReturned });
+      } catch (e) {
+        if (e instanceof RefundError) return res.status(400).json({ error: e.message });
+        throw e;
+      }
+    }
+
     if (["Paid", "Shipping", "Delivered", "Failed", "Cancelled"].includes(order.status)) {
       return res.status(400).json({ error: "Không thể hủy đơn ở trạng thái này." });
     }
     if (order.deliveryStatus && order.deliveryStatus !== DS.AwaitingConfirm) {
       return res.status(400).json({ error: "Quán đã nhận đơn, không thể hủy. Vui lòng liên hệ quán." });
+    }
+    // Khách tự hủy: chỉ trong ân hạn, hoặc khi chưa món nào xuống quầy pha chế (đơn mang về chưa thanh toán vẫn ở Hold)
+    if (!isStaff && order.status !== "Pending_Grace") {
+      const inKitchen = await prisma.orderDetail.count({ where: { orderId: id, kdsStatus: { not: "Hold" } } });
+      if (inKitchen > 0) {
+        return res.status(400).json({ error: "Đơn đã chuyển xuống quầy pha chế, không thể tự hủy. Vui lòng báo nhân viên." });
+      }
     }
     
     // Kiểm tra xem đã có thanh toán nào chưa
@@ -413,22 +524,24 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       data: {
         status: "Cancelled",
         cancelReason: cancelReason || "Khách hàng tự hủy",
+        cancelledAt: new Date(),
+        cancelledBy: isOwnerCustomer ? "Customer" : "Store",
         ...(order.deliveryStatus ? { deliveryStatus: DS.Rejected, deliveryNote: "Khách hủy đơn" } : {}),
       },
     });
-    if (order.deliveryStatus) io.to("pos").emit("delivery:update", { orderIds: [id] });
-    // Thông báo cho POS và Kitchen
-    io.to("pos").emit("order:updated", { id });
-    io.to("kitchen").emit("order:updated", { id });
+    if (order.deliveryStatus) toStore(io, "pos", order.storeId).emit("delivery:update", { orderIds: [id] });
+    // Thông báo cho POS và bếp
+    toStore(io, "pos", order.storeId).emit("order:updated", { id });
+    toStore(io, "kds", order.storeId).emit("order:updated", { id });
     res.json({ ok: true });
   });
 
-  r.get("/kds/queue", ...kitchenAuth, async (_req, res) => {
+  r.get("/kds/queue", ...kitchenAuth, async (req, res) => {
     const details = await prisma.orderDetail.findMany({
       where: {
         kdsStatus: { in: ["Waiting", "Cooking"] },
         // Bao gồm cả "Paid": đơn takeaway/payNow đã thanh toán trước, pha chế sau
-        order: { status: { in: ["Confirmed", "Paid"] } },
+        order: { ...storeWhere(req), status: { in: ["Confirmed", "Paid"] } },
       },
       include: {
         product: true,
@@ -442,19 +555,33 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
   r.patch("/kds/details/:id", ...kitchenAuth, async (req, res) => {
     const id = Number(req.params.id);
     const { kdsStatus } = req.body as { kdsStatus?: string };
-    if (!kdsStatus) return res.status(400).json({ error: "Thiếu kdsStatus" });
-    const d = await prisma.orderDetail.update({
-      where: { id },
-      data: { kdsStatus },
-      include: { product: true, order: { include: { table: true } } },
-    });
-    if (!["Confirmed", "Paid"].includes(d.order.status)) {
+    // Pha chế chỉ chuyển món giữa các bước này; Hold / Cancelled do hệ thống đặt
+    if (!kdsStatus || !["Waiting", "Cooking", "Ready", "Served"].includes(kdsStatus)) {
+      return res.status(400).json({ error: "Trạng thái món không hợp lệ." });
+    }
+    const cur = await prisma.orderDetail.findUnique({ where: { id }, include: { order: true } });
+    if (!cur || !inStore(req, cur.order)) return res.status(404).json({ error: "Không tìm thấy món." });
+    if (!["Confirmed", "Paid"].includes(cur.order.status)) {
       return res.status(400).json({ error: "Đơn chưa xác nhận xuống bếp." });
     }
-    io.to("staff").emit("kds:update", d);
+    // Ghi người pha khi món chuyển sang "Xong"; bị đưa lại hàng chờ thì xoá (thống kê pha chế theo người)
+    const me = (req as StaffRequest).staffRow!;
+    const made =
+      kdsStatus === "Ready" && cur.kdsStatus !== "Ready" && cur.kdsStatus !== "Served"
+        ? { madeById: me.id, madeAt: new Date() }
+        : kdsStatus === "Waiting" || kdsStatus === "Cooking"
+          ? { madeById: null, madeAt: null }
+          : {};
+    const d = await prisma.orderDetail.update({
+      where: { id },
+      data: { kdsStatus, ...made },
+      include: { product: true, order: { include: { table: true } } },
+    });
+    const staffRoom = toStore(io, "staff", d.order.storeId);
+    staffRoom.emit("kds:update", d);
     // Thông báo món sẵn sàng phục vụ tới màn hình phục vụ
     if (kdsStatus === "Ready") {
-      io.to("staff").emit("kds:ready", {
+      staffRoom.emit("kds:ready", {
         detailId: d.id,
         productName: d.product.name,
         quantity: d.quantity,

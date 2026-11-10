@@ -1,66 +1,65 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import type { ReactElement } from "react";
+import { lazy, Suspense } from "react";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { PublicLayout } from "./components/PublicLayout";
-import { StaffShell } from "./components/StaffShell";
 import { Welcome } from "./pages/Welcome";
 import { HomePage } from "./pages/HomePage";
 import { Register } from "./pages/Register";
+import { CompletePhone, LinkAccount } from "./pages/SocialComplete";
 import { Menu } from "./pages/Menu";
 import { ProductDetail } from "./pages/ProductDetail";
 import { Cart } from "./pages/Cart";
-import { Kds } from "./pages/Kds";
-import { Pos } from "./pages/Pos";
 import { OrderGrace } from "./pages/OrderGrace";
 import { OrderCheckout } from "./pages/OrderCheckout";
 import { OrderTracking } from "./pages/OrderTracking";
 import { OrderSuccess } from "./pages/OrderSuccess";
 import { StaffLogin } from "./pages/StaffLogin";
-import { Admin } from "./pages/Admin";
-import { StaffTables } from "./pages/StaffTables";
 import { Account } from "./pages/Account";
-import { StorePage } from "./pages/StorePage";
 import { VnpayReturn } from "./pages/VnpayReturn";
-import { InventoryCheck } from "./pages/InventoryCheck";
-import { IngredientFormula } from "./pages/IngredientFormula";
-import { WorkSchedule } from "./pages/WorkSchedule";
-import { AdminSchedule } from "./pages/AdminSchedule";
-import { StaffChat } from "./pages/StaffChat";
-import { StaffOrderStatus } from "./pages/StaffOrderStatus";
-import { QrGenerator } from "./pages/QrGenerator";
-import { Attendance } from "./pages/Attendance";
-import { StaffPayslips } from "./pages/StaffPayslips";
 import { Promotions } from "./pages/Promotions";
 import { Blog } from "./pages/Blog";
 import { BlogDetail } from "./pages/BlogDetail";
-import { ShipperDashboard } from "./pages/ShipperDashboard";
-import { HrRequests } from "./pages/HrRequests";
-import { getStaffInfo } from "./lib/staffApi";
+import { AppShell } from "./components/erp/AppShell";
+import { LEGACY_ADMIN_TABS, LEGACY_PATHS } from "./apps/registry";
 import { SupplierPortal } from "./pages/SupplierPortal";
-import { ProcurementAdmin } from "./pages/ProcurementAdmin";
+import { GamePlay } from "./pages/GamePlay";
+import { Policy } from "./pages/Policy";
+import { Contact } from "./pages/Contact";
+import { useTrackAppHistory } from "./lib/appHistory";
 
-function StaffRoute({
-  allow,
-  element,
-}: {
-  allow: string[];
-  element: ReactElement;
-}) {
-  const info = getStaffInfo();
-  if (!info || !allow.includes(info.role)) return <Navigate to="/staff/login" replace />;
-  return element;
+// Trang câu chuyện thương hiệu + cửa hàng: tải lười (Leaflet, nhiều mục ảnh)
+const About = lazy(() => import("./pages/About").then((m) => ({ default: m.About })));
+const Stores = lazy(() => import("./pages/Stores").then((m) => ({ default: m.Stores })));
+const StoreDetail = lazy(() => import("./pages/Stores").then((m) => ({ default: m.StoreDetail })));
+const page = (el: React.ReactNode) => <Suspense fallback={<div className="c-wrap c-sec" aria-busy="true" />}>{el}</Suspense>;
+
+function HistoryTracker() {
+  useTrackAppHistory();
+  return null;
+}
+
+/** /admin?tab=… (URL cũ) → URL mới của app tương ứng */
+function AdminRedirect() {
+  const tab = new URLSearchParams(useLocation().search).get("tab") ?? "dash";
+  return <Navigate to={LEGACY_ADMIN_TABS[tab] ?? LEGACY_ADMIN_TABS.dash} replace />;
 }
 
 export default function App() {
   return (
     <BrowserRouter>
+      <HistoryTracker />
       <Routes>
         <Route element={<PublicLayout />}>
           <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<Welcome />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/login/phone" element={<CompletePhone />} />
+          <Route path="/login/link" element={<LinkAccount />} />
           <Route path="/staff/login" element={<StaffLogin />} />
           <Route path="/account" element={<Account />} />
-          <Route path="/about" element={<StorePage />} />
+          <Route path="/account/:section" element={<Account />} />
+          <Route path="/about" element={page(<About />)} />
+          <Route path="/stores" element={page(<Stores />)} />
+          <Route path="/stores/:id" element={page(<StoreDetail />)} />
           <Route path="/menu" element={<Menu />} />
           <Route path="/product/:id" element={<ProductDetail />} />
           <Route path="/cart" element={<Cart />} />
@@ -72,6 +71,11 @@ export default function App() {
           <Route path="/order/:id/tracking" element={<OrderTracking />} />
           <Route path="/order/:id/success" element={<OrderSuccess />} />
           <Route path="/vnpay-return" element={<VnpayReturn />} />
+          <Route path="/game/:campaignId" element={<GamePlay />} />
+          <Route path="/policy/:slug" element={<Policy />} />
+          <Route path="/privacy" element={<Policy slug="privacy" />} />
+          <Route path="/data-deletion" element={<Policy slug="data-deletion" />} />
+          <Route path="/contact" element={<Contact />} />
         </Route>
 
         <Route path="/welcome" element={<Navigate to="/login" replace />} />
@@ -79,26 +83,15 @@ export default function App() {
         {/* SUPPLIER PORTAL (Standalone) */}
         <Route path="/supplier" element={<SupplierPortal />} />
 
-        <Route element={<StaffShell />}>
-          <Route path="/pos" element={<Pos />} />
-          <Route path="/staff/tables" element={<StaffTables />} />
-          <Route path="/kds" element={<Kds />} />
-          <Route path="/staff/inventory" element={<InventoryCheck />} />
-          <Route path="/staff/schedule" element={<WorkSchedule />} />
-          <Route path="/staff/chat" element={<StaffChat />} />
-          <Route path="/staff/order-status" element={<StaffOrderStatus />} />
-          <Route path="/staff/order-status" element={<StaffOrderStatus />} />
-          <Route path="/staff/attendance" element={<Attendance />} />
-          <Route path="/staff/payslips" element={<StaffPayslips />} />
-          <Route path="/staff/requests" element={<HrRequests />} />
-          <Route path="/staff/shipper" element={<ShipperDashboard />} />
-        </Route>
+        {/* KHU VỰC NHÂN SỰ — khung ERP */}
+        <Route path="/app/*" element={<AppShell />} />
+        <Route path="/pos" element={<AppShell />} />
 
-        <Route path="/admin" element={<StaffRoute allow={["Admin"]} element={<Admin />} />} />
-        <Route path="/admin/formulas" element={<StaffRoute allow={["Admin"]} element={<IngredientFormula />} />} />
-        <Route path="/admin/procurement" element={<StaffRoute allow={["Admin", "Purchasing", "Manager"]} element={<ProcurementAdmin />} />} />
-        <Route path="/admin/schedule" element={<StaffRoute allow={["Admin", "Cashier", "Kitchen", "Waiter", "Shipper"]} element={<AdminSchedule />} />} />
-        <Route path="/admin/qr" element={<StaffRoute allow={["Admin"]} element={<QrGenerator />} />} />
+        {/* Chuyển hướng URL cũ */}
+        <Route path="/admin" element={<AdminRedirect />} />
+        {Object.entries(LEGACY_PATHS).map(([from, to]) => (
+          <Route key={from} path={from} element={<Navigate to={to} replace />} />
+        ))}
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

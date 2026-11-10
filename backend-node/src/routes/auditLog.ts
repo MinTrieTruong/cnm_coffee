@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { PrismaClient } from "@prisma/client";
 import { attachStaff, requireRoles } from "../middleware/staff.js";
+import { storeWhere } from "../lib/storeScope.js";
 
 const prisma = new PrismaClient();
 
@@ -20,7 +21,7 @@ export function auditRouter() {
     const action  = req.query.action  as string | undefined;
     const dateStr = req.query.date    as string | undefined;
 
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = { ...storeWhere(req) };
     if (staffId)  where.staffId = staffId;
     if (action)   where.action  = { contains: action };
     if (dateStr) {
@@ -37,7 +38,10 @@ export function auditRouter() {
         orderBy: { createdAt: "desc" },
         skip,
         take: limit,
-        include: { staff: { select: { fullName: true, username: true, role: true } } },
+        include: {
+          staff: { select: { fullName: true, username: true, role: true } },
+          store: { select: { name: true } },
+        },
       }),
     ]);
 

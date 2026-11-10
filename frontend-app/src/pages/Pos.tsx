@@ -1,10 +1,15 @@
+import { X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { io, Socket } from "socket.io-client";
-import { apiBase, apiOrigin } from "../lib/api";
-import { mapFetchError } from "../lib/net";
-import { getStaffInfo, staffApi } from "../lib/staffApi";
+import { Socket } from "socket.io-client";
+import { getStaffInfo, staffApi, staffSocket as openStaffSocket, isAdminRole } from "../lib/staffApi";
 import { PosDeliveryPanel } from "../components/PosDeliveryPanel";
+import { useHideBottomNav } from "../components/BottomNav";
+import { PosBillHistory, type BillRecord } from "../components/PosBillHistory";
+import { PosPendingList } from "../components/PosPendingList";
+import { PosGiftClaim } from "../components/PosGiftClaim";
+import { TableShape } from "../components/TableShape";
+import { EntryDialog, SafeCloseDialog, SafeOpenDialog, ShiftCloseDialog, useSafe } from "../modules/finance/shared";
 
 /** Âm thanh nhỏ nhẹ khi nhận yêu cầu thanh toán từ phục vụ. */
 function playPaymentRequestSound() {
@@ -41,6 +46,8 @@ type TableRow = {
   name: string;
   status: string;
   location: string | null;
+  /** Sức chứa — số ghế vẽ quanh bàn */
+  capacity?: number;
   zoneId?: number;
   paymentStatus?: string;
   orders: { id: number; status: string; totalAmount: number; details?: any[] }[];
@@ -64,23 +71,6 @@ type PendingOrder = {
   details: PendingDetail[];
   status?: string;
   payments?: { method: string, shiftId: number | null }[];
-};
-
-type BillItem = { id: number; name: string; quantity: number; unitPrice: number; lineTotal: number; customNotes: string | null };
-type BillRecord = {
-  id: number;
-  createdAt: string;
-  orderType: string;
-  tableName: string | null;
-  customerName: string | null;
-  customerPhone: string | null;
-  subTotal: number;
-  discountAmt: number;
-  vatAmount: number;
-  totalAmount: number;
-  payMethod: string | null;
-  paidAt: string | null;
-  items: BillItem[];
 };
 
 type StoreSettings = {
@@ -145,7 +135,7 @@ function getDrinkBadge(order: any) {
         boxShadow: "0 4px 12px rgba(220, 38, 38, 0.4)",
         animation: "badge-pulse 1.5s infinite"
       }}>
-        🥤 {qty} món
+        {qty} món
       </div>
     );
   }
@@ -158,7 +148,7 @@ function getDrinkBadge(order: any) {
         padding: "0.2rem 0.45rem", borderRadius: 8,
         fontSize: "0.7rem", fontWeight: 700,
       }}>
-        ⏳ Đang pha
+        Đang pha
       </div>
     );
   }
@@ -172,7 +162,7 @@ function getDrinkBadge(order: any) {
         fontSize: "0.7rem", fontWeight: 700,
         boxShadow: "0 2px 8px rgba(16, 185, 129, 0.3)",
       }}>
-        ✅ Đủ món
+        Đủ món
       </div>
     );
   }
@@ -190,7 +180,12 @@ export function Pos() {
   const [err, setErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [startingCash, setStartingCash] = useState("500000");
-  const [actualCash, setActualCash] = useState("");
+  /** Tiền mặt dự kiến trong ngăn kéo của ca đang mở */
+  const [drawerCash, setDrawerCash] = useState<number | null>(null);
+  const { safe, reload: reloadSafe } = useSafe();
+  const [cashDialog, setCashDialog] = useState<null | "openSafe" | "closeSafe" | "closeShift" | "expense" | "topup" | "drop">(null);
+  /** Mở két xong thì mở ca luôn (luồng lấy tiền đầu ca) */
+  const [openShiftAfterSafe, setOpenShiftAfterSafe] = useState(false);
   const [payOrder, setPayOrder] = useState<PendingOrder | null>(null);
   const [billModal, setBillModal] = useState<PendingOrder | null>(null);
   const [billStep, setBillStep] = useState<"bill" | "pay">("bill");
@@ -199,17 +194,12 @@ export function Pos() {
   const [pointsToUse, setPointsToUse] = useState(0);
   // --- Lịch sử bill ---
   const [showBillHistory, setShowBillHistory] = useState(false);
-  const [billDate, setBillDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [billHistory, setBillHistory] = useState<BillRecord[]>([]);
-  const [billHistoryLoading, setBillHistoryLoading] = useState(false);
-  const [billHistoryErr, setBillHistoryErr] = useState<string | null>(null);
+  const [showGiftClaim, setShowGiftClaim] = useState(false);
+  // Màn bill / thu tiền / lịch sử có thanh thao tác riêng → ẩn thanh điều hướng đáy
+  useHideBottomNav(!!billModal || !!payOrder || showBillHistory);
   const [billDetailModal, setBillDetailModal] = useState<BillRecord | null>(null);
 
-  const [menuTableId, setMenuTableId] = useState<number | null>(null);
-  const [moveSourceId, setMoveSourceId] = useState<number | null>(null);
-  const [mergeSourceId, setMergeSourceId] = useState<number | null>(null);
-  const [splitSourceId, setSplitSourceId] = useState<number | null>(null);
-  const [splitItems, setSplitItems] = useState<{orderItemId: number; quantity: number}[]>([]);
+  const [, setMenuTableId] = useState<number | null>(null);
   
 
   /** Mở popup riêng để in bill — đảm bảo chỉ 1 trang, không lẫn layout trang POS */
@@ -254,7 +244,7 @@ export function Pos() {
 </head>
 <body>
   <div class="wrap">
-    <h1>☕ TD COFFEE</h1>
+    <h1>TD COFFEE</h1>
     <div class="sub">——— HÓA ĐƠN TẠM TÍNH ———<br/>Bill #${order.id}</div>
     <div class="info">
       <div><span>Giờ vào:</span><span>${new Date(order.createdAt).toLocaleString("vi-VN")}</span></div>
@@ -270,7 +260,7 @@ export function Pos() {
       <div><span>VAT (${vatRate}%):</span><span>${new Intl.NumberFormat("vi-VN").format(vatAmount)}&nbsp;đ</span></div>
       <div class="grand"><span>TỔNG PHẢI THU:</span><span>${new Intl.NumberFormat("vi-VN").format(totalAmount)}&nbsp;đ</span></div>
     </div>
-    <div class="footer">Cảm ơn quý khách! Hẹn gặp lại ☕</div>
+    <div class="footer">Cảm ơn quý khách! Hẹn gặp lại</div>
   </div>
   <script>window.onload = function() { window.print(); window.close(); }<\/script>
 </body>
@@ -279,22 +269,13 @@ export function Pos() {
   }
 
   const loadTables = useCallback(async () => {
-    const base = apiBase();
-    let res: Response;
-    try {
-      res = await fetch(`${base}/api/pos/tables`);
-    } catch (e) {
-      throw mapFetchError(e);
-    }
-    if (!res.ok) throw new Error("Không tải được bàn");
-    const data = (await res.json()) as TableRow[];
-    setTables(data);
+    setTables(await staffApi<TableRow[]>("/api/pos/tables"));
   }, []);
 
   const loadPending = useCallback(async () => {
     try {
       const data = await staffApi<PendingOrder[]>("/api/pos/pending-orders");
-      // Đơn giao COD chưa thu tiền được quản lý ở bảng "Đơn giao hàng" (shipper thu hộ)
+      // Đơn giao hàng chỉ trả online, không thu ở quầy — quản lý ở bảng "Đơn giao hàng"
       setPending(data.filter((o) => !(o.orderType === "Delivery" && o.status !== "Paid")));
     } catch {
       setPending([]);
@@ -316,8 +297,9 @@ export function Pos() {
 
   const loadShift = useCallback(async () => {
     try {
-      const data = await staffApi<{ shift: ShiftRow }>("/api/shifts/open");
+      const data = await staffApi<{ shift: ShiftRow; drawer: { expectedCash: number } | null }>("/api/shifts/open");
       setShift(data.shift);
+      setDrawerCash(data.drawer?.expectedCash ?? null);
     } catch {
       setShift(null);
     }
@@ -350,7 +332,7 @@ export function Pos() {
   }, [refreshAll]);
 
   useEffect(() => {
-    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"] });
+    const socket: Socket = openStaffSocket();
     socket.emit("join", "pos");
     socket.emit("join", "staff");
     socket.on("payment:done", (payload?: { orderId: number; isOnline?: boolean; method?: string; tableLabel?: string; customerLabel?: string }) => {
@@ -387,29 +369,27 @@ export function Pos() {
       setToast(`${t}: ${(p.message ?? "").slice(0, 80)}`);
       setTimeout(() => setToast(null), 5200);
     });
-    socket.on("inventory:request", () => {
-      setToast("Có phiếu xin nguyên liệu từ pha chế.");
-      setTimeout(() => setToast(null), 3200);
-    });
-    socket.on("inventory:restock_request", (p: { itemName?: string }) => {
-      setToast(`Nhân viên tạo phiếu nhập hàng: ${p.itemName ?? "nguyên liệu"}. Vào Admin → Phiếu xin NL để duyệt.`);
-      setTimeout(() => setToast(null), 5000);
-    });
     return () => {
       socket.disconnect();
     };
   }, [refreshAll, loadPending, loadTables]);
 
-  async function openShift() {
+  /** Mở ca: tiền đầu ca lấy từ két → két phải đang mở (chưa mở thì mở két trước rồi mở ca) */
+  async function openShift(safeJustOpened = false) {
     const n = Number(startingCash.replace(/\D/g, "")) || 0;
+    if (n > 0 && !safeJustOpened && safe && !safe.session) {
+      setOpenShiftAfterSafe(true);
+      setCashDialog("openSafe");
+      return;
+    }
     try {
+      setErr(null);
       await staffApi("/api/shifts/open", {
         method: "POST",
         body: JSON.stringify({ startingCash: n }),
       });
-      await loadShift();
-      setToast("Đã mở ca.");
-      setTimeout(() => setToast(null), 2200);
+      await Promise.all([loadShift(), reloadSafe()]);
+      showToast(n > 0 ? `Đã mở ca, lấy ${formatVnd(n)} từ két. Nhớ đếm lại và đóng két.` : "Đã mở ca.");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Lỗi mở ca");
     }
@@ -420,78 +400,10 @@ export function Pos() {
     setTimeout(() => setToast(null), 2500);
   };
 
-  const load = refreshAll;
-
-  const [selectedTable, setSelectedTable] = useState<number | null>(null);
-
-  async function executeMove(targetId: number) {
-    if (!moveSourceId) return;
-    try {
-      setErr(null);
-      await staffApi("/api/pos/move-table", {
-        method: "POST",
-        body: JSON.stringify({ sourceTableId: moveSourceId, targetTableId: targetId }),
-      });
-      setMoveSourceId(null);
-      showToast("Chuyển bàn thành công");
-      void load();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Lỗi chuyển bàn");
-    }
-  }
-
-  async function executeMerge(targetId: number) {
-    if (!mergeSourceId) return;
-    try {
-      setErr(null);
-      await staffApi("/api/pos/merge-tables", {
-        method: "POST",
-        body: JSON.stringify({ sourceTableId: mergeSourceId, targetTableId: targetId }),
-      });
-      setMergeSourceId(null);
-      showToast("Gộp bàn thành công");
-      void load();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Lỗi gộp bàn");
-    }
-  }
-
-  async function executeSplit(originalOrderId: number) {
-    const toMove = splitItems.filter(x => x.quantity > 0);
-    if (toMove.length === 0) return setErr("Vui lòng chọn món để tách");
-    try {
-      setErr(null);
-      await staffApi("/api/pos/split-order", {
-        method: "POST",
-        body: JSON.stringify({ originalOrderId, itemsToMove: toMove }),
-      });
-      setSplitSourceId(null);
-      setSplitItems([]);
-      showToast("Tách bill thành công");
-      void load();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Lỗi tách bill");
-    }
-  }
-
-  async function closeShift() {
-    const n = Number(actualCash.replace(/\D/g, ""));
-    if (Number.isNaN(n)) {
-      setErr("Nhập số tiền mặt thực tế khi đóng ca.");
-      return;
-    }
-    try {
-      await staffApi("/api/shifts/close", {
-        method: "POST",
-        body: JSON.stringify({ actualCash: n }),
-      });
-      setActualCash("");
-      await loadShift();
-      setToast("Đã đóng ca.");
-      setTimeout(() => setToast(null), 2200);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Lỗi đóng ca");
-    }
+  async function afterCashChange(msg?: string) {
+    setCashDialog(null);
+    await Promise.all([loadShift(), reloadSafe()]);
+    if (msg) showToast(msg);
   }
 
   const billPreview = useMemo(() => {
@@ -561,7 +473,11 @@ export function Pos() {
         const b = await staffApi<BillRecord>(`/api/pos/bills/${payOrder.id}`);
         printHistoryBill(b);
       } else {
-        await staffApi("/api/pos/pay", { method: "POST", body: JSON.stringify(body) });
+        const paid = await staffApi<{ voucherDropped?: string | null; totalAmount: number }>("/api/pos/pay", { method: "POST", body: JSON.stringify(body) });
+        // Voucher hết lượt / khách đã dùng lúc tính tiền → máy chủ bỏ voucher, tổng thay đổi: báo thu ngân thu đúng số
+        if (paid.voucherDropped) {
+          window.alert(`Không áp dụng voucher: ${paid.voucherDropped}\nTổng thu đúng: ${formatVnd(paid.totalAmount)}`);
+        }
       }
       setPayOrder(null);
       setBillModal(null);
@@ -589,18 +505,22 @@ export function Pos() {
     }
   }, [payOrder, settings]);
 
-  const loadBills = async (date: string) => {
-    setBillHistoryLoading(true);
-    setBillHistoryErr(null);
+  async function cancelOrder(o: PendingOrder) {
+    const reason = window.prompt(`Lý do hủy đơn #${o.id} (ví dụ: Hết nguyên liệu, Khách đổi ý,...):`);
+    if (reason === null) return;
     try {
-      const data = await staffApi<BillRecord[]>(`/api/pos/bills?date=${date}`);
-      setBillHistory(data);
+      await staffApi(`/api/orders/${o.id}/cancel`, {
+        method: "POST",
+        body: JSON.stringify({ cancelReason: reason.trim() || "Nhân viên hủy đơn" }),
+      });
+      showToast("Đã hủy đơn thành công.");
+      void refreshAll();
     } catch (e) {
-      setBillHistoryErr(e instanceof Error ? e.message : "Lỗi tải lịch sử");
-    } finally {
-      setBillHistoryLoading(false);
+      showToast(e instanceof Error ? e.message : "Lỗi hủy đơn");
     }
-  };
+  }
+
+  const closeBillHistory = useCallback(() => setShowBillHistory(false), []);
 
   const payMethodLabel = (m: string | null) => {
     if (!m) return "?";
@@ -625,7 +545,7 @@ export function Pos() {
 <html lang="vi"><head><meta charset="utf-8"/><title>Bill #${b.id}</title>
 <style>@page{size:80mm auto;margin:6mm}*{box-sizing:border-box;margin:0;padding:0;font-family:monospace;font-size:13px;color:#000}body{width:80mm}.wrap{border:1px solid #000;padding:8px}h1{text-align:center;font-size:15px;margin-bottom:2px}.sub{text-align:center;font-size:11px;color:#555;margin-bottom:8px}.info{font-size:12px;margin-bottom:8px;border-bottom:1px dashed #999;padding-bottom:6px}.info div{display:flex;justify-content:space-between;margin-top:2px}table{width:100%;border-collapse:collapse;margin-bottom:8px}thead tr{border-bottom:1px solid #444}th{font-weight:700;padding-bottom:3px}td,th{padding:2px 0;vertical-align:top}th:nth-child(2),td:nth-child(2){text-align:center;width:24px}th:nth-child(3),td:nth-child(3){text-align:right}.totals{border-top:1px solid #444;padding-top:6px;font-size:12px}.totals div{display:flex;justify-content:space-between;margin-top:2px}.grand{font-weight:700;font-size:14px;border-top:1px solid #000;padding-top:4px;margin-top:4px}.footer{text-align:center;font-size:11px;color:#555;margin-top:8px}.reprint{text-align:center;font-size:10px;color:#c00;margin-top:4px;font-weight:bold}</style></head>
 <body><div class="wrap">
-<h1>☕ TD COFFEE</h1>
+<h1>TD COFFEE</h1>
 <div class="sub">——— HÓA ĐƠN ———<br/>Bill #${b.id}</div>
 <div class="info">
   <div><span>Giờ:</span><span>${new Date(b.createdAt).toLocaleString("vi-VN")}</span></div>
@@ -640,13 +560,13 @@ export function Pos() {
   <div><span>VAT:</span><span>${new Intl.NumberFormat("vi-VN").format(b.vatAmount)}&nbsp;đ</span></div>
   <div class="grand"><span>TỔNG:</span><span>${new Intl.NumberFormat("vi-VN").format(b.totalAmount)}&nbsp;đ</span></div>
 </div>
-<div class="reprint">[★ BẢN SAO — Đã thanh toán ${b.paidAt ? new Date(b.paidAt).toLocaleString("vi-VN") : ""} ★]</div>
-<div class="footer">Cảm ơn quý khách! Hẹn gặp lại ☕</div></div>
+<div class="reprint">[BẢN SAO — Đã thanh toán ${b.paidAt ? new Date(b.paidAt).toLocaleString("vi-VN") : ""}]</div>
+<div class="footer">Cảm ơn quý khách! Hẹn gặp lại</div></div>
 <script>window.onload=function(){window.print();window.close()}<\/script></body></html>`);
     win.document.close();
   }
 
-  if (!info || (info.role !== "Cashier" && info.role !== "Admin")) {
+  if (!info || (info.role !== "Cashier" && !isAdminRole(info.role))) {
     return (
       <div className="staff-page-inner">
         <p className="subtle">Cần đăng nhập thu ngân hoặc quản lý.</p>
@@ -667,12 +587,11 @@ export function Pos() {
           <Link to="/staff/inventory" className="btn btn-ghost staff-btn-light">Kiểm kho</Link>
           <button type="button" className="btn btn-ghost staff-btn-light"
             style={showBillHistory ? { background: "rgba(146,64,14,0.15)", borderColor: "#92400e" } : undefined}
-            onClick={() => {
-              const next = !showBillHistory;
-              setShowBillHistory(next);
-              if (next) void loadBills(billDate);
-            }}>
-            🗂 Lịch sử bill
+            onClick={() => setShowBillHistory((v) => !v)}>
+            Lịch sử bill
+          </button>
+          <button type="button" className="btn btn-ghost staff-btn-light" onClick={() => setShowGiftClaim(true)}>
+            Nhận quà
           </button>
           <button type="button" className="btn btn-ghost staff-btn-light" onClick={() => void refreshAll()}>
             Làm mới
@@ -710,25 +629,21 @@ export function Pos() {
           <p className="subtle">Đang kiểm tra ca…</p>
         ) : shift ? (
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }}>
-            <div>
+            <div style={{ flex: "1 1 220px" }}>
               <span className="subtle">Ca #{shift.id}</span> — mở lúc {new Date(shift.startTime).toLocaleString("vi-VN")}
               <br />
-              <span className="subtle">Tiền mặt đầu ca:</span> {formatVnd(shift.startingCash)}
+              <span className="subtle">Tiền đầu ca:</span> {formatVnd(shift.startingCash)}
+              {drawerCash != null && (
+                <>
+                  {" · "}
+                  <span className="subtle">Tiền mặt trong ngăn kéo (dự kiến):</span> <strong>{formatVnd(drawerCash)}</strong>
+                </>
+              )}
             </div>
-            <div className="field" style={{ marginBottom: 0 }}>
-              <label className="label" htmlFor="ac">
-                Tiền mặt đếm thực tế khi đóng ca
-              </label>
-              <input
-                id="ac"
-                className="input"
-                placeholder="VD: 1250000"
-                value={actualCash}
-                onChange={(e) => setActualCash(e.target.value)}
-                style={{ maxWidth: 200 }}
-              />
-            </div>
-            <button type="button" className="btn btn-primary" onClick={() => void closeShift()}>
+            <button type="button" className="btn btn-ghost" onClick={() => setCashDialog("expense")}>Chi lặt vặt</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setCashDialog("topup")}>Lấy thêm tiền lẻ</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setCashDialog("drop")}>Nộp bớt vào két</button>
+            <button type="button" className="btn btn-primary" onClick={() => setCashDialog("closeShift")}>
               Đóng ca
             </button>
           </div>
@@ -736,7 +651,7 @@ export function Pos() {
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }}>
             <div className="field" style={{ marginBottom: 0 }}>
               <label className="label" htmlFor="sc">
-                Tiền mặt đầu ca
+                Tiền đầu ca (lấy từ két)
               </label>
               <input
                 id="sc"
@@ -747,95 +662,85 @@ export function Pos() {
               />
             </div>
             <button type="button" className="btn btn-primary" onClick={() => void openShift()}>
-              Mở ca
+              {Number(startingCash.replace(/\D/g, "")) > 0 && safe && !safe.session ? "Mở két & mở ca" : "Mở ca"}
             </button>
+          </div>
+        )}
+        {safe && (
+          <div style={{ marginTop: "0.65rem", display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", fontSize: "0.9rem" }}>
+            {safe.session ? (
+              <>
+                <span style={{ color: "var(--warning, #b45309)", fontWeight: 600 }}>
+                  Két đang mở — {safe.session.openedBy?.fullName} · {safe.session.reason}
+                </span>
+                <button type="button" className="btn btn-primary" style={{ padding: "0.3rem 0.8rem" }} onClick={() => setCashDialog("closeSafe")}>
+                  Đếm & đóng két
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="subtle">Két đang đóng.</span>
+                <button type="button" className="btn btn-ghost" style={{ padding: "0.3rem 0.8rem" }} onClick={() => setCashDialog("openSafe")}>
+                  Mở két
+                </button>
+              </>
+            )}
           </div>
         )}
       </section>
 
+      {cashDialog === "openSafe" && (
+        <SafeOpenDialog
+          defaultReason={openShiftAfterSafe ? "Lấy tiền đầu ca" : ""}
+          onClose={() => { setCashDialog(null); setOpenShiftAfterSafe(false); }}
+          onDone={() => {
+            setCashDialog(null);
+            void reloadSafe().then(() => {
+              if (openShiftAfterSafe) {
+                setOpenShiftAfterSafe(false);
+                void openShift(true);
+              }
+            });
+          }}
+        />
+      )}
+      {cashDialog === "closeSafe" && safe && (
+        <SafeCloseDialog expected={safe.balance} onClose={() => setCashDialog(null)} onDone={() => void afterCashChange("Đã đóng két.")} />
+      )}
+      {cashDialog === "closeShift" && shift && (
+        <ShiftCloseDialog shiftId={shift.id} onClose={() => setCashDialog(null)} onDone={() => void afterCashChange("Đã đóng ca và nộp tiền vào két.")} />
+      )}
+      {(cashDialog === "expense" || cashDialog === "topup" || cashDialog === "drop") && (
+        <EntryDialog
+          preset={
+            cashDialog === "expense"
+              ? { type: "OUT", category: "SUPPLIES", fund: "DRAWER" }
+              : { type: "TRANSFER", category: cashDialog === "topup" ? "TOP_UP" : "DROP" }
+          }
+          onClose={() => setCashDialog(null)}
+          onDone={(e) => void afterCashChange(e.status === "PENDING" ? "Phiếu chi vượt hạn mức — đã gửi quản lý duyệt." : `Đã lưu phiếu ${e.code}.`)}
+        />
+      )}
+
       <PosDeliveryPanel onToast={showToast} />
 
       <section style={{ marginBottom: "1rem" }}>
-        <h2 style={{ fontSize: "1.05rem", margin: "0 0 0.65rem" }}>Đơn chờ thanh toán</h2>
+        <h2 style={{ fontSize: "1.05rem", margin: "0 0 0.65rem" }}>
+          Đơn chờ thanh toán{pending.length > 0 && <span className="bh-count" style={{ marginLeft: "0.4rem", fontSize: "0.8rem" }}>{pending.length}</span>}
+        </h2>
         {shift === undefined && <p className="subtle">Đang kiểm tra ca…</p>}
         {shift === null && <p className="subtle">Mở ca trước khi thanh toán.</p>}
         {pending.length === 0 && shift != null ? <p className="subtle">Không có đơn Confirmed chưa thu tiền.</p> : null}
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-          {pending.map((o) => (
-            <div key={o.id} className="card" style={{ padding: "0.85rem 1rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
-                <div>
-                  <strong>Đơn #{o.id}</strong>
-                  {o.table && (
-                    <span style={{ color: "var(--muted)", marginLeft: "0.5rem" }}>
-                      {o.table.name}
-                    </span>
-                  )}
-                  {!o.table && (
-                    <span style={{ color: "var(--muted)", marginLeft: "0.5rem" }}>Mang về</span>
-                  )}
-                  {o.status === "Paid" && o.payments && o.payments.length > 0 && o.payments[0].shiftId === null && (
-                    <span style={{ marginLeft: "0.5rem", fontSize: "0.75rem", padding: "0.2rem 0.5rem", background: "#16a34a", color: "#fff", borderRadius: "12px", fontWeight: "bold" }}>
-                      Đã thanh toán {o.payments[0].method}
-                    </span>
-                  )}
-                  <div style={{ fontSize: "0.88rem", marginTop: "0.25rem" }}>
-                    {o.customer ? (
-                      <>
-                        {o.customer.fullName} — {o.customer.points} điểm
-                      </>
-                    ) : (
-                      "Khách vãng lai"
-                    )}
-                  </div>
-                  <div style={{ fontSize: "0.82rem", color: "var(--muted)", marginTop: "0.2rem" }}>
-                    Giờ vào: {new Date(o.createdAt).toLocaleString("vi-VN")}
-                  </div>
-                  <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "0.2rem" }}>
-                    Tạm tính: {formatVnd(o.subTotal)} (chưa gồm VAT / điểm)
-                  </div>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={shift == null}
-                    onClick={() => {
-                      setBillModal(o);
-                      setBillStep("bill");
-                      setPayOrder(null);
-                    }}
-                  >
-                    Xem bill / Thu tiền
-                  </button>
-                  {o.status !== "Paid" && (
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      style={{ border: "1px solid var(--danger)", color: "var(--danger)", padding: "0.5rem 0.75rem", fontSize: "0.85rem", whiteSpace: "nowrap" }}
-                      onClick={async () => {
-                        const reason = window.prompt("Lý do hủy đơn (ví dụ: Hết nguyên liệu, Khách đổi ý,...):");
-                        if (reason === null) return;
-                        try {
-                           await staffApi(`/api/orders/${o.id}/cancel`, {
-                             method: "POST",
-                             body: JSON.stringify({ cancelReason: reason.trim() || "Nhân viên hủy đơn" })
-                           });
-                           showToast("Đã hủy đơn thành công.");
-                           void refreshAll();
-                        } catch(e) {
-                           showToast(e instanceof Error ? e.message : "Lỗi hủy đơn");
-                        }
-                      }}
-                    >
-                      Hủy đơn
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <PosPendingList
+          orders={pending}
+          disabled={shift == null}
+          onOpen={(o) => {
+            setBillModal(o);
+            setBillStep("bill");
+            setPayOrder(null);
+          }}
+          onCancel={(o) => void cancelOrder(o)}
+        />
       </section>
 
       {tables && (
@@ -856,13 +761,13 @@ export function Pos() {
             </span>
             <span style={{ margin: "0 0.5rem", color: "var(--muted)" }}>|</span>
             <span className="table-legend-item" style={{ fontSize: "0.8rem" }}>
-              🥤 Chờ bưng
+              Chờ bưng
             </span>
             <span className="table-legend-item" style={{ fontSize: "0.8rem" }}>
-              ⏳ Đang pha
+              Đang pha
             </span>
             <span className="table-legend-item" style={{ fontSize: "0.8rem" }}>
-              ✅ Đủ món
+              Đủ món
             </span>
           </div>
 
@@ -892,8 +797,8 @@ export function Pos() {
               return (
                 <div
                   key={t.id}
-                  className={`table-tile ${meta.cls}`}
-                  style={{ border: selectedTable === t.id ? "2px solid #fff" : undefined }}
+                  className={(t.capacity ?? 4) >= 8 ? "table-tile is-wide" : "table-tile"}
+                  aria-label={`${t.name}, ${meta.label}`}
                   onClick={() => setMenuTableId(t.id)}
                   role="button"
                   tabIndex={0}
@@ -901,15 +806,16 @@ export function Pos() {
                     if (ev.key === "Enter" || ev.key === " ") setMenuTableId(t.id);
                   }}
                 >
-                  <div style={{ fontWeight: 700, fontSize: "1.05rem", lineHeight: 1 }}>{t.name.replace("Bàn ", "")}</div>
-                  {activeZoneId === "all" && (
-                    <div style={{ fontSize: "0.72rem", opacity: 0.95, marginTop: "0.25rem" }}>{t.location ?? "Tại quán"}</div>
-                  )}
+                  <TableShape seats={t.capacity ?? 4} className={meta.cls}>
+                    <span className="table-shape-num">{t.name.replace("Bàn ", "")}</span>
+                    <span className="table-shape-label">{meta.label}</span>
+                  </TableShape>
                   {getDrinkBadge(o)}
-                  <div style={{ fontSize: "0.74rem", marginTop: "0.35rem", fontWeight: 600 }}>{meta.label}</div>
-                  {o && (
-                    <div style={{ fontSize: "0.7rem", marginTop: "0.18rem" }}>
-                      #{o.id} · {formatVnd(o.totalAmount)}
+                  {(o || activeZoneId === "all") && (
+                    <div className="table-tile-meta">
+                      {o && <>#{o.id} · {formatVnd(o.totalAmount)}</>}
+                      {o && activeZoneId === "all" && <br />}
+                      {activeZoneId === "all" && (t.location ?? "Tại quán")}
                     </div>
                   )}
                 </div>
@@ -920,107 +826,10 @@ export function Pos() {
       )}
 
       {/* ===== LỊCH SỬ BILL ===== */}
+      {showGiftClaim && <PosGiftClaim onClose={() => setShowGiftClaim(false)} onDone={showToast} />}
+
       {showBillHistory && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 40, padding: "1rem" }}
-          role="presentation" onClick={(e) => e.target === e.currentTarget && setShowBillHistory(false)}>
-          <section className="card" style={{ padding: "1rem 1.15rem", width: "100%", maxWidth: 600, maxHeight: "90vh", overflowY: "auto", margin: 0 }}
-            onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.65rem", marginBottom: "0.85rem" }}>
-              <h2 style={{ fontSize: "1.1rem", margin: 0 }}>🗂 Lịch sử bill</h2>
-              <button type="button" className="btn btn-ghost" style={{ padding: "0.3rem 0.6rem", fontSize: "0.85rem" }} onClick={() => setShowBillHistory(false)}>✕</button>
-            </div>
-            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", marginBottom: "1rem" }}>
-              <input
-                type="date"
-                className="input"
-                style={{ maxWidth: 165, padding: "0.45rem 0.75rem", fontSize: "0.9rem" }}
-                value={billDate}
-                min={(() => { const d = new Date(); d.setDate(d.getDate() - 19); return d.toISOString().slice(0, 10); })()}
-                max={new Date().toISOString().slice(0, 10)}
-                onChange={(e) => {
-                  setBillDate(e.target.value);
-                  void loadBills(e.target.value);
-                }}
-              />
-              <button type="button" className="btn btn-ghost staff-btn-light"
-                style={{ padding: "0.45rem 0.85rem", fontSize: "0.88rem" }}
-                onClick={() => void loadBills(billDate)}>
-                Tải lại
-              </button>
-            </div>
-
-          {billHistoryLoading && <p className="subtle">Đang tải…</p>}
-          {billHistoryErr && <p style={{ color: "var(--danger)", fontSize: "0.88rem" }}>{billHistoryErr}</p>}
-
-          {!billHistoryLoading && (
-            <>
-              {/* Tổng kết ngày */}
-              {billHistory.length > 0 && (
-                <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap", marginBottom: "0.85rem", padding: "0.65rem 0.85rem", background: "rgba(146,64,14,0.08)", borderRadius: 10, border: "1px solid rgba(146,64,14,0.2)" }}>
-                  <div>
-                    <div style={{ fontSize: "0.75rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Số đơn</div>
-                    <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{billHistory.length}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: "0.75rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Doanh thu</div>
-                    <div style={{ fontWeight: 700, fontSize: "1.1rem", color: "var(--accent)" }}>
-                      {formatVnd(billHistory.reduce((s, b) => s + b.totalAmount, 0))}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: "0.75rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Tiền mặt</div>
-                    <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>
-                      {formatVnd(billHistory.filter(b => b.payMethod === "Cash").reduce((s, b) => s + b.totalAmount, 0))}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: "0.75rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Chuyển khoản</div>
-                    <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>
-                      {formatVnd(billHistory.filter(b => ["Transfer_QR", "VNPay", "SePay"].includes(b.payMethod || "")).reduce((s, b) => s + b.totalAmount, 0))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {billHistory.length === 0 && !billHistoryErr && (
-                <p className="subtle">Không có đơn nào trong ngày này.</p>
-              )}
-
-              {/* Danh sách bill */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem", maxHeight: 420, overflowY: "auto" }}>
-                {billHistory.map((b) => (
-                  <div key={b.id}
-                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.75rem", padding: "0.6rem 0.85rem", background: "#fff", borderRadius: 10, border: "1px solid #e5ddd5", cursor: "pointer", transition: "box-shadow 0.15s" }}
-                    onClick={() => setBillDetailModal(b)}
-                    role="button" tabIndex={0}
-                    onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setBillDetailModal(b)}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, color: "var(--text)", fontSize: "0.92rem" }}>
-                        Bill #{b.id}
-                        {b.tableName && <span style={{ fontWeight: 400, color: "#6b5e55", marginLeft: "0.4rem" }}>· {b.tableName}</span>}
-                        {!b.tableName && <span style={{ fontWeight: 400, color: "#6b5e55", marginLeft: "0.4rem" }}>· Mang về</span>}
-                      </div>
-                      <div style={{ fontSize: "0.8rem", color: "#6b5e55", marginTop: "0.15rem" }}>
-                        {new Date(b.createdAt).toLocaleTimeString("vi-VN")}
-                        {b.customerName && ` · ${b.customerName}`}
-                        {` · ${b.items.length} món`}
-                        <div style={{ marginTop: "0.15rem", color: "#8a7e75", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: "0.78rem" }}>
-                          {b.items.map(i => `${i.name}${i.quantity > 1 ? ` (x${i.quantity})` : ''}`).join(", ")}
-                        </div>
-                      </div>
-                    </div>
-                    <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontWeight: 700, color: "var(--text)" }}>{formatVnd(b.totalAmount)}</div>
-                      <div style={{ fontSize: "0.75rem", color: "#6b5e55", marginTop: "0.1rem" }}>{payMethodLabel(b.payMethod)}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-          </section>
-        </div>
+        <PosBillHistory onClose={closeBillHistory} onSelect={setBillDetailModal} payMethodLabel={payMethodLabel} />
       )}
 
       {/* Modal chi tiết bill lịch sử */}
@@ -1031,7 +840,7 @@ export function Pos() {
             onClick={(e) => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.85rem" }}>
               <h3 style={{ margin: 0, fontSize: "1rem" }}>Bill #{billDetailModal.id}</h3>
-              <button type="button" className="btn btn-ghost" style={{ padding: "0.3rem 0.6rem", fontSize: "0.85rem" }} onClick={() => setBillDetailModal(null)}>✕</button>
+              <button type="button" className="btn btn-ghost" style={{ padding: "0.3rem 0.6rem", fontSize: "0.85rem" }} onClick={() => setBillDetailModal(null)} aria-label="Đóng"><X size={16} /></button>
             </div>
 
             <div style={{ fontSize: "0.85rem", marginBottom: "0.75rem", borderBottom: "1px dashed var(--border)", paddingBottom: "0.65rem" }}>
@@ -1075,7 +884,7 @@ export function Pos() {
 
             <div style={{ marginTop: "1rem", display: "flex", gap: "0.5rem" }}>
               <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={() => printHistoryBill(billDetailModal)}>
-                🖨 In lại bill
+                In lại bill
               </button>
               <button type="button" className="btn btn-ghost" onClick={() => setBillDetailModal(null)}>Đóng</button>
             </div>
@@ -1103,7 +912,7 @@ export function Pos() {
             style={{ padding: "1.25rem", maxWidth: 440, width: "100%", overflowY: "auto", maxHeight: "90vh" }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ marginTop: 0, textAlign: "center", letterSpacing: "0.05em" }}>☕ TD COFFEE</h3>
+            <h3 style={{ marginTop: 0, textAlign: "center", letterSpacing: "0.05em" }}>TD COFFEE</h3>
             <p style={{ textAlign: "center", fontSize: "0.82rem", margin: "-0.25rem 0 0.5rem", color: "var(--muted)" }}>
               ————— HÓA ĐƠN TẠM TÍNH —————
             </p>
@@ -1171,7 +980,7 @@ export function Pos() {
             </div>
 
             <p style={{ textAlign: "center", fontSize: "0.78rem", color: "var(--muted)", marginTop: "0.85rem", marginBottom: 0 }}>
-              Cảm ơn quý khách! Hẹn gặp lại ☕
+              Cảm ơn quý khách! Hẹn gặp lại
             </p>
 
             <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "1rem" }}>
@@ -1180,7 +989,7 @@ export function Pos() {
                 className="btn btn-ghost"
                 onClick={() => printBill(billModal, billPreview.vatAmount, billPreview.totalAmount, settings.vatRatePercent)}
               >
-                🖨 In bill tạm tính
+                In bill tạm tính
               </button>
               <button
                 type="button"
@@ -1194,7 +1003,7 @@ export function Pos() {
                   setBillStep("pay");
                 }}
               >
-                💳 Thu tiền
+                Thu tiền
               </button>
               <button type="button" className="btn btn-ghost" onClick={() => setBillModal(null)}>
                 Đóng
@@ -1231,7 +1040,7 @@ export function Pos() {
             </ul>
             {payOrder.status === "Paid" ? (
               <div style={{ margin: "1.5rem 0", padding: "1rem", backgroundColor: "#ecfdf5", borderRadius: "8px", textAlign: "center", border: "1px solid #047857" }}>
-                <strong style={{ color: "#047857", fontSize: "1.1rem" }}>✓ Đã thanh toán {payOrder.payments?.[0]?.method ?? "Online"}</strong>
+                <strong style={{ color: "#047857", fontSize: "1.1rem" }}>Đã thanh toán {payOrder.payments?.[0]?.method ?? "Online"}</strong>
                 <p style={{ margin: "0.5rem 0 0", color: "#065f46" }}>Số tiền: <strong>{formatVnd(preview.totalAmount)}</strong></p>
                 <p style={{ margin: "0.25rem 0 0", fontSize: "0.85rem", color: "#065f46" }}>Vui lòng nhấn "Xác nhận & In bill" để kết thúc đơn.</p>
               </div>
@@ -1309,7 +1118,7 @@ export function Pos() {
                     </div>
                     {preview.change !== null && Number(cashGiven.replace(/\D/g, "")) > 0 && (
                       <span style={{ fontSize: "0.9rem", marginTop: "0.35rem", display: "block", color: preview.change >= 0 ? "var(--success)" : "var(--danger)" }}>
-                        {preview.change >= 0 ? `✓ Tiền thừa: ${formatVnd(preview.change)}` : `✗ Còn thiếu: ${formatVnd(Math.abs(preview.change))}`}
+                        {preview.change >= 0 ? `Tiền thừa: ${formatVnd(preview.change)}` : `Còn thiếu: ${formatVnd(Math.abs(preview.change))}`}
                       </span>
                     )}
                   </div>

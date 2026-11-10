@@ -1,20 +1,26 @@
 import "dotenv/config";
 import path from "path";
-import express from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
+// Express 4 không tự bắt lỗi của route async → 1 request lỗi làm sập cả server. Gói này chuyển lỗi vào error handler bên dưới.
+import "express-async-errors";
+import { Prisma } from "@prisma/client";
 import cors from "cors";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { authRouter } from "./routes/auth.js";
+import { warnSocialConfig } from "./lib/socialAuth.js";
 import { prisma } from "./db.js";
 import { staffAuthRouter } from "./routes/staffAuth.js";
 import { catalogRouter } from "./routes/catalog.js";
 import { menuRouter } from "./routes/menu.js";
 import { ordersRouter } from "./routes/orders.js";
 import { shiftsRouter } from "./routes/shifts.js";
+import { cashRouter } from "./routes/cash.js";
 import { chatRouter } from "./routes/chat.js";
 import { reviewsRouter } from "./routes/reviews.js";
 import { posRouter } from "./routes/pos.js";
 import { adminRouter } from "./routes/admin.js";
+import { customerInsightsRouter } from "./routes/customerInsights.js";
 import { staffOpsRouter, takeawayRouter } from "./routes/staffOps.js";
 import { formulaRouter } from "./routes/formula.js";
 import { vnpayRouter } from "./routes/vnpay.js";
@@ -26,14 +32,53 @@ import { reportsRouter } from "./routes/reports.js";
 import { vouchersRouter } from "./routes/vouchers.js";
 import { postsRouter } from "./routes/posts.js";
 import { scheduleRouter } from "./routes/schedule.js";
+import { hrConfigRouter } from "./routes/hrConfig.js";
+import { shiftWishesRouter } from "./routes/shiftWishes.js";
+import { startShiftWishReminder } from "./lib/shiftWish/context.js";
+import { kitchenRouter } from "./routes/kitchen.js";
+import { stockRequestsRouter } from "./routes/stockRequests.js";
+import { menuProposalsRouter } from "./routes/menuProposals.js";
+import { searchInsightsRouter } from "./routes/searchInsights.js";
+import { trackingRouter } from "./routes/tracking.js";
+import { promotionsRouter } from "./routes/promotions.js";
+import { gamesRouter } from "./routes/games.js";
+import { popupsRouter } from "./routes/popups.js";
+import { contactButtonsRouter } from "./routes/contactButtons.js";
+import { siteRouter } from "./routes/site.js";
+import { startGiftClaimExpiryJob } from "./games/service.js";
+import { startSearchLogCleanup } from "./lib/searchInsights.js";
+import { startCustomerEventCleanup } from "./lib/customerEvents.js";
+import { branchProposalsRouter } from "./routes/branchProposals.js";
+import { inventoryCountsRouter } from "./routes/inventoryCounts.js";
+import { setRealtime } from "./lib/realtime.js";
 import { hrRequestsRouter } from "./routes/hrRequests.js";
 import { attendanceRouter } from "./routes/attendance.js";
+import { tasksRouter } from "./routes/tasks.js";
+import { knowledgeRouter } from "./routes/knowledge.js";
+import { aiAgentsRouter } from "./routes/aiAgents.js";
+import { resumeAiReplies, startAiLogCleanup } from "./ai/agent/scheduler.js";
+import { aiDashboardRouter } from "./routes/aiDashboard.js";
+import { analystRouter } from "./routes/analyst.js";
+import { voiceOrderRouter } from "./routes/voiceOrder.js";
+import { invoiceOcrRouter } from "./routes/invoiceOcr.js";
+import { nutritionRouter } from "./routes/nutrition.js";
+import { homeRouter } from "./routes/home.js";
+import { resumeKnowledgeQueue } from "./ai/knowledge/ingest.js";
+import { myStatsRouter } from "./routes/myStats.js";
+import { notificationsRouter } from "./routes/notifications.js";
+import { initNotify, startNotificationCleanup } from "./lib/notify.js";
+import { initWebPush } from "./lib/webPush.js";
+import { initOpenShifts, startOpenShiftJob } from "./lib/openShifts.js";
+import { startBackorderReminder } from "./lib/supplierReturns.js";
 import { comboRouter } from "./routes/combo.js";
 import { payrollRoutes } from "./routes/payroll.js";
 import { procurementRouter } from "./routes/procurement.js";
 import { addressesRouter } from "./routes/addresses.js";
 import { customerRouter } from "./routes/customer.js";
 import { deliveryRouter } from "./routes/delivery.js";
+import { storesRouter } from "./routes/stores.js";
+import { brandRouter } from "./routes/brand.js";
+import { stockTransferRouter } from "./routes/stockTransfer.js";
 import { startDispatchWorker } from "./lib/delivery.js";
 import { registerSocketHandlers } from "./socket/handlers.js";
 import { startGraceWorker } from "./graceWorker.js";
@@ -44,6 +89,10 @@ const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: true, methods: ["GET", "POST"] },
 });
+setRealtime(io);
+initNotify(prisma);
+initWebPush(prisma);
+initOpenShifts(prisma, io);
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: "6mb" }));
@@ -67,11 +116,16 @@ app.get("/api/health", async (_req, res) => {
 app.use("/api/auth", authRouter(prisma));
 app.use("/api", staffAuthRouter(prisma));
 app.use("/api", shiftsRouter(prisma));
+app.use("/api", cashRouter(prisma));
+// Hồ sơ khách (thói quen, quay lại, lịch sử) — gắn trước adminRouter
+app.use("/api/admin", customerInsightsRouter(prisma));
 app.use("/api/admin", adminRouter(prisma));
 app.use("/api/admin", supplierRouter());
 app.use("/api/admin", auditRouter());
 app.use("/api/admin", reportsRouter());
 app.use("/api", formulaRouter(prisma));
+app.use("/api", storesRouter(prisma));
+app.use("/api", brandRouter(prisma));
 app.use("/api", catalogRouter(prisma));
 app.use("/api", menuRouter(prisma));
 app.use("/api", ordersRouter(prisma, io));
@@ -88,17 +142,75 @@ app.use("/api", sepayRouter(prisma, io));
 app.use("/api", vouchersRouter(prisma, io));
 app.use("/api", postsRouter(prisma));
 app.use("/api", scheduleRouter(prisma, io));
+app.use("/api", hrConfigRouter(prisma));
+// Nguyện vọng xếp ca viết tự nhiên (AI đọc câu → ràng buộc)
+app.use("/api", shiftWishesRouter(prisma));
+app.use("/api", kitchenRouter(prisma, io));
+app.use("/api", stockRequestsRouter(prisma, io));
+app.use("/api", menuProposalsRouter(prisma, io));
+app.use("/api", searchInsightsRouter(prisma));
+// Hành vi khách trên web: ghi sự kiện + trang "Hành vi khách"
+app.use("/api", trackingRouter(prisma));
+app.use("/api", promotionsRouter(prisma));
+app.use("/api", gamesRouter(prisma));
+app.use("/api", popupsRouter(prisma));
+app.use("/api", contactButtonsRouter(prisma));
+app.use("/api", siteRouter(prisma));
+app.use("/api", branchProposalsRouter(prisma, io));
+app.use("/api", inventoryCountsRouter(prisma, io));
 app.use("/api", hrRequestsRouter(prisma, io));
 app.use("/api", attendanceRouter(prisma));
+app.use("/api", tasksRouter(prisma, io));
+// AI tư vấn: kho tri thức (RAG)
+app.use("/api", knowledgeRouter(prisma));
+app.use("/api", aiAgentsRouter(prisma));
+app.use("/api", aiDashboardRouter(prisma));
+// Trợ lý AI hỏi số liệu (Owner / Admin) + bật / tắt tính năng AI
+app.use("/api", analystRouter(prisma));
+// Đặt món bằng giọng nói / câu tự nhiên (POS + web khách)
+app.use("/api", voiceOrderRouter(prisma));
+// Đọc hoá đơn NCC bằng AI khi nhận hàng
+app.use("/api", invoiceOcrRouter(prisma));
+// Dinh dưỡng nguyên liệu / món, sở thích ăn uống của khách
+app.use("/api", nutritionRouter(prisma));
+app.use("/api", homeRouter(prisma));
+app.use("/api", myStatsRouter(prisma));
+app.use("/api", notificationsRouter(prisma));
 app.use("/api", comboRouter(prisma));
 app.use("/api", payrollRoutes);
 app.use("/api", procurementRouter(prisma));
+app.use("/api/admin", stockTransferRouter(prisma));
 app.use("/api/customer-addresses", addressesRouter(prisma));
 app.use("/api/customer", customerRouter(prisma));
 
-registerSocketHandlers(io);
+/** Bắt mọi lỗi chưa xử lý của route: ghi log, trả JSON — không để sập server */
+app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
+  if (res.headersSent) return next(err);
+  // Dữ liệu gửi lên sai kiểu / thiếu (id không phải số…) → lỗi của request, không phải của server
+  if (err instanceof Prisma.PrismaClientValidationError) {
+    console.warn(`[400] ${req.method} ${req.originalUrl}: dữ liệu không hợp lệ`);
+    return res.status(400).json({ error: "Dữ liệu gửi lên không hợp lệ." });
+  }
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    if (err.code === "P2025") return res.status(404).json({ error: "Không tìm thấy dữ liệu." });
+    if (err.code === "P2002") return res.status(409).json({ error: "Dữ liệu bị trùng." });
+    if (err.code === "P2003") return res.status(400).json({ error: "Dữ liệu liên quan không tồn tại." });
+  }
+  if (err instanceof SyntaxError && "body" in err) return res.status(400).json({ error: "JSON không hợp lệ." });
+  console.error(`[500] ${req.method} ${req.originalUrl}`, err);
+  res.status(500).json({ error: "Lỗi máy chủ. Vui lòng thử lại." });
+});
+
+registerSocketHandlers(io, prisma);
 startGraceWorker(prisma, io);
 startDispatchWorker(prisma, io);
+startNotificationCleanup();
+startOpenShiftJob();
+startBackorderReminder(prisma);
+startShiftWishReminder(prisma);
+startSearchLogCleanup(prisma);
+startCustomerEventCleanup(prisma);
+startGiftClaimExpiryJob(prisma);
 
 const port = Number(process.env.PORT) || 4000;
 
@@ -112,6 +224,10 @@ async function bootstrap() {
     process.exit(1);
   }
 
+  warnSocialConfig();
+  void resumeKnowledgeQueue();
+  void resumeAiReplies();
+  startAiLogCleanup();
   httpServer.listen(port, () => {
     console.log(`API + Socket.io: http://localhost:${port}`);
   });
@@ -122,6 +238,9 @@ const shutdown = async (signal: string) => {
   await prisma.$disconnect();
   httpServer.close(() => process.exit(0));
 };
+
+// Lỗi async ngoài route (socket, worker định kỳ…) — ghi log thay vì để Node tắt cả server
+process.on("unhandledRejection", (reason) => console.error("[unhandledRejection]", reason));
 
 process.on("SIGINT", () => void shutdown("SIGINT"));
 process.on("SIGTERM", () => void shutdown("SIGTERM"));

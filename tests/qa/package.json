@@ -1,0 +1,19 @@
+{
+  "name": "cmn-qa",
+  "private": true,
+  "type": "module",
+  "description": "Script QA (API + Playwright headless, không ảnh/video/trace). Chạy với backend TEST cổng 4100 / CSDL cmn_test.",
+  "scripts": {
+    "routes": "node 01-routes-inventory.mjs",
+    "authz": "node 02-authz-probe.mjs",
+    "customer": "node 03-customer-orders.mjs",
+    "pos": "node 04-pos-cash-voucher-games.mjs",
+    "security": "node 05-staff-authz-security.mjs",
+    "realtime": "node 06-realtime.mjs",
+    "inventory": "node 07-inventory-reports-perf.mjs",
+    "ui": "node 08-ui-smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.49.1"
+  }
+}

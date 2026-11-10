@@ -1,0 +1,60 @@
+/* Bán hàng › Hành vi khách (modules/sales/BehaviorInsights.tsx) */
+.o-bh-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.o-bh-filters .o-input { width: auto; }
+.o-bh-kpis { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.o-bh-row-3 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); }
+.o-bh-note { margin: 12px 0 0; font-size: var(--o-fs-xs); color: var(--o-muted); }
+.o-bh-h3 { margin: 0 0 8px; font-size: var(--o-fs-sm); font-weight: 600; }
+/* Bảng rộng cuộn ngang trong khung riêng, không đẩy cả trang */
+.o-bh-scroll { min-width: 0; overflow-x: auto; }
+
+.o-bh-thumb { display: inline-block; flex: none; width: 32px; height: 32px; border-radius: var(--o-radius); object-fit: cover; background: var(--o-surface-alt); vertical-align: middle; }
+
+/* Phễu tổng */
+.o-bh-funnel { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.o-bh-funnel li { display: grid; grid-template-columns: 130px minmax(0, 1fr) 190px; align-items: center; gap: 12px; }
+.o-bh-funnel-label { font-size: var(--o-fs-sm); color: var(--o-text-2); }
+.o-bh-funnel-track { height: 22px; border-radius: var(--o-radius); background: var(--o-surface-alt); overflow: hidden; }
+.o-bh-funnel-bar { display: block; height: 100%; border-radius: var(--o-radius); background: var(--o-primary); }
+.o-bh-funnel-num { display: flex; align-items: baseline; gap: 8px; font-size: var(--o-fs-sm); white-space: nowrap; }
+.o-bh-drop { font-size: var(--o-fs-xs); color: var(--o-danger); }
+
+/* Top xem / thêm giỏ */
+.o-bh-top { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.o-bh-top li + li { border-top: 1px solid var(--o-border); }
+.o-bh-top button { display: grid; grid-template-columns: 20px 32px minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; padding: 8px 4px; border: 0; background: none; font: inherit; text-align: left; color: inherit; cursor: pointer; }
+.o-bh-top button:hover { background: var(--o-hover); }
+.o-bh-rank { font-size: var(--o-fs-xs); color: var(--o-muted); text-align: right; }
+.o-bh-top-txt { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.o-bh-top-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.o-bh-top-bar { display: block; height: 4px; border-radius: 2px; background: var(--o-surface-alt); }
+.o-bh-top-bar span { display: block; height: 100%; border-radius: 2px; background: var(--o-primary); opacity: 0.6; }
+.o-bh-top-num { display: flex; flex-direction: column; align-items: flex-end; font-size: var(--o-fs-xs); white-space: nowrap; }
+.o-bh-top-num strong { font-size: var(--o-fs-sm); }
+
+/* Bảng phễu theo món: RecordList nằm trong thẻ */
+.o-bh-table { padding-bottom: 8px; }
+.o-bh-table .o-dcard-head { margin-bottom: 4px; }
+
+.o-bh-name { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.o-bh-screens { display: flex; flex-direction: column; gap: 16px; }
+
+/* Giờ × thứ */
+.o-bh-heat { border-collapse: separate; border-spacing: 2px; font-size: 11px; }
+.o-bh-heat th { padding: 0 2px; font-weight: 500; color: var(--o-muted); text-align: center; }
+.o-bh-heat td { width: 20px; min-width: 18px; height: 20px; border-radius: 3px; background: var(--o-surface-alt); }
+
+@media (max-width: 1200px) {
+  .o-bh-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .o-bh-row-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1024px) {
+  .o-bh-row-3 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 768px) {
+  .o-bh-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .o-bh-filters { width: 100%; }
+  .o-bh-filters .o-input { flex: 1 1 140px; }
+  .o-bh-funnel li { grid-template-columns: 90px minmax(0, 1fr); }
+  .o-bh-funnel-num { grid-column: 2; }
+}

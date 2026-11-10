@@ -1,0 +1,34 @@
+/* Trang chủ › "Hợp thời tiết hôm nay" (components/site/WeatherPicks.tsx) */
+.c-wx-head { display: flex; align-items: center; gap: 20px 28px; padding-bottom: 14px; margin-bottom: 20px; border-bottom: 3px double var(--c-rule-strong); }
+.c-wx-now { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; padding-right: 24px; border-right: 1px solid var(--c-rule); }
+.c-wx-icon { display: inline-grid; place-items: center; width: 46px; height: 46px; border-radius: 50%; background: var(--c-paper-2); color: var(--c-coffee); }
+.c-wx-icon.is-hot { color: #c2581b; background: color-mix(in srgb, #f0a24a 22%, var(--c-paper-2)); }
+.c-wx-icon.is-warm { color: #b07a12; background: color-mix(in srgb, var(--c-accent) 25%, var(--c-paper-2)); }
+.c-wx-icon.is-rain { color: #2f6f9f; background: color-mix(in srgb, #5ea3d6 20%, var(--c-paper-2)); }
+.c-wx-temp { font-family: var(--c-font-display); font-weight: 700; font-size: 2rem; line-height: 1; color: var(--c-ink); font-variant-numeric: tabular-nums; }
+.c-wx-meta { display: flex; flex-direction: column; font-size: 0.9rem; color: var(--c-ink); }
+.c-wx-meta small { font-size: 0.78rem; color: var(--c-muted); }
+.c-wx-copy { min-width: 0; }
+.c-wx-title { margin: 0; font-family: var(--c-font-display); font-weight: 700; font-size: clamp(1.3rem, 1rem + 1.1vw, 1.9rem); line-height: 1.05; text-transform: uppercase; letter-spacing: 0.02em; color: var(--c-ink); }
+.c-wx-line { margin: 4px 0 0; font-family: var(--c-font-serif); font-style: italic; font-size: 1.02rem; color: var(--c-coffee); text-wrap: pretty; }
+.c-wx-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px 20px; }
+.c-wx .c-pcard-line { white-space: normal; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; line-height: 1.35; }
+.c-wx-reason::first-letter { text-transform: uppercase; }
+.c-wx-tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; }
+.c-wx-tag.is-iced { background: color-mix(in srgb, #5ea3d6 20%, transparent); color: #24628f; }
+.c-wx-tag.is-hot { background: color-mix(in srgb, #e0763a 18%, transparent); color: #a94a16; }
+:root[data-c-mode="dark"] .c-site .c-wx-tag.is-iced, :root[data-c-mode="dark"] .c-site .c-wx-icon.is-rain { color: #8cc4ee; }
+:root[data-c-mode="dark"] .c-site .c-wx-tag.is-hot, :root[data-c-mode="dark"] .c-site .c-wx-icon.is-hot { color: #f2a272; }
+:root[data-c-mode="dark"] .c-site .c-wx-icon.is-warm { color: #e9c062; }
+
+@media (max-width: 1024px) {
+  .c-wx-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 768px) {
+  .c-wx-head { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .c-wx-now { padding-right: 0; border-right: 0; }
+  /* Điện thoại: 4 món cuộn ngang, thấy mép món kế tiếp */
+  .c-wx-row { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; margin: 0 -16px; padding: 0 16px 6px; scrollbar-width: none; }
+  .c-wx-row::-webkit-scrollbar { display: none; }
+  .c-wx-row > .c-pcard { flex: 0 0 44%; scroll-snap-align: start; }
+}

@@ -1,0 +1,34 @@
+/* ── Tổng quan › Khiếu nại (modules/overview/Complaints) ── */
+.cp-layout { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 12px; align-items: start; }
+@media (max-width: 860px) { .cp-layout { grid-template-columns: 1fr; } }
+
+.cp-list { display: flex; flex-direction: column; max-height: calc(100dvh - 170px); overflow-y: auto; }
+.cp-filters { display: flex; gap: 4px; padding: 8px; border-bottom: 1px solid var(--o-border); position: sticky; top: 0; background: var(--o-surface); z-index: 1; flex-wrap: wrap; }
+.cp-filters button { border: 0; background: none; padding: 5px 10px; border-radius: 999px; font-size: var(--o-fs-sm); cursor: pointer; color: var(--o-text-2); }
+.cp-filters button.active { background: var(--o-primary); color: #fff; }
+.cp-filters em { font-style: normal; margin-left: 4px; font-weight: 600; }
+
+.cp-item { display: flex; gap: 10px; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--o-border); background: none; text-align: left; cursor: pointer; width: 100%; color: inherit; }
+.cp-item:hover { background: var(--o-surface-2, rgba(0, 0, 0, 0.03)); }
+.cp-item.active { background: rgba(113, 75, 103, 0.08); box-shadow: inset 3px 0 0 var(--o-primary); }
+.cp-thumb { width: 48px; height: 48px; flex: none; border-radius: 8px; object-fit: cover; }
+.cp-thumb-empty { display: grid; place-items: center; background: var(--o-surface-2, #f3f4f6); color: var(--o-text-2); }
+.cp-item-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.cp-item-top { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.cp-preview { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cp-meta { font-size: var(--o-fs-xs); display: flex; align-items: center; gap: 4px; }
+.cp-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--o-danger); flex: none; }
+
+.cp-detail { display: flex; flex-direction: column; min-height: 420px; max-height: calc(100dvh - 170px); }
+.cp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--o-border); flex-wrap: wrap; }
+.cp-thread { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.cp-msg { display: flex; flex-direction: column; max-width: 78%; align-self: flex-start; align-items: flex-start; }
+.cp-msg.mine { align-self: flex-end; align-items: flex-end; }
+.cp-msg-name { font-size: var(--o-fs-xs); color: var(--o-text-2); margin-bottom: 2px; }
+.cp-bubble { padding: 8px 12px; border-radius: 14px; background: var(--o-surface-2, #f3f4f6); white-space: pre-wrap; word-break: break-word; }
+.cp-msg-customer .cp-bubble { background: rgba(220, 38, 38, 0.08); }
+.cp-msg.mine .cp-bubble { background: var(--o-primary); color: #fff; }
+.cp-msg-bot .cp-bubble { background: transparent; border: 1px dashed var(--o-border); color: var(--o-text-2); font-size: var(--o-fs-sm); }
+.cp-time { font-size: var(--o-fs-xs); color: var(--o-text-2); margin-top: 2px; }
+.cp-reply { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--o-border); }
+.cp-reply .o-input { flex: 1; min-width: 0; }

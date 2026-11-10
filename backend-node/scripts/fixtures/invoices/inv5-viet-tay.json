@@ -1,0 +1,20 @@
+{
+  "readable": true,
+  "invoiceNo": "0457",
+  "lines": {
+    "Sữa Tươi": {
+      "receivedQty": 24,
+      "expiryDate": null
+    },
+    "Sữa Đặc": {
+      "receivedQty": 24,
+      "expiryDate": null
+    },
+    "Đường Cát": {
+      "receivedQty": 10,
+      "expiryDate": null
+    }
+  },
+  "flags": [],
+  "sharpness": 1457
+}

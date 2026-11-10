@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { Check, X } from "lucide-react";
 import { api } from "../lib/api";
 import { getUser, mergeSessionUser } from "../lib/session";
 
@@ -38,6 +39,7 @@ export function VnpayReturn() {
               borderRadius: "50%",
               background: "rgba(34,197,94,0.15)",
               border: "2px solid #15803d",
+              color: "#15803d",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -45,7 +47,7 @@ export function VnpayReturn() {
               margin: "0 auto 1.25rem",
             }}
           >
-            ✅
+            <Check size={34} strokeWidth={2.5} aria-hidden />
           </div>
           <h1 className="page-title" style={{ color: "#15803d" }}>
             Thanh toán thành công!
@@ -91,6 +93,7 @@ export function VnpayReturn() {
               borderRadius: "50%",
               background: "rgba(239,68,68,0.12)",
               border: "2px solid var(--danger)",
+              color: "var(--danger)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -98,7 +101,7 @@ export function VnpayReturn() {
               margin: "0 auto 1.25rem",
             }}
           >
-            ❌
+            <X size={34} strokeWidth={2.5} aria-hidden />
           </div>
           <h1 className="page-title" style={{ color: "var(--danger)" }}>
             Thanh toán thất bại

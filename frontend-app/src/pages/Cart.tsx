@@ -1,26 +1,108 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { api } from "../lib/api";
-import { backupCart, cartTotal, clearCart, getCart, updateQty, type CartItem } from "../lib/cart";
-import { getTableId, getTakeawaySessionId, getUser, setTableId, setTakeawaySessionId } from "../lib/session";
-import { motion } from "framer-motion";
-import { ArrowLeft, Trash2, Plus, Minus, Receipt } from "lucide-react";
+import { backupCart, cartTotal, clearCart, getCart, lineKey, removeLines, updateQty, type CartItem } from "../lib/cart";
+import { getTableId, getTakeawaySessionId, getUser, newSessionId, setTakeawaySessionId } from "../lib/session";
+import { Trash2, Plus, Minus } from "lucide-react";
+import { Crumbs, ProductImage, SectionHead } from "../components/site/parts";
 import { LocationPicker } from "../components/LocationPicker";
-import { formatKm, haversineKm, shippingFeeForDistance, type LatLng } from "../lib/delivery";
+import { formatKm, haversineKm, MAX_DELIVERY_KM, shippingFeeForDistance, type LatLng } from "../lib/delivery";
+import { useCustomerStore, withStore } from "../lib/customerStore";
+import { StorePicker } from "../components/StorePicker";
+import { formatVnd } from "../lib/site";
+import { useLang } from "../lib/i18n";
+import { PhoneReminder } from "./SocialComplete";
+import { loadNutrition } from "../lib/nutrition";
+import "../styles/nutrition.css";
+import { UsualStrip } from "../components/site/UsualStrip";
+import { reloadUsual, saveDefaultNote, useUsual, withOrderNote } from "../lib/habits";
+import { track, trackIds } from "../lib/track";
 
-function formatVnd(n: number) {
-  return new Intl.NumberFormat("vi-VN").format(n) + " đ";
+const SWIPE_OPEN = 88; // độ rộng nút Xoá lộ ra khi vuốt
+
+/** Dòng giỏ hàng vuốt sang trái để xoá (chỉ cảm ứng): vuốt ngắn lộ nút Xoá, vuốt quá nửa dòng thì xoá luôn */
+function SwipeRow({ open, onOpen, onDelete, label, children }: { open: boolean; onOpen: (v: boolean) => void; onDelete: () => void; label: string; children: ReactNode }) {
+  const [dx, setDx] = useState<number | null>(null);
+  const start = useRef<{ x: number; y: number; axis: "x" | "y" | null } | null>(null);
+  const rowRef = useRef<HTMLLIElement>(null);
+  const base = open ? -SWIPE_OPEN : 0;
+  const x = dx ?? base;
+
+  function onTouchStart(e: React.TouchEvent) {
+    const t = e.touches[0];
+    start.current = { x: t.clientX, y: t.clientY, axis: null };
+  }
+  function onTouchMove(e: React.TouchEvent) {
+    const s = start.current;
+    if (!s) return;
+    const t = e.touches[0];
+    const mx = t.clientX - s.x, my = t.clientY - s.y;
+    if (!s.axis) {
+      if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
+      s.axis = Math.abs(mx) > Math.abs(my) ? "x" : "y";
+    }
+    if (s.axis === "x") setDx(Math.min(0, base + mx));
+  }
+  function onTouchEnd() {
+    const s = start.current;
+    start.current = null;
+    if (!s || s.axis !== "x" || dx == null) return setDx(null);
+    const width = rowRef.current?.offsetWidth ?? 320;
+    setDx(null);
+    if (-dx > width / 2) onDelete();
+    else onOpen(-dx > SWIPE_OPEN / 2);
+  }
+
+  return (
+    <li ref={rowRef} className="c-cart-row">
+      {x < 0 && <button type="button" className="c-cart-swipe-del" style={{ width: Math.max(SWIPE_OPEN, -x) }} onClick={onDelete}>{label}</button>}
+      <div
+        className="c-cart-item"
+        style={{ transform: x ? `translateX(${x}px)` : undefined, transition: dx == null ? "transform .2s ease" : "none" }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchEnd}
+        onClickCapture={(e) => { if (open) { e.stopPropagation(); e.preventDefault(); onOpen(false); } }}
+      >
+        {children}
+      </div>
+    </li>
+  );
+}
+
+
+/** Tổng caffeine ước tính của giỏ (theo size từng ly) — nhắc khi ≥ 300 mg (khuyến nghị FDA ≤ 400 mg / ngày) */
+function CartCaffeine({ items }: { items: CartItem[] }) {
+  const { t } = useLang();
+  const [mg, setMg] = useState(0);
+  const key = items.map((i) => `${i.productId}:${i.size}:${i.quantity}`).join(",");
+  useEffect(() => {
+    let alive = true;
+    const drinks = items.filter((i) => !i.isCombo && i.productId > 0);
+    void Promise.all(drinks.map((i) => loadNutrition(i.productId).then((d) => {
+      const n = d?.sizes.find((s) => s.size === i.size) ?? d?.sizes.find((s) => s.size === "-");
+      return n?.complete ? n.caffeineMg * i.quantity : 0;
+    }))).then((v) => alive && setMg(Math.round(v.reduce((a, b) => a + b, 0))));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  if (mg < 300) return null;
+  return <p className="c-cart-caffeine" role="note">{t("Giỏ hàng có khoảng {n} mg caffeine (khuyến nghị người lớn ≤ 400 mg / ngày).", { n: mg })}</p>;
 }
 
 export function Cart() {
   const loc = useLocation();
   const [items, setItems] = useState(() => getCart());
   const nav = useNavigate();
+  const { t } = useLang();
   const user = getUser();
+  const { storeId, tableName } = useCustomerStore();
   const [payOpen, setPayOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [manualTable, setManualTable] = useState("");
   
   // Delivery State
   const [orderTypeSelection, setOrderTypeSelection] = useState<"dine-in" | "takeaway" | "delivery">(
@@ -32,6 +114,11 @@ export function Cart() {
   const [storeLoc, setStoreLoc] = useState<LatLng | null>(null);
   const [savedAddresses, setSavedAddresses] = useState<any[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<number | "new">("new");
+
+  // Vào giỏ có món → CART_VIEW (phễu "Hành vi khách")
+  useEffect(() => {
+    if (getCart().length) track("CART_VIEW", { qty: getCart().reduce((n, i) => n + i.quantity, 0) });
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -53,22 +140,97 @@ export function Cart() {
   }, [loc.key, loc.pathname]);
 
   useEffect(() => {
-    api<{ storeLat: number | null; storeLng: number | null }>("/api/store-config")
+    // Phí ship tính từ chi nhánh khách chọn
+    api<{ storeLat: number | null; storeLng: number | null }>(withStore("/api/store-config", storeId))
       .then((c) => c.storeLat != null && c.storeLng != null && setStoreLoc({ lat: c.storeLat, lng: c.storeLng }))
       .catch(() => undefined);
-  }, []);
+  }, [storeId]);
 
   // Phí ship theo khoảng cách từ quán (cùng công thức với backend)
   const distanceKm = storeLoc && customerLocation ? haversineKm(storeLoc, customerLocation) : null;
+  const tooFar = orderTypeSelection === "delivery" && distanceKm != null && distanceKm > MAX_DELIVERY_KM;
   useEffect(() => {
     setShippingFee(distanceKm != null ? shippingFeeForDistance(distanceKm) : 0);
   }, [distanceKm]);
 
+  // Thói quen khách: ghi chú mặc định điền sẵn vào "Ghi chú cho quán" (sửa / xoá được) + gợi ý món quen
+  const usual = useUsual(storeId);
+  const [orderNote, setOrderNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (usual && orderNote === null) setOrderNote(usual.savedNote ?? "");
+  }, [usual, orderNote]);
+  const [noteMsg, setNoteMsg] = useState<string | null>(null);
+  async function saveSuggestedNote(note: string) {
+    try {
+      await saveDefaultNote(note);
+      if (!(orderNote ?? "").trim()) setOrderNote(note);
+      setNoteMsg(t("Đã lưu làm ghi chú mặc định."));
+    } catch (e) {
+      setNoteMsg(e instanceof Error ? e.message : t("Không lưu được."));
+    }
+  }
+  const usualSuggest = (usual?.items ?? []).filter((u) => !u.soldOut).slice(0, 3);
+  const hasUsualInCart = items.some((i) => !i.isCombo && (usual?.items ?? []).some((u) => u.productId === i.productId));
+
   const total = cartTotal(items);
   const currentTable = getTableId();
 
+  // Ưu đãi số lượng: máy chủ tính ưu đãi đang đạt + gợi ý bậc kế tiếp theo giỏ hàng hiện tại
+  type PromoPreview = {
+    applied: { name: string; qty: number; discount: number; freeShipping: boolean; text: string } | null;
+    next: { name: string; needQty: number; text: string } | null;
+  };
+  const [promo, setPromo] = useState<PromoPreview>({ applied: null, next: null });
+  useEffect(() => {
+    if (!storeId || !items.length) {
+      setPromo({ applied: null, next: null });
+      return;
+    }
+    const orderType = orderTypeSelection === "delivery" ? "Delivery" : orderTypeSelection === "takeaway" ? "Takeaway" : "Dine-in";
+    const t = window.setTimeout(() => {
+      api<PromoPreview>("/api/promotions/preview", {
+        method: "POST",
+        body: JSON.stringify({
+          store: storeId,
+          orderType,
+          lines: items.map((i) => ({ productId: i.productId, quantity: i.quantity, size: i.size, comboId: i.comboId ?? null })),
+        }),
+      })
+        .then(setPromo)
+        .catch(() => setPromo({ applied: null, next: null }));
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [items, orderTypeSelection, storeId]);
+  const promoShip = promo.applied?.freeShipping && orderTypeSelection === "delivery" ? shippingFee : 0;
+
   function refresh() {
     setItems(getCart());
+  }
+
+  // Chọn nhiều dòng để xoá; khoá theo nội dung dòng để +/- số lượng không làm mất lựa chọn
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [swipeOpen, setSwipeOpen] = useState<string | null>(null);
+  const keys = items.map(lineKey);
+  const pickedCount = keys.filter((k) => selected.has(k)).length;
+  const allPicked = items.length > 0 && pickedCount === items.length;
+  function toggle(key: string) {
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
+  }
+  function removeIdx(idxs: number[]) {
+    removeLines(idxs);
+    setSwipeOpen(null);
+    refresh();
+  }
+  function removeSelected() {
+    if (!pickedCount) return;
+    if (!window.confirm(t("Xoá {n} món đã chọn khỏi giỏ?", { n: pickedCount }))) return;
+    removeIdx(keys.flatMap((k, i) => (selected.has(k) ? [i] : [])));
+    setSelected(new Set());
   }
 
   async function submitOrder(mode: "now" | "later") {
@@ -83,23 +245,21 @@ export function Cart() {
       let sessionId = null;
       
       if (orderTypeSelection === "takeaway") {
-        if (!user) {
-          setMsg("Vui lòng đăng nhập để đặt mang về.");
-          setSubmitting(false); return;
-        }
+        // Khách vãng lai đặt mang về: phiên mang về là "chìa khoá" để xem bill và yêu cầu thanh toán
         finalOrderType = "Takeaway";
-        sessionId = takeawaySessionId || `ta-${Date.now()}`;
+        sessionId = takeawaySessionId ?? newSessionId();
+        setTakeawaySessionId(sessionId);
       } else if (orderTypeSelection === "delivery") {
         if (!user) {
-          setMsg("Vui lòng đăng nhập để đặt giao hàng.");
+          setMsg(t("Vui lòng đăng nhập để đặt giao hàng."));
           setSubmitting(false); return;
         }
         if (!deliveryAddress.trim()) {
-           setMsg("Vui lòng nhập địa chỉ giao hàng.");
+           setMsg(t("Vui lòng nhập địa chỉ giao hàng."));
            setSubmitting(false); return;
         }
         if (!customerLocation) {
-           setMsg("Vui lòng ghim vị trí giao hàng trên bản đồ để tài xế tìm đúng nhà bạn.");
+           setMsg(t("Vui lòng ghim vị trí giao hàng trên bản đồ để tài xế tìm đúng nhà bạn."));
            setSubmitting(false); return;
         }
         finalOrderType = "Delivery";
@@ -121,15 +281,19 @@ export function Cart() {
         }
       } else {
         if (!tableId) {
-          setMsg("Không xác định được bàn. Vui lòng thử lại.");
+          setMsg(t("Không xác định được bàn. Hãy quét mã QR trên bàn hoặc chọn Mang về."));
           setSubmitting(false); return;
         }
       }
 
+      track("CHECKOUT_START", { qty: items.reduce((n, i) => n + i.quantity, 0) });
       const created = await api<{ id: number; status: string }>("/api/orders", {
         method: "POST",
         body: JSON.stringify({
+          // Máy chủ tự ghi ORDER_PLACED theo mã ẩn danh / mã phiên này
+          ...trackIds(),
           tableId: finalOrderType === "Dine-in" ? tableId : null,
+          storeId,
           customerId: user?.customerId ?? null,
           orderType: finalOrderType,
           sessionId,
@@ -143,7 +307,9 @@ export function Cart() {
             quantity: i.quantity,
             unitPrice: i.unitPrice,
             size: i.size,
-            customNotes: i.notes,
+            temp: i.temp ?? null,
+            // Ghi chú cho quán nối vào ghi chú từng món (KDS / hoá đơn đọc customNotes như cũ)
+            customNotes: i.isCombo ? i.notes : withOrderNote(i.notes, orderNote ?? ""),
             comboId: i.comboId ?? null,
           })),
         }),
@@ -151,6 +317,7 @@ export function Cart() {
       clearCart();
       setPayOpen(false);
       refresh();
+      reloadUsual();
       if (finalOrderType === "Takeaway" || finalOrderType === "Delivery") {
         nav(`/order/${created.id}/checkout`, { replace: true });
         return;
@@ -161,61 +328,50 @@ export function Cart() {
         nav(`/order/${created.id}/checkout`, { replace: true });
       }
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Không gửi được đơn");
+      setMsg(e instanceof Error ? e.message : t("Không gửi được đơn"));
     } finally {
       setSubmitting(false);
     }
   }
 
+  const grand = Math.max(0, total - (promo.applied?.discount ?? 0)) + (orderTypeSelection === "delivery" ? shippingFee - promoShip : 0);
+  const TYPES = [
+    { id: "dine-in" as const, label: "Tại quán", pick: () => { setOrderTypeSelection("dine-in"); setTakeawaySessionId(null); } },
+    { id: "takeaway" as const, label: "Mang về", pick: () => { setOrderTypeSelection("takeaway"); setTakeawaySessionId(getTakeawaySessionId() ?? newSessionId()); } },
+    { id: "delivery" as const, label: "Giao hàng", pick: () => setOrderTypeSelection("delivery") },
+  ];
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
-      className="site-page"
-      style={{ maxWidth: 1000, padding: "1.5rem" }}
-    >
-      <div style={{ marginBottom: "1.5rem", display: "flex", alignItems: "center", gap: "1rem" }}>
-        <Link to="/menu" style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", color: "var(--muted)", textDecoration: "none", fontSize: "0.95rem", fontWeight: 500, transition: "color 0.2s" }} onMouseEnter={(e) => e.currentTarget.style.color = "var(--text)"} onMouseLeave={(e) => e.currentTarget.style.color = "var(--muted)"}>
-          <ArrowLeft size={18} /> Quay lại
-        </Link>
-        <h1 className="page-title" style={{ margin: 0, fontSize: "1.75rem", color: "var(--accent)" }}>Giỏ hàng</h1>
-      </div>
+    <div className="c-wrap c-cartpage">
+      <Crumbs items={[{ label: "Giỏ hàng" }]} />
+      <SectionHead as="h1" title="Giỏ hàng" sub={t("{n} món đang chọn", { n: items.reduce((a, it) => a + it.quantity, 0) })} more={{ to: "/menu", label: "Chọn thêm món" }} />
 
-      <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem" }}>
-        <button 
-          className={`btn ${orderTypeSelection === "dine-in" ? "btn-primary" : "btn-ghost"}`} 
-          onClick={() => { setOrderTypeSelection("dine-in"); setTakeawaySessionId(null); }}
-        >Ăn tại quán</button>
-        <button 
-          className={`btn ${orderTypeSelection === "takeaway" ? "btn-primary" : "btn-ghost"}`} 
-          onClick={() => { setOrderTypeSelection("takeaway"); setTakeawaySessionId(`ta-${Date.now()}`); }}
-        >Mang về</button>
-        <button 
-          className={`btn ${orderTypeSelection === "delivery" ? "btn-primary" : "btn-ghost"}`} 
-          onClick={() => setOrderTypeSelection("delivery")}
-        >Giao hàng</button>
+      <div className="c-seg c-cart-types" role="group" aria-label={t("Hình thức nhận món")}>
+        {TYPES.map((ty) => (
+          <button key={ty.id} type="button" className={orderTypeSelection === ty.id ? "is-on" : undefined} aria-pressed={orderTypeSelection === ty.id} onClick={ty.pick}>{t(ty.label)}</button>
+        ))}
       </div>
-
-      <p style={{ color: "var(--muted)", marginBottom: "2rem", fontSize: "0.95rem" }}>
-        {orderTypeSelection === "takeaway" ? "Loại đơn: Mang về" : orderTypeSelection === "delivery" ? "Loại đơn: Giao tận nơi" : `Bàn hiện tại: ${currentTable ?? "Chưa xác định"}`}
+      {orderTypeSelection !== "dine-in" && <div className="c-cart-store"><StorePicker /></div>}
+      <p className="c-muted-txt c-cart-type-note">
+        {orderTypeSelection === "takeaway" ? t("Đơn mang về — ghé quầy nhận khi quán báo xong.") : orderTypeSelection === "delivery" ? t("Giao tận nơi — phí giao tính theo khoảng cách từ chi nhánh.") : t("Bàn hiện tại: {table}", { table: currentTable ? tableName ?? `#${currentTable}` : t("chưa xác định") })}
       </p>
+      <PhoneReminder next="/cart" />
 
       {orderTypeSelection === "delivery" && (
-        <div style={{ background: "var(--surface2)", padding: "1.25rem", borderRadius: 16, marginBottom: "2rem", border: "1px solid var(--border)" }}>
+        <div className="c-box">
           {!user ? (
-            <div style={{ textAlign: "center", padding: "1rem" }}>
-              <p style={{ color: "var(--muted)", marginBottom: "1rem" }}>Bạn cần đăng nhập để sử dụng tính năng Giao hàng tận nơi.</p>
-              <Link to="/login" className="btn btn-primary" style={{ padding: "0.5rem 1.5rem", borderRadius: 8 }}>Đăng nhập ngay</Link>
+            <div className="c-box-row">
+              <p>{t("Đăng nhập để dùng giao hàng tận nơi.")}</p>
+              <Link to="/login" className="c-btn">{t("Đăng nhập")}</Link>
             </div>
           ) : (
             <>
-              <div className="field" style={{ marginBottom: "1rem" }}>
-                <label className="label">Chọn địa chỉ giao hàng:</label>
+              <label className="c-field">
+                <span className="c-field-label">{t("Địa chỉ giao hàng")}</span>
                 {savedAddresses.length > 0 && (
-                  <select 
-                    className="input" 
-                    value={selectedAddressId} 
+                  <select
+                    className="c-input"
+                    value={selectedAddressId}
                     onChange={(e) => {
                       const val = e.target.value;
                       if (val === "new") {
@@ -236,26 +392,18 @@ export function Cart() {
                         }
                       }
                     }}
-                    style={{ background: "var(--surface)", marginBottom: "0.5rem" }}
                   >
                     {savedAddresses.map(a => (
                       <option key={a.id} value={a.id}>{a.address}</option>
                     ))}
-                    <option value="new">+ Thêm địa chỉ mới</option>
+                    <option value="new">{t("Thêm địa chỉ mới")}</option>
                   </select>
                 )}
-                
                 {selectedAddressId === "new" && (
-                  <input
-                    className="input"
-                    placeholder="Nhập địa chỉ mới của bạn..."
-                    value={deliveryAddress}
-                    onChange={(e) => setDeliveryAddress(e.target.value)}
-                    style={{ background: "var(--surface)" }}
-                  />
+                  <input className="c-input" placeholder={t("Số nhà, đường, phường, quận")} value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} />
                 )}
-              </div>
-              <label className="label">Ghim vị trí giao hàng</label>
+              </label>
+              <span className="c-field-label">{t("Ghim vị trí giao hàng")}</span>
               <LocationPicker
                 value={customerLocation}
                 onChange={setCustomerLocation}
@@ -264,9 +412,15 @@ export function Cart() {
                 onAddressFound={(addr) => selectedAddressId === "new" && setDeliveryAddress(addr)}
               />
               {distanceKm != null && (
-                <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "0.5rem" }}>
-                  Cách quán {formatKm(distanceKm)} · {shippingFee === 0 ? "Miễn phí giao hàng (≤ 3 km)" : `Phí giao ${formatVnd(shippingFee)}`}
-                </div>
+                tooFar ? (
+                  <p className="c-muted-txt" role="alert" style={{ color: "var(--c-danger)" }}>
+                    {t("Cách quán {km} — ngoài phạm vi giao hàng (tối đa {max} km)", { km: formatKm(distanceKm), max: MAX_DELIVERY_KM })}
+                  </p>
+                ) : (
+                  <p className="c-muted-txt">
+                    {t("Cách quán {km}", { km: formatKm(distanceKm) })} · {shippingFee === 0 ? t("Miễn phí giao hàng (≤ 3 km)") : t("Phí giao {n}", { n: formatVnd(shippingFee) })}
+                  </p>
+                )
               )}
             </>
           )}
@@ -274,209 +428,149 @@ export function Cart() {
       )}
 
       {orderTypeSelection === "takeaway" && !user && (
-        <div style={{ background: "var(--surface2)", padding: "1.25rem", borderRadius: 16, marginBottom: "2rem", border: "1px solid var(--border)", textAlign: "center" }}>
-          <p style={{ color: "var(--muted)", marginBottom: "1rem" }}>Bạn cần đăng nhập để lưu trữ thông tin đơn Mang về dễ dàng hơn.</p>
-          <Link to="/login" className="btn btn-primary" style={{ padding: "0.5rem 1.5rem", borderRadius: 8 }}>Đăng nhập ngay</Link>
+        <div className="c-box c-box-row">
+          <p>{t("Đặt mang về không cần tài khoản. Đăng nhập để tích điểm và xem lại đơn.")}</p>
+          <Link to="/login" className="c-btn is-outline">{t("Đăng nhập")}</Link>
         </div>
       )}
 
       {orderTypeSelection === "dine-in" && !currentTable && (
-        <div style={{ background: "var(--surface2)", padding: "1.25rem", borderRadius: 16, marginBottom: "2rem", border: "1px solid var(--border)" }}>
-          <div className="field" style={{ marginBottom: "1rem" }}>
-            <label className="label" htmlFor="manual-table" style={{ fontSize: "0.85rem", color: "var(--text)", marginBottom: "0.5rem", display: "block" }}>
-              Bạn chưa có QR? Nhập số bàn của bạn:
-            </label>
-            <input
-              id="manual-table"
-              className="input"
-              placeholder="Ví dụ: 12"
-              value={manualTable}
-              onChange={(e) => setManualTable(e.target.value)}
-              style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10 }}
-            />
-          </div>
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ borderRadius: 999, padding: "0.6rem 1.5rem", fontSize: "0.95rem" }}
-            onClick={() => {
-              const n = Number(manualTable);
-              if (!n || Number.isNaN(n) || n <= 0) {
-                setMsg("Vui lòng nhập số bàn hợp lệ.");
-                return;
-              }
-              setTakeawaySessionId(null);
-              setTableId(n);
-              setMsg(`Đã gán bàn ${n}.`);
-            }}
-          >
-            Xác nhận bàn
-          </button>
+        <div className="c-box">
+          <p>{t("Quét mã QR trên bàn để gọi món tại quán, hoặc chọn Mang về.")}</p>
         </div>
       )}
 
       {items.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "4rem 1rem", background: "var(--surface2)", borderRadius: 24, border: "1px dashed var(--border)" }}>
-          <ShoppingBag size={48} color="#d6d3d1" style={{ margin: "0 auto 1rem" }} />
-          <p style={{ color: "var(--muted)", fontSize: "1.1rem", margin: "0 0 1.5rem" }}>Giỏ hàng của bạn đang trống.</p>
-          <Link to="/menu" className="btn btn-primary" style={{ borderRadius: 999, padding: "0.75rem 2rem" }}>Khám phá thực đơn</Link>
+        <div className="c-empty">
+          <p className="c-empty-title">{t("Giỏ hàng đang trống")}</p>
+          <p className="c-muted-txt">{t("Chọn vài món rồi quay lại đây thanh toán.")}</p>
+          <Link to="/menu" className="c-btn">{t("Xem thực đơn")}</Link>
         </div>
       ) : (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "2.5rem", alignItems: "flex-start" }}>
-
-          {/* LEFT: ITEM LIST */}
-          <div style={{ flex: "1 1 500px", display: "flex", flexDirection: "column", gap: "1rem" }}>
+        <div className="c-cart-grid">
+          <div>
+          <div className="c-cart-bar">
+            <label className="c-cart-check">
+              <input
+                type="checkbox"
+                checked={allPicked}
+                ref={(el) => { if (el) el.indeterminate = pickedCount > 0 && !allPicked; }}
+                onChange={() => setSelected(allPicked ? new Set() : new Set(keys))}
+              />
+              {t("Chọn tất cả ({n})", { n: items.length })}
+            </label>
+            <button type="button" className="c-linkbtn is-danger" disabled={!pickedCount} onClick={removeSelected}>
+              <Trash2 size={15} aria-hidden /> {t("Xoá đã chọn ({n})", { n: pickedCount })}
+            </button>
+          </div>
+          <ul className="c-cart-list">
             {items.map((item, idx) => (
-              <motion.div
-                whileHover={{ scale: 1.01 }}
-                key={`${item.productId}-${idx}`}
-                style={{
-                  display: "flex", gap: "1rem", alignItems: "center",
-                  background: "var(--surface2)",
-                  padding: "0.85rem", borderRadius: 20,
-                  boxShadow: "inset 0 1px 1px rgba(255,255,255,0.05)",
-                  border: "1px solid var(--border)"
-                }}
+              <SwipeRow
+                key={keys[idx]}
+                open={swipeOpen === keys[idx]}
+                onOpen={(v) => setSwipeOpen(v ? keys[idx] : null)}
+                onDelete={() => removeIdx([idx])}
+                label={t("Xoá")}
               >
-                {/* Image */}
-                <div style={{ width: 84, height: 84, flexShrink: 0, background: "var(--surface)", backgroundImage: item.imageUrl ? `url(${item.imageUrl})` : undefined, backgroundSize: "cover", backgroundPosition: "center", borderRadius: 14 }} />
-
-                {/* Details */}
-                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                  <div style={{ fontWeight: 600, fontSize: "1.05rem", color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {item.name}
-                  </div>
-                  <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "0.2rem", lineHeight: 1.3 }}>
-                    {item.notes || "Không có ghi chú"}
-                  </div>
-                  <div style={{ marginTop: "0.4rem", fontWeight: 700, color: "var(--accent)", fontSize: "1.05rem" }}>
-                    {formatVnd(item.unitPrice * item.quantity)}
-                  </div>
+                <input type="checkbox" className="c-cart-pick" checked={selected.has(keys[idx])} onChange={() => toggle(keys[idx])} aria-label={t("Chọn {name}", { name: item.name })} />
+                <span className="c-cart-img"><ProductImage p={{ name: item.name, imageUrl: item.imageUrl }} /></span>
+                <div className="c-cart-txt">
+                  <span className="c-cart-name">{item.name}</span>
+                  {item.notes && <span className="c-cart-notes">{item.notes}</span>}
+                  <span className="c-price">{formatVnd(item.unitPrice * item.quantity)}</span>
                 </div>
-
-                {/* Qty Controls */}
-                <div style={{ display: "flex", alignItems: "center", background: "var(--surface)", borderRadius: 999, padding: "0.25rem", border: "1px solid var(--border)" }}>
-                  <button
-                    type="button" aria-label={item.quantity <= 1 ? "Xóa" : "Giảm"}
-                    onClick={() => { updateQty(idx, item.quantity - 1); refresh(); }}
-                    style={{ width: 32, height: 32, borderRadius: "50%", background: "transparent", border: "none", color: item.quantity <= 1 ? "#b91c1c" : "var(--text)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "background 0.2s" }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = item.quantity <= 1 ? "rgba(239,68,68,0.15)" : "#f5f5f4" }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
-                  >
-                    {item.quantity <= 1 ? <Trash2 size={16} /> : <Minus size={16} />}
+                <div className="c-qty">
+                  <button type="button" aria-label={item.quantity <= 1 ? t("Bỏ {name}", { name: item.name }) : t("Bớt 1")} onClick={() => { updateQty(idx, item.quantity - 1); refresh(); }}>
+                    {item.quantity <= 1 ? <Trash2 size={16} aria-hidden /> : <Minus size={16} aria-hidden />}
                   </button>
-                  <span style={{ fontWeight: 600, fontSize: "0.95rem", minWidth: 28, textAlign: "center", color: "var(--text)" }}>
-                    {item.quantity}
-                  </span>
-                  <button
-                    type="button" aria-label="Tăng"
-                    onClick={() => { updateQty(idx, item.quantity + 1); refresh(); }}
-                    style={{ width: 32, height: 32, borderRadius: "50%", background: "transparent", border: "none", color: "var(--text)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "background 0.2s" }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = "#f5f5f4" }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent" }}
-                  >
-                    <Plus size={16} />
-                  </button>
+                  <output>{item.quantity}</output>
+                  <button type="button" aria-label={t("Thêm 1")} onClick={() => { updateQty(idx, item.quantity + 1); refresh(); }}><Plus size={16} aria-hidden /></button>
                 </div>
-              </motion.div>
+              </SwipeRow>
             ))}
+          </ul>
+          <p className="c-muted-txt c-cart-swipe-hint">{t("Vuốt sang trái trên một món để xoá nhanh.")}</p>
+          {!hasUsualInCart && usualSuggest.length > 0 && (
+            <UsualStrip
+              compact
+              title={t("Thêm món quen?")}
+              items={usualSuggest.map((u) => ({ product: u.product, usual: u.usual, usualNote: u.usualNote, soldOut: u.soldOut }))}
+              onAdded={refresh}
+            />
+          )}
           </div>
 
-          {/* RIGHT: ORDER SUMMARY (Sticky) */}
-          <div style={{ flex: "1 1 320px", position: "sticky", top: "80px", background: "var(--surface)", borderRadius: 24, padding: "1.75rem", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)" }}>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.35rem", margin: "0 0 1.5rem", color: "var(--text)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <Receipt size={22} color="var(--accent)" /> Tóm tắt đơn hàng
-            </h2>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginBottom: "1.5rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text)", fontSize: "0.95rem" }}>
-                <span>Tổng món</span>
-                <span>{items.reduce((acc, it) => acc + it.quantity, 0)} món</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text)", fontSize: "0.95rem" }}>
-                <span>Tạm tính</span>
-                <span>{formatVnd(total)}</span>
-              </div>
+          <aside className="c-bill">
+            <h2 className="c-pd-h">{t("Hoá đơn tạm")}</h2>
+            <CartCaffeine items={items} />
+            <dl className="c-bill-rows">
+              <div><dt>{t("Tổng món")}</dt><dd>{items.reduce((acc, it) => acc + it.quantity, 0)}</dd></div>
+              <div><dt>{t("Tạm tính")}</dt><dd>{formatVnd(total)}</dd></div>
+              {promo.applied && promo.applied.discount > 0 && (
+                <div className="is-good"><dt>{t("Ưu đãi")} {promo.applied.name} ({promo.applied.text})</dt><dd>−{formatVnd(promo.applied.discount)}</dd></div>
+              )}
               {orderTypeSelection === "delivery" && (
-                <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text)", fontSize: "0.95rem" }}>
-                  <span>Phí giao hàng</span>
-                  <span>{formatVnd(shippingFee)}</span>
+                <div>
+                  <dt>{t("Phí giao hàng")}</dt>
+                  <dd>
+                    {promoShip > 0 && <s className="c-price-old">{formatVnd(shippingFee)}</s>}{" "}
+                    {shippingFee - promoShip > 0 ? formatVnd(shippingFee - promoShip) : t("Miễn phí")}
+                  </dd>
                 </div>
               )}
-              <div style={{ height: 1, background: "var(--surface2)", margin: "0.5rem 0" }} />
-              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700, fontSize: "1.35rem", color: "var(--text)" }}>
-                <span>Tổng cộng</span>
-                <span style={{ color: "var(--accent)" }}>{formatVnd(total + (orderTypeSelection === "delivery" ? shippingFee : 0))}</span>
-              </div>
-            </div>
-
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              type="button"
-              className="btn btn-primary btn-block"
-              style={{ borderRadius: 999, padding: "1rem", fontSize: "1.05rem", background: "var(--accent)", boxShadow: "0 8px 20px rgba(146,64,14,0.3)" }}
-              onClick={() => setPayOpen(true)}
-            >
-              Chốt đơn
-            </motion.button>
-          </div>
-
-        </div>
-      )}
-
-      {/* MODAL PAY */}
-      {payOpen && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", zIndex: 100 }} role="dialog" aria-modal="true">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            className="card"
-            style={{ width: "100%", maxWidth: 440, padding: "2rem", borderRadius: 24, background: "var(--surface)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)" }}
-          >
-            <h2 style={{ fontFamily: "var(--font-display)", margin: "0 0 1rem", fontSize: "1.75rem", color: "var(--accent)" }}>Xác nhận đặt đơn</h2>
-
-            {orderTypeSelection === "takeaway" || orderTypeSelection === "delivery" ? (
-              <p style={{ color: "var(--text)", fontSize: "0.95rem", lineHeight: 1.5, marginBottom: "2rem" }}>Đơn sẽ được gửi đi, bạn có thể thanh toán trực tuyến hoặc chờ xác nhận.</p>
-            ) : (
-              <p style={{ color: "var(--text)", fontSize: "0.95rem", lineHeight: 1.5, marginBottom: "2rem" }}>Tại bàn: thanh toán ngay → trang hóa đơn chờ thu ngân; thanh toán sau → ân hạn chỉnh sửa rồi mới xuống bếp.</p>
+            </dl>
+            {promo.applied && promo.applied.discount === 0 && <p className="c-bill-good">{t("Ưu đãi")} {promo.applied.name}: {promo.applied.text}</p>}
+            {promo.next && <p className="c-bill-next">{t("Thêm {n} ly nữa để được {gift}", { n: promo.next.needQty, gift: promo.next.text })} ({promo.next.name})</p>}
+            {user && (
+              <label className="c-bill-note">
+                <span className="c-field-label">{t("Ghi chú cho quán")}</span>
+                <input
+                  className="c-input"
+                  value={orderNote ?? ""}
+                  onChange={(e) => setOrderNote(e.target.value)}
+                  maxLength={120}
+                  placeholder={t("Không ống hút, ít ngọt…")}
+                />
+                {usual?.noteSuggestion && !noteMsg && (
+                  <p className="c-bill-note-hint">
+                    {t("Bạn hay ghi “{note}”.", { note: usual.noteSuggestion })}
+                    <button type="button" className="c-linkish" onClick={() => void saveSuggestedNote(usual.noteSuggestion!)}>{t("Lưu làm ghi chú mặc định?")}</button>
+                  </p>
+                )}
+                {noteMsg && <p className="c-bill-note-hint" role="status">{noteMsg}</p>}
+              </label>
             )}
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-              <button type="button" className="btn btn-primary btn-block" style={{ borderRadius: 999, padding: "1rem", background: "var(--accent)", boxShadow: "0 8px 20px rgba(146,64,14,0.3)" }} disabled={submitting} onClick={() => void submitOrder("now")}>
-                {orderTypeSelection !== "dine-in" ? "Gửi đơn & xem hóa đơn" : "Thanh toán ngay (ra quầy)"}
-              </button>
-
-              {orderTypeSelection === "dine-in" && (
-                <button type="button" className="btn btn-ghost btn-block" style={{ borderRadius: 999, padding: "1rem", border: "1px solid var(--border)" }} disabled={submitting} onClick={() => void submitOrder("later")}>
-                  Thanh toán sau
-                </button>
-              )}
-
-              <button type="button" className="btn btn-ghost btn-block" style={{ marginTop: "0.5rem", color: "var(--muted)", border: "none" }} onClick={() => setPayOpen(false)}>
-                Hủy bỏ
-              </button>
-            </div>
-          </motion.div>
+            <div className="c-bill-total"><span>{t("Tổng cộng")}</span><span className="c-price">{formatVnd(grand)}</span></div>
+            <button type="button" className="c-btn c-btn-block" onClick={() => setPayOpen(true)}>{t("Thanh toán")}</button>
+          </aside>
         </div>
       )}
 
-      {msg && (
-        <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ marginTop: "1.5rem", textAlign: "center", color: msg.includes("Không xác định được bàn") ? "var(--danger)" : "var(--success)" }}>
-          {msg}
-        </motion.p>
+      {payOpen && (
+        <div className="c-modal-back" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && setPayOpen(false)}>
+          <div className="c-modal" role="dialog" aria-modal="true" aria-labelledby="pay-title">
+            <h2 id="pay-title" className="c-pd-h">{t("Xác nhận đặt đơn")}</h2>
+            <p>
+              {orderTypeSelection === "delivery"
+                ? t("Đơn giao hàng cần thanh toán online (gồm cả phí giao) ở bước tiếp theo. Quán chỉ nhận đơn sau khi bạn thanh toán.")
+                : orderTypeSelection === "takeaway"
+                  ? t("Đơn sẽ được gửi đi, bạn có thể thanh toán trực tuyến hoặc chờ quán xác nhận.")
+                  : t("Thanh toán ngay → trang hoá đơn chờ thu ngân. Thanh toán sau → có ít phút chỉnh sửa rồi mới xuống bếp.")}
+            </p>
+            <div className="c-modal-actions">
+              <button type="button" className="c-btn" disabled={submitting || tooFar} onClick={() => void submitOrder("now")}>
+                {orderTypeSelection !== "dine-in" ? t("Gửi đơn & xem hoá đơn") : t("Thanh toán ngay")}
+              </button>
+              {orderTypeSelection === "dine-in" && (
+                <button type="button" className="c-btn is-outline" disabled={submitting} onClick={() => void submitOrder("later")}>{t("Thanh toán sau")}</button>
+              )}
+              <button type="button" className="c-linkish" onClick={() => setPayOpen(false)}>{t("Huỷ")}</button>
+            </div>
+          </div>
+        </div>
       )}
 
-    </motion.div>
-  );
-}
-
-function ShoppingBag(props: any) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width={props.size} height={props.size} viewBox="0 0 24 24" fill="none" stroke={props.color || "currentColor"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={props.style}>
-      <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" />
-      <line x1="3" x2="21" y1="6" y2="6" />
-      <path d="M16 10a4 4 0 0 1-8 0" />
-    </svg>
+      {msg && <p className="c-err" role="alert">{msg}</p>}
+    </div>
   );
 }

@@ -1,28 +1,45 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ShoppingCart, FilePlus, Package, CheckCircle, FolderOpen, FileText, Download, X, Search, Filter, ArrowLeft } from "lucide-react";
-import { api } from "../lib/api";
-import { staffApi } from "../lib/staffApi";
+import { ShoppingCart, FilePlus, Package, FolderOpen, FileText, Download, X, Search, ArrowLeft } from "lucide-react";
+import { getStaffInfo, isAdminRole, staffApi } from "../lib/staffApi";
+import { fmtQty } from "../components/erp";
+import { mediaUrl } from "../lib/api";
+import { REJECT_REASON } from "../lib/supplierReturns";
+import { ReceiveDialog } from "../components/procurement/ReceiveDialog";
+import { SupplierReturnsPanel } from "../components/SupplierReturnsPanel";
+
+/** Trạng thái đơn mua (PO) */
+const PO_STATUS: Record<string, { label: string; bg: string; color: string }> = {
+  PENDING: { label: "Chờ Giao Hàng", bg: "rgba(245,158,11,0.2)", color: "#b45309" },
+  PARTIAL: { label: "Đã nhận một phần", bg: "rgba(59,130,246,0.2)", color: "#1d4ed8" },
+  DELIVERED: { label: "Đã Giao & Nhập Kho", bg: "rgba(16,185,129,0.2)", color: "#047857" },
+  CLOSED: { label: "Đã đóng (giao thiếu)", bg: "rgba(107,114,128,0.2)", color: "#4b5563" },
+};
+
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const dateVi = (d: string | null | undefined) => (d ? new Date(d).toLocaleDateString("vi-VN") : "");
 
 export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = {}) {
+  // Thủ kho lập đề xuất & nhận hàng; Quản lý chi nhánh duyệt đề xuất & chọn báo giá
+  const role = getStaffInfo()?.role;
+  const keeper = role === "Warehouse";
+  const approver = isAdminRole(role);
   const navigate = useNavigate();
-  const [tab, setTab] = useState<"pr" | "rfq" | "po" | "drive">("pr");
-  
+  const [tab, setTab] = useState<"pr" | "rfq" | "po" | "rtv" | "drive">("pr");
+
   const [prs, setPrs] = useState<any[]>([]);
   const [rfqs, setRfqs] = useState<any[]>([]);
   const [pos, setPos] = useState<any[]>([]);
   const [docs, setDocs] = useState<any[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
-  
+
   const [showCreatePr, setShowCreatePr] = useState(false);
   const [newPrItems, setNewPrItems] = useState<{itemId: number, qty: number, note: string}[]>([]);
-  
+
   const [selectedRfq, setSelectedRfq] = useState<any>(null);
-  
+
   const [receivingPo, setReceivingPo] = useState<any>(null);
-  const [expiries, setExpiries] = useState<Record<number, string>>({}); // itemId -> date
-  
   const [previewDoc, setPreviewDoc] = useState<any>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
@@ -50,7 +67,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
       console.error("[ProcurementAdmin] loadData error:", e);
     }
   }
-  
+
   async function loadInventory() {
     try {
       setInventory(await staffApi<any[]>("/api/admin/inventory"));
@@ -79,13 +96,19 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
     } catch (e: any) { alert(e.message); }
   }
 
-  async function selectQuote(rfqId: number, quoteId: number) {
-    if (!window.confirm("Chốt báo giá này và tự động tạo Đơn Đặt Hàng (PO)?")) return;
+  async function selectQuote(rfq: any, quote: any) {
+    // Báo giá thiếu mặt hàng → hỏi rõ; phần thiếu được tách sang đề xuất mua mới
+    const missing = rfq.requisition.items.filter((i: any) => !quote.items.some((qi: any) => qi.itemId === i.itemId && qi.unitPrice > 0));
+    const ask = missing.length
+      ? `Báo giá của ${quote.supplier.name} THIẾU: ${missing.map((m: any) => m.item.name).join(", ")}.\n\nVẫn chốt báo giá này? Các mặt hàng thiếu sẽ được tạo thành một đề xuất mua mới để lấy báo giá khác.`
+      : "Chốt báo giá này và tự động tạo Đơn Đặt Hàng (PO)?";
+    if (!window.confirm(ask)) return;
     try {
-      await staffApi(`/api/purchasing/rfqs/${rfqId}/select-quote`, {
+      const r = await staffApi<{ poCode: string; followUp: string | null }>(`/api/purchasing/rfqs/${rfq.id}/select-quote`, {
         method: "POST",
-        body: JSON.stringify({ quoteId })
+        body: JSON.stringify({ quoteId: quote.id, allowPartial: missing.length > 0 })
       });
+      if (r.followUp) alert(`Đã tạo ${r.poCode}. Các mặt hàng thiếu đã chuyển sang đề xuất ${r.followUp} (chờ duyệt).`);
       setSelectedRfq(null);
       loadData();
     } catch (e: any) {
@@ -93,29 +116,21 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
     }
   }
 
-  async function receiveOrder() {
-    if (!receivingPo) return;
-    // Validate that all items have an expiry date
-    const items = receivingPo.quote.rfq.requisition.items;
-    for (const i of items) {
-      if (!expiries[i.itemId]) {
-        alert(`Vui lòng nhập Hạn sử dụng cho ${i.item.name}`);
-        return;
-      }
-    }
-    
-    if (!window.confirm("Xác nhận nhập kho hàng hóa (GRN)? Hệ thống sẽ tự động cập nhật số lượng tồn.")) return;
+  function openReceive(po: any) {
+    setReceivingPo(po);
+  }
+
+  /** Hủy phần còn thiếu: cả đơn (line = null) hoặc 1 mặt hàng */
+  async function cancelRemaining(po: any, line: any | null) {
+    const what = line ? `${line.remaining} ${line.unit ?? ""} ${line.name} còn thiếu` : `toàn bộ phần còn thiếu của ${po.code}`;
+    const note = window.prompt(`Hủy ${what}, không chờ nhà cung cấp giao bù nữa? Ghi lý do (VD: NCC hết hàng):`);
+    if (!note?.trim()) return;
+    const reorder = window.confirm("Tạo đề xuất mua mới cho phần bị hủy để lấy báo giá nhà cung cấp khác?");
     try {
-      await staffApi(`/api/purchasing/orders/${receivingPo.id}/receive`, {
-        method: "POST",
-        body: JSON.stringify({ expiries })
-      });
-      setReceivingPo(null);
-      setExpiries({});
+      const r = await staffApi<{ reorderCode: string | null }>(`/api/purchasing/orders/${po.id}/close`, { method: "POST", body: JSON.stringify({ note, itemId: line?.itemId, reorder }) });
+      if (r.reorderCode) alert(`Đã tạo đề xuất mua ${r.reorderCode} (chờ duyệt).`);
       loadData();
-    } catch (e: any) {
-      alert(e.message);
-    }
+    } catch (e: any) { alert(e.message); }
   }
 
   async function downloadPDF() {
@@ -128,7 +143,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
       image:        { type: 'jpeg', quality: 0.98 },
       html2canvas:  { scale: 2 },
       jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
-    };
+    } as const;
     html2pdf().set(opt).from(element).save();
   }
 
@@ -155,7 +170,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
             </h1>
           </div>
         )}
-        {tab === "pr" && (
+        {tab === "pr" && keeper && (
           <button className="primary-btn" onClick={() => setShowCreatePr(true)}>
             <FilePlus size={18} /> Tạo Phiếu Đề Xuất (PR)
           </button>
@@ -171,6 +186,9 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
         </button>
         <button className={tab === "po" ? "primary-btn" : "secondary-btn"} onClick={() => setTab("po")}>
           Đơn Đặt Hàng (PO)
+        </button>
+        <button className={tab === "rtv" ? "primary-btn" : "secondary-btn"} onClick={() => setTab("rtv")}>
+          Trả hàng NCC
         </button>
         <button className={tab === "drive" ? "primary-btn" : "secondary-btn"} onClick={() => setTab("drive")} style={{ background: tab === "drive" ? "#3b82f6" : undefined, borderColor: tab === "drive" ? "#3b82f6" : undefined }}>
           <FolderOpen size={18} /> Kho Chứng Từ
@@ -194,7 +212,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                 style={{ flex: 1, minWidth: 200 }}
               >
                 <option value="">-- Chọn Nguyên Liệu --</option>
-                {inventory.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit}) - Tồn: {i.stockQty}</option>)}
+                {inventory.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit}) - Tồn: {fmtQty(i.stockQty)}</option>)}
               </select>
               <input 
                 type="number" className="input-field" placeholder="Số lượng" value={item.qty || ""}
@@ -235,7 +253,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                 <span style={{ padding: "0.25rem 0.75rem", borderRadius: 999, fontSize: "0.85rem", background: pr.status === "APPROVED" ? "rgba(59,130,246,0.2)" : pr.status === "COMPLETED" ? "rgba(16,185,129,0.2)" : "rgba(245,158,11,0.2)", color: pr.status === "APPROVED" ? "#3b82f6" : pr.status === "COMPLETED" ? "#047857" : "#b45309" }}>
                   {pr.status === "PENDING" ? "Chờ Duyệt" : pr.status === "APPROVED" ? "Đã Duyệt (Đang lấy báo giá)" : "Hoàn Tất"}
                 </span>
-                {pr.status === "PENDING" && (
+                {pr.status === "PENDING" && approver && (
                   <button className="primary-btn" style={{ padding: "0.4rem 1rem", fontSize: "0.9rem" }} onClick={() => approvePR(pr.id)}>
                     Duyệt & Tạo RFQ
                   </button>
@@ -278,7 +296,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <button className="secondary-btn" onClick={() => setSelectedRfq(null)} style={{ marginBottom: "1rem" }}>Quay lại</button>
           <h2>So sánh báo giá cho: {selectedRfq.code}</h2>
-          
+
           {selectedRfq.quotes.length === 0 ? (
             <p style={{ color: "var(--muted)" }}>Chưa có nhà cung cấp nào gửi báo giá.</p>
           ) : (
@@ -291,9 +309,11 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                     {selectedRfq.quotes.map((q:any) => (
                       <th key={q.id} style={{ padding: "1rem", textAlign: "right" }}>
                         <div style={{ color: "var(--accent)" }}>{q.supplier.name}</div>
-                        <button className="primary-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem", marginTop: "0.5rem" }} onClick={() => selectQuote(selectedRfq.id, q.id)}>
-                          Chốt Báo giá & Tạo PO
-                        </button>
+                        {approver && (
+                          <button className="primary-btn" style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem", marginTop: "0.5rem" }} onClick={() => selectQuote(selectedRfq, q)}>
+                            Chốt Báo giá & Tạo PO
+                          </button>
+                        )}
                       </th>
                     ))}
                   </tr>
@@ -343,8 +363,8 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                   <p style={{ margin: 0, color: "var(--muted)" }}>Nhà cung cấp: <strong style={{ color: "var(--text)" }}>{po.supplier.name}</strong></p>
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <span style={{ padding: "0.25rem 0.75rem", borderRadius: 999, fontSize: "0.85rem", background: po.status === "DELIVERED" ? "rgba(16,185,129,0.2)" : "rgba(245,158,11,0.2)", color: po.status === "DELIVERED" ? "#047857" : "#b45309", display: "inline-block", marginBottom: "0.5rem" }}>
-                    {po.status === "DELIVERED" ? "Đã Giao & Nhập Kho" : "Chờ Giao Hàng"}
+                  <span style={{ padding: "0.25rem 0.75rem", borderRadius: 999, fontSize: "0.85rem", background: PO_STATUS[po.status]?.bg ?? "rgba(245,158,11,0.2)", color: PO_STATUS[po.status]?.color ?? "#b45309", display: "inline-block", marginBottom: "0.5rem" }}>
+                    {PO_STATUS[po.status]?.label ?? po.status}
                   </span>
                   <div style={{ fontWeight: "bold" }}>Tổng: {po.totalAmount.toLocaleString()} đ</div>
                 </div>
@@ -354,24 +374,79 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--border)", textAlign: "left", color: "var(--muted)" }}>
                       <th style={{ padding: "0.5rem" }}>Mặt hàng</th>
-                      <th style={{ padding: "0.5rem" }}>Số lượng</th>
+                      <th style={{ padding: "0.5rem" }}>Đặt</th>
+                      <th style={{ padding: "0.5rem" }}>Đã nhận</th>
+                      <th style={{ padding: "0.5rem" }}>Trả lại</th>
+                      <th style={{ padding: "0.5rem" }}>Đã hủy</th>
+                      <th style={{ padding: "0.5rem" }}>Còn phải giao</th>
+                      {approver && (po.status === "PENDING" || po.status === "PARTIAL") && <th />}
                     </tr>
                   </thead>
                   <tbody>
-                    {po.quote.rfq.requisition.items.map((i: any) => (
-                      <tr key={i.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                        <td style={{ padding: "0.5rem" }}>{i.item.name}</td>
-                        <td style={{ padding: "0.5rem" }}>{i.qty} {i.item.unit}</td>
-                      </tr>
-                    ))}
+                    {po.lines.map((l: any) => {
+                      const late = l.remaining > 0 && l.backorderDate && new Date(l.backorderDate) < new Date(ymd(new Date()));
+                      return (
+                        <tr key={l.itemId} style={{ borderBottom: "1px solid var(--border)" }}>
+                          <td style={{ padding: "0.5rem" }}>{l.name}</td>
+                          <td style={{ padding: "0.5rem" }}>{l.ordered} {l.unit}</td>
+                          <td style={{ padding: "0.5rem" }}>{l.received} {l.unit}</td>
+                          <td style={{ padding: "0.5rem", color: l.rejected ? "var(--danger)" : "var(--muted)" }}>{l.rejected || "—"}</td>
+                          <td style={{ padding: "0.5rem", color: "var(--muted)" }}>{l.cancelled || "—"}{l.replaced ? ` · đổi ${l.replaced}` : ""}</td>
+                          <td style={{ padding: "0.5rem", color: late ? "var(--danger)" : l.remaining > 0 ? "#b45309" : undefined }}>
+                            {l.remaining || "—"}
+                            {l.remaining > 0 && l.backorderDate && <div style={{ fontSize: "0.8rem" }}>{late ? "Quá hẹn " : "Hẹn giao bù "}{dateVi(l.backorderDate)}</div>}
+                          </td>
+                          {approver && (po.status === "PENDING" || po.status === "PARTIAL") && (
+                            <td style={{ padding: "0.5rem", textAlign: "right" }}>
+                              {l.remaining > 0 && po.lines.filter((x: any) => x.remaining > 0).length > 1 && (
+                                <button className="secondary-btn" style={{ padding: "0.2rem 0.6rem", fontSize: "0.8rem" }} onClick={() => cancelRemaining(po, l)}>Hủy phần thiếu</button>
+                              )}
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
-              {po.status === "PENDING" && (
-                <div style={{ marginTop: "1rem", textAlign: "right" }}>
-                  <button className="primary-btn" onClick={() => setReceivingPo(po)}>
-                    <Package size={16} /> Nhận Hàng (Tạo Phiếu Nhập)
-                  </button>
+              {po.receipts.length > 0 && (
+                <div style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "var(--muted)" }}>
+                  {po.receipts.map((g: any) => `${g.code} · ${new Date(g.createdAt).toLocaleDateString("vi-VN")} · ${g.receivedBy?.fullName ?? ""}${g.items.some((x: any) => x.rejectedQty > 0) ? ` · trả lại ${g.items.reduce((s: number, x: any) => s + x.rejectedQty, 0)}` : ""}${g.note ? ` · ${g.note}` : ""}`).join(" | ")}
+                </div>
+              )}
+              {po.receipts.some((g: any) => g.invoicePhoto) && (
+                <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.85rem" }}>
+                  {po.receipts.filter((g: any) => g.invoicePhoto).map((g: any) => (
+                    <a key={g.id} href={mediaUrl(g.invoicePhoto)} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", color: "var(--accent)" }}>
+                      <img src={mediaUrl(g.invoicePhoto)} alt="" style={{ width: 32, height: 32, objectFit: "cover", borderRadius: 4, border: "1px solid var(--border)" }} />
+                      Hoá đơn {g.code}
+                    </a>
+                  ))}
+                </div>
+              )}
+              {po.receipts.some((g: any) => g.items.some((x: any) => x.rejectPhoto)) && (
+                <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.85rem" }}>
+                  {po.receipts.flatMap((g: any) => g.items.filter((x: any) => x.rejectPhoto).map((x: any) => {
+                    const line = po.lines.find((l: any) => l.itemId === x.itemId);
+                    return (
+                      <a key={x.id} href={mediaUrl(x.rejectPhoto)} target="_blank" rel="noreferrer" style={{ color: "var(--danger)" }}>
+                        Ảnh trả lại {x.rejectedQty} {line?.name ?? ""} ({REJECT_REASON[x.rejectReason] ?? x.rejectReason})
+                      </a>
+                    );
+                  }))}
+                </div>
+              )}
+              {po.status === "CLOSED" && po.closeNote && <div style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "var(--muted)" }}>Đã đóng: {po.closeNote}</div>}
+              {(po.status === "PENDING" || po.status === "PARTIAL") && (keeper || approver) && (
+                <div style={{ marginTop: "1rem", display: "flex", gap: "0.5rem", justifyContent: "flex-end", flexWrap: "wrap" }}>
+                  {approver && (
+                    <button className="secondary-btn" onClick={() => cancelRemaining(po, null)}>Hủy phần còn thiếu & đóng đơn</button>
+                  )}
+                  {keeper && (
+                    <button className="primary-btn" onClick={() => openReceive(po)}>
+                      <Package size={16} /> {po.status === "PARTIAL" ? "Nhận tiếp đợt sau" : "Nhận Hàng (Tạo Phiếu Nhập)"}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -379,43 +454,19 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
         </div>
       )}
 
-      {/* RECEIVE PO MODAL */}
-      <AnimatePresence>
-        {receivingPo && (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} style={{ background: "var(--bg)", width: "100%", maxWidth: 600, padding: "2rem", borderRadius: 12, border: "1px solid var(--border)", maxHeight: "90vh", overflowY: "auto" }}>
-              <h2 style={{ margin: "0 0 1rem 0", color: "var(--accent)" }}>Nhập Kho - {receivingPo.code}</h2>
-              <p style={{ color: "var(--muted)", marginBottom: "2rem" }}>Vui lòng kiểm tra số lượng và nhập Hạn sử dụng (Expiry Date) cho từng lô hàng.</p>
-              
-              <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                {receivingPo.quote.rfq.requisition.items.map((i: any) => (
-                  <div key={i.id} style={{ background: "var(--surface2)", padding: "1rem", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
-                    <div>
-                      <div style={{ fontWeight: "bold" }}>{i.item.name}</div>
-                      <div style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Số lượng: {i.qty} {i.item.unit}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: "0.85rem", color: "var(--muted)", marginBottom: "0.25rem" }}>Hạn sử dụng:</div>
-                      <input 
-                        type="date" 
-                        className="input-field" 
-                        style={{ padding: "0.4rem" }}
-                        value={expiries[i.itemId] || ""}
-                        onChange={e => setExpiries(prev => ({ ...prev, [i.itemId]: e.target.value }))}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              
-              <div style={{ display: "flex", gap: "1rem", marginTop: "2rem", justifyContent: "flex-end" }}>
-                <button className="secondary-btn" onClick={() => setReceivingPo(null)}>Hủy</button>
-                <button className="primary-btn" onClick={receiveOrder}>Xác nhận Nhập Kho (Tạo GRN)</button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {tab === "rtv" && <SupplierReturnsPanel canCreate={keeper || approver} canApprove={approver} />}
+
+      {/* Nhận hàng theo đơn mua (+ đọc hoá đơn bằng AI) */}
+      {receivingPo && (
+        <ReceiveDialog
+          po={receivingPo}
+          onClose={() => setReceivingPo(null)}
+          onDone={() => {
+            setReceivingPo(null);
+            loadData();
+          }}
+        />
+      )}
 
       {/* DOCUMENT DRIVE TAB */}
       {tab === "drive" && (
@@ -439,9 +490,10 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
               <option value="RFQ">Yêu Cầu Báo Giá (RFQ)</option>
               <option value="PO">Đơn Đặt Hàng (PO)</option>
               <option value="GRN">Phiếu Nhập Kho (GRN)</option>
+              <option value="RTV">Phiếu Trả Hàng NCC</option>
             </select>
           </div>
-          
+
           {/* Drive Grid */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "1.5rem" }}>
             {filteredDocs.length === 0 ? <p style={{ color: "var(--muted)", gridColumn: "1/-1" }}>Không tìm thấy tài liệu nào.</p> : filteredDocs.map(d => (
@@ -476,7 +528,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
               </div>
               <button className="icon-btn" style={{ color: "#fff" }} onClick={() => setPreviewDoc(null)}><X size={24}/></button>
             </div>
-            
+
             <div style={{ flex: 1, overflowY: "auto", display: "flex", justifyContent: "center", paddingBottom: "2rem" }}>
               {/* Vùng Render HTML để in PDF */}
               <div ref={printRef} style={{ background: "#fff", color: "#000", width: "210mm", minHeight: "297mm", padding: "20mm", fontFamily: "serif", boxShadow: "var(--shadow-lg)" }}>
@@ -484,19 +536,19 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                   <h1 style={{ margin: 0, fontSize: "24px", textTransform: "uppercase" }}>Cộng Hòa Xã Hội Chủ Nghĩa Việt Nam</h1>
                   <h2 style={{ margin: "5px 0 0 0", fontSize: "16px" }}>Độc lập - Tự do - Hạnh phúc</h2>
                 </div>
-                
+
                 <h1 style={{ textAlign: "center", fontSize: "28px", marginTop: "30px", marginBottom: "10px" }}>
-                  {previewDoc.type === "PR" ? "PHIẾU YÊU CẦU MUA HÀNG" : previewDoc.type === "RFQ" ? "PHIẾU YÊU CẦU BÁO GIÁ" : previewDoc.type === "PO" ? "ĐƠN ĐẶT HÀNG" : "PHIẾU NHẬP KHO"}
+                  {previewDoc.type === "PR" ? "PHIẾU YÊU CẦU MUA HÀNG" : previewDoc.type === "RFQ" ? "PHIẾU YÊU CẦU BÁO GIÁ" : previewDoc.type === "PO" ? "ĐƠN ĐẶT HÀNG" : previewDoc.type === "RTV" ? "PHIẾU TRẢ HÀNG NHÀ CUNG CẤP" : "PHIẾU NHẬP KHO"}
                 </h1>
                 <div style={{ textAlign: "center", fontStyle: "italic", marginBottom: "40px" }}>Số: {previewDoc.code}</div>
-                
+
                 <div style={{ marginBottom: "20px", fontSize: "16px", lineHeight: "1.5" }}>
                   <p><strong>Ngày lập chứng từ:</strong> {new Date(previewDoc.date).toLocaleDateString("vi-VN")}</p>
                   <p><strong>Loại chứng từ:</strong> {previewDoc.type}</p>
                   <p><strong>Nội dung:</strong> {previewDoc.title}</p>
                   <p><strong>Trạng thái:</strong> {previewDoc.status}</p>
                 </div>
-                
+
                 {/* Giả lập thông tin bảng */}
                 <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "30px" }}>
                   <thead>
@@ -514,7 +566,7 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
                     </tr>
                   </tbody>
                 </table>
-                
+
                 <div style={{ display: "flex", justifyContent: "space-between", marginTop: "80px", textAlign: "center" }}>
                   <div>
                     <strong>Người lập phiếu</strong>

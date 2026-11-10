@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { io, Socket } from "socket.io-client";
-import { apiOrigin, mediaUrl } from "../lib/api";
-import { getStaffInfo, staffApi } from "../lib/staffApi";
+import { Socket } from "socket.io-client";
+import { mediaUrl } from "../lib/api";
+import { getStaffInfo, staffApi, staffSocket as openStaffSocket, isAdminRole } from "../lib/staffApi";
 
 /* ─── Âm thanh ─── */
 function playReadySound() {
@@ -126,9 +126,9 @@ function ItemCard({
         {item.priority && (
           <span style={{
             display: "inline-block", alignSelf: "flex-start",
-            background: "rgba(146,64,14,0.18)",
-            border: "1px solid rgba(146,64,14,0.45)",
-            color: "#e8b84a",
+            background: "var(--o-warning-bg)",
+            border: "1px solid #fde68a",
+            color: "var(--o-warning)",
             fontSize: "0.68rem", fontWeight: 700,
             letterSpacing: "0.06em",
             padding: "0.15rem 0.5rem", borderRadius: 5,
@@ -138,7 +138,7 @@ function ItemCard({
         )}
 
         {/* Tên món + số lượng */}
-        <div style={{ fontWeight: 700, fontSize: "0.93rem", color: "#fff", lineHeight: 1.35 }}>
+        <div style={{ fontWeight: 700, fontSize: "0.93rem", color: "var(--text)", lineHeight: 1.35 }}>
           {item.product.name}
           <span style={{ color: meta.color, marginLeft: "0.45rem", fontWeight: 800 }}>
             x{item.quantity}
@@ -168,7 +168,7 @@ function ItemCard({
             borderRadius: 6, padding: "0.18rem 0.55rem",
             fontSize: "0.75rem", color: "var(--muted)",
           }}>
-            Bill #{item.orderId}
+            Hóa đơn #{item.orderId}
           </span>
         </div>
 
@@ -194,7 +194,7 @@ function ItemCard({
               transition: "background 0.15s",
             }}
           >
-            {serving ? "Đang xác nhận..." : "Da be ra cho khach"}
+            {serving ? "Đang xác nhận…" : "Đã bê ra cho khách"}
           </button>
         )}
       </div>
@@ -276,6 +276,8 @@ export function StaffOrderStatus() {
   const [servingIds, setServingIds] = useState<Set<number>>(new Set());
   const [err, setErr] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  /** Bấm ô tổng quan → chỉ xem một trạng thái (điện thoại màn nhỏ dễ nhìn); null = cả 3 cột */
+  const [focus, setFocus] = useState<LiveItem["kdsStatus"] | null>(null);
   const audioUnlocked = useRef(false);
   const prevReadyIds = useRef<Set<number>>(new Set());
 
@@ -300,7 +302,7 @@ export function StaffOrderStatus() {
               id: `${d.id}-${Date.now()}`,
               productName: d.product.name,
               quantity: d.quantity,
-              tableName: d.order.table?.name ?? "Mang ve",
+              tableName: d.order.table?.name ?? "Mang về",
               orderId: d.orderId,
               detailId: d.id,
             })),
@@ -313,7 +315,7 @@ export function StaffOrderStatus() {
       }
       prevReadyIds.current = new Set(readyNow.map((d) => d.id));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Loi tai du lieu");
+      setErr(e instanceof Error ? e.message : "Lỗi tải dữ liệu");
     }
   }, []);
 
@@ -333,7 +335,7 @@ export function StaffOrderStatus() {
 
   /* Socket */
   useEffect(() => {
-    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"] });
+    const socket: Socket = openStaffSocket();
     socket.emit("join", "staff");
     socket.emit("join", "kds");
 
@@ -379,19 +381,19 @@ export function StaffOrderStatus() {
       setItems((prev) => prev.filter((i) => i.id !== detailId));
       setPopups((prev) => prev.filter((p) => p.detailId !== detailId));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Loi xac nhan");
+      setErr(e instanceof Error ? e.message : "Lỗi xác nhận");
     } finally {
       setServingIds((prev) => { const s = new Set(prev); s.delete(detailId); return s; });
     }
   }
 
   /* Auth guard */
-  if (!info || !["Waiter", "Admin"].includes(info.role)) {
+  if (!info || !(info.role === "Waiter" || isAdminRole(info.role))) {
     return (
       <div className="staff-page-inner">
-        <h1 className="page-title">Trang thai mon</h1>
-        <p className="subtle">Ban can dang nhap nhan su de xem trang nay.</p>
-        <Link to="/staff/login" className="btn btn-primary">Dang nhap</Link>
+        <h1 className="page-title">Trạng thái món</h1>
+        <p className="subtle">Bạn cần đăng nhập tài khoản nhân viên để xem trang này.</p>
+        <Link to="/staff/login" className="btn btn-primary">Đăng nhập</Link>
       </div>
     );
   }
@@ -426,7 +428,7 @@ export function StaffOrderStatus() {
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontWeight: 900, fontSize: "0.78rem", color: "#15803d", letterSpacing: "0.07em" }}>
-                  MON SAN SANG — BE RA NGAY
+                  MÓN SẴN SÀNG — BÊ RA NGAY
                 </span>
                 <button
                   type="button"
@@ -437,8 +439,8 @@ export function StaffOrderStatus() {
                     fontSize: "0.95rem", lineHeight: 1,
                     padding: "0.2rem 0.4rem", borderRadius: 5,
                   }}
-                  aria-label="Dong"
-                >x</button>
+                  aria-label="Đóng"
+                >×</button>
               </div>
 
               <div style={{ fontWeight: 800, fontSize: "1.05rem", color: "#fff" }}>
@@ -456,7 +458,7 @@ export function StaffOrderStatus() {
                   background: "var(--surface2)", border: "1px solid var(--border)",
                   borderRadius: 6, padding: "0.18rem 0.5rem",
                   fontSize: "0.78rem", color: "var(--muted)",
-                }}>Bill #{p.orderId}</span>
+                }}>Hóa đơn #{p.orderId}</span>
               </div>
 
               {/* Nút xác nhận ngay từ popup */}
@@ -475,7 +477,7 @@ export function StaffOrderStatus() {
                   letterSpacing: "0.02em",
                 }}
               >
-                Da be ra cho khach
+                Đã bê ra cho khách
               </button>
             </div>
           ))}
@@ -485,10 +487,10 @@ export function StaffOrderStatus() {
       {/* ── Header ── */}
       <div className="staff-page-head">
         <div>
-          <h1 className="page-title" style={{ margin: 0 }}>Trang thai mon</h1>
+          <h1 className="page-title" style={{ margin: 0 }}>Trạng thái món</h1>
           {lastUpdated && (
             <span style={{ fontSize: "0.73rem", color: "var(--muted)", display: "block", marginTop: "0.1rem" }}>
-              Cap nhat luc {lastUpdated.toLocaleTimeString("vi-VN")}
+              Cập nhật lúc {lastUpdated.toLocaleTimeString("vi-VN")}
             </span>
           )}
         </div>
@@ -498,46 +500,62 @@ export function StaffOrderStatus() {
           className="btn btn-ghost staff-btn-light"
           onClick={() => void load()}
         >
-          Lam moi
+          Làm mới
         </button>
       </div>
 
       <p className="subtle" style={{ marginBottom: "0.85rem" }}>
-        Cot <strong style={{ color: "#15803d" }}>San sang</strong> — bam "Da be ra cho khach" de xoa mon khoi danh sach.
+        Cột <strong style={{ color: "#15803d" }}>Sẵn sàng</strong> — bấm “Đã bê ra cho khách” để xóa món khỏi danh sách.
       </p>
 
       {err && <p style={{ color: "var(--danger)", marginBottom: "0.75rem" }}>{err}</p>}
 
-      {/* Tong quan nhanh */}
-      <div style={{ display: "flex", gap: "0.6rem", marginBottom: "1rem", flexWrap: "wrap" }}>
+      {/* Tổng quan nhanh — bấm để lọc chỉ trạng thái đó, bấm lại để xem tất cả */}
+      <div role="group" aria-label="Lọc theo trạng thái" style={{ display: "flex", gap: "0.6rem", marginBottom: focus ? "0.5rem" : "1rem", flexWrap: "wrap" }}>
         {(["Waiting", "Cooking", "Ready"] as const).map((s) => {
           const meta = COL_META[s];
           const count = s === "Waiting" ? waiting.length : s === "Cooking" ? cooking.length : ready.length;
+          const on = focus === s;
           return (
-            <div key={s} style={{
-              background: meta.headerBg,
-              border: `1px solid ${meta.border}`,
-              borderRadius: 10, padding: "0.55rem 0.9rem",
-              display: "flex", alignItems: "center", gap: "0.55rem",
-              flex: "1 1 110px",
-            }}>
+            <button
+              key={s}
+              type="button"
+              aria-pressed={on}
+              onClick={() => setFocus(on ? null : s)}
+              style={{
+                background: on ? meta.dimColor : meta.headerBg,
+                border: `${on ? 2 : 1}px solid ${on ? meta.color : meta.border}`,
+                borderRadius: 10, padding: on ? "calc(0.55rem - 1px) calc(0.9rem - 1px)" : "0.55rem 0.9rem",
+                display: "flex", alignItems: "center", gap: "0.55rem",
+                flex: "1 1 90px", textAlign: "left", cursor: "pointer", font: "inherit",
+                opacity: focus && !on ? 0.6 : 1,
+              }}
+            >
               <div>
                 <div style={{ fontWeight: 800, fontSize: "1.3rem", color: meta.color, lineHeight: 1 }}>{count}</div>
-                <div style={{ fontSize: "0.7rem", color: "var(--muted)", marginTop: "0.12rem" }}>{meta.label}</div>
+                <div style={{ fontSize: "0.7rem", color: on ? meta.color : "var(--muted)", fontWeight: on ? 700 : 400, marginTop: "0.12rem" }}>{meta.label}</div>
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
+      {focus && (
+        <p style={{ display: "flex", alignItems: "center", gap: "0.5rem", margin: "0 0 0.85rem", fontSize: "0.8rem", color: "var(--muted)" }}>
+          Đang lọc: <strong style={{ color: COL_META[focus].color }}>{COL_META[focus].label}</strong>
+          <button type="button" className="btn btn-ghost staff-btn-light" style={{ padding: "0.2rem 0.6rem", fontSize: "0.78rem" }} onClick={() => setFocus(null)}>
+            Xem tất cả
+          </button>
+        </p>
+      )}
 
-      {/* Board 3 cot */}
+      {/* Bảng 3 cột */}
       <div
-        className="order-status-board"
-        style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "0.85rem", alignItems: "start" }}
+        className={focus ? "order-status-board is-focus" : "order-status-board"}
+        style={{ display: "grid", gridTemplateColumns: focus ? "1fr" : "repeat(3,1fr)", gap: "0.85rem", alignItems: "start" }}
       >
-        <StatusColumn status="Waiting" items={waiting} />
-        <StatusColumn status="Cooking" items={cooking} />
-        <StatusColumn status="Ready"   items={ready}   onServed={(id) => void handleServed(id)} servingIds={servingIds} />
+        {(!focus || focus === "Waiting") && <StatusColumn status="Waiting" items={waiting} />}
+        {(!focus || focus === "Cooking") && <StatusColumn status="Cooking" items={cooking} />}
+        {(!focus || focus === "Ready") && <StatusColumn status="Ready" items={ready} onServed={(id) => void handleServed(id)} servingIds={servingIds} />}
       </div>
 
       <style>{`
@@ -551,6 +569,7 @@ export function StaffOrderStatus() {
         @media (min-width: 681px) and (max-width: 960px) {
           .order-status-board { grid-template-columns: 1fr 1fr !important; }
         }
+        .order-status-board.is-focus { grid-template-columns: 1fr !important; }
       `}</style>
     </div>
   );

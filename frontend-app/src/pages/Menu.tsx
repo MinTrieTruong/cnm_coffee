@@ -1,306 +1,361 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { api, mediaUrl, calculateFinalPrice, type MenuResponse, type Product } from "../lib/api";
-import {
-  getTableId,
-  getTakeawaySessionId,
-  getUser,
-  isGuestMode,
-  setTableId,
-  setTakeawaySessionId,
-} from "../lib/session";
-import { ChatWidget } from "../components/ChatWidget";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { Search, X } from "lucide-react";
+import { api, type MenuResponse, type Product } from "../lib/api";
+import { getTableId, getTakeawaySessionId, getUser } from "../lib/session";
 import { ReviewList } from "../components/ReviewList";
-import { motion } from "framer-motion";
-import { AdvancedFilter, type FilterState } from "../components/AdvancedFilter";
+import { useCustomerStore } from "../lib/customerStore";
+import { logMenuSearch } from "../lib/searchLog";
+import { formatVnd } from "../lib/site";
+import { useLang } from "../lib/i18n";
+import { Crumbs, ProductCard, SectionHead, UsualLine, listPrice, quickAddUsual } from "../components/site/parts";
+import { UsualStrip } from "../components/site/UsualStrip";
+import { QuickOrderMic, openQuickOrder, useQuickOrder } from "../components/site/QuickOrder";
+import { looksLikeOrder } from "../lib/voiceOrder";
+import { useSiteInfo } from "../lib/site";
+import { DIETS, DIET_TEXT, useDietPrefs, type Diet } from "../lib/nutrition";
 
-function formatVnd(n: number) {
-  return new Intl.NumberFormat("vi-VN").format(n) + " đ";
-}
+type FilterState = { search: string; categoryId: number | "all"; minPrice: string; maxPrice: string; tags: string[] };
+type View = "grid" | "paper";
+
+/** Nhãn món trong CSDL có kèm emoji ("🔥 Best Seller") — giữ giá trị gốc để lọc, chỉ hiển thị phần chữ */
+const TAGS = ["🔥 Best Seller", "☕ Nóng", "🧊 Đá", "🆕 Món Mới", "⭐ Đề cử"];
+const TAG_LABEL: Record<string, string> = { "🔥 Best Seller": "Bán chạy", "☕ Nóng": "Uống nóng", "🧊 Đá": "Uống đá", "🆕 Món Mới": "Món mới", "⭐ Đề cử": "Quán đề cử" };
+const PRICES: { label: string; min: string; max: string }[] = [
+  { label: "Dưới 30.000đ", min: "", max: "29999" },
+  { label: "30.000 – 50.000đ", min: "30000", max: "50000" },
+  { label: "Trên 50.000đ", min: "50001", max: "" },
+];
+const EMPTY: FilterState = { search: "", categoryId: "all", minPrice: "", maxPrice: "", tags: [] };
+const VIEW_KEY = "c-menu-view";
 
 function normalize(s: string) {
-  return s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+function highlightMatch(name: string, query: string) {
+  const nq = normalize(query);
+  const idx = normalize(name).indexOf(nq);
+  if (!nq || idx === -1) return name;
+  return (
+    <>
+      {name.slice(0, idx)}
+      <mark className="c-mark">{name.slice(idx, idx + nq.length)}</mark>
+      {name.slice(idx + nq.length)}
+    </>
+  );
+}
+function readView(): View {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "paper" ? "paper" : "grid";
+  } catch {
+    return "grid";
+  }
 }
 
+/** Một nhóm món kiểu menu treo tường: tên ……… giá */
+function PaperGroup({ name, list, query }: { name: string; list: Product[]; query: string }) {
+  return (
+    <section className="c-paper-group">
+      <h3 className="c-paper-h">{name}</h3>
+      <ul className="c-paper-list">
+        {list.map((p) => {
+          const off = p.discountPercent && p.discountPercent > 0;
+          return (
+            <li key={p.id}>
+              <Link to={`/product/${p.id}`} className="c-paper-row">
+                <span className="c-paper-name">{query ? highlightMatch(p.name, query) : p.name}</span>
+                {off ? <span className="c-stamp c-paper-stamp">-{p.discountPercent}%</span> : null}
+                <span className="c-paper-dots" aria-hidden />
+                <span className="c-paper-price">
+                  {off ? <span className="c-price-old">{formatVnd(p.sellPrice)}</span> : null} {formatVnd(listPrice(p))}
+                </span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+const DIET_APPLIED_KEY = "c-diet-applied";
+
 export function Menu() {
+  const { t } = useLang();
+  const quick = useQuickOrder();
+  const site = useSiteInfo();
+  const showNutrition = site?.theme?.showNutrition !== false;
+  const [prefs] = useDietPrefs();
+  /** Bộ lọc ăn kiêng (lọc ở server: chỉ món đủ dữ liệu dinh dưỡng mới lọt) */
+  const [diets, setDiets] = useState<Diet[]>([]);
+  // Khách có sở thích ăn uống → bật sẵn chip ở lần đầu mở thực đơn trong phiên (bỏ được)
+  useEffect(() => {
+    if (!prefs.length) return;
+    try {
+      if (sessionStorage.getItem(DIET_APPLIED_KEY)) return;
+      sessionStorage.setItem(DIET_APPLIED_KEY, "1");
+    } catch {
+      /* chế độ riêng tư */
+    }
+    setDiets(prefs);
+  }, [prefs]);
+  const toggleDiet = (d: Diet) => setDiets((cur) => (cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d]));
   const [data, setData] = useState<MenuResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [demoTable, setDemoTable] = useState("");
-  const [ctxTick, setCtxTick] = useState(0);
+  const [view, setView] = useState<View>(readView);
 
+  // ?category=<id> (pop up / liên kết ngoài) → lọc sẵn danh mục; ?q= từ ô tìm kiếm trên header
+  const [params, setParams] = useSearchParams();
+  const catParam = params.get("category");
+  const qParam = params.get("q") ?? "";
   const [filters, setFilters] = useState<FilterState>({
-    search: "",
-    categoryId: "all",
-    minPrice: "",
-    maxPrice: "",
-    tags: []
+    ...EMPTY,
+    search: qParam,
+    categoryId: catParam && /^\d+$/.test(catParam) ? Number(catParam) : "all",
   });
-  
-  const catSectionRefs = useRef<Record<number, HTMLElement | null>>({});
+  useEffect(() => {
+    setFilters((f) => ({ ...f, categoryId: catParam && /^\d+$/.test(catParam) ? Number(catParam) : "all" }));
+  }, [catParam]);
+  useEffect(() => {
+    if (qParam) setFilters((f) => ({ ...f, search: qParam }));
+  }, [qParam]);
 
   const user = getUser();
-  const guest = isGuestMode();
-  const tableId = ctxTick >= 0 ? getTableId() : null;
-  const takeawaySid = ctxTick >= 0 ? getTakeawaySessionId() : null;
+  const { storeId, tableName } = useCustomerStore();
+  const tableId = getTableId();
+  const takeawaySid = getTakeawaySessionId();
+
+  // Câu gọi món ("2 bạc xỉu ít đá…") dành cho Đặt nhanh: không lọc thực đơn, không ghi thống kê tìm kiếm
+  const search = quick.enabled && looksLikeOrder(filters.search) ? "" : filters.search;
 
   const qs = useMemo(() => {
-    const params = new URLSearchParams();
-    if (user?.customerId) params.append("customerId", String(user.customerId));
-    if (filters.search) params.append("search", filters.search);
-    if (filters.categoryId !== "all") params.append("categoryId", String(filters.categoryId));
-    if (filters.minPrice) params.append("minPrice", filters.minPrice);
-    if (filters.maxPrice) params.append("maxPrice", filters.maxPrice);
-    if (filters.tags.length > 0) params.append("tags", filters.tags.join(","));
-    return `?${params.toString()}`;
-  }, [user, filters]);
+    const q = new URLSearchParams();
+    // Ẩn món chi nhánh không bán / báo hết
+    if (storeId) q.append("store", String(storeId));
+    if (search) q.append("search", search);
+    if (filters.categoryId !== "all") q.append("categoryId", String(filters.categoryId));
+    if (filters.minPrice) q.append("minPrice", filters.minPrice);
+    if (filters.maxPrice) q.append("maxPrice", filters.maxPrice);
+    if (filters.tags.length > 0) q.append("tags", filters.tags.join(","));
+    if (showNutrition && diets.length) q.append("diet", diets.join(","));
+    return `?${q.toString()}`;
+  }, [user?.customerId, filters.categoryId, filters.minPrice, filters.maxPrice, filters.tags, search, storeId, diets, showNutrition]);
+
+  // Thống kê "khách tìm gì": chỉ ghi khi khách ngừng gõ 1,5 giây (không ghi từng ký tự)
+  useEffect(() => {
+    const q = search;
+    if (q.trim().length < 2) return;
+    const t = window.setTimeout(() => logMenuSearch(q, storeId), 1500);
+    return () => window.clearTimeout(t);
+  }, [search, storeId]);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const m = await api<MenuResponse>(`/api/menu${qs}`);
-        if (!cancelled) setData(m);
-      } catch (e) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : "Lỗi tải menu");
-      }
-    })();
-    return () => { cancelled = true; };
+    api<MenuResponse>(`/api/menu${qs}`)
+      .then((m) => {
+        if (!cancelled) {
+          setData(m);
+          setErr(null);
+        }
+      })
+      .catch((e) => !cancelled && setErr(e instanceof Error ? e.message : t("Lỗi tải menu")));
+    return () => {
+      cancelled = true;
+    };
   }, [qs]);
 
-  if (err) {
-    return (
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="site-page">
-        <p style={{ color: "var(--danger)" }}>{err}</p>
-        <Link to="/">Về trang chủ</Link>
-      </motion.div>
-    );
+  function pickCategory(id: number | "all") {
+    const next = new URLSearchParams(params);
+    if (id === "all") next.delete("category");
+    else next.set("category", String(id));
+    setParams(next, { replace: true });
+  }
+  function changeView(v: View) {
+    setView(v);
+    try {
+      localStorage.setItem(VIEW_KEY, v);
+    } catch {
+      /* chế độ riêng tư */
+    }
+  }
+  function clearAll() {
+    setFilters(EMPTY);
+    setDiets([]);
+    setParams(new URLSearchParams(), { replace: true });
   }
 
-  if (!data) {
-    return (
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="site-page">
-        <p className="subtle">Đang tải thực đơn…</p>
-      </motion.div>
-    );
-  }
-
+  const categories = data?.categories ?? [];
   const byCat = new Map<number, Product[]>();
-  for (const p of data.products) {
-    const arr = byCat.get(p.categoryId) ?? [];
-    arr.push(p);
-    byCat.set(p.categoryId, arr);
-  }
+  for (const p of data?.products ?? []) byCat.set(p.categoryId, [...(byCat.get(p.categoryId) ?? []), p]);
+  const groups = categories.map((c) => ({ ...c, list: byCat.get(c.id) ?? [] })).filter((c) => c.list.length);
+  const total = groups.reduce((s, c) => s + c.list.length, 0);
+  const query = search;
+  const hasFilter = !!(filters.search || filters.categoryId !== "all" || filters.minPrice || filters.maxPrice || filters.tags.length || (showNutrition && diets.length));
+  // Khách chủ động tìm / lọc (không tính chip ăn kiêng tự bật theo sở thích) → ẩn khối món quen
+  const narrowed = !!(filters.search || filters.categoryId !== "all" || filters.minPrice || filters.maxPrice || filters.tags.length);
+  const current = filters.categoryId === "all" ? null : categories.find((c) => c.id === filters.categoryId);
+  const catName = new Map(categories.map((c) => [c.id, c.name]));
+  const priceOn = (r: (typeof PRICES)[number]) => filters.minPrice === r.min && filters.maxPrice === r.max;
 
-  const query = filters.search;
-
-  const filteredCats = data.categories
-    .map((c) => {
-      let list = byCat.get(c.id) ?? [];
-      if (!list.length) return null;
-      return { ...c, list };
-    })
-    .filter(Boolean) as Array<{ id: number; name: string; list: Product[] }>;
-
-  const totalResult = filteredCats.reduce((s, c) => s + c.list.length, 0);
-
-  // Checks if any filter is active
-  const hasFilter = filters.search || filters.categoryId !== "all" || filters.minPrice || filters.maxPrice || filters.tags.length > 0;
-
-  function scrollToCategory(catId: number) {
-    setFilters(prev => ({ ...prev, categoryId: catId, search: "" }));
-    setTimeout(() => {
-      const el = catSectionRefs.current[catId];
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 50);
-  }
+  const roots = categories.filter((c) => !c.parentId);
+  // Danh mục cha đang chọn (chọn danh mục con thì vẫn mở hàng con của cha nó)
+  const activeRoot = current ? (current.parentId ? categories.find((c) => c.id === current.parentId) ?? null : current) : null;
+  const children = activeRoot ? categories.filter((c) => c.parentId === activeRoot.id) : [];
+  const priceKey = PRICES.findIndex(priceOn);
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }} 
-      animate={{ opacity: 1, y: 0 }} 
-      transition={{ duration: 0.4 }}
-      className="site-page"
-      style={{ maxWidth: 800 }}
-    >
-      <div style={{ marginBottom: "1.5rem" }}>
-        <h1 className="page-title" style={{ marginBottom: "0.25rem", color: "var(--accent)" }}>Thực đơn</h1>
-        <p className="subtle" style={{ margin: 0, color: "var(--text)" }}>
-          {guest || !user ? "Hãy chọn món bạn yêu thích" : `Xin chào, ${user.fullName}`}
-        </p>
-        {user && !guest && (
-          <p style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "rgba(146,64,14,0.8)" }}>
-            {takeawaySid
-              ? "Mang về (tích điểm khi thanh toán)"
-              : tableId
-                ? `Tại bàn #${tableId}`
-                : "Chưa gán bàn / mang về"}
+    <div className="c-wrap c-menu">
+      <Crumbs items={[{ to: "/menu", label: "Thực đơn" }, ...(current ? [{ label: current.name }] : [])]} />
+      <div className="c-menu-head">
+        <h1 className="c-sec-title">
+          {current?.name ?? t("Thực đơn")}
+          <span className="c-sec-sub">— {takeawaySid ? t("đơn mang về") : tableId ? t("bạn đang ngồi {table}", { table: tableName ?? `#${tableId}` }) : t("chọn món, quán pha liền tay")}</span>
+        </h1>
+      </div>
+
+      {/* Bộ lọc ngang, dính dưới thanh điều hướng */}
+      <div className="c-filter" role="search" aria-label={t("Lọc thực đơn")}>
+        <div className="c-filter-cats">
+          <button type="button" className={filters.categoryId === "all" ? "is-on" : undefined} aria-pressed={filters.categoryId === "all"} onClick={() => pickCategory("all")}>{t("Tất cả")}</button>
+          {roots.map((c) => (
+            <button key={c.id} type="button" className={activeRoot?.id === c.id ? "is-on" : undefined} aria-pressed={activeRoot?.id === c.id} onClick={() => pickCategory(c.id)}>
+              {c.name}
+            </button>
+          ))}
+        </div>
+        {children.length > 0 && (
+          <div className="c-filter-subs">
+            <button type="button" className={current?.id === activeRoot?.id ? "is-on" : undefined} onClick={() => activeRoot && pickCategory(activeRoot.id)}>{t("Tất cả {name}", { name: activeRoot?.name.toLowerCase() ?? "" })}</button>
+            {children.map((c) => (
+              <button key={c.id} type="button" className={current?.id === c.id ? "is-on" : undefined} aria-pressed={current?.id === c.id} onClick={() => pickCategory(c.id)}>{c.name}</button>
+            ))}
+          </div>
+        )}
+        <div className="c-filter-row">
+          <label className="c-menu-search">
+            <Search size={18} aria-hidden />
+            <span className="c-sr">{t("Tìm món")}</span>
+            <input
+              value={filters.search}
+              onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+              onKeyDown={(e) => {
+                // Câu gọi món ("2 bạc xỉu ít đá…") + Enter → Đặt nhanh; gõ tên món thì vẫn là tìm kiếm
+                if (e.key === "Enter" && quick.enabled && looksLikeOrder(filters.search)) {
+                  e.preventDefault();
+                  openQuickOrder({ text: filters.search });
+                }
+              }}
+              placeholder={quick.enabled ? t("Tìm món, hoặc nói / gõ món bạn muốn") : t("Tìm theo tên món")}
+            />
+            {filters.search && (
+              <button type="button" onClick={() => setFilters((f) => ({ ...f, search: "" }))} aria-label={t("Xóa từ khóa")}><X size={16} aria-hidden /></button>
+            )}
+            <QuickOrderMic />
+          </label>
+          <label className="c-filter-sel">
+            <span className="c-sr">{t("Mức giá")}</span>
+            <select
+              className="c-input"
+              value={priceKey}
+              onChange={(e) => {
+                const r = PRICES[Number(e.target.value)];
+                setFilters((f) => ({ ...f, minPrice: r?.min ?? "", maxPrice: r?.max ?? "" }));
+              }}
+            >
+              <option value={-1}>{t("Mọi mức giá")}</option>
+              {PRICES.map((r, i) => <option key={r.label} value={i}>{t(r.label)}</option>)}
+            </select>
+          </label>
+          <label className="c-filter-sel">
+            <span className="c-sr">{t("Kiểu món")}</span>
+            <select className="c-input" value={filters.tags[0] ?? ""} onChange={(e) => setFilters((f) => ({ ...f, tags: e.target.value ? [e.target.value] : [] }))}>
+              <option value="">{t("Mọi kiểu món")}</option>
+              {TAGS.map((tag) => <option key={tag} value={tag}>{t(TAG_LABEL[tag])}</option>)}
+            </select>
+          </label>
+          {hasFilter && <button type="button" className="c-linkish c-filter-clear" onClick={clearAll}>{t("Bỏ lọc")}</button>}
+          <div className="c-seg" role="group" aria-label={t("Kiểu xem")}>
+            <button type="button" className={view === "grid" ? "is-on" : undefined} aria-pressed={view === "grid"} onClick={() => changeView("grid")}>{t("Lưới ảnh")}</button>
+            <button type="button" className={view === "paper" ? "is-on" : undefined} aria-pressed={view === "paper"} onClick={() => changeView("paper")}>{t("Menu giấy")}</button>
+          </div>
+        </div>
+        {showNutrition && (
+          <div className="c-diet" role="group" aria-label={t("Ăn kiêng")}>
+            <span className="c-diet-label">{t("Ăn kiêng")}:</span>
+            {DIETS.map((d) => (
+              <button key={d} type="button" className={diets.includes(d) ? "is-on" : undefined} aria-pressed={diets.includes(d)} onClick={() => toggleDiet(d)}>{t(DIET_TEXT[d])}</button>
+            ))}
+            {diets.length > 0 && <button type="button" className="c-linkish" onClick={() => setDiets([])}>{t("Bỏ chọn")}</button>}
+          </div>
+        )}
+        {quick.enabled && looksLikeOrder(filters.search) && (
+          <div className="qo-quick-row">
+            <button type="button" className="c-btn qo-quick-btn" onClick={() => openQuickOrder({ text: filters.search })}>{t("Đặt nhanh")}</button>
+            <span>“{filters.search.trim()}”</span>
+          </div>
+        )}
+        {quick.enabled && !filters.search && (
+          <p className="qo-try">
+            {quick.mic ? t("Thử nói:") : t("Thử gõ:")}{" "}
+            <button type="button" onClick={() => openQuickOrder(quick.mic ? { mic: true } : { text: t("Hai bạc xỉu ít đá") })}>“{t("Hai bạc xỉu ít đá")}”</button>
+            {/* Khách có món quen: "Như mọi khi" → điền món quen số 1 đúng tuỳ chọn quen */}
+            {data?.favoritesKind === "usual" && (
+              <>
+                {" "}{t("hoặc")}{" "}
+                <button type="button" onClick={() => openQuickOrder(quick.mic ? { mic: true } : { text: t("Như mọi khi") })}>“{t("Như mọi khi")}”</button>
+              </>
+            )}
           </p>
         )}
       </div>
 
-      {user && !guest && (
-        <div style={{ 
-          background: "var(--surface2)", 
-          borderRadius: 16, 
-          padding: "1rem", 
-          marginBottom: "1.5rem",
-          boxShadow: "inset 0 1px 1px rgba(255,255,255,0.05)"
-        }}>
-          <div className="field" style={{ marginBottom: "0.75rem" }}>
-            <label className="label" htmlFor="menu-demo-table" style={{ fontSize: "0.75rem", color: "var(--muted)" }}>Demo không QR — gán bàn</label>
-            <input
-              id="menu-demo-table"
-              className="input"
-              placeholder="Ví dụ: 3"
-              value={demoTable}
-              onChange={(e) => setDemoTable(e.target.value)}
-              style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10 }}
-            />
-          </div>
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-            <button type="button" className="btn btn-primary" style={{ padding: "0.5rem 1rem", fontSize: "0.9rem" }} onClick={() => {
-              const n = Number(demoTable);
-              if (!n || Number.isNaN(n) || n <= 0) return;
-              setTakeawaySessionId(null); setTableId(n); setCtxTick((c) => c + 1);
-            }}>Gán bàn</button>
-            <button type="button" className="btn btn-ghost" style={{ padding: "0.5rem 1rem", fontSize: "0.9rem", borderColor: "var(--border)" }} onClick={() => {
-              setTakeawaySessionId(crypto.randomUUID()); setTableId(null); setCtxTick((c) => c + 1);
-            }}>Mang về</button>
-          </div>
+      {err && <p className="c-err">{err}</p>}
+      {!data && !err && <p className="c-muted-txt">{t("Đang tải thực đơn…")}</p>}
+      {data && hasFilter && <p className="c-muted-txt c-menu-count">{total === 0 ? t("Không có món nào khớp bộ lọc.") : t("{n} món", { n: total })}</p>}
+
+      {/* Món quen luôn đứng đầu thực đơn (cả lưới ảnh lẫn menu giấy); thẻ hiện + thêm đúng tuỳ chọn quen */}
+      {data && !narrowed && data.favorites.length > 0 && data.favoritesKind !== "none" && (
+        <section className="c-menu-group c-menu-usual">
+          {data.favoritesKind === "ai" ? <SectionHead title="Có thể bạn sẽ thích" sub="gợi ý cho bạn" /> : <SectionHead title="Món quen của bạn" sub="bạn hay gọi — bấm + là thêm đúng kiểu quen" />}
+          {view === "grid" ? (
+            <div className="c-grid">
+              {data.favorites.slice(0, 8).map((p) =>
+                data.favoritesKind === "usual" ? (
+                  <ProductCard key={p.id} p={p} line={p.hasSizes === false && !p.usualNote ? catName.get(p.categoryId) : <UsualLine p={p} usual={p.usual} note={p.usualNote} />} onAdd={() => quickAddUsual(p, p.usual, p.usualNote)} />
+                ) : (
+                  <ProductCard key={p.id} p={p} line={catName.get(p.categoryId)} />
+                ),
+              )}
+            </div>
+          ) : (
+            <UsualStrip items={data.favorites.slice(0, 8).map((p) => ({ product: p, usual: p.usual, usualNote: p.usualNote, soldOut: p.soldOut }))} />
+          )}
+        </section>
+      )}
+
+      {data && view === "grid" &&
+        groups.map((c) => (
+          <section key={c.id} className="c-menu-group" id={`cat-${c.id}`}>
+            <SectionHead title={c.name} sub={t("{n} món", { n: c.list.length })} />
+            <div className="c-grid">
+              {c.list.map((p) => <ProductCard key={p.id} p={p} line={catName.get(p.categoryId)} />)}
+            </div>
+          </section>
+        ))}
+
+      {data && view === "paper" && groups.length > 0 && (
+        <div className="c-paper">
+          <p className="c-paper-title">TD Coffee<span>— {t("thực đơn treo tường")}</span></p>
+          <div className="c-paper-cols">{groups.map((c) => <PaperGroup key={c.id} name={c.name} list={c.list} query={query} />)}</div>
+          <p className="c-paper-note">{t("Giá size M. Size S/L và tuỳ chọn đá, đường chọn ở trang món.")}</p>
         </div>
       )}
 
-      {/* ADVANCED FILTER */}
-      <AdvancedFilter 
-        categories={data.categories}
-        filters={filters}
-        onChange={setFilters}
-        onClear={() => setFilters({
-          search: "",
-          categoryId: "all",
-          minPrice: "",
-          maxPrice: "",
-          tags: []
-        })}
-      />
-
-      {/* MÓN QUEN */}
-      {!hasFilter && data.favorites.length > 0 && (
-        <section style={{ marginBottom: "2.5rem" }}>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.35rem", margin: "0 0 1rem", color: "var(--text)" }}>Món quen của bạn</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "1rem" }}>
-            {data.favorites.map((p) => {
-              const finalPrice = calculateFinalPrice(p.sellPrice, p.discountPercent);
-              const hasDiscount = p.discountPercent && p.discountPercent > 0;
-              return (
-                <motion.div key={p.id} whileHover={{ y: -4, transition: { duration: 0.2 } }}>
-                  <Link to={`/product/${p.id}`} style={{ display: "block", textDecoration: "none", color: "inherit", background: "var(--surface2)", borderRadius: 16, overflow: "hidden", boxShadow: "0 4px 15px rgba(0,0,0,0.2)", position: "relative" }}>
-                    <div style={{ aspectRatio: "1/1", background: "var(--surface)", backgroundImage: mediaUrl(p.imageUrl) ? `url(${mediaUrl(p.imageUrl)})` : undefined, backgroundSize: "cover", backgroundPosition: "center" }} />
-                    {hasDiscount && (
-                      <div style={{ position: "absolute", top: 8, right: 8, background: "linear-gradient(135deg, #e53e3e 0%, #c53030 100%)", color: "#fff", fontSize: "0.75rem", fontWeight: 800, padding: "0.2rem 0.6rem", borderRadius: 8, boxShadow: "0 2px 8px rgba(229, 62, 62, 0.4)" }}>
-                        -{p.discountPercent}%
-                      </div>
-                    )}
-                    <div style={{ padding: "0.85rem" }}>
-                      <div style={{ fontWeight: 600, fontSize: "0.95rem", lineHeight: 1.3, marginBottom: "0.4rem", color: "var(--text)" }}>{p.name}</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                        {hasDiscount ? (
-                          <>
-                            <span style={{ color: "#e53e3e", fontWeight: 700 }}>{formatVnd(finalPrice)}</span>
-                            <span style={{ fontSize: "0.8rem", color: "rgba(184,169,154,0.6)", textDecoration: "line-through" }}>{formatVnd(p.sellPrice)}</span>
-                          </>
-                        ) : (
-                          <span style={{ color: "var(--accent)", fontWeight: 700 }}>{formatVnd(finalPrice)}</span>
-                        )}
-                      </div>
-                    </div>
-                  </Link>
-                </motion.div>
-              );
-            })}
-          </div>
+      {data && !hasFilter && (
+        <section className="c-menu-reviews">
+          <ReviewList title="Khách nói gì về quán" />
         </section>
       )}
-
-      {/* TÌM KIẾM RESULT */}
-      {hasFilter && (
-        <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "1rem" }}>
-          {totalResult === 0 ? `Không tìm thấy món nào phù hợp` : `Tìm thấy ${totalResult} món`}
-        </p>
-      )}
-
-      {/* CATEGORY GRID */}
-      {filteredCats.map((c) => (
-        <section key={c.id} ref={(el) => { catSectionRefs.current[c.id] = el; }} style={{ marginBottom: "3rem", scrollMarginTop: "120px" }}>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.35rem", margin: "0 0 1rem", color: "var(--text)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            {c.name}
-            <span style={{ fontSize: "0.75rem", fontWeight: 600, background: "rgba(146,64,14,0.15)", color: "var(--accent)", borderRadius: 999, padding: "0.15rem 0.6rem" }}>
-              {c.list.length}
-            </span>
-          </h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "1.25rem" }}>
-            {c.list.map((p) => {
-              const finalPrice = calculateFinalPrice(p.sellPrice, p.discountPercent);
-              const hasDiscount = p.discountPercent && p.discountPercent > 0;
-              return (
-                <motion.div key={p.id} whileHover={{ y: -4, transition: { duration: 0.2 } }} style={{ display: "flex" }}>
-                  <Link to={`/product/${p.id}`} style={{ position: "relative", display: "flex", flexDirection: "column", width: "100%", textDecoration: "none", color: "inherit", background: "var(--surface2)", borderRadius: 18, overflow: "hidden", border: "1px solid var(--border)", boxShadow: "0 4px 20px rgba(0,0,0,0.15)" }}>
-                    <div style={{ aspectRatio: "1/1", width: "100%", background: "var(--surface)", backgroundImage: mediaUrl(p.imageUrl) ? `url(${mediaUrl(p.imageUrl)})` : undefined, backgroundSize: "cover", backgroundPosition: "center" }} />
-                    {hasDiscount && (
-                      <div style={{ position: "absolute", top: 8, right: 8, background: "linear-gradient(135deg, #e53e3e 0%, #c53030 100%)", color: "#fff", fontSize: "0.75rem", fontWeight: 800, padding: "0.2rem 0.6rem", borderRadius: 8, boxShadow: "0 2px 8px rgba(229, 62, 62, 0.4)" }}>
-                        -{p.discountPercent}%
-                      </div>
-                    )}
-                    <div style={{ padding: "0.85rem", display: "flex", flexDirection: "column", flex: 1, justifyContent: "space-between" }}>
-                      <div style={{ fontWeight: 600, fontSize: "0.95rem", lineHeight: 1.4, marginBottom: "0.5rem", color: "var(--text)" }}>
-                        {query ? highlightMatch(p.name, query) : p.name}
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                        {hasDiscount ? (
-                          <>
-                            <span style={{ color: "#e53e3e", fontWeight: 700 }}>{formatVnd(finalPrice)}</span>
-                            <span style={{ fontSize: "0.8rem", color: "rgba(184,169,154,0.6)", textDecoration: "line-through" }}>{formatVnd(p.sellPrice)}</span>
-                          </>
-                        ) : (
-                          <span style={{ color: "var(--accent)", fontWeight: 700 }}>{formatVnd(finalPrice)}</span>
-                        )}
-                      </div>
-                    </div>
-                  </Link>
-                </motion.div>
-              );
-            })}
-          </div>
-        </section>
-      ))}
-
-      {/* ĐÁNH GIÁ */}
-      {!hasFilter && (
-        <section style={{ marginTop: "4rem", paddingTop: "2rem", borderTop: "1px solid var(--border)" }}>
-          <ReviewList />
-        </section>
-      )}
-
-      <ChatWidget />
-    </motion.div>
-  );
-}
-
-function highlightMatch(name: string, query: string) {
-  const nq = normalize(query);
-  const nn = normalize(name);
-  const idx = nn.indexOf(nq);
-  if (idx === -1) return <>{name}</>;
-  return (
-    <>
-      {name.slice(0, idx)}
-      <mark style={{ background: "rgba(146,64,14,0.3)", color: "var(--accent)", borderRadius: 4, padding: "0 2px" }}>
-        {name.slice(idx, idx + nq.length)}
-      </mark>
-      {name.slice(idx + nq.length)}
-    </>
+    </div>
   );
 }

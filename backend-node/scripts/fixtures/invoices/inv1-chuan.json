@@ -1,0 +1,30 @@
+{
+  "readable": true,
+  "invoiceNo": "MP-001245",
+  "lines": {
+    "Sữa Tươi": {
+      "receivedQty": 48,
+      "expiryDate": "2026-11-20"
+    },
+    "Sữa Đặc": {
+      "receivedQty": 24,
+      "expiryDate": "2027-09-15"
+    },
+    "Kem Béo": {
+      "receivedQty": 12,
+      "expiryDate": "2027-05-10"
+    },
+    "Đường Cát": {
+      "receivedQty": 20,
+      "expiryDate": null
+    },
+    "Nước Cốt Dừa": {
+      "receivedQty": 24,
+      "expiryDate": "2027-08-01"
+    }
+  },
+  "flags": [
+    "NEAR_EXPIRY:Sữa Tươi"
+  ],
+  "sharpness": 4352
+}

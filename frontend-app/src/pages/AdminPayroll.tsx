@@ -13,6 +13,11 @@ type Payslip = {
   allowance: number;
   globalBonus: number;
   individualBonus: number;
+  overtimeMinutes: number;
+  overtimePay: number;
+  /** Shipper: phí ship các đơn giao thành công trong tháng */
+  shippingIncome: number;
+  deliveredOrders: number;
   netSalary: number;
   status: string;
   staff: { fullName: string };
@@ -31,7 +36,7 @@ function formatVnd(val: number) {
 export function AdminPayroll() {
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
-  const [config, setConfig] = useState<PayrollConfig | null>(null);
+  const [, setConfig] = useState<PayrollConfig | null>(null);
   const [payslips, setPayslips] = useState<Payslip[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -122,7 +127,7 @@ export function AdminPayroll() {
             {Array.from({ length: 12 }).map((_, i) => <option key={i + 1} value={i + 1}>Tháng {i + 1}</option>)}
           </select>
           <input className="input" type="number" value={year} onChange={e => setYear(Number(e.target.value))} style={{ width: 80 }} />
-          <button className="btn btn-outline" onClick={() => setShowConfig(true)}>⚙️ Cấu hình</button>
+          <button className="btn btn-outline" onClick={() => setShowConfig(true)}>Cấu hình</button>
         </div>
       </div>
 
@@ -130,7 +135,7 @@ export function AdminPayroll() {
       
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
         <button className="btn btn-primary" onClick={finalize} disabled={payslips.length === 0 || payslips.every(p => p.status === "PAID")}>Chốt Lương</button>
-        <button className="btn btn-outline" onClick={exportExcel}>⬇️ Xuất Excel</button>
+        <button className="btn btn-outline" onClick={exportExcel}>Xuất Excel</button>
       </div>
 
       <div style={{ overflowX: "auto" }}>
@@ -142,16 +147,18 @@ export function AdminPayroll() {
               <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Lương CB</th>
               <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Công chuẩn</th>
               <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Ngày làm TT</th>
+              <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Làm thêm</th>
               <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Phụ cấp</th>
               <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Thưởng chung</th>
               <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Thưởng riêng</th>
+              <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Phí ship</th>
               <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Thực lãnh</th>
               <th style={{ padding: "0.5rem", border: "1px solid #ddd" }}>Trạng thái</th>
             </tr>
           </thead>
           <tbody>
-            {loading ? <tr><td colSpan={10} style={{ textAlign: "center", padding: "1rem" }}>Đang tính toán...</td></tr> : 
-             payslips.length === 0 ? <tr><td colSpan={10} style={{ textAlign: "center", padding: "1rem" }}>Không có dữ liệu</td></tr> : 
+            {loading ? <tr><td colSpan={12} style={{ textAlign: "center", padding: "1rem" }}>Đang tính toán...</td></tr> : 
+             payslips.length === 0 ? <tr><td colSpan={12} style={{ textAlign: "center", padding: "1rem" }}>Không có dữ liệu</td></tr> : 
              payslips.map(p => (
               <tr key={p.id}>
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "center" }}>{p.staffId}</td>
@@ -159,6 +166,9 @@ export function AdminPayroll() {
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "right" }}>{formatVnd(p.baseSalary)}</td>
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "center" }}>{p.standardDays}</td>
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "center", fontWeight: "bold" }}>{p.actualWorkedDays}</td>
+                <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "right" }} title={`${p.overtimeMinutes} phút đã duyệt và khớp giờ check-out`}>
+                  {p.overtimeMinutes > 0 ? <>{formatVnd(p.overtimePay)}<div style={{ fontSize: "0.75rem", color: "#6b7280" }}>{(p.overtimeMinutes / 60).toFixed(1)} giờ</div></> : "—"}
+                </td>
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "right" }}>{formatVnd(p.allowance)}</td>
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "right" }}>{formatVnd(p.globalBonus)}</td>
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "right", cursor: p.status === "PENDING" ? "pointer" : "default", background: p.status === "PENDING" ? "#fff9c4" : "inherit" }}
@@ -174,6 +184,9 @@ export function AdminPayroll() {
                       onBlur={() => saveBonus(p.id)}
                       onKeyDown={e => e.key === "Enter" && saveBonus(p.id)} />
                   ) : formatVnd(p.individualBonus)}
+                </td>
+                <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "right" }}>
+                  {p.deliveredOrders > 0 ? <>{formatVnd(p.shippingIncome)}<div style={{ fontSize: "0.75rem", color: "#6b7280" }}>{p.deliveredOrders} đơn giao</div></> : "—"}
                 </td>
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "right", fontWeight: "bold", color: "#b91c1c" }}>{formatVnd(p.netSalary)}</td>
                 <td style={{ padding: "0.5rem", border: "1px solid #ddd", textAlign: "center" }}>

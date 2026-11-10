@@ -1,25 +1,35 @@
 import { Router } from "express";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
-import { attachStaff, requireRoles, type StaffRequest } from "../middleware/staff.js";
+import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
+import { inStore, storeWhere, toStore } from "../lib/storeScope.js";
 import { computeBill, computePointsEarned, getStoreSettings, roundCashAmount } from "../lib/pricing.js";
-import { rankTierFromLifetimeSpend } from "../lib/rank.js";
+import { settlePaidPoints } from "../lib/points.js";
+import { refreshOrderPromotion } from "../lib/promotions.js";
 import { deductInventoryForOrder } from "../lib/inventory.js";
 import { releaseOrderToKitchen } from "../lib/delivery.js";
+import { consumeVoucher, resolveVoucher, VoucherUnavailableError } from "../lib/vouchers.js";
+import { getUsualItems, usualLabel } from "../lib/customerHabits.js";
+import { normalizeVnPhone } from "../lib/contactLinks.js";
+import { RANK_LABELS } from "../lib/rank.js";
+
+/** Phương thức thanh toán tại quầy (khớp METHOD_LABEL trong lib/cash.ts) */
+const POS_METHODS = ["Cash", "Transfer_QR", "Card"];
 
 export function posRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
   const auth = attachStaff(prisma);
-  const cashier = [auth, requireRoles("Cashier", "Admin")];
+  const cashier = [auth, requireRoles("Cashier", "Admin"), requireStore];
+  const floor = [auth, requireRoles("Waiter", "Cashier", "Admin"), requireStore];
 
-  r.get("/pos/zones", async (_req, res) => {
-    res.json(await prisma.zone.findMany({ where: { isActive: true }, orderBy: { id: "asc" } }));
+  r.get("/pos/zones", auth, async (req, res) => {
+    res.json(await prisma.zone.findMany({ where: { ...storeWhere(req), isActive: true }, orderBy: { id: "asc" } }));
   });
 
-  r.get("/pos/tables", async (req, res) => {
+  r.get("/pos/tables", auth, async (req, res) => {
     const zoneId = req.query.zoneId ? Number(req.query.zoneId) : undefined;
     const tables = await prisma.cafeTable.findMany({
-      where: zoneId ? { zoneId } : undefined,
+      where: { ...storeWhere(req), ...(zoneId ? { zoneId } : {}) },
       orderBy: { id: "asc" },
       include: {
         zone: true,
@@ -53,14 +63,16 @@ export function posRouter(prisma: PrismaClient, io: Server) {
     });
   });
 
-  r.get("/pos/pending-orders", ...cashier, async (_req, res) => {
+  r.get("/pos/pending-orders", ...cashier, async (req, res) => {
     const orders = await prisma.order.findMany({
       where: {
+        ...storeWhere(req),
         OR: [
           { status: "Confirmed" },
           { status: "Pending_Grace" },
           { status: "Waiting_Pay" },
-          { status: "Paid", payments: { some: { shiftId: null } } },
+          // Đơn trả online chưa gắn ca (dòng hoàn ra điểm không cần thu ngân xác nhận)
+          { status: "Paid", payments: { some: { shiftId: null, method: { not: "PointsRefund" } } } },
         ]
       },
       include: {
@@ -85,21 +97,29 @@ export function posRouter(prisma: PrismaClient, io: Server) {
     if (!orderId || !method) {
       return res.status(400).json({ error: "Thiếu orderId hoặc phương thức thanh toán." });
     }
+    if (!POS_METHODS.includes(method)) {
+      return res.status(400).json({ error: "Phương thức thanh toán không hợp lệ tại quầy." });
+    }
 
-    const shift = await prisma.shift.findFirst({ where: { staffId: staff.id, endTime: null } });
+    const shift = await prisma.shift.findFirst({ where: { ...storeWhere(req), staffId: staff.id, endTime: null } });
     if (!shift) {
       return res.status(400).json({ error: "Phải mở ca (YCCN-TN01) trước khi thanh toán." });
     }
+    // Chốt ưu đãi số lượng theo món & giờ lúc tính tiền
+    await refreshOrderPromotion(prisma, orderId);
 
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: { customer: true, payments: true },
     });
-    if (!order || order.status !== "Confirmed") {
+    if (!order || !inStore(req, order) || order.status !== "Confirmed") {
       return res.status(400).json({ error: "Đơn không ở trạng thái chờ thanh toán." });
     }
     if (order.payments.length > 0) {
       return res.status(400).json({ error: "Đơn đã có giao dịch thanh toán." });
+    }
+    if (order.orderType === "Delivery") {
+      return res.status(400).json({ error: "Đơn giao hàng chỉ thanh toán online (khách trả trước khi quán nhận đơn)." });
     }
 
     const settings = await getStoreSettings(prisma);
@@ -126,6 +146,17 @@ export function posRouter(prisma: PrismaClient, io: Server) {
       voucherCode = parts[1];
       voucherDiscount = Number(parts[2]) || 0;
     }
+    // Kiểm lại voucher lúc tính tiền (hết lượt / khách đã dùng / hết hạn / ưu đãi số lượng không dùng chung)
+    // → bỏ voucher, báo thu ngân; giá trị giảm luôn lấy lại từ CSDL
+    let voucherDropped: string | null = null;
+    if (voucherCode) {
+      const v = await resolveVoucher(prisma, voucherCode, order);
+      if ("error" in v) {
+        voucherDropped = v.error;
+        voucherCode = null;
+        voucherDiscount = 0;
+      } else voucherDiscount = v.voucherDiscount;
+    }
 
     // Tính bill cuối cùng (bao gồm cả giảm trừ điểm và voucher vào discountAmt)
     const effectiveDiscount = order.discountAmt + pointsRedeemAmt + voucherDiscount;
@@ -143,8 +174,12 @@ export function posRouter(prisma: PrismaClient, io: Server) {
 
     let change = 0;
     if (method === "Cash") {
-      if (typeof cashGiven !== "number") {
+      if (typeof cashGiven !== "number" || !Number.isFinite(cashGiven)) {
         return res.status(400).json({ error: "Nhập số tiền khách đưa (tiền mặt)." });
+      }
+      // Ca ghi doanh thu tiền mặt = displayTotal → nhận thiếu sẽ làm két lệch
+      if (cashGiven < displayTotal) {
+        return res.status(400).json({ error: `Tiền khách đưa chưa đủ, cần ít nhất ${displayTotal.toLocaleString("vi-VN")}đ.`, totalAmount: displayTotal });
       }
       change = cashGiven - displayTotal;
     }
@@ -156,76 +191,80 @@ export function posRouter(prisma: PrismaClient, io: Server) {
       settings.pointEarnEach,
     );
 
-    await prisma.$transaction(async (tx) => {
-      // Tạo Payment cho phần điểm đổi (nếu có)
-      if (pointsToUse > 0) {
+    // Hai máy cùng bấm thanh toán một đơn: chỉ request chuyển được đơn khỏi "Confirmed" mới ghi tiền / điểm / kho
+    let claimed = true;
+    try {
+      await prisma.$transaction(async (tx) => {
+        const upd = await tx.order.updateMany({
+          where: { id: orderId, status: "Confirmed" },
+          data: {
+            status: "Paid",
+            vatAmount,
+            discountAmt: effectiveDiscount,
+            totalAmount: displayTotal + pointsRedeemAmt, // tổng bill gốc (không thay đổi doanh thu gộp)
+            pointsUsed: pointsToUse,
+            pointsRedeemAmt,
+            cancelReason: null,
+            paidAt: new Date(),
+            voucherCode,
+          },
+        });
+        if (upd.count === 0) {
+          claimed = false;
+          return;
+        }
+        // Tạo Payment cho phần điểm đổi (nếu có)
+        if (pointsToUse > 0) {
+          await tx.payment.create({
+            data: {
+              orderId,
+              shiftId: shift.id,
+              method: "Points",
+              amount: pointsRedeemAmt,
+              transCode: `PTS-${orderId}-${pointsToUse}pts`,
+            },
+          });
+        }
+        // Tạo Payment cho phần tiền thật
         await tx.payment.create({
           data: {
             orderId,
             shiftId: shift.id,
-            method: "Points",
-            amount: pointsRedeemAmt,
-            transCode: `PTS-${orderId}-${pointsToUse}pts`,
+            method,
+            amount: displayTotal,
           },
         });
-      }
-      // Tạo Payment cho phần tiền thật
-      await tx.payment.create({
-        data: {
-          orderId,
-          shiftId: shift.id,
-          method,
-          amount: displayTotal,
-        },
+        // Deduct inventory
+        await deductInventoryForOrder(tx, orderId);
+        // Tiêu 1 lượt voucher (nguyên tử) — hết lượt / khách đã dùng do đơn khác vừa thanh toán → huỷ cả giao dịch
+        if (voucherCode && !(await consumeVoucher(tx, voucherCode, order.customerId, orderId))) {
+          throw new VoucherUnavailableError();
+        }
+        // Cập nhật điểm + rank khách
+        if (order.customerId && order.customer) {
+          await settlePaidPoints(tx, { customerId: order.customerId, orderId, pointsUsed: pointsToUse, pointsEarned });
+        }
+        if (order.tableId) {
+          await tx.cafeTable.update({
+            where: { id: order.tableId },
+            // Cleaning = đã thanh toán, khách có thể còn ngồi — nhân viên bấm "Báo trống" khi khách đi
+            data: { status: "Cleaning" },
+          });
+        }
       });
-      // Cập nhật Order
-      await tx.order.update({
-        where: { id: orderId },
-        data: {
-          status: "Paid",
-          vatAmount,
-          discountAmt: effectiveDiscount,
-          totalAmount: displayTotal + pointsRedeemAmt, // tổng bill gốc (không thay đổi doanh thu gộp)
-          pointsUsed: pointsToUse,
-          pointsRedeemAmt,
-          cancelReason: null,
-        },
-      });
-      // Deduct inventory
-      await deductInventoryForOrder(tx, orderId);
-      // Consume voucher if applied
-      if (voucherCode) {
-        await tx.voucher.updateMany({
-          where: { code: voucherCode },
-          data: { usedCount: { increment: 1 } },
-        });
+    } catch (e) {
+      // Deadlock / xung đột ghi khi hai máy thanh toán cùng lúc → báo rõ thay vì lỗi máy chủ
+      if (e instanceof VoucherUnavailableError) {
+        return res.status(409).json({ error: "Voucher vừa hết lượt hoặc khách đã dùng ở đơn khác. Bấm thanh toán lại để tính tiền không voucher." });
       }
-      // Cập nhật điểm + rank khách
-      if (order.customerId && order.customer) {
-        const prevPaid = await tx.order.aggregate({
-          where: { customerId: order.customerId, status: "Paid" },
-          _sum: { totalAmount: true },
-        });
-        const lifetimeAfter = (prevPaid._sum.totalAmount ?? 0) + displayTotal;
-        const rankTier = rankTierFromLifetimeSpend(lifetimeAfter);
-        await tx.customer.update({
-          where: { id: order.customerId },
-          data: {
-            points: order.customer.points - pointsToUse + pointsEarned,
-            rankTier,
-          },
-        });
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2034") {
+        return res.status(409).json({ error: "Đơn vừa được thanh toán ở máy khác. Tải lại danh sách đơn." });
       }
-      if (order.tableId) {
-        await tx.cafeTable.update({
-          where: { id: order.tableId },
-          // Cleaning = đã thanh toán, khách có thể còn ngồi — nhân viên bấm "Báo trống" khi khách đi
-          data: { status: "Cleaning" },
-        });
-      }
-    });
+      throw e;
+    }
+    if (!claimed) return res.status(409).json({ error: "Đơn đã được thanh toán ở máy khác." });
 
-    io.to("pos").emit("payment:done", { orderId });
+    toStore(io, "pos", order.storeId).emit("payment:done", { orderId });
     io.to(`order:${orderId}`).emit("payment:success", {
       orderId,
       totalAmount: displayTotal,
@@ -238,6 +277,7 @@ export function posRouter(prisma: PrismaClient, io: Server) {
 
     res.json({
       ok: true,
+      voucherDropped,
       totalAmount: displayTotal,
       vatAmount,
       discountAmt: effectiveDiscount,
@@ -260,30 +300,38 @@ export function posRouter(prisma: PrismaClient, io: Server) {
 
     // Lấy ca đang mở
     const shift = await prisma.shift.findFirst({
-      where: { staffId: staff.id, endTime: null },
+      where: { ...storeWhere(req), staffId: staff.id, endTime: null },
     });
     if (!shift) return res.status(400).json({ error: "Chưa mở ca làm việc." });
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    if (!order || !inStore(req, order)) return res.status(404).json({ error: "Không tìm thấy đơn" });
 
     // Cập nhật payment
     await prisma.payment.updateMany({
-      where: { orderId, shiftId: null },
+      where: { orderId, shiftId: null, method: { not: "PointsRefund" } },
       data: { shiftId: shift.id },
     });
 
     // Báo cho các POS khác làm mới danh sách
-    io.to("pos").emit("payment:request", { orderId });
+    toStore(io, "pos", order.storeId).emit("payment:request", { orderId });
 
     res.json({ ok: true });
   });
 
 
   /**
-   * GET /pos/bills?date=YYYY-MM-DD
-   * Lịch sử bill trong ngày (chỉ cho phép 20 ngày gần nhất).
-   * Trả về tất cả đơn Paid trong ngày đó kèm chi tiết đầy đủ.
+   * GET /pos/bills?date=YYYY-MM-DD  hoặc  ?from=YYYY-MM-DD&to=YYYY-MM-DD
+   * Lịch sử bill trong ngày / khoảng ngày (chỉ cho phép 20 ngày gần nhất).
+   * Trả về tất cả đơn Paid trong khoảng đó kèm chi tiết đầy đủ.
    */
   r.get("/pos/bills", ...cashier, async (req, res) => {
+    const isDay = (s: string | undefined): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
     const dateStr = (req.query.date as string | undefined)?.trim();
+    let fromStr = (req.query.from as string | undefined)?.trim();
+    let toStr = (req.query.to as string | undefined)?.trim();
+    if (isDay(dateStr)) fromStr = toStr = dateStr;
+    if (isDay(fromStr) && !isDay(toStr)) toStr = fromStr;
+    if (isDay(toStr) && !isDay(fromStr)) fromStr = toStr;
 
     // Tính giới hạn 20 ngày gần nhất
     const today = new Date();
@@ -295,13 +343,15 @@ export function posRouter(prisma: PrismaClient, io: Server) {
     let dayStart: Date;
     let dayEnd: Date;
 
-    if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-      dayStart = new Date(`${dateStr}T00:00:00`);
-      dayEnd = new Date(`${dateStr}T23:59:59.999`);
+    if (isDay(fromStr) && isDay(toStr)) {
+      if (fromStr > toStr) [fromStr, toStr] = [toStr, fromStr];
+      dayStart = new Date(`${fromStr}T00:00:00`);
+      dayEnd = new Date(`${toStr}T23:59:59.999`);
       // Validate trong 20 ngày
       if (dayStart < oldest || dayStart > today) {
         return res.status(400).json({ error: "Chỉ xem được lịch sử trong vòng 20 ngày gần nhất." });
       }
+      if (dayEnd > today) dayEnd = today;
     } else {
       // Mặc định hôm nay
       dayStart = new Date();
@@ -312,6 +362,7 @@ export function posRouter(prisma: PrismaClient, io: Server) {
 
     const orders = await prisma.order.findMany({
       where: {
+        ...storeWhere(req),
         status: "Paid",
         createdAt: { gte: dayStart, lte: dayEnd },
       },
@@ -354,7 +405,7 @@ export function posRouter(prisma: PrismaClient, io: Server) {
    * GET /api/pos/bills/:id
    * Lấy 1 bill cụ thể theo ID để in lại (rất hữu ích cho thanh toán online)
    */
-  r.get("/pos/bills/:id", async (req, res) => {
+  r.get("/pos/bills/:id", ...cashier, async (req, res) => {
     const orderId = Number(req.params.id);
     if (Number.isNaN(orderId)) return res.status(400).json({ error: "Invalid ID" });
 
@@ -368,7 +419,7 @@ export function posRouter(prisma: PrismaClient, io: Server) {
       },
     });
 
-    if (!o) return res.status(404).json({ error: "Order not found" });
+    if (!o || !inStore(req, o)) return res.status(404).json({ error: "Order not found" });
 
     res.json({
       id: o.id,
@@ -393,13 +444,13 @@ export function posRouter(prisma: PrismaClient, io: Server) {
       })),
     });
   });
-  r.post("/pos/move-table", auth, requireRoles("Waiter", "Cashier", "Admin", "Manager"), async (req, res) => {
+  r.post("/pos/move-table", ...floor, async (req, res) => {
     const { sourceTableId, targetTableId } = req.body as { sourceTableId: number; targetTableId: number };
     if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return res.status(400).json({ error: "Invalid tables" });
     const target = await prisma.cafeTable.findUnique({ where: { id: targetTableId } });
-    if (!target || target.status !== "Empty") return res.status(400).json({ error: "Bàn đích không hợp lệ hoặc đang có khách" });
+    if (!target || !inStore(req, target) || target.status !== "Empty") return res.status(400).json({ error: "Bàn đích không hợp lệ hoặc đang có khách" });
     const source = await prisma.cafeTable.findUnique({ where: { id: sourceTableId }, include: { orders: { where: { status: { in: ["Confirmed", "Pending_Grace"] } } } } });
-    if (!source || source.orders.length === 0) return res.status(400).json({ error: "Bàn nguồn không có đơn active" });
+    if (!source || !inStore(req, source) || source.orders.length === 0) return res.status(400).json({ error: "Bàn nguồn không có đơn active" });
     const orderId = source.orders[0].id;
     await prisma.$transaction([
       prisma.order.update({ where: { id: orderId }, data: { tableId: targetTableId } }),
@@ -409,13 +460,13 @@ export function posRouter(prisma: PrismaClient, io: Server) {
     res.json({ ok: true });
   });
 
-  r.post("/pos/merge-tables", auth, requireRoles("Waiter", "Cashier", "Admin", "Manager"), async (req, res) => {
+  r.post("/pos/merge-tables", ...floor, async (req, res) => {
     const { sourceTableId, targetTableId } = req.body as { sourceTableId: number; targetTableId: number };
     if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return res.status(400).json({ error: "Invalid tables" });
     const source = await prisma.cafeTable.findUnique({ where: { id: sourceTableId }, include: { orders: { where: { status: { in: ["Confirmed", "Pending_Grace"] } } } } });
     const target = await prisma.cafeTable.findUnique({ where: { id: targetTableId }, include: { orders: { where: { status: { in: ["Confirmed", "Pending_Grace"] } } } } });
-    if (!source || source.orders.length === 0) return res.status(400).json({ error: "Bàn nguồn không có đơn active" });
-    if (!target || target.orders.length === 0) return res.status(400).json({ error: "Bàn đích không có đơn active" });
+    if (!source || !inStore(req, source) || source.orders.length === 0) return res.status(400).json({ error: "Bàn nguồn không có đơn active" });
+    if (!target || !inStore(req, target) || target.orders.length === 0) return res.status(400).json({ error: "Bàn đích không có đơn active" });
     
     const sourceOrderId = source.orders[0].id;
     const targetOrderId = target.orders[0].id;
@@ -426,24 +477,23 @@ export function posRouter(prisma: PrismaClient, io: Server) {
       const subTotal = details.reduce((acc, d) => acc + d.unitPrice * d.quantity, 0);
       await tx.order.update({ where: { id: targetOrderId }, data: { subTotal, totalAmount: subTotal, vatAmount: 0 } });
       await tx.order.delete({ where: { id: sourceOrderId } });
+      await refreshOrderPromotion(tx, targetOrderId);
       await tx.cafeTable.update({ where: { id: sourceTableId }, data: { status: "Empty", mergedWithTableId: targetTableId } });
     });
     res.json({ ok: true });
   });
 
-  r.post("/pos/split-order", auth, requireRoles("Cashier", "Admin", "Manager"), async (req, res) => {
+  r.post("/pos/split-order", auth, requireRoles("Cashier", "Admin"), requireStore, async (req, res) => {
     const { originalOrderId, itemsToMove } = req.body as { originalOrderId: number; itemsToMove: { orderItemId: number; quantity: number }[] };
     if (!originalOrderId || !itemsToMove || itemsToMove.length === 0) return res.status(400).json({ error: "Thiếu thông tin split" });
     const order = await prisma.order.findUnique({ where: { id: originalOrderId }, include: { details: true } });
-    if (!order) return res.status(404).json({ error: "Không tìm thấy đơn" });
+    if (!order || !inStore(req, order)) return res.status(404).json({ error: "Không tìm thấy đơn" });
     
     try {
       await prisma.$transaction(async (tx) => {
-        const maxOrder = await tx.order.aggregate({ _max: { id: true } });
-        const newOrderId = (maxOrder._max.id ?? 0) + 1;
         const newOrder = await tx.order.create({
           data: {
-            id: newOrderId,
+            storeId: order.storeId,
             tableId: order.tableId,
             customerId: order.customerId,
             staffId: order.staffId,
@@ -455,9 +505,6 @@ export function posRouter(prisma: PrismaClient, io: Server) {
           }
         });
         
-        const maxDetail = await tx.orderDetail.aggregate({ _max: { id: true } });
-        let nextDetailId = (maxDetail._max.id ?? 0) + 1;
-        
         for (const move of itemsToMove) {
           const d = order.details.find(x => x.id === move.orderItemId);
           if (!d || move.quantity <= 0 || move.quantity > d.quantity) throw new Error("Invalid quantity for " + move.orderItemId);
@@ -468,10 +515,13 @@ export function posRouter(prisma: PrismaClient, io: Server) {
             await tx.orderDetail.update({ where: { id: d.id }, data: { quantity: d.quantity - move.quantity } });
             await tx.orderDetail.create({
               data: {
-                id: nextDetailId++,
                 orderId: newOrder.id,
                 productId: d.productId,
                 comboId: d.comboId,
+                comboRef: d.comboRef,
+                comboQty: d.comboQty,
+                // Giữ size: tách bill không được làm ly size L bị trừ kho theo định mức M
+                size: d.size,
                 quantity: move.quantity,
                 unitPrice: d.unitPrice,
                 customNotes: d.customNotes,
@@ -490,11 +540,36 @@ export function posRouter(prisma: PrismaClient, io: Server) {
         
         await tx.order.update({ where: { id: order.id }, data: { subTotal: oldSubTotal, totalAmount: oldSubTotal, vatAmount: 0 } });
         await tx.order.update({ where: { id: newOrder.id }, data: { subTotal: newSubTotal, totalAmount: newSubTotal, vatAmount: 0 } });
+        await refreshOrderPromotion(tx, order.id);
+        await refreshOrderPromotion(tx, newOrder.id);
       });
       res.json({ ok: true });
     } catch (e: any) {
       res.status(400).json({ error: e.message });
     }
+  });
+
+  /**
+   * Thói quen khách cho thu ngân khi nhập SĐT tích điểm: tên, hạng, điểm, ghi chú mặc định, ăn kiêng
+   * + 3 món quen kèm tuỳ chọn quen. Món quen chỉ tính đơn tại chi nhánh đang làm (storeWhere); điểm, ghi chú là của cả chuỗi.
+   */
+  r.get("/pos/customer-habits", ...cashier, async (req, res) => {
+    const phone = normalizeVnPhone(String(req.query.phone ?? ""));
+    if (!phone) return res.status(400).json({ error: "Số điện thoại không hợp lệ." });
+    const c = await prisma.customer.findFirst({
+      where: { phone },
+      select: { id: true, fullName: true, phone: true, points: true, rankTier: true, defaultNote: true, dietPrefs: true },
+    });
+    if (!c) return res.json({ customer: null });
+    const storeId = (req as StaffRequest).storeId ?? null;
+    const items = await getUsualItems(prisma, c.id, { storeId, limit: 3, orderWhere: storeWhere(req) });
+    res.json({
+      customer: {
+        id: c.id, fullName: c.fullName, phone: c.phone, points: c.points, rankTier: c.rankTier, rankLabel: RANK_LABELS[c.rankTier] ?? c.rankTier,
+        defaultNote: c.defaultNote, dietPrefs: Array.isArray(c.dietPrefs) ? c.dietPrefs : [],
+      },
+      items: items.map((u) => ({ productId: u.productId, name: u.product.name, timesOrdered: u.timesOrdered, usual: u.usual, usualNote: u.usualNote, label: usualLabel(u.usual), soldOut: u.soldOut })),
+    });
   });
 
   return r;

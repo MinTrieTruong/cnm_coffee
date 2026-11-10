@@ -1,0 +1,202 @@
+/* ═══════════════════════ POP UP ═══════════════════════
+ * pu-admin / pu-list / pu-form : trang quản trị (design system ERP)
+ * pu-overlay / pu-card         : pop up phía khách — dùng lại trong khung xem trước của quản trị
+ */
+
+/* ───────────── Quản trị ───────────── */
+.pu-admin { display: flex; flex-direction: column; gap: 12px; }
+.pu-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.pu-head h1 { margin: 0; font-size: 18px; font-weight: 600; }
+.pu-head h1 .o-muted { font-size: 13px; font-weight: 400; }
+.pu-list-card { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.pu-toolbar { display: flex; align-items: center; gap: 6px; }
+.pu-search { display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px; min-width: 0; flex: 0 1 320px; border: 1px solid var(--o-border-strong); border-radius: var(--o-radius); background: var(--o-surface); color: var(--o-muted); }
+.pu-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; color: var(--o-text); }
+.pu-table td { vertical-align: middle; }
+.pu-table tr[draggable="true"] { cursor: grab; }
+.pu-table tr.pu-dragging { opacity: 0.45; }
+.pu-grip { color: var(--o-muted); width: 28px; }
+.pu-thumb { width: 52px; height: 52px; object-fit: cover; border-radius: var(--o-radius); border: 1px solid var(--o-border); display: block; }
+.pu-sub { font-size: 12px; }
+.pu-order { width: 72px; text-align: right; margin-left: auto; }
+.pu-switch { position: relative; width: 40px; height: 22px; border-radius: 999px; border: 0; background: var(--o-border-strong); cursor: pointer; padding: 0; transition: background 0.15s; }
+.pu-switch span { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.15s; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2); }
+.pu-switch.on { background: var(--o-primary); }
+.pu-switch.on span { transform: translateX(18px); }
+.pu-switch:disabled { opacity: 0.5; cursor: default; }
+.pu-list-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid var(--o-border); }
+
+.pu-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, 1fr); gap: 12px; align-items: start; border: 0; padding: 0; margin: 0; min-width: 0; }
+.pu-col { padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.pu-card-title { margin: 0; font-size: 15px; font-weight: 600; }
+.pu-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pu-label { font-size: 13px; font-weight: 600; color: var(--o-text-2); }
+.pu-label .req, .pu-card-title .req { color: var(--o-danger); margin-left: 2px; }
+.pu-err { color: var(--o-danger); font-size: 12px; }
+.pu-field.has-err .o-input, .pu-field.has-err .pu-picker-btn { border-color: var(--o-danger); }
+.pu-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.pu-target { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.pu-target > :only-child { grid-column: 1 / -1; }
+.pu-seg { align-self: flex-start; display: inline-flex; border: 1px solid var(--o-border-strong); border-radius: var(--o-radius); overflow: hidden; }
+.pu-seg button { min-width: 64px; height: 32px; border: 0; background: var(--o-surface); color: var(--o-text-2); font: inherit; cursor: pointer; }
+.pu-seg button + button { border-left: 1px solid var(--o-border-strong); }
+.pu-seg button.on { background: var(--o-primary); color: var(--o-on-primary); }
+.pu-seg button.off { color: var(--o-text); box-shadow: inset 0 0 0 1px var(--o-text-2); }
+.pu-picker { position: relative; min-width: 0; }
+.pu-picker-btn { text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pu-picker-pop { position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0; min-width: 260px; padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--o-surface); border: 1px solid var(--o-border-strong); border-radius: var(--o-radius); box-shadow: var(--o-shadow-pop); }
+.pu-picker-pop .pu-search { flex: none; }
+.pu-picker-list { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; }
+.pu-picker-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 0; border-radius: 4px; background: none; text-align: left; font: inherit; font-size: 13px; color: var(--o-text); cursor: pointer; }
+.pu-picker-item:hover, .pu-picker-item.on { background: var(--o-hover); }
+.pu-picker-item img { width: 28px; height: 28px; border-radius: 4px; object-fit: cover; flex: 0 0 auto; }
+.pu-drop { aspect-ratio: 4 / 5; max-height: 360px; border: 2px dashed var(--o-border-strong); border-radius: var(--o-radius-lg, 8px); background: var(--o-surface-alt); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.pu-drop.over { border-color: var(--o-primary); background: var(--o-primary-soft); }
+.pu-drop.has-err { border-color: var(--o-danger); }
+.pu-drop img { width: 100%; height: 100%; object-fit: contain; }
+.pu-drop-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px; border: 0; background: none; font: inherit; color: var(--o-text-2); cursor: pointer; text-align: center; width: 100%; height: 100%; justify-content: center; }
+.pu-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+@media (max-width: 900px) {
+  .pu-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  .pu-two, .pu-target { grid-template-columns: minmax(0, 1fr); }
+  .pu-search { flex: 1 1 auto; }
+}
+
+/* Khung điện thoại xem trước (bố cục pop up đổi theo bề rộng khung → hiện đúng dạng điện thoại) */
+.pu-phone { align-self: center; width: 300px; max-width: 100%; padding: 10px; border-radius: 36px; background: #1c1917; }
+.pu-phone-screen { position: relative; height: 560px; border-radius: 28px; overflow: hidden; background: var(--o-surface-alt); }
+.pu-phone-screen::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(180deg, var(--o-border) 0 12px, transparent 12px 44px); opacity: 0.7; }
+.pu-overlay.pu-overlay-preview { position: absolute; z-index: 1; animation: none; }
+.pu-overlay-preview .pu-card { animation: none; }
+
+/* ───────────── Pop up phía khách: "phiếu" của quán ─────────────
+ * Hẹp (điện thoại, khung xem trước): trượt lên từ cạnh dưới, ảnh trên – nội dung dưới.
+ * Rộng (≥ 640px khung chứa): hộp giữa màn hình, 2 cột ảnh | nội dung.
+ * Cuống phiếu (đường đục lỗ) chứa nút hành động — điểm nhấn duy nhất, phần còn lại giữ yên.
+ */
+.pu-overlay {
+  --pu-paper: var(--surface, #fff);
+  --pu-ink: var(--text, #1c1917);
+  --pu-ink-2: var(--text-secondary, #44403c);
+  --pu-muted: var(--muted, #57534e);
+  --pu-rule: var(--border-strong, #d6d3d1);
+  --pu-accent: var(--accent, #92400e);
+  --pu-accent-ink: var(--on-accent, #fff);
+  --pu-scrim: rgba(28, 25, 23, 0.58);
+
+  container-type: inline-size;
+  position: fixed; inset: 0; z-index: 90;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: var(--pu-scrim);
+  animation: pu-scrim-in 0.22s ease-out both;
+}
+.pu-overlay.leaving { animation: pu-scrim-out 0.18s ease-in both; }
+@keyframes pu-scrim-in { from { background: rgba(28, 25, 23, 0); } }
+@keyframes pu-scrim-out { to { background: rgba(28, 25, 23, 0); } }
+
+.pu-card {
+  position: relative; width: 100%; max-height: 92%;
+  display: grid; grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--pu-paper); color: var(--pu-ink);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -12px 40px rgba(28, 25, 23, 0.22);
+  animation: pu-sheet-in 0.32s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+.pu-overlay.leaving .pu-card { animation: pu-sheet-out 0.18s ease-in both; }
+@keyframes pu-sheet-in { from { transform: translateY(100%); } }
+@keyframes pu-sheet-out { to { transform: translateY(100%); } }
+
+.pu-media { display: block; width: 100%; padding: 0; border: 0; background: var(--surface2, #f5f5f4); cursor: pointer; overflow: hidden; }
+.pu-media img { display: block; width: 100%; height: 100%; max-height: 40vh; aspect-ratio: 4 / 3; object-fit: cover; transition: transform 0.4s ease; }
+.pu-media:hover img { transform: scale(1.02); }
+.pu-media-empty { display: flex; align-items: center; justify-content: center; aspect-ratio: 4 / 3; color: var(--pu-muted); font-size: 0.85rem; }
+
+.pu-main { min-height: 0; display: flex; flex-direction: column; }
+.pu-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 8px 0 20px; }
+.pu-tag { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--pu-accent); }
+.pu-x {
+  width: 44px; height: 44px; flex: 0 0 auto; border: 0; border-radius: 50%; background: transparent; color: var(--pu-muted);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.pu-x:hover { background: var(--surface2, #f5f5f4); color: var(--pu-ink); }
+
+.pu-copy { min-height: 0; overflow-y: auto; padding: 2px 20px 16px; display: flex; flex-direction: column; gap: 8px; }
+.pu-title { margin: 0; font-family: var(--font-display, Georgia, serif); font-size: 1.4rem; font-weight: 600; line-height: 1.25; text-wrap: balance; }
+.pu-desc { font-size: 0.94rem; line-height: 1.6; color: var(--pu-ink-2); overflow-wrap: anywhere; max-width: 60ch; }
+.pu-desc > :first-child { margin-top: 0; }
+.pu-desc > :last-child { margin-bottom: 0; }
+.pu-desc p { margin: 0 0 0.5em; }
+.pu-desc strong { color: var(--pu-ink); }
+.pu-desc img { max-width: 100%; height: auto; border-radius: 6px; }
+.pu-desc blockquote { margin: 0.5em 0; padding-left: 12px; border-left: 2px solid var(--pu-rule); color: var(--pu-muted); }
+.pu-desc a { color: var(--pu-accent); }
+
+/* Cuống phiếu: đường đục lỗ + 2 khấc hai bên */
+.pu-stub {
+  position: relative; margin-top: auto;
+  padding: 14px 20px calc(14px + env(safe-area-inset-bottom, 0px));
+  border-top: 2px dashed var(--pu-rule);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.pu-stub::before, .pu-stub::after {
+  content: ""; position: absolute; top: -9px; width: 16px; height: 16px; border-radius: 50%; background: var(--pu-scrim);
+}
+.pu-stub::before { left: -8px; }
+.pu-stub::after { right: -8px; }
+.pu-stub-row { display: flex; align-items: center; gap: 12px; }
+.pu-pager { display: inline-flex; align-items: center; gap: 2px; }
+.pu-pager button {
+  width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: var(--pu-ink);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.pu-pager button:hover:not(:disabled) { background: var(--surface2, #f5f5f4); }
+.pu-pager button:disabled { color: var(--pu-rule); cursor: default; }
+.pu-count { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 0.95rem; min-width: 2.6em; text-align: center; }
+.pu-count span { color: var(--pu-muted); font-weight: 500; }
+.pu-cta {
+  margin-left: auto; min-height: 48px; min-width: 56%; padding: 0 20px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border: 0; border-radius: 10px; background: var(--pu-accent); color: var(--pu-accent-ink);
+  font: inherit; font-weight: 700; font-size: 1rem; cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+.pu-cta:hover { background: var(--accent-hover, #78350f); }
+.pu-cta svg { transition: transform 0.15s; }
+.pu-cta:hover svg { transform: translateX(2px); }
+.pu-cta:active { transform: translateY(1px); }
+.pu-quiet {
+  align-self: flex-start; min-height: 32px; padding: 0; border: 0; background: none;
+  color: var(--pu-muted); font: inherit; font-size: 0.82rem; text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.pu-quiet:hover { color: var(--pu-ink); }
+.pu-overlay :focus-visible { outline: 2px solid var(--pu-accent); outline-offset: 2px; }
+
+/* Rộng: hộp giữa màn hình, 2 cột */
+@container (min-width: 640px) {
+  .pu-card {
+    margin: auto 24px; width: min(760px, 100%); max-height: min(560px, calc(100% - 48px));
+    grid-template-rows: none; grid-template-columns: minmax(0, 0.92fr) minmax(0, 1fr);
+    border-radius: 14px; box-shadow: 0 24px 64px rgba(28, 25, 23, 0.32);
+    animation-name: pu-box-in;
+  }
+  .pu-overlay.leaving .pu-card { animation-name: pu-box-out; }
+  .pu-media img, .pu-media-empty { max-height: none; height: 100%; aspect-ratio: auto; }
+  .pu-top { padding: 14px 10px 0 28px; }
+  .pu-copy { padding: 4px 28px 20px; }
+  .pu-title { font-size: 1.65rem; }
+  .pu-stub { padding: 16px 28px 18px; }
+  /* Cột trái là ảnh — chỉ giữ khấc mép phải */
+  .pu-stub::before { display: none; }
+  .pu-cta { min-width: 0; }
+}
+@keyframes pu-box-in { from { opacity: 0; transform: translateY(12px); } }
+@keyframes pu-box-out { to { opacity: 0; transform: translateY(8px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .pu-overlay, .pu-card, .pu-overlay.leaving .pu-card { animation: none !important; }
+  .pu-media img, .pu-cta, .pu-cta svg { transition: none; }
+}

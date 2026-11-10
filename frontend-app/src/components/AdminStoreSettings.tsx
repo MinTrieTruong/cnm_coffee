@@ -1,7 +1,7 @@
-import { useState, useRef, useMemo, useEffect, type FormEvent } from "react";
-import { MapContainer, TileLayer, Marker, Circle, useMapEvent, useMap } from "react-leaflet";
+import { useState, useEffect, type FormEvent } from "react";
 import { staffApi } from "../lib/staffApi";
 
+/** Cấu hình chung cả chuỗi. Địa chỉ & GPS từng chi nhánh: Cấu hình › Chi nhánh. */
 type StoreSettingsPayload = {
   vatRatePercent: number;
   pointPerVnd: number;
@@ -9,66 +9,51 @@ type StoreSettingsPayload = {
   cashRoundTo: number;
   pointEarnEveryVnd: number;
   pointEarnEach: number;
-  storeLat: number | null;
-  storeLng: number | null;
-  storeAddress: string | null;
-  allowedRadius: number;
   faceMatchThreshold: number;
+  pettyCashLimit: number;
+  cancelWindowMinutes: number;
+  supplierReturnDays: number;
+  searchMinCustomers: number;
+  searchMinPercent: number;
+  searchWindowDays: number;
+  googleLoginEnabled?: boolean;
+  facebookLoginEnabled?: boolean;
+  /** Ghi nhận hành vi khách trên web (trang "Hành vi khách") + số ngày lưu */
+  behaviorTracking?: boolean;
+  behaviorRetentionDays?: number;
+  /** Backend đã có đủ biến môi trường cho từng nhà cung cấp */
+  socialConfigured?: { GOOGLE: boolean; FACEBOOK: boolean };
 };
-
-function MapClickHandler({ setPos }: { setPos: (lat: number, lng: number) => void }) {
-  useMapEvent("click", (e) => {
-    setPos(e.latlng.lat, e.latlng.lng);
-  });
-  return null;
-}
-
-function MapUpdater({ lat, lng, zoom }: { lat: number, lng: number, zoom: number }) {
-  const map = useMap();
-  useEffect(() => {
-    map.flyTo([lat, lng], zoom);
-  }, [lat, lng, zoom, map]);
-  return null;
-}
 
 export function AdminStoreSettings({
   settings,
   onSaved,
   onErr,
+  readOnly,
 }: {
   settings: StoreSettingsPayload;
   onSaved: () => Promise<void>;
   onErr: (s: string | null) => void;
+  /** Quản lý chi nhánh chỉ xem — chỉ Chủ chuỗi được sửa */
+  readOnly?: boolean;
 }) {
   const [vat, setVat] = useState(String(settings.vatRatePercent ?? 10));
   const [earnEvery, setEarnEvery] = useState(String(settings.pointEarnEveryVnd ?? 1000));
   const [earnEach, setEarnEach] = useState(String(settings.pointEarnEach ?? 100));
   const [pval, setPval] = useState(String(settings.pointValueVnd ?? 1));
   const [round, setRound] = useState(String(settings.cashRoundTo ?? 1000));
-
-  const defaultLat = 10.53;
-  const defaultLng = 105.63;
-
-  const [lat, setLat] = useState(settings.storeLat ?? defaultLat);
-  const [lng, setLng] = useState(settings.storeLng ?? defaultLng);
-  const [zoom, setZoom] = useState(16);
-  const [radius, setRadius] = useState(String(settings.allowedRadius ?? 50));
   const [threshold, setThreshold] = useState(settings.faceMatchThreshold ?? 0.5);
-  
-  const [provincesData, setProvincesData] = useState<any[]>([]);
-  const [selProv, setSelProv] = useState<any>(null);
-  const [selWard, setSelWard] = useState<any>(null);
-  const [street, setStreet] = useState("");
-
+  const [pettyLimit, setPettyLimit] = useState(String(settings.pettyCashLimit ?? 200000));
+  const [cancelWin, setCancelWin] = useState(String(settings.cancelWindowMinutes ?? 5));
+  const [returnDays, setReturnDays] = useState(String(settings.supplierReturnDays ?? 7));
+  const [searchMin, setSearchMin] = useState(String(settings.searchMinCustomers ?? 3));
+  const [searchPct, setSearchPct] = useState(String(settings.searchMinPercent ?? 2));
+  const [searchDays, setSearchDays] = useState(String(settings.searchWindowDays ?? 30));
+  const [googleOn, setGoogleOn] = useState(settings.googleLoginEnabled ?? true);
+  const [facebookOn, setFacebookOn] = useState(settings.facebookLoginEnabled ?? true);
+  const [trackOn, setTrackOn] = useState(settings.behaviorTracking ?? true);
+  const [trackDays, setTrackDays] = useState(String(settings.behaviorRetentionDays ?? 90));
   const [busy, setBusy] = useState(false);
-  const markerRef = useRef<any>(null);
-
-  useEffect(() => {
-    fetch("https://provinces.open-api.vn/api/?depth=3")
-      .then(res => res.json())
-      .then(data => setProvincesData(data))
-      .catch(e => console.error("Error loading provinces:", e));
-  }, []);
 
   useEffect(() => {
     setVat(String(settings.vatRatePercent ?? 10));
@@ -76,89 +61,24 @@ export function AdminStoreSettings({
     setEarnEach(String(settings.pointEarnEach ?? 100));
     setPval(String(settings.pointValueVnd ?? 1));
     setRound(String(settings.cashRoundTo ?? 1000));
-    setLat(settings.storeLat ?? defaultLat);
-    setLng(settings.storeLng ?? defaultLng);
-    setRadius(String(settings.allowedRadius ?? 50));
     setThreshold(settings.faceMatchThreshold ?? 0.5);
-    // Note: We don't try to parse back the flat string into dropdowns for simplicity,
-    // in a real app we'd save codes instead of just string, or parse the string.
+    setPettyLimit(String(settings.pettyCashLimit ?? 200000));
+    setCancelWin(String(settings.cancelWindowMinutes ?? 5));
+    setReturnDays(String(settings.supplierReturnDays ?? 7));
+    setSearchMin(String(settings.searchMinCustomers ?? 3));
+    setSearchPct(String(settings.searchMinPercent ?? 2));
+    setSearchDays(String(settings.searchWindowDays ?? 30));
+    setGoogleOn(settings.googleLoginEnabled ?? true);
+    setFacebookOn(settings.facebookLoginEnabled ?? true);
+    setTrackOn(settings.behaviorTracking ?? true);
+    setTrackDays(String(settings.behaviorRetentionDays ?? 90));
   }, [settings]);
-
-  const eventHandlers = useMemo(
-    () => ({
-      dragend() {
-        const marker = markerRef.current;
-        if (marker != null) {
-          const position = marker.getLatLng();
-          setLat(position.lat);
-          setLng(position.lng);
-        }
-      },
-    }),
-    []
-  );
-
-  const radiusNum = Number(radius) || 50;
-
-  // Compute all wards of the selected province
-  const availableWards = useMemo(() => {
-    if (!selProv || !selProv.districts) return [];
-    return selProv.districts.flatMap((d: any) => d.wards || []);
-  }, [selProv]);
-
-  async function handleGeocode() {
-    const parts = [street, selWard?.name, selProv?.name, "Việt Nam"].filter(Boolean);
-    const searchString = parts.join(", ");
-    if (!searchString) return onErr("Vui lòng nhập địa chỉ để định vị.");
-    
-    setBusy(true);
-    try {
-      const q = encodeURIComponent(searchString);
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}`);
-      const data = await res.json();
-      if (data && data.length > 0) {
-        setLat(parseFloat(data[0].lat));
-        setLng(parseFloat(data[0].lon));
-        setZoom(16);
-      } else {
-        onErr("Không tìm thấy tọa độ. Vui lòng kéo thả Ghim đỏ trên bản đồ để tinh chỉnh.");
-      }
-    } catch (e) {
-      onErr("Lỗi kết nối Geocoding.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function handleCurrentLocation() {
-    if (!navigator.geolocation) {
-      onErr("Trình duyệt không hỗ trợ Geolocation.");
-      return;
-    }
-    setBusy(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLat(pos.coords.latitude);
-        setLng(pos.coords.longitude);
-        setZoom(16);
-        setBusy(false);
-      },
-      (err) => {
-        onErr("Không thể lấy vị trí hiện tại: " + err.message);
-        setBusy(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  }
 
   async function save(e: FormEvent) {
     e.preventDefault();
     onErr(null);
     setBusy(true);
     try {
-      const parts = [street, selWard?.name, selProv?.name].filter(Boolean);
-      const addressString = parts.length > 0 ? parts.join(", ") : settings.storeAddress;
-
       await staffApi("/api/admin/settings", {
         method: "PATCH",
         body: JSON.stringify({
@@ -167,11 +87,17 @@ export function AdminStoreSettings({
           cashRoundTo: Number(round),
           pointEarnEveryVnd: Number(earnEvery),
           pointEarnEach: Number(earnEach),
-          storeLat: lat,
-          storeLng: lng,
-          storeAddress: addressString,
-          allowedRadius: radiusNum,
           faceMatchThreshold: threshold,
+          pettyCashLimit: Number(pettyLimit),
+          cancelWindowMinutes: Number(cancelWin),
+          supplierReturnDays: Number(returnDays),
+          searchMinCustomers: Number(searchMin),
+          searchMinPercent: Number(searchPct),
+          searchWindowDays: Number(searchDays),
+          googleLoginEnabled: googleOn,
+          facebookLoginEnabled: facebookOn,
+          behaviorTracking: trackOn,
+          behaviorRetentionDays: Number(trackDays),
         }),
       });
       await onSaved();
@@ -185,17 +111,19 @@ export function AdminStoreSettings({
 
   return (
     <form className="card" style={{ padding: "1.25rem", maxWidth: "1200px" }} onSubmit={(e) => void save(e)}>
-      <h2 style={{ marginTop: 0, marginBottom: "1.5rem", fontSize: "1.3rem", color: "var(--accent)" }}>Cài đặt Hệ thống</h2>
-      
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(450px, 1fr))", gap: "2rem" }}>
-        
-        {/* Left column: Business settings & AI */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-          
+      <h2 style={{ marginTop: 0, marginBottom: "0.5rem", fontSize: "1.3rem", color: "var(--accent)" }}>Cài đặt chung cả chuỗi</h2>
+      <p style={{ marginTop: 0, marginBottom: "1.5rem", color: "var(--muted)", fontSize: "0.9rem" }}>
+        Áp dụng cho mọi chi nhánh. Địa chỉ, GPS và bán kính chấm công cài ở Cấu hình › Chi nhánh.
+        {readOnly && " Chỉ Chủ chuỗi được sửa."}
+      </p>
+
+      <fieldset disabled={readOnly} style={{ border: 0, padding: 0, margin: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))", gap: "1.25rem" }}>
+
           {/* General Box */}
           <div style={{ border: "1px solid var(--border)", padding: "1.25rem", borderRadius: "10px", background: "var(--surface2)" }}>
             <h3 style={{ margin: "0 0 1rem", fontSize: "1.05rem" }}>Tài chính & Tích điểm</h3>
-            
+
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
               <div className="field" style={{ marginBottom: 0 }}>
                 <label className="label">VAT (%)</label>
@@ -217,26 +145,89 @@ export function AdminStoreSettings({
                 <input className="input" type="number" value={earnEach} onChange={(e) => setEarnEach(e.target.value)} />
               </div>
             </div>
-            
+
             <div className="field" style={{ marginTop: "1rem" }}>
               <label className="label">1 điểm quy đổi (VND giảm trừ)</label>
               <input className="input" type="number" value={pval} onChange={(e) => setPval(e.target.value)} />
             </div>
+
+            <div className="field" style={{ marginTop: "1rem" }}>
+              <label className="label">Hạn mức chi không cần duyệt (VND / phiếu)</label>
+              <input className="input" type="number" value={pettyLimit} onChange={(e) => setPettyLimit(e.target.value)} />
+              <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>Thu ngân tự chi từ két / ngăn kéo đến mức này; vượt mức phải chờ quản lý duyệt.</p>
+            </div>
+
+            <div className="field" style={{ marginTop: "1rem" }}>
+              <label className="label">Thời gian khách tự hủy đơn giao hàng (phút)</label>
+              <input className="input" type="number" min={0} max={120} value={cancelWin} onChange={(e) => setCancelWin(e.target.value)} />
+              <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>Tính từ lúc khách thanh toán, khi quán chưa nhận đơn. Hủy trong thời gian này được hoàn 100% số tiền thành điểm.</p>
+            </div>
+
+            <div className="field" style={{ marginTop: "1rem" }}>
+              <label className="label">Hạn trả hàng nhà cung cấp (ngày)</label>
+              <input className="input" type="number" min={1} max={90} value={returnDays} onChange={(e) => setReturnDays(e.target.value)} />
+              <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>Tính từ ngày nhận lô hàng. Quá hạn thì quản lý chi nhánh vẫn duyệt được nhưng phải ghi lý do.</p>
+            </div>
+
+            <div className="field" style={{ marginTop: "1rem" }}>
+              <label className="label">Gợi ý món từ tìm kiếm của khách</label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.75rem" }}>
+                <label style={{ fontSize: "0.85rem" }}>Tối thiểu (khách)<input className="input" type="number" min={1} value={searchMin} onChange={(e) => setSearchMin(e.target.value)} /></label>
+                <label style={{ fontSize: "0.85rem" }}>Tỷ lệ tối thiểu (%)<input className="input" type="number" min={0} step={0.5} value={searchPct} onChange={(e) => setSearchPct(e.target.value)} /></label>
+                <label style={{ fontSize: "0.85rem" }}>Trong (ngày)<input className="input" type="number" min={1} max={365} value={searchDays} onChange={(e) => setSearchDays(e.target.value)} /></label>
+              </div>
+              <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>Từ khóa quán chưa có món được gợi ý khi đủ số khách khác nhau tìm không ra VÀ đạt tỷ lệ trên tổng số khách dùng ô tìm kiếm.</p>
+            </div>
+          </div>
+
+          {/* Đăng nhập khách bằng mạng xã hội */}
+          <div style={{ border: "1px solid var(--border)", padding: "1.25rem", borderRadius: "10px", background: "var(--surface2)" }}>
+            <h3 style={{ margin: "0 0 1rem", fontSize: "1.05rem" }}>Đăng nhập khách hàng</h3>
+            {([
+              ["GOOGLE", "Đăng nhập bằng Google", googleOn, setGoogleOn, "GOOGLE_CLIENT_ID"],
+              ["FACEBOOK", "Đăng nhập bằng Facebook", facebookOn, setFacebookOn, "App ID / App Secret của Facebook"],
+            ] as const).map(([id, label, on, set, env]) => (
+              <div key={id} className="field" style={{ marginBottom: "0.75rem" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer", fontWeight: 600 }}>
+                  <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} style={{ width: 18, height: 18, accentColor: "var(--accent)" }} />
+                  {label}
+                </label>
+                {settings.socialConfigured && !settings.socialConfigured[id] && (
+                  <p style={{ margin: "0.3rem 0 0 1.9rem", fontSize: "0.8rem", color: "var(--danger, #b91c1c)" }}>
+                    Máy chủ chưa cấu hình {env} — nút đang ẩn dù bật công tắc.
+                  </p>
+                )}
+              </div>
+            ))}
+            <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>Tắt thì nút trên trang Đăng nhập / Đăng ký ẩn đi và máy chủ từ chối đăng nhập bằng phương thức đó. Hướng dẫn tạo app: docs/social-login-setup.md.</p>
+          </div>
+
+          {/* Hành vi khách trên web */}
+          <div style={{ border: "1px solid var(--border)", padding: "1.25rem", borderRadius: "10px", background: "var(--surface2)" }}>
+            <h3 style={{ margin: "0 0 1rem", fontSize: "1.05rem" }}>Hành vi khách trên web</h3>
+            <div className="field" style={{ marginBottom: "0.75rem" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.6rem", cursor: "pointer", fontWeight: 600 }}>
+                <input type="checkbox" checked={trackOn} onChange={(e) => setTrackOn(e.target.checked)} style={{ width: 18, height: 18, accentColor: "var(--accent)" }} />
+                Ghi nhận hành vi khách trên web
+              </label>
+            </div>
+            <label style={{ fontSize: "0.85rem", display: "block", maxWidth: 220 }}>Lưu trong (ngày)<input className="input" type="number" min={7} max={365} value={trackDays} onChange={(e) => setTrackDays(e.target.value)} /></label>
+            <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>Ẩn danh: món được xem, thêm / bớt giỏ, thời gian xem từng màn hình — cho trang Bán hàng › Hành vi khách. Không lưu IP / vị trí; tự xoá sau số ngày trên. Tắt thì web khách ngừng gửi (số liệu cũ vẫn giữ tới hạn xoá).</p>
           </div>
 
           {/* AI Config Box */}
           <div style={{ border: "1px solid rgba(146,64,14,0.2)", padding: "1.25rem", borderRadius: "10px", background: "rgba(146,64,14,0.04)" }}>
             <h3 style={{ margin: "0 0 1rem", fontSize: "1.05rem", color: "var(--accent)" }}>Cấu hình AI Nhận diện khuôn mặt</h3>
-            
+
             <div className="field">
               <label className="label">
                 Độ nhạy (Ngưỡng khoảng cách - Threshold)
               </label>
               <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginTop: "0.5rem" }}>
-                <input 
-                  type="range" 
-                  min="0.3" 
-                  max="0.8" 
+                <input
+                  type="range"
+                  min="0.3"
+                  max="0.8"
                   step="0.05"
                   value={threshold}
                   onChange={(e) => setThreshold(parseFloat(e.target.value))}
@@ -257,112 +248,21 @@ export function AdminStoreSettings({
             </div>
           </div>
 
-        </div>
-
-        {/* Right column: Address, Map & GPS */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-          
-          <div style={{ border: "1px solid var(--border)", padding: "1.25rem", borderRadius: "10px", background: "var(--surface2)", flex: 1, display: "flex", flexDirection: "column" }}>
-            <h3 style={{ margin: "0 0 1rem", fontSize: "1.05rem" }}>Địa chỉ & Định vị GPS</h3>
-            
-            {/* Multi-level Address selector (Gộp Phường/Xã) */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.8rem", marginBottom: "0.8rem" }}>
-              <div className="field" style={{ marginBottom: 0 }}>
-                <label className="label">Tỉnh / Thành phố</label>
-                <select className="input" value={selProv?.code ?? ""} onChange={e => {
-                  const p = provincesData.find(x => x.code === Number(e.target.value));
-                  setSelProv(p); setSelWard(null);
-                }}>
-                  <option value="">Chọn Tỉnh/Thành</option>
-                  {provincesData.map(p => (
-                    <option key={p.code} value={p.code}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="field" style={{ marginBottom: 0 }}>
-                <label className="label">Phường / Xã</label>
-                <select className="input" value={selWard?.code ?? ""} disabled={!selProv} onChange={e => {
-                  const w = availableWards.find((x: any) => x.code === Number(e.target.value));
-                  setSelWard(w);
-                }}>
-                  <option value="">Chọn Phường/Xã</option>
-                  {availableWards.map((w: any) => (
-                    <option key={w.code} value={w.code}>{w.name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="field" style={{ marginBottom: "0.8rem" }}>
-              <label className="label">Số nhà, Tên đường, Ấp...</label>
-              <input className="input" value={street} onChange={e => setStreet(e.target.value)} placeholder="VD: 12 Nguyễn Văn Bảo" />
-            </div>
-
-            <div style={{ display: "flex", gap: "0.8rem", marginBottom: "1rem" }}>
-              <button type="button" className="btn btn-ghost" style={{ flex: 1, background: "rgba(146,64,14,0.15)", color: "var(--accent)" }} onClick={() => void handleGeocode()} disabled={busy}>
-                📍 Định vị
-              </button>
-              <button type="button" className="btn btn-ghost" style={{ flex: 1, background: "rgba(39, 201, 128, 0.15)", color: "#27c980" }} onClick={handleCurrentLocation} disabled={busy}>
-                🧭 Vị trí hiện tại
-              </button>
-            </div>
-
-            {/* GPS coordinates & Radius */}
-            <div style={{ display: "flex", gap: "1rem", marginBottom: "1rem" }}>
-              <div className="field" style={{ flex: 1, marginBottom: 0 }}>
-                <label className="label">Vĩ độ (Lat)</label>
-                <input className="input" style={{ background: "var(--surface)" }} readOnly value={lat.toFixed(6)} />
-              </div>
-              <div className="field" style={{ flex: 1, marginBottom: 0 }}>
-                <label className="label">Kinh độ (Lng)</label>
-                <input className="input" style={{ background: "var(--surface)" }} readOnly value={lng.toFixed(6)} />
-              </div>
-              <div className="field" style={{ width: "120px", marginBottom: 0 }}>
-                <label className="label">Bán kính (m)</label>
-                <input className="input" type="number" min="10" max="1000" value={radius} onChange={(e) => setRadius(e.target.value)} />
-              </div>
-            </div>
-
-            <div style={{ minHeight: "320px", flex: 1, borderRadius: "8px", overflow: "hidden", border: "1px solid rgba(146,64,14,0.2)", position: "relative", zIndex: 1 }}>
-              <MapContainer 
-                center={[lat, lng]} 
-                zoom={zoom} 
-                scrollWheelZoom={true} 
-                style={{ height: "100%", width: "100%", position: "absolute", inset: 0 }}
-              >
-                <TileLayer
-                  attribution='&copy; Google Maps'
-                  url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
-                />
-                <Marker
-                  draggable={true}
-                  eventHandlers={eventHandlers}
-                  position={[lat, lng]}
-                  ref={markerRef}
-                />
-                <Circle 
-                  center={[lat, lng]} 
-                  pathOptions={{ fillColor: 'var(--accent)', color: 'var(--accent)', weight: 2 }} 
-                  radius={radiusNum} 
-                />
-                <MapClickHandler setPos={(newLat, newLng) => { setLat(newLat); setLng(newLng); }} />
-                <MapUpdater lat={lat} lng={lng} zoom={zoom} />
-              </MapContainer>
-            </div>
-          </div>
-        </div>
       </div>
+      </fieldset>
 
-      <div style={{ marginTop: "2rem", borderTop: "1px solid var(--border)", paddingTop: "1.25rem", display: "flex", justifyContent: "flex-end" }}>
-        <button 
-          type="submit" 
-          className="btn btn-primary" 
-          style={{ padding: "0.75rem 2rem", fontSize: "1.05rem", fontWeight: 700, letterSpacing: "0.02em" }}
-          disabled={busy}
-        >
-          {busy ? "Đang lưu..." : "Lưu Cài Đặt"}
-        </button>
-      </div>
+      {!readOnly && (
+        <div style={{ marginTop: "2rem", borderTop: "1px solid var(--border)", paddingTop: "1.25rem", display: "flex", justifyContent: "flex-end" }}>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            style={{ padding: "0.75rem 2rem", fontSize: "1.05rem", fontWeight: 700, letterSpacing: "0.02em" }}
+            disabled={busy}
+          >
+            {busy ? "Đang lưu..." : "Lưu Cài Đặt"}
+          </button>
+        </div>
+      )}
     </form>
   );
 }

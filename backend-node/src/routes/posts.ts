@@ -1,10 +1,16 @@
 import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
 import { attachStaff, requireRoles } from "../middleware/staff.js";
+import { sanitizeHtml } from "../lib/sanitizeHtml.js";
+
+/** Cột Body là TEXT (~64 KB) */
+const POST_MAX = 60_000;
 
 export function postsRouter(prisma: PrismaClient) {
   const r = Router();
   const adminOnly = [attachStaff(prisma), requireRoles("Admin")];
+  // Website của cả chuỗi — chỉ Chủ chuỗi đăng bài
+  const owner = [attachStaff(prisma), requireRoles("Owner")];
 
   /** GET /posts — danh sách bài đăng công khai (khách xem) */
   r.get("/posts", async (_req, res) => {
@@ -17,22 +23,6 @@ export function postsRouter(prisma: PrismaClient) {
       },
     });
     res.json(rows);
-  });
-
-  /** GET /posts/:id — chi tiết bài đăng công khai */
-  r.get("/posts/:id", async (req, res) => {
-    const id = Number(req.params.id);
-    if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ." });
-    
-    const post = await prisma.post.findUnique({
-      where: { id },
-    });
-    
-    if (!post || !post.isPublished) {
-      return res.status(404).json({ error: "Không tìm thấy bài viết." });
-    }
-    
-    res.json(post);
   });
 
   /** GET /posts/gallery — mock gallery endpoint */
@@ -56,19 +46,38 @@ export function postsRouter(prisma: PrismaClient) {
     res.json(rows);
   });
 
+  /** GET /posts/:id — chi tiết bài đăng công khai
+   *  (khai báo SAU /posts/gallery và /posts/admin, nếu không :id sẽ bắt mất các đường dẫn đó) */
+  r.get("/posts/:id", async (req, res) => {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ." });
+    
+    const post = await prisma.post.findUnique({
+      where: { id },
+    });
+    
+    if (!post || !post.isPublished) {
+      return res.status(404).json({ error: "Không tìm thấy bài viết." });
+    }
+    
+    res.json(post);
+  });
+
   /** POST /posts — tạo bài mới */
-  r.post("/posts", ...adminOnly, async (req, res) => {
+  r.post("/posts", ...owner, async (req, res) => {
     const { title, body, imageUrl, pinned, isPublished } = req.body as {
       title: string; body: string;
       imageUrl?: string | null; pinned?: boolean; isPublished?: boolean;
     };
-    if (!title?.trim() || !body?.trim()) {
+    // Nội dung HTML từ trình soạn thảo: lọc thẻ / thuộc tính chạy được mã trước khi lưu (trang khách render bằng innerHTML)
+    const cleanBody = sanitizeHtml(body, POST_MAX);
+    if (!title?.trim() || !cleanBody) {
       return res.status(400).json({ error: "Tiêu đề và nội dung là bắt buộc." });
     }
     const post = await prisma.post.create({
       data: {
         title: title.trim(),
-        body: body.trim(),
+        body: cleanBody,
         imageUrl: imageUrl?.trim() || null,
         pinned: pinned ?? false,
         isPublished: isPublished ?? true,
@@ -78,7 +87,7 @@ export function postsRouter(prisma: PrismaClient) {
   });
 
   /** PATCH /posts/:id — sửa bài */
-  r.patch("/posts/:id", ...adminOnly, async (req, res) => {
+  r.patch("/posts/:id", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ." });
     const { title, body, imageUrl, pinned, isPublished } = req.body as Partial<{
@@ -89,7 +98,7 @@ export function postsRouter(prisma: PrismaClient) {
       where: { id },
       data: {
         ...(title !== undefined && { title: title.trim() }),
-        ...(body !== undefined && { body: body.trim() }),
+        ...(body !== undefined && { body: sanitizeHtml(body, POST_MAX) ?? "" }),
         ...(imageUrl !== undefined && { imageUrl: imageUrl?.trim() || null }),
         ...(pinned !== undefined && { pinned }),
         ...(isPublished !== undefined && { isPublished }),
@@ -99,7 +108,7 @@ export function postsRouter(prisma: PrismaClient) {
   });
 
   /** DELETE /posts/:id — xóa bài */
-  r.delete("/posts/:id", ...adminOnly, async (req, res) => {
+  r.delete("/posts/:id", ...owner, async (req, res) => {
     const id = Number(req.params.id);
     if (Number.isNaN(id)) return res.status(400).json({ error: "ID không hợp lệ." });
     await prisma.post.delete({ where: { id } });

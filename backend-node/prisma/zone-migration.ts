@@ -11,8 +11,10 @@ async function main() {
   });
 
   if (!defaultZone) {
+    const store = await prisma.store.findFirstOrThrow({ orderBy: { id: "asc" } });
     defaultZone = await prisma.zone.create({
       data: {
+        storeId: store.id,
         name: "Khu vực Chung",
         isActive: true,
       },

@@ -1,251 +1,172 @@
 import { useEffect, useState } from "react";
-import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import {
-  Coffee,
-  Home,
-  Info,
-  LogIn,
-  LogOut,
-  Menu,
-  Newspaper,
-  ShoppingBag,
-  Tag,
-  User,
-  UserPlus,
-  X,
-} from "lucide-react";
-import { clearSession, getUser, isGuestMode } from "../lib/session";
-import { getCart } from "../lib/cart";
-import { LogoMark } from "./LogoMark";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { clearSession, useSessionUser } from "../lib/session";
+import { CustomerAvatar } from "./CustomerAvatar";
+import { CART_EVENT, getCart } from "../lib/cart";
+import { BottomNav, type MoreSheet } from "./BottomNav";
+import { Coins, Gift, Mail, ReceiptText, ShieldCheck, Star, Ticket, UserRound, Salad } from "lucide-react";
+import { rankLabel } from "../pages/account/shared";
+import { customerNav } from "../lib/navConfig";
+import { canGoBackInApp } from "../lib/appHistory";
+import { PopupHost } from "./popup/PopupHost";
+import { FloatingContact } from "./contact/FloatingContact";
+import { SiteHeader } from "./site/SiteHeader";
+import { SiteFooter } from "./site/SiteFooter";
+import { useSiteInfo } from "../lib/site";
+import { paletteVars, useColorMode } from "../lib/siteTheme";
+import { activeOccasion, effectiveTheme } from "../lib/occasions";
+import { FestiveFall, FestiveStrip } from "./site/Festive";
+import { useLang } from "../lib/i18n";
+import "../styles/customer.css";
+import "../styles/customer-lux.css";
+import "../styles/customer-nav.css";
+import { QuickOrderHost } from "./site/QuickOrder";
+import { useScreenTimer } from "../lib/track";
 
-const CONTACT = {
-  phone: "0389730362",
-  email: "hello@tdcoffee.vn",
-  address: "114 Dương Quảng Hàm, Phường 5, Gò Vấp, TP.HCM",
-  hours: "7:00 – 22:00 hằng ngày",
-};
+/** Tiêu đề trang trên header điện thoại */
+function titleOf(p: string): string {
+  if (p === "/") return "TD Coffee";
+  if (p.startsWith("/order/")) {
+    if (p.endsWith("/tracking")) return "Theo dõi đơn";
+    if (p.endsWith("/checkout")) return "Thanh toán";
+    return "Đơn hàng";
+  }
+  const map: [string, string][] = [
+    ["/menu", "Thực đơn"],
+    ["/product/", "Chi tiết món"],
+    ["/cart", "Giỏ hàng"],
+    ["/account/profile", "Thông tin cá nhân"],
+    ["/account/inbox", "Hộp thư"],
+    ["/account/security", "Bảo mật"],
+    ["/account/orders", "Đơn hàng"],
+    ["/account/reviews", "Đánh giá đơn"],
+    ["/account/points", "Lịch sử điểm"],
+    ["/account/vouchers", "Ví voucher"],
+    ["/account/gifts", "Quà của tôi"],
+    ["/account", "Tài khoản"],
+    ["/promotions", "Khuyến mãi"],
+    ["/blog", "Tin tức"],
+    ["/about", "Câu chuyện"],
+    ["/stores", "Cửa hàng"],
+    ["/contact", "Liên hệ"],
+    ["/policy/", "Chính sách"],
+    ["/game/", "Mini game"],
+    ["/login", "Đăng nhập"],
+    ["/register", "Đăng ký"],
+    ["/staff/login", "Đăng nhập nhân sự"],
+    ["/vnpay-return", "Kết quả thanh toán"],
+  ];
+  return map.find(([prefix]) => p.startsWith(prefix))?.[1] ?? "TD Coffee";
+}
+/** Trang cha khi không còn trang trước trong app (mở thẳng URL, sau khi đăng xuất…) */
+function parentOf(p: string): string {
+  if (p.startsWith("/product/")) return "/menu";
+  if (p.startsWith("/blog/")) return "/blog";
+  if (p.startsWith("/stores/")) return "/stores";
+  if (p.startsWith("/order/")) return "/account/orders";
+  if (p.startsWith("/account/")) return "/account";
+  return "/";
+}
 
-const MAIN_LINKS = [
-  { to: "/", label: "Trang chủ", icon: Home, match: (p: string) => p === "/" },
-  { to: "/menu", label: "Menu", icon: Coffee, match: (p: string) => p.startsWith("/menu") || p.startsWith("/product") },
-  { to: "/promotions", label: "Khuyến mãi", icon: Tag, match: (p: string) => p === "/promotions" },
-  { to: "/blog", label: "Bài viết", icon: Newspaper, match: (p: string) => p.startsWith("/blog") },
-  { to: "/about", label: "Về chúng tôi", icon: Info, match: (p: string) => p === "/about" },
-];
+/** Trang chính (là tab đáy) — các trang khác coi là trang con, có nút quay lại */
+const ROOT_PAGES = ["/", "/menu", "/account", "/promotions", "/blog", "/about", "/stores", "/contact"];
 
-const TABBAR_HIDDEN_PREFIXES = ["/product/", "/cart", "/order/", "/login", "/register", "/staff/login", "/vnpay-return"];
+/** Luồng tập trung có thanh hành động riêng → ẩn thanh điều hướng đáy */
+const TABBAR_HIDDEN_PREFIXES = ["/order/", "/staff/login", "/vnpay-return"];
 
 export function PublicLayout() {
   const loc = useLocation();
   const nav = useNavigate();
-  const user = getUser();
-  const guest = isGuestMode();
-  const loggedIn = !guest && !!user;
-  const cartCount = getCart().reduce((s, i) => s + i.quantity, 0);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-
-  // Đóng drawer khi đổi trang
+  // Thời gian khách thật sự xem từng màn hình (trang "Hành vi khách")
+  useScreenTimer();
+  // Tự cập nhật khi đăng nhập / đăng xuất / đổi ảnh đại diện (lib/session phát sự kiện)
+  const user = useSessionUser();
+  const loggedIn = !!user;
+  const [, bump] = useState(0);
   useEffect(() => {
-    setDrawerOpen(false);
-  }, [loc.pathname]);
-
-  // Khóa cuộn nền khi drawer mở
-  useEffect(() => {
-    document.body.style.overflow = drawerOpen ? "hidden" : "";
+    const on = () => bump((n) => n + 1);
+    window.addEventListener(CART_EVENT, on);
+    window.addEventListener("storage", on);
     return () => {
-      document.body.style.overflow = "";
+      window.removeEventListener(CART_EVENT, on);
+      window.removeEventListener("storage", on);
     };
-  }, [drawerOpen]);
-
+  }, []);
+  const cartCount = getCart().reduce((s, i) => s + i.quantity, 0);
+  // Màu do chủ chuỗi chọn (Website › Giao diện) + chế độ sáng/tối của khách
+  const info = useSiteInfo();
+  const color = useColorMode(info?.theme ?? null);
+  // Chủ đề dịp lễ đang bật (chưa quá ngày tự tắt) đè màu thường + thêm dải lời chúc, hạt rơi
+  const occasion = activeOccasion(info?.theme);
+  const themeStyle = info?.theme ? paletteVars(effectiveTheme(info.theme), color.mode) : undefined;
+  const { t, lang } = useLang();
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
+  // Tên tab trình duyệt theo trang (trang nội dung có thể đặt lại cụ thể hơn)
+  const pageTitle = t(titleOf(loc.pathname));
+  useEffect(() => {
+    document.title = pageTitle === "TD Coffee" ? "TD Coffee — cà phê Sài Gòn" : `${pageTitle} · TD Coffee`;
+  }, [pageTitle]);
+  const navItems = customerNav(loggedIn).map((it) => ({
+    ...it,
+    label: t(it.label),
+    short: t(it.short),
+    // Tab Tài khoản: avatar khách thay icon khi đã đăng nhập
+    ...(it.id === "account" && user ? { iconNode: <CustomerAvatar src={user.avatarUrl} name={user.fullName} size={24} className="bn-ava" /> } : {}),
+  }));
   function handleLogout() {
     clearSession();
-    setDrawerOpen(false);
     nav("/", { replace: true });
   }
+  // Điện thoại: bấm avatar ở thanh đáy → bảng chức năng tài khoản (kèm Đăng xuất) thay vì chuyển thẳng sang trang
+  const accountSheet: MoreSheet | null = user
+    ? {
+        profile: {
+          name: user.fullName,
+          role: t("Hạng {r} · {n} điểm", { r: t(rankLabel(user.rankTier)), n: user.points.toLocaleString(lang === "en" ? "en-US" : "vi-VN") }),
+          avatar: <CustomerAvatar src={user.avatarUrl} name={user.fullName} size={40} />,
+        },
+        items: [
+          { id: "acc-profile", label: t("Thông tin cá nhân"), short: "", icon: UserRound, to: "/account/profile" },
+          { id: "acc-inbox", label: t("Hộp thư"), short: "", icon: Mail, to: "/account/inbox" },
+          { id: "acc-orders", label: t("Đơn hàng"), short: "", icon: ReceiptText, to: "/account/orders" },
+          { id: "acc-reviews", label: t("Đánh giá đơn"), short: "", icon: Star, to: "/account/reviews" },
+          { id: "acc-points", label: t("Lịch sử điểm"), short: "", icon: Coins, to: "/account/points" },
+          { id: "acc-vouchers", label: t("Ví voucher"), short: "", icon: Ticket, to: "/account/vouchers" },
+          { id: "acc-gifts", label: t("Quà của tôi"), short: "", icon: Gift, to: "/account/gifts" },
+          { id: "acc-security", label: t("Bảo mật"), short: "", icon: ShieldCheck, to: "/account/security" },
+          { id: "acc-diet", label: t("Sở thích ăn uống"), short: "", icon: Salad, to: "/account/diet" },
+        ],
+        onLogout: handleLogout,
+        text: { title: t("Tài khoản"), section: t("Tài khoản"), logout: t("Đăng xuất"), close: t("Đóng") },
+      }
+    : null;
 
-  // Ẩn tab bar ở các luồng tập trung (chi tiết món, giỏ, thanh toán, đăng nhập) vì đã có thanh hành động riêng
   const p = loc.pathname;
   const showTabBar = !TABBAR_HIDDEN_PREFIXES.some((x) => p.startsWith(x));
-  const tabBarItems = [
-    { to: "/", label: "Trang chủ", icon: Home, active: p === "/", badge: 0 },
-    { to: "/menu", label: "Menu", icon: Coffee, active: p.startsWith("/menu"), badge: 0 },
-    { to: "/promotions", label: "Ưu đãi", icon: Tag, active: p === "/promotions", badge: 0 },
-    { to: "/cart", label: "Giỏ hàng", icon: ShoppingBag, active: false, badge: cartCount },
-    loggedIn
-      ? { to: "/account", label: "Tài khoản", icon: User, active: p === "/account", badge: 0 }
-      : { to: "/login", label: "Đăng nhập", icon: LogIn, active: false, badge: 0 },
-  ];
-
-  const linkCls = (active: boolean) => (active ? "site-nav-link site-nav-active" : "site-nav-link");
-  const drawerCls = (active: boolean) => (active ? "site-drawer-link site-drawer-link-active" : "site-drawer-link");
+  const isSubPage = !ROOT_PAGES.includes(p);
+  const goBack = () => (canGoBackInApp() ? nav(-1) : nav(parentOf(p), { replace: true }));
 
   return (
-    <div className={showTabBar ? "site-root site-root-tabbar" : "site-root"}>
-      <header className="site-header">
-        <div className="site-header-inner">
-          <Link to="/" className="site-brand">
-            <LogoMark className="site-logo" width={40} height={40} />
-            <span className="site-brand-text">TD Coffee</span>
-          </Link>
+    <div className="site-root c-site" style={themeStyle}>
+      {/* Dải lời chúc dịp lễ nằm trên header: cuộn đi thì header dính lại, không che hero */}
+      {occasion && <FestiveStrip occasion={occasion} />}
+      <SiteHeader user={user} cartCount={cartCount} onLogout={handleLogout} color={color} onBack={isSubPage ? goBack : null} />
+      {occasion?.effects && <FestiveFall id={occasion.id} />}
 
-          {/* Desktop nav */}
-          <nav className="site-nav" aria-label="Chính">
-            {MAIN_LINKS.map((l) => (
-              <Link key={l.to} to={l.to} className={linkCls(l.match(loc.pathname))}>
-                {l.label}
-              </Link>
-            ))}
-          </nav>
-
-          <div className="site-header-actions">
-            {/* Tài khoản (desktop) */}
-            <nav className="site-nav" aria-label="Tài khoản">
-              {loggedIn ? (
-                <>
-                  <Link to="/account" className={linkCls(loc.pathname === "/account")}>
-                    <User size={16} aria-hidden /> Tài khoản
-                  </Link>
-                  <button type="button" onClick={handleLogout} className="site-nav-link">
-                    Đăng xuất
-                  </button>
-                </>
-              ) : (
-                <>
-                  <Link to="/login" className={linkCls(loc.pathname === "/login")}>
-                    Đăng nhập
-                  </Link>
-                  <Link to="/register" className="btn btn-primary" style={{ minHeight: 40, padding: "0.45rem 1rem", borderRadius: 999 }}>
-                    Đăng ký
-                  </Link>
-                </>
-              )}
-            </nav>
-
-            <Link
-              to="/cart"
-              className="site-icon-btn"
-              aria-label={cartCount > 0 ? `Giỏ hàng, ${cartCount} món` : "Giỏ hàng"}
-            >
-              <ShoppingBag size={22} aria-hidden />
-              {cartCount > 0 && <span className="site-cart-count">{cartCount > 99 ? "99+" : cartCount}</span>}
-            </Link>
-
-            <button
-              type="button"
-              className="site-icon-btn site-menu-btn"
-              onClick={() => setDrawerOpen(true)}
-              aria-label="Mở menu"
-              aria-expanded={drawerOpen}
-              aria-controls="site-drawer"
-            >
-              <Menu size={24} aria-hidden />
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Drawer (mobile/tablet) */}
-      {drawerOpen && <div className="site-drawer-overlay" onClick={() => setDrawerOpen(false)} role="presentation" />}
-      <aside
-        id="site-drawer"
-        className={drawerOpen ? "site-drawer site-drawer-open" : "site-drawer"}
-        aria-label="Menu"
-        aria-hidden={!drawerOpen}
-      >
-        <div className="site-drawer-head">
-          <Link to="/" className="site-brand">
-            <LogoMark className="site-logo" width={36} height={36} />
-            <span className="site-brand-text">TD Coffee</span>
-          </Link>
-          <button type="button" className="site-icon-btn" onClick={() => setDrawerOpen(false)} aria-label="Đóng menu">
-            <X size={22} aria-hidden />
-          </button>
-        </div>
-        <nav className="site-drawer-nav">
-          {MAIN_LINKS.map(({ to, label, icon: Icon, match }) => (
-            <Link key={to} to={to} className={drawerCls(match(loc.pathname))}>
-              <Icon size={20} aria-hidden /> {label}
-            </Link>
-          ))}
-          <Link to="/cart" className={drawerCls(loc.pathname === "/cart")}>
-            <ShoppingBag size={20} aria-hidden /> Giỏ hàng{cartCount > 0 ? ` (${cartCount})` : ""}
-          </Link>
-          <div className="site-drawer-sep" />
-          {loggedIn ? (
-            <>
-              <Link to="/account" className={drawerCls(loc.pathname === "/account")}>
-                <User size={20} aria-hidden /> Tài khoản
-              </Link>
-              <button type="button" onClick={handleLogout} className="site-drawer-link site-drawer-danger">
-                <LogOut size={20} aria-hidden /> Đăng xuất
-              </button>
-            </>
-          ) : (
-            <>
-              <Link to="/login" className={drawerCls(loc.pathname === "/login")}>
-                <LogIn size={20} aria-hidden /> Đăng nhập
-              </Link>
-              <Link to="/register" className={drawerCls(loc.pathname === "/register")}>
-                <UserPlus size={20} aria-hidden /> Đăng ký
-              </Link>
-            </>
-          )}
-        </nav>
-      </aside>
-
-      <main className="site-main">
+      <main className="site-main c-main">
         <Outlet />
+        <PopupHost />
+        {/* Đặt nhanh bằng giọng nói / câu tự nhiên (mở từ ô tìm kiếm) */}
+        <QuickOrderHost />
+        {/* Nút liên hệ nổi: ẩn ở trang thanh toán và trang đăng nhập nhân sự */}
+        {!/^\/order\/[^/]+\/checkout/.test(p) && !p.startsWith("/staff") && <FloatingContact />}
       </main>
 
-      {/* Tab bar (mobile): các tác vụ khách dùng nhiều nhất, trong tầm ngón cái */}
-      {showTabBar && (
-        <nav className="site-tabbar" aria-label="Điều hướng nhanh">
-          {tabBarItems.map(({ to, label, icon: Icon, active, badge }) => (
-            <Link
-              key={to}
-              to={to}
-              className={active ? "site-tabbar-item site-tabbar-active" : "site-tabbar-item"}
-              aria-current={active ? "page" : undefined}
-            >
-              <span className="site-tabbar-icon">
-                <Icon size={21} aria-hidden />
-                {badge ? <span className="site-tabbar-badge">{badge > 99 ? "99+" : badge}</span> : null}
-              </span>
-              <span className="site-tabbar-label">{label}</span>
-            </Link>
-          ))}
-        </nav>
-      )}
+      <BottomNav items={navItems} badges={{ cart: cartCount }} menus={accountSheet ? { account: accountSheet } : undefined} hidden={!showTabBar} />
 
-      <footer className="site-footer">
-        <div className="site-footer-inner">
-          <div className="site-footer-col">
-            <strong className="site-footer-brand">TD Coffee</strong>
-            <p className="site-footer-desc">Cà phê tươi, phục vụ tận tâm — đặt món tại bàn hoặc mang về.</p>
-          </div>
-          <div className="site-footer-col">
-            <h3 className="site-footer-heading">Liên hệ</h3>
-            <p>
-              Điện thoại: <a href={`tel:${CONTACT.phone.replace(/\s/g, "")}`}>{CONTACT.phone}</a>
-            </p>
-            <p>
-              Email: <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>
-            </p>
-            <p>{CONTACT.address}</p>
-          </div>
-          <div className="site-footer-col">
-            <h3 className="site-footer-heading">Giờ mở cửa</h3>
-            <p>{CONTACT.hours}</p>
-            <p className="site-footer-note">Dữ liệu demo — chỉnh trong mã nguồn khi triển khai thật.</p>
-          </div>
-        </div>
-        <div className="site-footer-bottom">
-          <span>© {new Date().getFullYear()} TD Coffee</span>
-          <Link to="/staff/login" className="site-footer-staff">
-            Khu vực nhân sự
-          </Link>
-        </div>
-      </footer>
+      <SiteFooter color={color} />
     </div>
   );
 }

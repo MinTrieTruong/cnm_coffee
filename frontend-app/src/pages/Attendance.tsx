@@ -7,8 +7,9 @@
  *
  * Luồng:
  * 1. Check-in: Xác minh khuôn mặt + GPS trong phạm vi 50m
- * 2. Check-out: Nếu dư >30 phút → hiện Modal xin tăng ca
+ * 2. Check-out: Có phiếu làm thêm đã duyệt → tự xác nhận giờ làm thêm; ở lại >30 phút mà chưa có phiếu → gợi ý làm phiếu bổ sung
  */
+import { MapPin, Video, Map as MapIcon, CheckCircle2, X } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -40,6 +41,7 @@ const staffIcon = new L.Icon({
 interface Schedule {
   id: number;
   shiftCode: string;
+  shiftName?: string;
   startMin: number;
   endMin: number;
   actualCheckIn: string | null;
@@ -219,7 +221,7 @@ export function Attendance() {
         if (faceData.registered && faceData.descriptor) {
           setSavedDescriptor(new Float32Array(faceData.descriptor));
           setFaceRegistered(true);
-          setFaceStatus("Đã có dữ liệu khuôn mặt ✓");
+          setFaceStatus("Đã có dữ liệu khuôn mặt");
         } else {
           setFaceStatus("Chưa đăng ký khuôn mặt — bấm 'Đăng ký' để lưu");
           setFaceRegistered(false);
@@ -252,7 +254,7 @@ export function Attendance() {
       if (faceWarningTimer.current) clearTimeout(faceWarningTimer.current);
       faceWarningTimer.current = window.setTimeout(() => {
         setFaceMatch(null);
-        setFaceStatus("⚠ Không tìm thấy khuôn mặt. Vui lòng kiểm tra lại ánh sáng (tránh ngược sáng) hoặc tháo khẩu trang.");
+        setFaceStatus("Không tìm thấy khuôn mặt. Vui lòng kiểm tra lại ánh sáng (tránh ngược sáng) hoặc tháo khẩu trang.");
       }, 5000);
     };
     resetWarningTimer();
@@ -343,14 +345,22 @@ export function Attendance() {
         setMessage({ text: "Không phát hiện khuôn mặt. Hãy nhìn thẳng vào camera.", type: "err" });
         return;
       }
+      if (!window.confirm("FaceID chỉ đăng ký một lần và dùng để chấm công của chính bạn. Sau khi lưu, muốn đăng ký lại phải nhờ quản lý xoá. Tiếp tục?")) return;
       const descriptor = Array.from(det.descriptor);
+      // Ảnh chụp lúc đăng ký (lưu riêng tư) để quản lý đối chiếu đúng người
+      const shot = document.createElement("canvas");
+      const scale = Math.min(1, 480 / (video.videoWidth || 480));
+      shot.width = Math.round((video.videoWidth || 480) * scale);
+      shot.height = Math.round((video.videoHeight || 360) * scale);
+      shot.getContext("2d")?.drawImage(video, 0, 0, shot.width, shot.height);
+      const photoDataUrl = shot.toDataURL("image/jpeg", 0.85);
       await staffApi("/api/attendance/register-face", {
         method: "POST",
-        body: JSON.stringify({ faceDescriptor: descriptor }),
+        body: JSON.stringify({ faceDescriptor: descriptor, photoDataUrl }),
       });
       setSavedDescriptor(new Float32Array(descriptor));
       setFaceRegistered(true);
-      setFaceStatus("Đăng ký khuôn mặt thành công ✓");
+      setFaceStatus("Đăng ký khuôn mặt thành công");
       setMessage({ text: "Đã lưu dữ liệu khuôn mặt!", type: "ok" });
     } catch (e) {
       setMessage({ text: String(e instanceof Error ? e.message : e), type: "err" });
@@ -448,7 +458,7 @@ export function Attendance() {
       });
       onSuccess(data.message);
 
-      // Nếu ra ca muộn > 30p → bật modal xin tăng ca
+      // Ở lại > 30p mà chưa có phiếu làm thêm → gợi ý làm phiếu bổ sung
       if (data.promptOvertime && data.schedule) {
         setOvertimeData({
           scheduleId: data.schedule.id,
@@ -477,7 +487,7 @@ export function Attendance() {
           staffNote: staffNote.trim(),
         }),
       });
-      setMessage({ text: "Đã gửi yêu cầu tăng ca!", type: "ok" });
+      setMessage({ text: "Đã gửi phiếu làm thêm giờ, chờ quản lý duyệt.", type: "ok" });
       setShowOvertimeModal(false);
       setStaffNote("");
       setOvertimeData(null);
@@ -506,7 +516,7 @@ export function Attendance() {
   return (
     <div className="attendance-page">
       <h1 className="attendance-title">
-        <span className="attendance-title-icon">📍</span>
+        <span className="attendance-title-icon"><MapPin size={16} aria-hidden /></span>
         Chấm Công
       </h1>
 
@@ -514,7 +524,7 @@ export function Attendance() {
       {message && (
         <div className={`attendance-toast attendance-toast-${message.type}`}>
           <span>{message.text}</span>
-          <button onClick={() => setMessage(null)}>✕</button>
+          <button onClick={() => setMessage(null)} aria-label="Đóng"><X size={16} /></button>
         </div>
       )}
 
@@ -523,18 +533,18 @@ export function Attendance() {
         {/* ─── LEFT: Camera ─── */}
         <div className="attendance-panel attendance-camera-panel">
           <div className="attendance-panel-header">
-            <span className="attendance-panel-icon">🎥</span>
+            <span className="attendance-panel-icon"><Video size={16} aria-hidden /></span>
             Nhận diện khuôn mặt
           </div>
           {isSuccess ? (
             <div style={{ textAlign: "center", padding: "3rem 1rem", border: "1px solid rgba(201,162,39,0.2)", borderRadius: "10px", background: "rgba(201,162,39,0.05)" }}>
-              <div style={{ fontSize: "4rem", marginBottom: "1rem" }}>✅</div>
+              <div style={{ marginBottom: "1rem", color: "var(--o-success)", display: "flex", justifyContent: "center" }}><CheckCircle2 size={48} aria-hidden /></div>
               <h2 style={{ color: "var(--accent)", marginBottom: "1rem", fontSize: "1.5rem" }}>Chấm công thành công!</h2>
               <p style={{ fontSize: "1.2rem", color: "var(--muted)", marginBottom: "2rem" }}>
                 Thời gian: <strong style={{ color: "#fff" }}>{successTime}</strong>
               </p>
               <button className="attendance-btn attendance-btn-secondary" onClick={() => window.location.href = "/"}>
-                🏠 Quay lại trang chủ
+                Quay lại trang chủ
               </button>
             </div>
           ) : (
@@ -571,11 +581,11 @@ export function Attendance() {
                     <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)", zIndex: 10 }}>
                       {!isInRange ? (
                         <div style={{ color: "#ef4444", fontWeight: "bold", background: "rgba(0,0,0,0.8)", padding: "15px 20px", borderRadius: "10px", textAlign: "center", border: "1px solid #ef4444" }}>
-                          {distance === null ? "⏳ Đang định vị GPS..." : `❌ Ngoài phạm vi quán (${distance}m)`}
+                          {distance === null ? "Đang định vị GPS..." : `Ngoài phạm vi quán (${distance}m)`}
                         </div>
                       ) : (!canCheckIn && !canCheckOut && schedules.length > 0) ? (
                         <div style={{ color: "#22c55e", fontWeight: "bold", background: "rgba(0,0,0,0.8)", padding: "15px 20px", borderRadius: "10px", textAlign: "center", border: "1px solid #22c55e" }}>
-                          ✅ Đã hoàn tất các ca hôm nay
+                          Đã hoàn tất các ca hôm nay
                         </div>
                       ) : (
                         <button
@@ -583,7 +593,7 @@ export function Attendance() {
                           onClick={() => setIsScanning(true)}
                           style={{ fontSize: "1.1rem", padding: "1rem 2rem", boxShadow: "0 4px 20px rgba(201,162,39,0.4)" }}
                         >
-                          👆 Bấm vào đây để chấm công
+                          Bấm vào đây để chấm công
                         </button>
                       )}
                     </div>
@@ -599,7 +609,7 @@ export function Attendance() {
                   )}
                   {isScanning && faceMatch === true && livenessStep === 4 && (
                     <div style={{ position: "absolute", bottom: "20px", left: "10%", right: "10%", background: "rgba(34, 197, 94, 0.85)", color: "#fff", padding: "10px", borderRadius: "10px", textAlign: "center", fontWeight: "bold" }}>
-                      ✓ Đã xác thực bảo mật
+                      Đã xác thực bảo mật
                     </div>
                   )}
                 </div>
@@ -611,12 +621,12 @@ export function Attendance() {
                   {!isScanning
                     ? "Nhấn nút để bắt đầu quét"
                     : faceMatch === true
-                      ? "✓ Khuôn mặt khớp"
+                      ? "Khuôn mặt khớp"
                       : faceMatch === false
-                        ? "✗ Không khớp"
+                        ? "Không khớp"
                         : faceRegistered
-                          ? "⏳ Đang nhận diện..."
-                          : "⚠ Chưa đăng ký"}
+                          ? "Đang nhận diện..."
+                          : "Chưa đăng ký"}
                 </div>
                 <p className="attendance-face-hint">{isScanning ? faceStatus : "Hệ thống đang ở chế độ chờ"}</p>
               </div>
@@ -629,9 +639,12 @@ export function Attendance() {
                   disabled={loading}
                   style={{ marginTop: "1rem" }}
                 >
-                  📸 Đăng ký khuôn mặt
+                  Đăng ký khuôn mặt
 
                 </button>
+              )}
+              {!faceRegistered && faceReady && (
+                <p className="attendance-face-hint" style={{ marginTop: "0.5rem" }}>Chỉ đăng ký một lần bằng khuôn mặt của chính bạn — muốn đăng ký lại phải nhờ quản lý.</p>
               )}
             </>
           )}
@@ -640,7 +653,7 @@ export function Attendance() {
         {/* ─── RIGHT: Map ─── */}
         <div className="attendance-panel attendance-map-panel">
           <div className="attendance-panel-header">
-            <span className="attendance-panel-icon">🗺️</span>
+            <span className="attendance-panel-icon"><MapIcon size={16} aria-hidden /></span>
             Vị trí GPS
           </div>
           <div className="attendance-map-wrap">
@@ -657,7 +670,7 @@ export function Attendance() {
                 />
                 {/* Marker quán + vòng tròn bán kính */}
                 <Marker position={[storeLocation.lat, storeLocation.lng]}>
-                  <Popup>📍 Vị trí quán TD Coffee</Popup>
+                  <Popup>Vị trí quán TD Coffee</Popup>
                 </Marker>
                 <Circle
                   center={[storeLocation.lat, storeLocation.lng]}
@@ -672,7 +685,7 @@ export function Attendance() {
                 {/* Marker vị trí nhân viên */}
                 {userPos && (
                   <Marker position={[userPos.lat, userPos.lng]} icon={staffIcon}>
-                    <Popup>👤 Vị trí của bạn ({info?.fullName})</Popup>
+                    <Popup>Vị trí của bạn ({info?.fullName})</Popup>
                   </Marker>
                 )}
                 <FitBounds
@@ -692,9 +705,9 @@ export function Attendance() {
             <div className={`attendance-badge ${isInRange ? "badge-ok" : "badge-err"}`}>
               {distance !== null
                 ? isInRange
-                  ? `✓ Trong phạm vi (${distance}m)`
-                  : `✗ Ngoài phạm vi (${distance}m)`
-                : "⏳ Đang xác định vị trí..."}
+                  ? `Trong phạm vi (${distance}m)`
+                  : `Ngoài phạm vi (${distance}m)`
+                : "Đang xác định vị trí..."}
             </div>
           </div>
         </div>
@@ -714,20 +727,20 @@ export function Attendance() {
                 onClick={() => setActiveSchedule(s)}
               >
                 <div className="schedule-card-header">
-                  <span className="schedule-shift-code">{s.shiftCode}</span>
+                  <span className="schedule-shift-code">{s.shiftName ?? s.shiftCode}</span>
                   <span className="schedule-time">{minToTime(s.startMin)} – {minToTime(s.endMin)}</span>
                 </div>
                 <div className="schedule-card-status">
                   {s.actualCheckIn && s.actualCheckOut ? (
-                    <span className="badge-ok">✓ Hoàn tất</span>
+                    <span className="badge-ok">Hoàn tất</span>
                   ) : s.actualCheckIn ? (
-                    <span className="badge-pending">⏱ Đang làm</span>
+                    <span className="badge-pending">Đang làm</span>
                   ) : (
                     <span className="badge-err">○ Chưa check-in</span>
                   )}
                   {s.isOvertime && (
                     <span className="badge-overtime">
-                      🕐 Tăng ca {s.overtimeMinutes ? `(${s.overtimeMinutes}p duyệt)` : "(chờ duyệt)"}
+                      {s.overtimeMinutes != null ? `Làm thêm ${s.overtimeMinutes} phút` : "Có phiếu làm thêm"}
                     </span>
                   )}
                 </div>
@@ -748,7 +761,7 @@ export function Attendance() {
       {/* ── Action buttons removed (auto-submit replaces them) ── */}
       <div className="attendance-actions">
         {!canCheckIn && !canCheckOut && schedules.length > 0 && (
-          <div className="attendance-done-msg">✅ Đã hoàn tất tất cả ca hôm nay!</div>
+          <div className="attendance-done-msg">Đã hoàn tất tất cả ca hôm nay!</div>
         )}
       </div>
 
@@ -756,20 +769,20 @@ export function Attendance() {
       <AttendanceCalendar />
 
       {/* ══════════════════════════════════════════════════════════════
-         MODAL: Xin tăng ca
+         MODAL: Phiếu làm thêm bổ sung
          ══════════════════════════════════════════════════════════════ */}
       {showOvertimeModal && overtimeData && (
         <div className="attendance-modal-overlay" onClick={() => setShowOvertimeModal(false)}>
           <div className="attendance-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2 className="modal-title">🕐 Yêu cầu tăng ca</h2>
-              <button className="modal-close" onClick={() => setShowOvertimeModal(false)}>✕</button>
+              <h2 className="modal-title">Làm phiếu làm thêm giờ</h2>
+              <button className="modal-close" onClick={() => setShowOvertimeModal(false)} aria-label="Đóng"><X size={16} /></button>
             </div>
 
             <div className="modal-body">
               <div className="modal-info-grid">
                 <div className="modal-info-item">
-                  <span className="modal-info-label">Thời gian dư</span>
+                  <span className="modal-info-label">Ở lại sau giờ hết ca</span>
                   <span className="modal-info-value modal-info-highlight">
                     {overtimeData.extraMinutes} phút
                   </span>
@@ -777,7 +790,7 @@ export function Attendance() {
                 <div className="modal-info-item">
                   <span className="modal-info-label">Ca làm</span>
                   <span className="modal-info-value">
-                    {activeSchedule ? `${activeSchedule.shiftCode} (${minToTime(activeSchedule.startMin)} – ${minToTime(activeSchedule.endMin)})` : "—"}
+                    {activeSchedule ? `${activeSchedule.shiftName ?? activeSchedule.shiftCode} (${minToTime(activeSchedule.startMin)} – ${minToTime(activeSchedule.endMin)})` : "—"}
                   </span>
                 </div>
                 <div className="modal-info-item">
@@ -790,7 +803,7 @@ export function Attendance() {
 
               <div className="modal-field">
                 <label htmlFor="overtime-note" className="modal-label">
-                  Lý do xin tăng ca <span className="required">*</span>
+                  Lý do làm thêm <span className="required">*</span>
                 </label>
                 <textarea
                   id="overtime-note"
@@ -817,7 +830,7 @@ export function Attendance() {
                 onClick={handleOvertimeSubmit}
                 disabled={loading || !staffNote.trim()}
               >
-                {loading ? "⏳ Đang gửi..." : "📨 Gửi yêu cầu tăng ca"}
+                {loading ? "Đang gửi..." : "Gửi phiếu làm thêm"}
               </button>
             </div>
           </div>

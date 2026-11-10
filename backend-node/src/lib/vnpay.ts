@@ -14,16 +14,14 @@ export function buildVnpayUrl(p: {
   hashSecret: string;
   vnpUrl: string;
 }): string {
-  const now = new Date();
+  // VNPay đọc ngày giờ theo giờ Việt Nam (GMT+7) — không dùng giờ máy chủ (VPS/Docker thường để UTC → lệch 7 tiếng, báo quá hạn)
   const z = (n: number) => String(n).padStart(2, "0");
-  const createDate = [
-    now.getFullYear(),
-    z(now.getMonth() + 1),
-    z(now.getDate()),
-    z(now.getHours()),
-    z(now.getMinutes()),
-    z(now.getSeconds()),
-  ].join("");
+  const vnTime = (ms: number) => {
+    const d = new Date(ms + 7 * 3600_000);
+    return [d.getUTCFullYear(), z(d.getUTCMonth() + 1), z(d.getUTCDate()), z(d.getUTCHours()), z(d.getUTCMinutes()), z(d.getUTCSeconds())].join("");
+  };
+  const now = Date.now();
+  const createDate = vnTime(now);
 
   const params: Record<string, string> = {
     vnp_Version: "2.1.0",
@@ -38,6 +36,8 @@ export function buildVnpayUrl(p: {
     vnp_ReturnUrl: p.returnUrl,
     vnp_IpAddr: p.ipAddr,
     vnp_CreateDate: createDate,
+    // Link thanh toán hết hạn sau 15 phút
+    vnp_ExpireDate: vnTime(now + 15 * 60_000),
   };
 
   // Sort key alphabetically (bắt buộc của VNPay)

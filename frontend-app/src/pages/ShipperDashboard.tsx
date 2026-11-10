@@ -1,17 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { io, Socket } from "socket.io-client";
+import { Link, useSearchParams } from "react-router-dom";
+import { Socket } from "socket.io-client";
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
+import { Camera, CheckCircle2, ChevronDown, ChevronUp, Crosshair, MapPin, Navigation, Package, Phone, Power, RefreshCw, Store, X, XCircle, Bike } from "lucide-react";
+import { mediaUrl } from "../lib/api";
+import { ProofCamera, type ProofShot } from "../components/ProofCamera";
+import { getStaffInfo, staffApi, staffSocket as openStaffSocket, isAdminRole } from "../lib/staffApi";
 import {
-  Camera, CheckCircle2, ChevronDown, ChevronUp, Crosshair, MapPin, Navigation, Package,
-  Phone, Power, RefreshCw, Store, X, XCircle,
-} from "lucide-react";
-import { apiOrigin, mediaUrl } from "../lib/api";
-import { getStaffInfo, staffApi } from "../lib/staffApi";
-import {
-  compressImage, fetchRoadRoute, formatKm, formatVnd, googleMapsDir, haversineKm,
+  fetchRoadRoute, formatKm, formatVnd, googleMapsDir, haversineKm,
   meIcon, stopIcon, storeIcon, type LatLng,
 } from "../lib/delivery";
 
@@ -25,7 +23,6 @@ type ShipOrder = {
   customerLng: number | null;
   shippingFee: number;
   totalAmount: number;
-  codAmount: number;
   routeSeq: number | null;
   etaMinutes?: number;
   deliveredAt: string | null;
@@ -39,14 +36,18 @@ type MeData = {
   store: LatLng & { address: string | null };
   orders: ShipOrder[];
   history: ShipOrder[];
-  stats: { deliveredToday: number; failedToday: number; shippingFeeToday: number; codToday: number };
+  stats: { deliveredToday: number; failedToday: number; shippingFeeToday: number; shippingFeeMonth: number };
 };
 
+/** Khớp FAIL_REASONS ở backend (lib/points.ts): lỗi quán/shipper → khách được hoàn 100% ra điểm ngay; còn lại → quản lý quyết định */
 const FAIL_REASONS = [
-  "Không liên lạc được khách",
-  "Khách từ chối nhận hàng",
-  "Sai địa chỉ / không tìm thấy",
-  "Hàng bị đổ vỡ",
+  { code: "NO_ANSWER", label: "Không liên lạc được khách" },
+  { code: "CUSTOMER_REFUSED", label: "Khách đổi ý, không nhận hàng" },
+  { code: "WRONG_ADDRESS", label: "Sai địa chỉ / vị trí" },
+  { code: "DAMAGED", label: "Hàng bị đổ / hỏng" },
+  { code: "SHIPPER_INCIDENT", label: "Shipper gặp sự cố" },
+  { code: "LATE", label: "Giao quá trễ, khách từ chối nhận" },
+  { code: "OTHER", label: "Lý do khác" },
 ];
 
 function beep() {
@@ -90,12 +91,16 @@ function Recenter({ to, nonce }: { to: LatLng | null; nonce: number }) {
 
 export function ShipperDashboard() {
   const info = getStaffInfo();
-  const allowed = !!info && ["Shipper", "Admin", "Manager"].includes(info.role);
+  const allowed = !!info && (info.role === "Shipper" || isAdminRole(info.role));
 
   const [data, setData] = useState<MeData | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [tab, setTab] = useState<"now" | "history">("now");
+  // Tab theo ?view= để khớp thanh điều hướng đáy (Đơn giao / Bản đồ tuyến / Lịch sử giao)
+  const [params, setParams] = useSearchParams();
+  const view = params.get("view");
+  const tab: "now" | "history" = view === "history" ? "history" : "now";
+  const setTab = (t: "now" | "history") => setParams(t === "history" ? { view: "history" } : {}, { replace: true });
   const [busy, setBusy] = useState(false);
   const [gps, setGps] = useState<(LatLng & { acc: number }) | null>(null);
   const [gpsErr, setGpsErr] = useState<string | null>(null);
@@ -125,7 +130,7 @@ export function ShipperDashboard() {
   useEffect(() => {
     if (!allowed || !info) return;
     void load();
-    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"] });
+    const socket: Socket = openStaffSocket();
     socket.emit("join", `staff_${info.id}`);
     socket.on("shipper:new_order", (p: { orderId: number }) => {
       setAlertOrder(p.orderId);
@@ -239,7 +244,6 @@ export function ShipperDashboard() {
     ...orders.filter((o) => o.customerLat != null).map((o) => ({ lat: o.customerLat!, lng: o.customerLng! })),
   ];
   const nextStop = delivering[0];
-  const totalCod = orders.reduce((s, o) => s + o.codAmount, 0);
 
   return (
     <div className="sp-app">
@@ -263,7 +267,7 @@ export function ShipperDashboard() {
       </div>
 
       {/* ── Bản đồ ── */}
-      <div className="sp-map">
+      <div className={view === "map" ? "sp-map sp-map-tall" : "sp-map"}>
         {store && (
           <MapContainer center={[store.lat, store.lng]} zoom={15} zoomControl={false} style={{ height: "100%", width: "100%" }}>
             <TileLayer attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
@@ -300,8 +304,8 @@ export function ShipperDashboard() {
       <div className="sp-sheet">
         <div className="sp-stats">
           <div><b>{data?.stats.deliveredToday ?? 0}</b><span>Đơn đã giao</span></div>
-          <div><b>{formatVnd(data?.stats.shippingFeeToday ?? 0)}</b><span>Phí ship</span></div>
-          <div><b>{formatVnd(data?.stats.codToday ?? 0)}</b><span>COD đã thu</span></div>
+          <div><b>{formatVnd(data?.stats.shippingFeeToday ?? 0)}</b><span>Phí ship hôm nay</span></div>
+          <div><b>{formatVnd(data?.stats.shippingFeeMonth ?? 0)}</b><span>Phí ship tháng (cộng lương)</span></div>
         </div>
 
         <div className="sp-tabs" role="tablist">
@@ -335,10 +339,6 @@ export function ShipperDashboard() {
               </div>
             ) : (
               <div className="sp-list">
-                {totalCod > 0 && (
-                  <div className="sp-cod-banner">Tổng tiền thu hộ (COD) chuyến này: <b>{formatVnd(totalCod)}</b></div>
-                )}
-
                 {toPickup.length > 0 && store && (
                   <div className="sp-card sp-card-pickup">
                     <div className="sp-card-head">
@@ -355,7 +355,7 @@ export function ShipperDashboard() {
                         <li key={o.id}>
                           <span>#{o.id}</span>
                           <span>{o.details.reduce((s, d) => s + d.quantity, 0)} món</span>
-                          <span>{o.codAmount > 0 ? `Thu ${formatVnd(o.codAmount)}` : "Đã trả online"}</span>
+                          <span>Phí ship {o.shippingFee > 0 ? formatVnd(o.shippingFee) : "0 đ"}</span>
                         </li>
                       ))}
                     </ul>
@@ -388,7 +388,7 @@ export function ShipperDashboard() {
                           <div className="sp-sub sp-addr"><MapPin size={13} /> {o.deliveryAddress}</div>
                         </div>
                         <div className="sp-right">
-                          {o.codAmount > 0 ? <span className="sp-pill sp-pill-cod">Thu {formatVnd(o.codAmount)}</span> : <span className="sp-pill sp-pill-paid">Đã trả</span>}
+                          <span className="sp-pill sp-pill-paid">Đã trả</span>
                           {here && dest && <span className="sp-sub">{formatKm(haversineKm(here, dest))}</span>}
                           {!isNext && (open ? <ChevronUp size={16} /> : <ChevronDown size={16} />)}
                         </div>
@@ -472,7 +472,7 @@ export function ShipperDashboard() {
       {alertOrder && (
         <div className="sp-overlay" role="alertdialog" aria-label="Đơn mới">
           <div className="sp-alert">
-            <div className="sp-alert-icon">🛵</div>
+            <div className="sp-alert-icon"><Bike size={40} aria-hidden /></div>
             <h3>Bạn có đơn mới #{alertOrder}</h3>
             <p>Hệ thống đã gán đơn cho bạn. Hãy đến quán lấy hàng.</p>
             <button type="button" className="sp-btn sp-btn-primary sp-btn-block" onClick={() => setAlertOrder(null)}>Đã hiểu</button>
@@ -484,9 +484,9 @@ export function ShipperDashboard() {
         <ProofSheet
           order={proofFor}
           onClose={() => setProofFor(null)}
-          onDone={async (cod) => {
+          onDone={async (fee) => {
             setProofFor(null);
-            flash(cod > 0 ? `Giao thành công · đã thu ${formatVnd(cod)}` : "Giao thành công!");
+            flash(fee > 0 ? `Giao thành công · +${formatVnd(fee)} phí ship` : "Giao thành công!");
             await load();
           }}
         />
@@ -509,32 +509,24 @@ export function ShipperDashboard() {
 }
 
 /* ═══════════ Bottom sheet: chụp ảnh xác nhận đã giao ═══════════ */
-function ProofSheet({ order, onClose, onDone }: { order: ShipOrder; onClose: () => void; onDone: (cod: number) => void }) {
-  const [photo, setPhoto] = useState<string | null>(null);
+function ProofSheet({ order, onClose, onDone }: { order: ShipOrder; onClose: () => void; onDone: (shippingFee: number) => void }) {
+  // Ảnh chụp trực tiếp bằng camera trong app (không chọn từ thư viện), đóng dấu giờ + địa điểm
+  const [shot, setShot] = useState<ProofShot | null>(null);
+  const [camOpen, setCamOpen] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  async function onFile(f: File | undefined) {
-    if (!f) return;
-    try {
-      setPhoto(await compressImage(f));
-      setErr(null);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Không đọc được ảnh");
-    }
-  }
+  const photo = shot?.dataUrl ?? null;
 
   async function submit() {
-    if (!photo) return setErr("Vui lòng chụp ảnh xác nhận");
+    if (!shot) return setErr("Vui lòng chụp ảnh xác nhận");
     setBusy(true);
     try {
-      const r = await staffApi<{ codCollected: number }>(`/api/shipper/orders/${order.id}/deliver`, {
+      const r = await staffApi<{ shippingFeeEarned: number }>(`/api/shipper/orders/${order.id}/deliver`, {
         method: "POST",
-        body: JSON.stringify({ photo, note }),
+        body: JSON.stringify({ photo: shot.dataUrl, proof: shot.proof, note }),
       });
-      onDone(r.codCollected);
+      onDone(r.shippingFeeEarned);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Lỗi");
       setBusy(false);
@@ -548,23 +540,26 @@ function ProofSheet({ order, onClose, onDone }: { order: ShipOrder; onClose: () 
           <strong>Xác nhận giao đơn #{order.id}</strong>
           <button type="button" className="sp-x" onClick={onClose} disabled={busy} aria-label="Đóng"><X size={20} /></button>
         </div>
-        {order.codAmount > 0 ? (
-          <div className="sp-cod-big">Thu của khách <b>{formatVnd(order.codAmount)}</b></div>
-        ) : (
-          <div className="sp-paid-big">Khách đã thanh toán online — không thu tiền</div>
+        <div className="sp-paid-big">Khách đã thanh toán online — không thu tiền</div>
+        {camOpen && (
+          <ProofCamera
+            context={`Đơn #${order.id} · Shipper ${getStaffInfo()?.fullName ?? ""}`}
+            onClose={() => setCamOpen(false)}
+            onCapture={(s) => { setShot(s); setCamOpen(false); setErr(null); }}
+          />
         )}
-        <input ref={inputRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => void onFile(e.target.files?.[0])} />
         {photo ? (
           <div className="sp-photo">
             <img src={photo} alt="Ảnh xác nhận" />
-            <button type="button" className="sp-btn sp-btn-ghost" onClick={() => inputRef.current?.click()} disabled={busy}>
+            <button type="button" className="sp-btn sp-btn-ghost" onClick={() => setCamOpen(true)} disabled={busy}>
               <Camera size={16} /> Chụp lại
             </button>
           </div>
         ) : (
-          <button type="button" className="sp-photo-empty" onClick={() => inputRef.current?.click()}>
+          <button type="button" className="sp-photo-empty" onClick={() => setCamOpen(true)}>
             <Camera size={32} />
             <span>Chụp ảnh hàng đã giao / giao cho khách</span>
+            <small>Chụp trực tiếp · ảnh tự in giờ và địa điểm</small>
           </button>
         )}
         <input className="input" placeholder="Ghi chú (tuỳ chọn): để ở bảo vệ, giao tận tay…" value={note} onChange={(e) => setNote(e.target.value)} />
@@ -579,17 +574,16 @@ function ProofSheet({ order, onClose, onDone }: { order: ShipOrder; onClose: () 
 
 /* ═══════════ Bottom sheet: giao thất bại ═══════════ */
 function FailSheet({ order, onClose, onDone }: { order: ShipOrder; onClose: () => void; onDone: () => void }) {
-  const [reason, setReason] = useState(FAIL_REASONS[0]);
+  const [reason, setReason] = useState(FAIL_REASONS[0].code);
   const [custom, setCustom] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   async function submit() {
-    const r = reason === "other" ? custom.trim() : reason;
-    if (!r) return setErr("Nhập lý do");
+    if (reason === "OTHER" && !custom.trim()) return setErr("Nhập lý do");
     setBusy(true);
     try {
-      await staffApi(`/api/shipper/orders/${order.id}/fail`, { method: "POST", body: JSON.stringify({ reason: r }) });
+      await staffApi(`/api/shipper/orders/${order.id}/fail`, { method: "POST", body: JSON.stringify({ reasonCode: reason, reason: custom.trim() || undefined }) });
       onDone();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Lỗi");
@@ -606,13 +600,13 @@ function FailSheet({ order, onClose, onDone }: { order: ShipOrder; onClose: () =
         </div>
         <p className="sp-sub" style={{ margin: 0 }}>Hãy gọi cho khách ít nhất 2 lần trước khi báo thất bại.</p>
         <div className="sp-reasons">
-          {[...FAIL_REASONS, "other"].map((r) => (
-            <button key={r} type="button" className={reason === r ? "active" : ""} onClick={() => setReason(r)}>
-              {r === "other" ? "Lý do khác" : r}
+          {FAIL_REASONS.map((r) => (
+            <button key={r.code} type="button" className={reason === r.code ? "active" : ""} onClick={() => setReason(r.code)}>
+              {r.label}
             </button>
           ))}
         </div>
-        {reason === "other" && <input className="input" placeholder="Nhập lý do…" value={custom} onChange={(e) => setCustom(e.target.value)} />}
+        <input className="input" placeholder={reason === "OTHER" ? "Nhập lý do…" : "Ghi chú thêm (tuỳ chọn)"} value={custom} onChange={(e) => setCustom(e.target.value)} />
         {err && <div className="sp-error">{err}</div>}
         <button type="button" className="sp-btn sp-btn-danger sp-btn-block" onClick={submit} disabled={busy}>
           {busy ? "Đang gửi…" : "Xác nhận giao thất bại"}

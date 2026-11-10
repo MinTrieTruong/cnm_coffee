@@ -1,41 +1,21 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
-import { setSession, setGuestMode, setTableId, setTakeawaySessionId } from "../lib/session";
+import { safeNext, setSession, setGuestMode } from "../lib/session";
+import { PasswordInput } from "../components/PasswordInput";
+import { SocialButtons, useSocialSignIn } from "../components/site/SocialLogin";
+import { useLang } from "../lib/i18n";
 
 export function Welcome() {
+  const { t } = useLang();
   const nav = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [params] = useSearchParams();
+  const next = safeNext(params.get("next"));
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    const t = searchParams.get("idtable") || searchParams.get("table");
-    const sid = searchParams.get("sid");
-    const qrType = searchParams.get("type");
-
-    if (qrType === "takeaway" && !sid) {
-      setTakeawaySessionId(crypto.randomUUID());
-      setTableId(null);
-      return;
-    }
-
-    if (sid?.trim()) {
-      setTakeawaySessionId(sid.trim());
-      setTableId(null);
-      return;
-    }
-
-    if (t) {
-      const n = Number(t);
-      if (!Number.isNaN(n)) {
-        setTableId(n);
-        setTakeawaySessionId(null);
-      }
-    }
-  }, [searchParams]);
+  const onSocial = useSocialSignIn(next);
 
   async function onLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -47,9 +27,9 @@ export function Welcome() {
         { method: "POST", body: JSON.stringify({ login, password }) },
       );
       setSession(data.token, data.user);
-      nav("/menu", { replace: true });
+      nav(next, { replace: true });
     } catch (e2) {
-      setErr(e2 instanceof Error ? e2.message : "Đăng nhập thất bại");
+      setErr(e2 instanceof Error ? e2.message : t("Đăng nhập thất bại"));
     } finally {
       setLoading(false);
     }
@@ -64,14 +44,9 @@ export function Welcome() {
     <div className="auth-page">
       <div className="auth-content">
         <div style={{ textAlign: "center", marginBottom: "2rem" }}>
-          <div className="badge" style={{ marginBottom: "1rem", background: "rgba(146,64,14,0.2)", border: "1px solid rgba(146,64,14,0.4)" }}>
-            Quét mã QR — Đặt món tại bàn
-          </div>
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "2.5rem", margin: "0 0 0.5rem", color: "var(--text)" }}>
-            TD Coffee
-          </h1>
+          <h1 className="c-auth-title">{t("Đăng nhập")}</h1>
           <p style={{ color: "var(--text)", margin: 0, fontSize: "0.95rem" }}>
-            Đăng nhập để tích điểm & lưu món quen
+            {t("Tích điểm mỗi đơn, lưu món quen, nhận voucher riêng")}
           </p>
         </div>
 
@@ -79,7 +54,7 @@ export function Welcome() {
           <form onSubmit={onLogin}>
             <div className="field">
               <label className="label" style={{ color: "var(--muted)" }} htmlFor="login">
-                Số điện thoại hoặc Email
+                {t("Số điện thoại hoặc Email")}
               </label>
               <input
                 id="login"
@@ -94,12 +69,11 @@ export function Welcome() {
             </div>
             <div className="field" style={{ marginBottom: "1.5rem" }}>
               <label className="label" style={{ color: "var(--muted)" }} htmlFor="password">
-                Mật khẩu
+                {t("Mật khẩu")}
               </label>
-              <input
+              <PasswordInput
                 id="password"
                 className="input"
-                type="password"
                 autoComplete="current-password"
                 placeholder="••••••••"
                 value={password}
@@ -109,28 +83,25 @@ export function Welcome() {
             </div>
             {err && <p style={{ color: "#b91c1c", fontSize: "0.9rem", margin: "0 0 1rem" }}>{err}</p>}
             <button type="submit" className="auth-btn" disabled={loading}>
-              {loading ? "Đang đăng nhập…" : "Đăng nhập"}
+              {loading ? t("Đang đăng nhập…") : t("Đăng nhập")}
             </button>
           </form>
 
-          <p style={{ textAlign: "center", color: "var(--muted)", margin: "1.5rem 0 1rem", fontSize: "0.9rem" }}>
-            Chưa có tài khoản?{" "}
-            <Link to="/register" style={{ color: "var(--accent)", fontWeight: 600 }}>Đăng ký</Link>
-          </p>
-
-          <div style={{ position: "relative", textAlign: "center", margin: "1.5rem 0" }}>
-            <div style={{ position: "absolute", top: "50%", left: 0, right: 0, borderTop: "1px dashed var(--border)" }} />
-            <span style={{ background: "var(--surface2)", padding: "0 10px", position: "relative", fontSize: "0.8rem", color: "var(--muted)", textTransform: "uppercase" }}>Hoặc</span>
-          </div>
+          <SocialButtons onToken={onSocial} divider googleText="continue_with" />
 
           <button type="button" className="ghost-btn" onClick={onGuest}>
-            Tiếp tục không đăng nhập
+            {t("Tiếp tục không đăng nhập")}
           </button>
+
+          <p style={{ textAlign: "center", color: "var(--muted)", margin: "1.5rem 0 0", fontSize: "0.9rem" }}>
+            {t("Chưa có tài khoản?")}{" "}
+            <Link to={params.get("next") ? `/register?next=${encodeURIComponent(next)}` : "/register"} style={{ color: "var(--accent)", fontWeight: 600 }}>{t("Đăng ký")}</Link>
+          </p>
         </div>
 
         <footer style={{ textAlign: "center", marginTop: "2rem" }}>
           <Link to="/staff/login" style={{ color: "var(--muted)", fontSize: "0.85rem", textDecoration: "none" }}>
-            Dành cho Nhân sự
+            {t("Dành cho Nhân sự")}
           </Link>
         </footer>
       </div>

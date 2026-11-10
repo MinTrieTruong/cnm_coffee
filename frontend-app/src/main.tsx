@@ -3,8 +3,18 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "leaflet/dist/leaflet.css";
 import "./index.css";
+import "./styles/tokens.css";
+import "./styles/customer-tokens.css";
+import "./styles/base.css";
+import "./styles/bottomnav.css";
+import "./styles/tasks.css";
+import "./styles/notifications.css";
 import "./delivery.css";
 import L from "leaflet";
+import { consumeQrLink } from "./lib/qrEntry";
+
+// Khách quét QR bàn / mang về → gán ngữ cảnh đặt món rồi vào thẳng thực đơn
+consumeQrLink();
 
 // Global fix for Leaflet marker icon paths in Vite
 delete (L.Icon.Default.prototype as any)._getIconUrl;

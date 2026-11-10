@@ -1,7 +1,19 @@
+import { io, type Socket } from "socket.io-client";
 import { mapFetchError } from "./net";
-import { apiBase } from "./api";
+import { apiBase, apiOrigin } from "./api";
 
 const STAFF_TOKEN_KEY = "cmn_staff_token";
+/** Chi nhánh Owner đang chọn (nhân viên thường luôn làm ở chi nhánh của mình) */
+const OWNER_STORE_KEY = "cmn_staff_store";
+
+export type StaffInfo = {
+  id: number;
+  role: string;
+  fullName?: string;
+  storeId?: number | null;
+  storeName?: string | null;
+  avatarUrl?: string | null;
+};
 
 export function getStaffToken(): string | null {
   return localStorage.getItem(STAFF_TOKEN_KEY);
@@ -10,13 +22,76 @@ export function getStaffToken(): string | null {
 export function clearStaffSession() {
   localStorage.removeItem(STAFF_TOKEN_KEY);
   localStorage.removeItem("cmn_staff_info");
+  localStorage.removeItem(OWNER_STORE_KEY);
 }
 
-export function getStaffInfo(): { id: number; role: string; fullName?: string } | null {
+export function getStaffInfo(): StaffInfo | null {
   const raw = localStorage.getItem("cmn_staff_info");
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as { id: number; role: string; fullName?: string };
+    return JSON.parse(raw) as StaffInfo;
+  } catch {
+    return null;
+  }
+}
+
+export function isOwnerRole(role: string | undefined) {
+  return role === "Owner";
+}
+
+/** Quản lý chi nhánh hoặc Chủ chuỗi (Owner có mọi quyền của Admin) */
+export function isAdminRole(role: string | undefined) {
+  return role === "Admin" || role === "Owner";
+}
+
+/** Owner: chi nhánh đang chọn, `null` = tất cả chi nhánh. */
+export function getOwnerStore(): number | null {
+  const n = Number(localStorage.getItem(OWNER_STORE_KEY));
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+export function setOwnerStore(storeId: number | null) {
+  if (storeId == null) localStorage.removeItem(OWNER_STORE_KEY);
+  else localStorage.setItem(OWNER_STORE_KEY, String(storeId));
+}
+
+/** Chi nhánh đang làm việc của phiên nhân sự hiện tại. */
+export function activeStoreId(): number | null {
+  const info = getStaffInfo();
+  if (!info) return null;
+  return isOwnerRole(info.role) ? getOwnerStore() : info.storeId ?? null;
+}
+
+function setStoreHeader(headers: Headers) {
+  const info = getStaffInfo();
+  const sid = getOwnerStore();
+  if (isOwnerRole(info?.role) && sid != null) headers.set("X-Store-Id", String(sid));
+}
+
+/**
+ * Socket cho màn hình nhân sự: gửi token để server cho vào phòng của chi nhánh
+ * (client vẫn `emit("join", "pos" | "kds" | "staff" | "admin_room")` như cũ).
+ */
+export function staffSocket(): Socket {
+  const info = getStaffInfo();
+  return io(apiOrigin(), {
+    transports: ["websocket", "polling"],
+    auth: {
+      token: getStaffToken(),
+      ...(isOwnerRole(info?.role) && getOwnerStore() != null ? { storeId: getOwnerStore() } : {}),
+    },
+  });
+}
+
+/** Tải ảnh cần đăng nhập (vd. ảnh chụp lúc đăng ký FaceID) → object URL để gắn vào <img>; null nếu không có / không được xem */
+export async function staffBlobUrl(path: string): Promise<string | null> {
+  const headers = new Headers();
+  const t = getStaffToken();
+  if (t) headers.set("Authorization", `Bearer ${t}`);
+  setStoreHeader(headers);
+  try {
+    const res = await fetch(`${apiBase()}${path}`, { headers });
+    return res.ok ? URL.createObjectURL(await res.blob()) : null;
   } catch {
     return null;
   }
@@ -24,9 +99,11 @@ export function getStaffInfo(): { id: number; role: string; fullName?: string } 
 
 export async function staffApi<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
-  headers.set("Content-Type", "application/json");
+  // Gửi tệp (FormData): để trình duyệt tự đặt multipart + boundary
+  if (!(init?.body instanceof FormData)) headers.set("Content-Type", "application/json");
   const t = getStaffToken();
   if (t) headers.set("Authorization", `Bearer ${t}`);
+  setStoreHeader(headers);
   const base = apiBase();
   let res: Response;
   try {
@@ -42,13 +119,20 @@ export async function staffApi<T>(path: string, init?: RequestInit): Promise<T> 
       throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
     }
     let msg = res.statusText;
+    const extra: { status: number; data?: unknown; fields?: Record<string, string>; rows?: Record<number, Record<string, string>> } = { status: res.status };
     try {
-      const j = (await res.json()) as { error?: string };
+      const j = (await res.json()) as { error?: string; reason?: string; fields?: Record<string, string>; rows?: Record<number, Record<string, string>> };
+      extra.data = j;
       if (j.error) msg = j.error;
+      // Tính năng AI tạm tắt / lỗi: { unavailable, reason }
+      else if (j.reason) msg = j.reason;
+      if (j.fields) extra.fields = j.fields;
+      if (j.rows) extra.rows = j.rows;
     } catch {
       /* ignore */
     }
-    throw new Error(msg);
+    // `status`: mã HTTP; `data`: body lỗi (VD ảnh đã lưu khi AI tắt); `fields`: lỗi theo từng ô của form (vd pop up); `rows`: lỗi theo từng dòng của bảng (vd nút liên hệ)
+    throw Object.assign(new Error(msg), extra);
   }
   if (res.status === 204) return undefined as T;
   const ct = res.headers.get("Content-Type") ?? "";
@@ -61,6 +145,7 @@ export async function staffDownloadBlob(path: string): Promise<Blob> {
   const t = getStaffToken();
   const headers = new Headers();
   if (t) headers.set("Authorization", `Bearer ${t}`);
+  setStoreHeader(headers);
   const base = apiBase();
   let res: Response;
   try {

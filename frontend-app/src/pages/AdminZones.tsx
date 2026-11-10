@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { staffApi } from "../lib/staffApi";
+import { TableShape } from "../components/TableShape";
 
 type Zone = { id: number; name: string; isActive: boolean };
 type Table = { id: number; name: string; location: string | null; capacity: number; status: string; zoneId: number | null; zone: Zone | null };
@@ -172,6 +173,25 @@ export function AdminZones() {
               <div className="field">
                 <label className="label">Vị trí (Mô tả)</label>
                 <input className="input" value={tableForm.location} onChange={e => setTableForm({ ...tableForm, location: e.target.value })} />
+              </div>
+              <div className="field">
+                <label className="label">Sức chứa (ghế)</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={12}
+                  style={{ width: 90 }}
+                  value={tableForm.capacity}
+                  onChange={e => setTableForm({ ...tableForm, capacity: Math.min(12, Math.max(1, Number(e.target.value) || 1)) })}
+                />
+              </div>
+              {/* Xem trước hình bàn trên sơ đồ — số ghế đổi theo sức chứa */}
+              <div className="field" aria-label={`Xem trước bàn ${tableForm.capacity} ghế`}>
+                <span className="label">Xem trước</span>
+                <TableShape seats={tableForm.capacity} className="table-tile-empty" scale={1}>
+                  <span className="table-shape-num">{tableForm.name.replace("Bàn ", "") || "?"}</span>
+                </TableShape>
               </div>
             </div>
             <div style={{ marginTop: "1rem", display: "flex", gap: "0.5rem" }}>

@@ -5,7 +5,7 @@ import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { ArrowLeft, Check, ChefHat, Clock, MapPin, Phone, Receipt, Store, Truck } from "lucide-react";
-import { api, apiOrigin, mediaUrl } from "../lib/api";
+import { api, apiOrigin, mediaUrl, orderSocketAuth } from "../lib/api";
 import {
   deliveryLabel, fetchRoadRoute, formatVnd, homeIcon, riderIcon, storeIcon, type LatLng,
 } from "../lib/delivery";
@@ -27,7 +27,11 @@ type Tracking = {
   subTotal: number;
   shippingFee: number;
   totalAmount: number;
-  codAmount: number;
+  refundStatus: string | null;
+  refundPoints: number;
+  /** Còn được tự hủy tới lúc nào (null = không) và số điểm sẽ nhận lại */
+  cancelUntil: string | null;
+  refundPreview: number | null;
 };
 
 const STEPS = [
@@ -90,6 +94,8 @@ export function OrderTracking() {
   const [road, setRoad] = useState<[number, number][] | null>(null);
   const [showItems, setShowItems] = useState(false);
   const loadedOnce = useRef(false);
+  const [cancelLeft, setCancelLeft] = useState(0);
+  const [cancelling, setCancelling] = useState(false);
 
   const load = useCallback(async () => {
     if (Number.isNaN(orderId)) return;
@@ -107,7 +113,7 @@ export function OrderTracking() {
   useEffect(() => {
     void load();
     if (Number.isNaN(orderId)) return;
-    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"] });
+    const socket: Socket = io(apiOrigin(), { transports: ["websocket", "polling"], auth: orderSocketAuth() });
     const join = () => socket.emit("join", `tracking:${orderId}`);
     join();
     socket.on("connect", join);
@@ -155,6 +161,35 @@ export function OrderTracking() {
     else p.push(t.store);
     return p;
   }, [t, dest, showRider, rider]);
+
+  // Đếm ngược thời gian còn được tự hủy
+  const cancelUntil = t?.cancelUntil ?? null;
+  useEffect(() => {
+    if (!cancelUntil) { setCancelLeft(0); return; }
+    const end = new Date(cancelUntil).getTime();
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+      setCancelLeft(left);
+      return left;
+    };
+    tick();
+    const iv = window.setInterval(() => { if (tick() <= 0) { window.clearInterval(iv); void load(); } }, 1000);
+    return () => window.clearInterval(iv);
+  }, [cancelUntil, load]);
+
+  async function cancelOrder() {
+    if (!t?.refundPreview) return;
+    if (!window.confirm(`Hủy đơn #${t.id}? Số tiền đã thanh toán được hoàn 100% thành ${t.refundPreview.toLocaleString("vi-VN")} điểm.`)) return;
+    setCancelling(true);
+    try {
+      await api(`/api/orders/${t.id}/cancel`, { method: "POST", body: "{}" });
+      await load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Không hủy được đơn");
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   if (err && !t) {
     return (
@@ -222,10 +257,20 @@ export function OrderTracking() {
         {(t.deliveryStatus === "Failed" || t.deliveryStatus === "Rejected") && t.deliveryNote && (
           <div className="tk-alert">Lý do: {t.deliveryNote}</div>
         )}
+        {t.refundStatus === "Refunded" && (
+          <div className="tk-note tk-note-ok">Đã hoàn {t.refundPoints.toLocaleString("vi-VN")} điểm vào tài khoản của bạn để dùng cho lần mua sau.</div>
+        )}
+        {t.refundStatus === "Pending" && <div className="tk-note">Quán đang xem xét hoàn tiền cho đơn này.</div>}
+        {t.refundStatus === "Declined" && <div className="tk-note">Đơn này không được hoàn tiền.</div>}
+        {t.cancelUntil && t.refundPreview != null && cancelLeft > 0 && (
+          <button type="button" className="btn btn-ghost tk-cancel" disabled={cancelling} onClick={() => void cancelOrder()}>
+            Hủy đơn, nhận lại {t.refundPreview.toLocaleString("vi-VN")} điểm · còn {Math.floor(cancelLeft / 60)}:{String(cancelLeft % 60).padStart(2, "0")}
+          </button>
+        )}
 
         {t.shipper && !["Rejected"].includes(t.deliveryStatus ?? "") && (
           <div className="tk-rider">
-            <div className="tk-rider-ava">🛵</div>
+            <div className="tk-rider-ava" aria-hidden>{t.shipper.fullName.trim().charAt(0).toUpperCase()}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <strong>{t.shipper.fullName}</strong>
               <div className="tk-sub">
@@ -268,14 +313,14 @@ export function OrderTracking() {
             ))}
             <div className="tk-sub"><span>Phí giao hàng</span><span>{t.shippingFee ? formatVnd(t.shippingFee) : "Miễn phí"}</span></div>
             <div className="tk-total">
-              <span>{t.codAmount > 0 ? "Thanh toán khi nhận hàng" : "Đã thanh toán"}</span>
-              <span>{formatVnd(t.codAmount > 0 ? t.codAmount : t.totalAmount)}</span>
+              <span>{t.status === "Paid" ? "Đã thanh toán" : "Chưa thanh toán"}</span>
+              <span>{formatVnd(t.totalAmount)}</span>
             </div>
           </div>
         )}
 
         {t.deliveryStatus === null && (
-          <Link to={`/order/${t.id}/checkout`} className="btn btn-primary btn-block" style={{ borderRadius: 999, marginTop: "0.75rem" }}>
+          <Link to={`/order/${t.id}/checkout`} className="btn btn-primary btn-block" style={{ borderRadius: 4, marginTop: "0.75rem" }}>
             Tiếp tục thanh toán
           </Link>
         )}

@@ -1,8 +1,12 @@
+import { useSyncExternalStore } from "react";
 const TOKEN_KEY = "cmn_token";
 const USER_KEY = "cmn_user";
 const GUEST_KEY = "cmn_guest";
 const TABLE_KEY = "cmn_table_id";
 const TAKEAWAY_SESSION_KEY = "cmn_takeaway_session_id";
+/** Thời điểm quét QR / gán bàn — bàn và phiên mang về tự hết hạn để lần ghé sau không dính bàn cũ */
+const ORDER_CTX_AT_KEY = "cmn_order_ctx_at";
+const ORDER_CTX_TTL_MS = 4 * 60 * 60 * 1000;
 
 /** Theo API /api/auth sau đăng nhập khách */
 export type SessionUser = {
@@ -18,14 +22,24 @@ export type SessionUser = {
   avatarUrl?: string | null;
 };
 
+/** Trang quay lại sau khi đăng nhập/đăng ký (?next=/game/1) — chỉ nhận đường dẫn nội bộ */
+export function safeNext(raw: string | null, fallback = "/menu") {
+  return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : fallback;
+}
+
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
+
+/** Sự kiện báo phiên khách đổi (đăng nhập, đăng xuất, đổi tên / ảnh đại diện) → header, chat, đánh giá cập nhật ngay */
+export const SESSION_EVENT = "cmn:session";
+const emitSession = () => window.dispatchEvent(new Event(SESSION_EVENT));
 
 export function setSession(token: string, user: SessionUser) {
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
   localStorage.removeItem(GUEST_KEY);
+  emitSession();
 }
 
 /** Cập nhật điểm / hạng sau khi gọi API (ví dụ GET /api/auth/me). */
@@ -34,12 +48,14 @@ export function mergeSessionUser(updates: Partial<SessionUser>) {
   const u = getUser();
   if (!t || !u) return;
   localStorage.setItem(USER_KEY, JSON.stringify({ ...u, ...updates }));
+  emitSession();
 }
 
 export function clearSession() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
   localStorage.removeItem(GUEST_KEY);
+  emitSession();
 }
 
 export function getUser(): SessionUser | null {
@@ -56,31 +72,86 @@ export function setGuestMode() {
   localStorage.setItem(GUEST_KEY, "1");
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  emitSession();
+}
+
+/* Ảnh chụp phiên ổn định cho useSyncExternalStore: chỉ tạo object mới khi chuỗi lưu trữ đổi */
+let snapRaw: string | null | undefined;
+let snapUser: SessionUser | null = null;
+function sessionSnapshot(): SessionUser | null {
+  const raw = isGuestMode() ? null : localStorage.getItem(USER_KEY);
+  if (raw !== snapRaw) {
+    snapRaw = raw;
+    snapUser = raw ? getUser() : null;
+  }
+  return snapUser;
+}
+function subscribeSession(cb: () => void) {
+  window.addEventListener(SESSION_EVENT, cb);
+  window.addEventListener("storage", cb);
+  return () => {
+    window.removeEventListener(SESSION_EVENT, cb);
+    window.removeEventListener("storage", cb);
+  };
+}
+/** Khách đang đăng nhập (null = khách vãng lai), tự cập nhật khi phiên đổi */
+export function useSessionUser(): SessionUser | null {
+  return useSyncExternalStore(subscribeSession, sessionSnapshot, () => null);
 }
 
 export function isGuestMode(): boolean {
   return localStorage.getItem(GUEST_KEY) === "1";
 }
 
+function touchOrderCtx() {
+  localStorage.setItem(ORDER_CTX_AT_KEY, String(Date.now()));
+}
+
+function orderCtxExpired(): boolean {
+  const at = Number(localStorage.getItem(ORDER_CTX_AT_KEY));
+  return !at || Date.now() - at > ORDER_CTX_TTL_MS;
+}
+
 export function setTableId(id: number | null) {
   if (id == null) localStorage.removeItem(TABLE_KEY);
-  else localStorage.setItem(TABLE_KEY, String(id));
+  else {
+    localStorage.setItem(TABLE_KEY, String(id));
+    touchOrderCtx();
+  }
 }
 
 export function getTableId(): number | null {
   const v = localStorage.getItem(TABLE_KEY);
   if (!v) return null;
+  if (orderCtxExpired()) {
+    localStorage.removeItem(TABLE_KEY);
+    return null;
+  }
   const n = Number(v);
-  return Number.isNaN(n) ? null : n;
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 export function setTakeawaySessionId(id: string | null) {
   const v = id?.trim();
   if (!v) localStorage.removeItem(TAKEAWAY_SESSION_KEY);
-  else localStorage.setItem(TAKEAWAY_SESSION_KEY, v);
+  else {
+    localStorage.setItem(TAKEAWAY_SESSION_KEY, v);
+    touchOrderCtx();
+  }
 }
 
 export function getTakeawaySessionId(): string | null {
   const v = localStorage.getItem(TAKEAWAY_SESSION_KEY);
-  return v && v.trim() ? v : null;
+  if (!v || !v.trim()) return null;
+  if (orderCtxExpired()) {
+    localStorage.removeItem(TAKEAWAY_SESSION_KEY);
+    return null;
+  }
+  return v;
+}
+
+/** crypto.randomUUID chỉ có trên HTTPS/localhost — demo qua IP LAN (http) cần dự phòng */
+export function newSessionId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `ta-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }

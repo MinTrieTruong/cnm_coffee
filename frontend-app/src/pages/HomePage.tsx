@@ -1,491 +1,540 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, mediaUrl, calculateFinalPrice, type HomePageResponse, type Category, type Product, type Combo } from "../lib/api";
-import { addToCart, addComboToCart } from "../lib/cart";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import { motion } from "framer-motion";
-import {
-  ShoppingCart,
-  ChevronDown,
-  Flame,
-  Star,
-  MapPin,
-  Phone,
-  Clock,
-  ArrowRight,
-  Zap,
-  Coffee,
-  Package,
-} from "lucide-react";
+import { ArrowRight, Check, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { api, mediaUrl, type HomePageResponse, type Product } from "../lib/api";
+import { useCustomerStore, withStore } from "../lib/customerStore";
+import { floorThousand, formatVnd, useMenuCategories, useMenuData, useSiteInfo } from "../lib/site";
+import { CategoryThumb, listPrice, NutritionTags, ProductCard, ProductImage, quickAdd, SectionHead, VoucherTicket, type PublicVoucher } from "../components/site/parts";
+import { useLang } from "../lib/i18n";
+import { WeatherPicks } from "../components/site/WeatherPicks";
+import { UsualHome } from "../components/site/UsualStrip";
+import { ArchImage, Divider, Eyebrow, Reveal, SiteImg, Skeleton, StatCounter, useHeroHeader } from "../components/site/lux";
+import type { PublicReviewRow } from "../components/site/ReviewItem";
+import { CustomerAvatar } from "../components/CustomerAvatar";
+import "../styles/customer-home.css";
 
-/* ── helpers ─────────────────────────────────────────────────── */
-function formatVnd(n: number) {
-  return new Intl.NumberFormat("vi-VN").format(n) + " đ";
-}
+type Banner = { id: number; imageUrl: string; title: string | null; subtitle: string | null; link: string | null };
+type Post = { id: number; title: string; body: string; imageUrl: string | null; createdAt: string };
+type ActiveGame = { id: number; name: string; description: string | null; minOrderValue: number; me: { tickets: number } | null };
+type SiteStats = { stores: number; products: number; cups: number; rating: number | null; reviews: number };
 
-// using calculateFinalPrice from api.ts instead
+const plain = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
-const STORE_LAT = 10.8406;
-const STORE_LNG = 106.6588;
+const BANNER_MS = 6000;
 
-const STORE_INFO = {
-  address: "114 Dương Quảng Hàm, Phường 5, Gò Vấp, TP.HCM",
-  phone: "0389730362",
-  hours: "7:00 – 22:00 hằng ngày",
-};
+/** Dải banner dưới hero: ảnh do quản lý tải lên (Website › Banner), tiêu đề trên thẻ nổi; tự chuyển 6 giây (dừng khi rê chuột), điện thoại vuốt ngang để đổi */
+function BannerCarousel({ banners }: { banners: Banner[] }) {
+  const nav = useNavigate();
+  const { t } = useLang();
+  const [i, setI] = useState(0);
+  const [hover, setHover] = useState(false);
+  /** Độ lệch (px) khi đang kéo bằng tay; null = không kéo */
+  const [dx, setDx] = useState<number | null>(null);
+  const drag = useRef<{ x: number; y: number; axis: "x" | "y" | null } | null>(null);
+  const moved = useRef(false);
+  const box = useRef<HTMLDivElement>(null);
+  const n = banners.length;
+  useEffect(() => {
+    if (i >= n) setI(0);
+  }, [i, n]);
+  // Hẹn giờ theo từng ảnh: bấm chấm / mũi tên / vuốt thì đếm lại 3 giây từ đầu
+  useEffect(() => {
+    if (n < 2 || hover || dx != null) return;
+    const tm = window.setTimeout(() => setI((x) => (x + 1) % n), BANNER_MS);
+    return () => window.clearTimeout(tm);
+  }, [i, n, hover, dx]);
+  if (!n) return null;
 
-/* ── Mega Menu ───────────────────────────────────────────────── */
-function MegaMenu({ categoryTree }: { categoryTree: Category[] }) {
-  const [open, setOpen] = useState<number | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function handleEnter(id: number) {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    setOpen(id);
+  function onTouchStart(e: React.TouchEvent) {
+    if (n < 2) return;
+    const p = e.touches[0];
+    drag.current = { x: p.clientX, y: p.clientY, axis: null };
+    moved.current = false;
   }
-  function handleLeave() {
-    timeoutRef.current = setTimeout(() => setOpen(null), 200);
+  function onTouchMove(e: React.TouchEvent) {
+    const d = drag.current;
+    if (!d) return;
+    const p = e.touches[0];
+    const mx = p.clientX - d.x, my = p.clientY - d.y;
+    if (!d.axis) {
+      if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
+      d.axis = Math.abs(mx) > Math.abs(my) ? "x" : "y";
+    }
+    if (d.axis === "x") {
+      moved.current = true;
+      setDx(mx);
+    }
   }
-
+  function onTouchEnd() {
+    const d = drag.current;
+    drag.current = null;
+    if (!d || d.axis !== "x" || dx == null) return setDx(null);
+    const width = box.current?.offsetWidth ?? 360;
+    if (Math.abs(dx) > Math.min(60, width * 0.2)) setI((x) => (dx < 0 ? (x + 1) % n : (x - 1 + n) % n));
+    setDx(null);
+  }
+  const go = (b: Banner) => {
+    if (!b.link) return;
+    if (/^https:/i.test(b.link)) window.open(b.link, "_blank", "noopener,noreferrer");
+    else nav(b.link);
+  };
   return (
-    <nav className="hp-megamenu" aria-label="Danh mục">
-      <div className="hp-megamenu-inner">
-        {categoryTree.map((root) => (
-          <div
-            key={root.id}
-            className="hp-megamenu-item"
-            onMouseEnter={() => handleEnter(root.id)}
-            onMouseLeave={handleLeave}
-          >
-            <button type="button" className="hp-megamenu-trigger">
-              {root.name}
-              {root.children && root.children.length > 0 && <ChevronDown size={14} />}
-            </button>
-            {root.children && root.children.length > 0 && open === root.id && (
-              <motion.div
-                initial={{ opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.18 }}
-                className="hp-megamenu-dropdown"
-                onMouseEnter={() => handleEnter(root.id)}
-                onMouseLeave={handleLeave}
-              >
-                {root.children.map((child) => (
-                  <div key={child.id} className="hp-megamenu-group">
-                    <Link to={`/menu`} className="hp-megamenu-group-title">
-                      {child.name}
-                    </Link>
-                    {child.children && child.children.length > 0 && (
-                      <ul className="hp-megamenu-sublist">
-                        {child.children.map((sub) => (
-                          <li key={sub.id}>
-                            <Link to={`/menu`} className="hp-megamenu-sublink">
-                              {sub.name}
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                ))}
-              </motion.div>
+    <div
+      ref={box}
+      className="c-banner"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchEnd}
+      // Vừa vuốt xong thì không tính là bấm "Xem ngay"
+      onClickCapture={(e) => { if (moved.current) { e.stopPropagation(); e.preventDefault(); moved.current = false; } }}
+      aria-roledescription="carousel"
+      aria-label={t("Chương trình nổi bật")}
+    >
+      <div
+        className={dx != null ? "c-banner-track is-dragging" : "c-banner-track"}
+        style={{ transform: dx != null ? `translateX(calc(-${i * 100}% + ${dx}px))` : `translateX(-${i * 100}%)` }}
+      >
+        {banners.map((b, k) => (
+          <div key={b.id} className="c-banner-slide" role="group" aria-roledescription="slide" aria-label={`${k + 1} / ${n}`} aria-hidden={k !== i}>
+            <img src={mediaUrl(b.imageUrl)} alt={b.title ?? ""} loading={k === 0 ? "eager" : "lazy"} />
+            {(b.title || b.subtitle) && (
+              <div className="c-banner-copy">
+                {b.title && <h2 className="c-banner-title">{b.title}</h2>}
+                {b.subtitle && <p className="c-banner-sub">{b.subtitle}</p>}
+                {b.link && <button type="button" className="c-btn" tabIndex={k === i ? 0 : -1} onClick={() => go(b)}>{t("Xem ngay")}</button>}
+              </div>
             )}
           </div>
         ))}
-        <Link to="/menu" className="hp-megamenu-trigger hp-megamenu-all">
-          Xem tất cả <ArrowRight size={14} />
-        </Link>
       </div>
-    </nav>
+      {n > 1 && (
+        <>
+          <button type="button" className="c-banner-arrow is-prev" onClick={() => setI((x) => (x - 1 + n) % n)} aria-label={t("Banner trước")}><ChevronLeft size={22} aria-hidden /></button>
+          <button type="button" className="c-banner-arrow is-next" onClick={() => setI((x) => (x + 1) % n)} aria-label={t("Banner sau")}><ChevronRight size={22} aria-hidden /></button>
+          <div className="c-banner-dots">
+            {banners.map((b, k) => (
+              <button key={b.id} type="button" className={k === i ? "is-on" : undefined} onClick={() => setI(k)} aria-label={t("Banner {n}", { n: k + 1 })} aria-current={k === i} />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
-/* ── Product Card (shared) ───────────────────────────────────── */
-function ProductCard({
-  product,
-  showDiscount,
-  showAddToCart,
-}: {
-  product: Product;
-  showDiscount?: boolean;
-  showAddToCart?: boolean;
-}) {
-  const _nav = useNavigate();
-  const hasDiscount = showDiscount && product.discountPercent && product.discountPercent > 0;
-  const discountedPrice = hasDiscount
-    ? calculateFinalPrice(product.sellPrice, product.discountPercent!)
-    : product.sellPrice;
-
-  const [added, setAdded] = useState(false);
-
-  function handleAddToCart(e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    addToCart(product, { unitPrice: discountedPrice, quantity: 1, size: "M", icePct: 100, sugar: "100", notes: "" });
-    setAdded(true);
-    setTimeout(() => setAdded(false), 1200);
-  }
-
+/** Chữ ký tay của chủ quán (SVG nét bút) */
+function Signature() {
+  const { t } = useLang();
   return (
-    <motion.div
-      whileHover={{ y: -6, transition: { duration: 0.25 } }}
-      className="hp-product-card"
-    >
-      <Link to={`/product/${product.id}`} className="hp-product-link">
-        {/* Image */}
-        <div className="hp-product-img-wrap">
-          <div
-            className="hp-product-img"
-            style={{
-              backgroundImage: mediaUrl(product.imageUrl)
-                ? `url(${mediaUrl(product.imageUrl)})`
-                : undefined,
-            }}
-          />
-          {/* Discount Badge */}
-          {hasDiscount && (
-            <span className="hp-discount-badge">-{product.discountPercent}%</span>
-          )}
-        </div>
+    <svg className="c-sign" viewBox="0 0 220 70" role="img" aria-label={t("Chữ ký chủ quán")}>
+      <path
+        d="M8 46c10-2 22-14 30-26 4-6 3-10-1-6-6 7-10 24-9 34 0 5 4 4 8-2 7-11 14-26 21-27 5-1 2 12-2 22-3 8 4 6 9 0 4-5 8-11 12-11 4 0 0 9 3 10 4 1 9-6 13-9 3-2 4 1 2 4-3 5-1 7 4 5 9-4 18-16 27-18 6-1 3 6 1 10-2 6 3 7 9 3 10-7 22-17 35-19 8-1 14 2 20 6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M40 58c40-6 90-8 150-4" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity="0.7" />
+    </svg>
+  );
+}
 
-        {/* Info */}
-        <div className="hp-product-info">
-          <div className="hp-product-name">{product.name}</div>
-          {product.category && (
-            <div className="hp-product-cat">{product.category.name}</div>
-          )}
-          <div className="hp-product-price-row">
-            {hasDiscount ? (
-              <>
-                <span className="hp-product-price-old">{formatVnd(product.sellPrice)}</span>
-                <span className="hp-product-price-new">{formatVnd(discountedPrice)}</span>
-              </>
-            ) : (
-              <span className="hp-product-price">{formatVnd(product.sellPrice)}</span>
-            )}
+/** Vòng tròn ensō (nét cọ một vòng, chừa khe) — điểm tựa mờ sau ly ở hero */
+function Enso() {
+  return (
+    <svg className="c-h2-enso" viewBox="0 0 200 200" aria-hidden>
+      <path d="M150 42c-20-18-52-24-80-12C38 44 22 80 30 114c8 34 40 58 76 56 34-2 62-28 66-62 2-20-4-38-16-52" fill="none" stroke="currentColor" strokeWidth="7" strokeLinecap="round" />
+      <path d="M156 48c-6-6-12-10-20-14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" opacity="0.6" />
+    </svg>
+  );
+}
+
+/** Hero "ly cà phê nổi": nền tối gạch bông + hạt nhiễu + 2 vệt đèn; món chính trôi nhẹ, 4 ảnh nhỏ bên dưới để đổi món */
+function HeroFloat({ picks }: { picks: Product[] }) {
+  const { t } = useLang();
+  const [i, setI] = useState(0);
+  const [added, setAdded] = useState<number | null>(null);
+  useHeroHeader();
+  useEffect(() => {
+    if (i >= picks.length) setI(0);
+  }, [i, picks.length]);
+  useEffect(() => {
+    if (added == null) return;
+    const tm = window.setTimeout(() => setAdded(null), 1600);
+    return () => window.clearTimeout(tm);
+  }, [added]);
+  const p = picks[i];
+  // Cả câu là một khóa dịch, {em} = cụm chữ nghiêng → tiếng Anh tự xếp lại thứ tự từ
+  const heroTitle = t("Cà phê {em} Sài Gòn").split("{em}");
+  return (
+    <section className="c-h2 c-grain c-tile c-spotlights" aria-labelledby="c-h2-title">
+      <div className="c-wrap c-h2-in">
+        <div className="c-h2-copy">
+          <Eyebrow>{t("Cà phê phin · Sài Gòn")}</Eyebrow>
+          <h1 id="c-h2-title" className="c-h2-title">{heroTitle[0]}<em>{t("đúng vị")}</em>{heroTitle[1]}</h1>
+          <Divider />
+          <p className="c-h2-sub">{t("Robusta rang mộc, pha phin từng ly, sữa đặc rót tay. Ghé quán ngồi lại, hoặc đặt mang về khi đang vội.")}</p>
+          <div className="c-h2-cta">
+            <Link to="/menu" className="c-btn c-btn--solid is-lg c-h2-order">{t("Đặt món ngay")}</Link>
+            <Link to="/menu" className="c-btn c-btn--ghost is-lg">{t("Xem thực đơn")}</Link>
           </div>
         </div>
-      </Link>
 
-      {/* CTA */}
-      {showAddToCart && (
-        <button
-          type="button"
-          className={`hp-add-cart-btn ${added ? "hp-add-cart-btn--added" : ""}`}
-          onClick={handleAddToCart}
-        >
-          <ShoppingCart size={16} />
-          {added ? "Đã thêm ✓" : "Thêm vào giỏ"}
-        </button>
+        <div className="c-h2-stage">
+          <span className="c-h2-glow" aria-hidden />
+          <Enso />
+          <div className="c-h2-cup" key={p?.id ?? 0}>
+            {p ? <ProductImage p={p} className="c-h2-cup-img" /> : <SiteImg src="menu/ca-phe-da" alt="" priority sizes="440px" className="c-h2-cup-img" />}
+          </div>
+          {p && (
+            <div className="c-h2-card c-float" aria-live="polite">
+              <Link to={`/product/${p.id}`} className="c-h2-card-name">{p.name}</Link>
+              <span className="c-h2-card-row">
+                <span className="c-price">{formatVnd(listPrice(p))}</span>
+                {!p.soldOut && (
+                  <button type="button" className="c-h2-add" onClick={() => { quickAdd(p); setAdded(p.id); }} aria-label={t("Thêm {name} vào giỏ", { name: p.name })}>
+                    {added === p.id ? <Check size={18} aria-hidden /> : <Plus size={18} aria-hidden />}
+                  </button>
+                )}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {picks.length > 1 && (
+        <div className="c-wrap">
+          <div className="c-h2-thumbs" role="group" aria-label={t("Món nổi bật")}>
+            {picks.map((x, k) => (
+              <button key={x.id} type="button" aria-pressed={k === i} onClick={() => setI(k)}>
+                <ProductImage p={x} className="c-h2-thumb-img" />
+                <span>{x.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
-    </motion.div>
+    </section>
   );
 }
 
-/* ── Combo Card ──────────────────────────────────────────────── */
-function ComboCard({ combo }: { combo: Combo }) {
-  const [added, setAdded] = useState(false);
+type TabId = "best" | "new" | "sale";
 
-  function handleAdd(e: React.MouseEvent) {
-    e.stopPropagation();
-    addComboToCart(combo);
-    setAdded(true);
-    setTimeout(() => setAdded(false), 1200);
+/** Món nổi bật xếp lớp: 1 món lớn (khung vòm) + 4 món nhỏ; tab Bán chạy / Món mới / Đang giảm giá */
+function FeaturedTabs({ lists, line, loading }: { lists: Record<TabId, Product[]>; line: (p: Product) => string | null; loading: boolean }) {
+  const { t } = useLang();
+  const tabs = ([["best", "Bán chạy"], ["new", "Món mới"], ["sale", "Đang giảm giá"]] as [TabId, string][]).filter(([id]) => lists[id].length);
+  const [tab, setTab] = useState<TabId>("best");
+  const cur = tabs.find(([id]) => id === tab) ? tab : tabs[0]?.[0];
+  const list = cur ? lists[cur] : [];
+  const big = list[0];
+  const btns = useRef<(HTMLButtonElement | null)[]>([]);
+  // ← → chuyển tab (mẫu tablist WAI-ARIA)
+  function onKey(e: KeyboardEvent, k: number) {
+    const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    if (!d) return;
+    e.preventDefault();
+    const n = (k + d + tabs.length) % tabs.length;
+    setTab(tabs[n][0]);
+    btns.current[n]?.focus();
   }
-
-  const savings = combo.originalPrice - combo.comboPrice;
-  const savingsPct = Math.round((savings / combo.originalPrice) * 100);
-
   return (
-    <motion.div
-      whileHover={{ y: -8, transition: { duration: 0.25 } }}
-      className="hp-combo-card"
-    >
-      {/* HOT badge */}
-      {combo.isHot && (
-        <div className="hp-combo-hot-badge">
-          <Flame size={12} /> HOT
-        </div>
-      )}
-
-      {/* Savings badge */}
-      <div className="hp-combo-save-badge">-{savingsPct}%</div>
-
-      {/* Image */}
-      <div className="hp-combo-img-wrap">
-        {combo.imageUrl ? (
-          <div
-            className="hp-combo-img"
-            style={{ backgroundImage: `url(${mediaUrl(combo.imageUrl)})` }}
-          />
-        ) : (
-          <div className="hp-combo-img hp-combo-img--placeholder">
-            <Package size={40} style={{ opacity: 0.3 }} />
+    <section className="c-wrap c-sec c-feat">
+      <div className="c-feat-head">
+        <SectionHead eyebrow="Thực đơn" title={<>{t("Món được")} <em>{t("gọi nhiều")}</em></>} sub="bán chạy, món mới và món đang giảm giá" />
+        {tabs.length > 1 && (
+          <div className="c-tabs" role="tablist" aria-label={t("Nhóm món")}>
+            {tabs.map(([id, label], k) => (
+              <button
+                key={id}
+                ref={(el) => { btns.current[k] = el; }}
+                type="button"
+                role="tab"
+                id={`c-feat-${id}`}
+                aria-selected={cur === id}
+                aria-controls="c-feat-panel"
+                tabIndex={cur === id ? 0 : -1}
+                onClick={() => setTab(id)}
+                onKeyDown={(e) => onKey(e, k)}
+              >
+                {t(label)}
+              </button>
+            ))}
           </div>
         )}
       </div>
-
-      {/* Info */}
-      <div className="hp-combo-info">
-        <div className="hp-combo-name">{combo.name}</div>
-
-        {/* Items list */}
-        <ul className="hp-combo-items-list">
-          {combo.items.map((ci) => (
-            <li key={ci.id}>
-              {ci.quantity > 1 && <span className="hp-combo-qty">{ci.quantity}x </span>}
-              {ci.product.name}
-            </li>
-          ))}
-        </ul>
-
-        {/* Pricing */}
-        <div className="hp-combo-price-row">
-          <span className="hp-combo-price-orig">{formatVnd(combo.originalPrice)}</span>
-          <span className="hp-combo-price-combo">{formatVnd(combo.comboPrice)}</span>
+      {loading && !big ? (
+        <Skeleton variant="card" count={4} />
+      ) : big ? (
+        <div className="c-feat-body" id="c-feat-panel" role="tabpanel" aria-labelledby={cur ? `c-feat-${cur}` : undefined} key={cur}>
+          <article className="c-feat-big">
+            <Link to={`/product/${big.id}`} className="c-feat-big-media" aria-label={big.name} tabIndex={-1}>
+              <figure className="c-arch"><ProductImage p={big} /></figure>
+            </Link>
+            <div className="c-feat-big-card c-float">
+              {line(big) && <Eyebrow>{line(big)}</Eyebrow>}
+              <h3><Link to={`/product/${big.id}`}>{big.name}</Link></h3>
+              <NutritionTags p={big} />
+              <div className="c-feat-big-foot">
+                <span className="c-pcard-prices">
+                  {!!big.discountPercent && <span className="c-price-old">{formatVnd(big.sellPrice)}</span>}
+                  <span className="c-price">{formatVnd(listPrice(big))}</span>
+                </span>
+                <Link to={`/product/${big.id}`} className="c-btn c-btn--solid is-sm">{t("Chọn món")}</Link>
+              </div>
+            </div>
+          </article>
+          <div className="c-feat-grid">
+            {list.slice(1, 5).map((p) => <ProductCard key={p.id} p={p} line={line(p)} />)}
+          </div>
         </div>
-
-        <div className="hp-combo-save-tag">Tiết kiệm {formatVnd(savings)}</div>
-      </div>
-
-      {/* CTA */}
-      <button
-        type="button"
-        className={`hp-add-cart-btn hp-combo-cta ${added ? "hp-add-cart-btn--added" : ""}`}
-        onClick={handleAdd}
-      >
-        <ShoppingCart size={16} />
-        {added ? "Đã thêm ✓" : "Chọn Combo này"}
-      </button>
-    </motion.div>
+      ) : null}
+    </section>
   );
 }
 
-/* ── Main HomePage ───────────────────────────────────────────── */
+const STEPS = [
+  { img: "story/qua-chin", title: "Chọn hạt", text: "Robusta Buôn Ma Thuột và Arabica Cầu Đất, chỉ hái quả chín đỏ." },
+  { img: "story/may-rang", title: "Rang", text: "Rang mộc từng mẻ nhỏ, để hạt nghỉ ba ngày rồi mới xay." },
+  { img: "story/nen-ca-phe", title: "Pha", text: "Phin nhôm ủ 30 giây, châm nước 92°C, nhỏ giọt chừng năm phút." },
+  { img: "space/quay-bar", title: "Phục vụ", text: "Rót lên đá viên to hoặc ly sứ hâm nóng, mang ra khi còn thơm." },
+];
+
+/** Từ hạt đến ly: 4 bước, ảnh tròn + số serif lớn; máy tính nối bằng đường cong nét đứt */
+function BeanToCup() {
+  const { t } = useLang();
+  return (
+    <section className="c-wrap c-sec c-steps">
+      <SectionHead eyebrow="Quy trình" title={<>{t("Từ hạt")} <em>{t("đến ly")}</em></>} center sub="bốn bước, không bỏ bước nào" />
+      <div className="c-steps-body">
+        <svg className="c-steps-curve" viewBox="0 0 1000 120" preserveAspectRatio="none" aria-hidden>
+          <path d="M125 60 C 220 0, 300 0, 375 60 S 540 120, 625 60 S 800 0, 875 60" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="6 8" vectorEffect="non-scaling-stroke" />
+        </svg>
+        <ol className="c-steps-list">
+          {STEPS.map((s, k) => (
+            <Reveal as="li" key={s.title} delay={k * 90} className="c-step">
+              <span className="c-step-img"><SiteImg src={s.img} alt="" sizes="160px" /></span>
+              <span className="c-step-n" aria-hidden>{String(k + 1).padStart(2, "0")}</span>
+              <h3 className="c-step-title">{t(s.title)}</h3>
+              <p className="c-step-text">{t(s.text)}</p>
+            </Reveal>
+          ))}
+        </ol>
+      </div>
+    </section>
+  );
+}
+
+function Stars({ n }: { n: number }) {
+  const { t } = useLang();
+  return (
+    <span className="c-stars" role="img" aria-label={t("{n} trên 5 sao", { n })}>
+      {[1, 2, 3, 4, 5].map((k) => <span key={k} aria-hidden className={k <= n ? "is-on" : undefined}>★</span>)}
+    </span>
+  );
+}
+
+const shortStore = (s?: string) => s?.replace(/^TD Coffee\s*[-–·:]\s*/i, "");
+
 export function HomePage() {
-  const [data, setData] = useState<HomePageResponse | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const { storeId } = useCustomerStore();
+  const menu = useMenuData();
+  const info = useSiteInfo();
+  const cats = useMenuCategories();
+  const { t, date } = useLang();
+  const [home, setHome] = useState<HomePageResponse | null>(null);
+  const [banners, setBanners] = useState<Banner[]>([]);
+  const [vouchers, setVouchers] = useState<PublicVoucher[]>([]);
+  const [games, setGames] = useState<ActiveGame[]>([]);
+  const [posts, setPosts] = useState<Post[] | null>(null);
+  const [stats, setStats] = useState<SiteStats | null>(null);
+  const [reviews, setReviews] = useState<PublicReviewRow[]>([]);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const d = await api<HomePageResponse>("/api/homepage");
-        if (!cancelled) setData(d);
-      } catch (e) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : "Lỗi tải trang chủ");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    api<HomePageResponse>(withStore("/api/homepage", storeId)).then(setHome).catch(() => setHome(null));
+    api<Banner[]>(`/api/banners${storeId ? `?storeId=${storeId}` : ""}`).then(setBanners).catch(() => setBanners([]));
+    api<ActiveGame[]>(`/api/games/active${storeId ? `?store=${storeId}` : ""}`).then(setGames).catch(() => setGames([]));
+  }, [storeId]);
+  useEffect(() => {
+    api<PublicVoucher[]>("/api/vouchers/public").then((v) => setVouchers(v.slice(0, 6))).catch(() => setVouchers([]));
+    api<Post[]>("/api/posts").then((p) => setPosts(p.slice(0, 3))).catch(() => setPosts([]));
+    api<SiteStats>("/api/site/stats").then(setStats).catch(() => setStats(null));
+    // Đánh giá có lời nhận xét, điểm cao trước, lấy 3
+    api<PublicReviewRow[]>("/api/reviews")
+      .then((r) => setReviews(r.filter((x) => x.comment?.trim()).sort((a, b) => b.rating - a.rating).slice(0, 3)))
+      .catch(() => setReviews([]));
   }, []);
 
-  if (err) {
-    return (
-      <div className="site-page" style={{ textAlign: "center", padding: "4rem 1rem" }}>
-        <p style={{ color: "var(--danger)" }}>{err}</p>
-        <Link to="/menu">Đi tới thực đơn</Link>
-      </div>
-    );
-  }
-
-  if (!data) {
-    return (
-      <div className="site-page" style={{ textAlign: "center", padding: "6rem 1rem" }}>
-        <div className="hp-loader" />
-        <p className="subtle" style={{ marginTop: "1rem" }}>Đang tải...</p>
-      </div>
-    );
-  }
+  const catName = useMemo(() => new Map((menu?.categories ?? []).map((c) => [c.id, c.name])), [menu]);
+  const line = (p: Product) => catName.get(p.categoryId) ?? null;
+  // Hero: món bán chạy có ảnh, thiếu thì lấy món có ảnh trong thực đơn
+  const heroPicks = useMemo(() => {
+    const seen = new Set<number>();
+    const ok = (p: Product) => !!p.imageUrl && !p.soldOut && !seen.has(p.id) && !!seen.add(p.id);
+    return [...(home?.bestSellers ?? []), ...(menu?.products ?? [])].filter(ok).slice(0, 4);
+  }, [home, menu]);
+  const products = menu?.products ?? [];
+  const lists: Record<TabId, Product[]> = {
+    best: home?.bestSellers ?? [],
+    new: [...products].sort((a, b) => b.id - a.id).slice(0, 5),
+    sale: home?.flashSale.length ? home.flashSale : products.filter((p) => (p.discountPercent ?? 0) > 0),
+  };
+  const game = games[0];
+  const [lead, ...restPosts] = posts ?? [];
 
   return (
-    <div className="hp-root">
-      {/* ═══ HERO ═══ */}
-      <section className="hp-hero">
-        <div className="hp-hero-bg" />
-        <div className="hp-hero-overlay" />
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7 }}
-          className="hp-hero-content"
-        >
-          <div className="hp-hero-badge">
-            <Coffee size={14} /> Pha tươi mỗi ngày
-          </div>
-          <h1 className="hp-hero-title">TD Coffee</h1>
-          <p className="hp-hero-sub">
-            Thưởng thức cà phê tươi pha chế tỉ mỉ — từ hạt chọn lọc đến tách thơm ngon.
-          </p>
-          <div className="hp-hero-actions">
-            <Link to="/menu" className="hp-hero-btn hp-hero-btn--primary">
-              Xem Thực Đơn <ArrowRight size={16} />
-            </Link>
-            <Link to="/login" className="hp-hero-btn hp-hero-btn--ghost">
-              Đăng nhập
-            </Link>
-          </div>
-        </motion.div>
+    <div className="c-home">
+      <HeroFloat picks={heroPicks} />
+
+      {/* Danh mục: ảnh tròn cuộn ngang */}
+      {cats.length > 0 && (
+        <nav className="c-wrap c-cats" aria-label={t("Danh mục sản phẩm")}>
+          <ul className="c-cats-row">
+            {cats.map((c) => (
+              <li key={c.id}>
+                <Link to={`/menu?category=${c.id}`} className="c-cat">
+                  <span className="c-cat-img"><CategoryThumb name={c.name} images={c.images} /></span>
+                  <span className="c-cat-name">{c.name}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )}
+
+      {/* Khách đã đăng nhập: món quen (thêm đúng tuỳ chọn quen) + đặt lại đơn gần nhất */}
+      <UsualHome storeId={storeId} />
+
+      {/* Banner cũ (Website › Banner) thành dải trượt dưới hero */}
+      {banners.length > 0 && (
+        <section className="c-wrap c-banner-band" aria-label={t("Chương trình nổi bật")}>
+          <BannerCarousel banners={banners} />
+        </section>
+      )}
+
+      <FeaturedTabs lists={lists} line={line} loading={!home || !menu} />
+
+      {/* Hợp thời tiết hôm nay: 4 món theo thời tiết + giờ ở chi nhánh đang chọn */}
+      <WeatherPicks storeId={storeId} />
+
+      {/* Câu chuyện: ảnh vòm lớn + ảnh nhỏ đè lệch */}
+      <section className="c-story2">
+        <div className="c-wrap c-story2-in">
+          <Reveal className="c-story2-media">
+            <span className="c-story2-back" aria-hidden />
+            <ArchImage src="space/ben-cua-so" ratio="4 / 5" className="c-story2-big" sizes="(max-width: 768px) 80vw, 440px" />
+            <figure className="c-rounded c-story2-small"><SiteImg src="story/phin-ban-tre" sizes="220px" /></figure>
+          </Reveal>
+          <Reveal className="c-story2-copy" delay={120}>
+            <SectionHead eyebrow="Câu chuyện của chúng tôi" title={<>{t("Một quầy phin nhỏ,")} <em>{t("mở cửa từ sáng sớm")}</em></>} />
+            {/* Đoạn 1: "Giới thiệu ngắn" trong Website › Thông tin công ty — chủ chuỗi tự viết */}
+            {info?.company.intro && <p>{info.company.intro}</p>}
+            <p>{t("Mẻ phin đầu tiên nhỏ giọt khi trời còn tối. Khách quen ghé trước giờ làm, gọi một ly đen đá, ngồi bên cửa sổ một lúc rồi mới đi. Mình giữ nhịp đó ở mọi chi nhánh: pha từng ly, không pha sẵn.")}</p>
+            <div className="c-story-sign">
+              <Signature />
+              <span>{t("Chủ quán {name}", { name: info?.company.name ?? "TD Coffee" })}</span>
+            </div>
+            <Link to="/about" className="c-btn c-btn--outline">{t("Đọc câu chuyện")} <ArrowRight size={16} aria-hidden /></Link>
+          </Reveal>
+        </div>
       </section>
 
-      {/* ═══ MEGA MENU ═══ */}
-      <MegaMenu categoryTree={data.categoryTree} />
-
-      {/* ═══ FLASH SALE ═══ */}
-      {data.flashSale.length > 0 && (
-        <section className="hp-section">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5 }}
-          >
-            <div className="hp-section-header">
-              <div className="hp-section-title-group">
-                <span className="hp-section-icon hp-section-icon--fire">
-                  <Zap size={20} />
-                </span>
-                <h2 className="hp-section-title">Flash Sale — Hot Deals</h2>
-              </div>
-              <Link to="/menu" className="hp-section-more">
-                Xem thêm <ArrowRight size={14} />
-              </Link>
-            </div>
-            <div className="hp-product-grid">
-              {data.flashSale.map((p) => (
-                <ProductCard key={p.id} product={p} showDiscount showAddToCart />
-              ))}
-            </div>
-          </motion.div>
+      {/* Dải số liệu (số thật từ CSDL, đếm lên khi hiện) */}
+      {stats && (
+        <section className="c-stats-band c-grain" aria-label={t("TD Coffee qua những con số")}>
+          <div className="c-wrap">
+            <StatCounter value={stats.stores} label={t("chi nhánh ở Sài Gòn")} />
+            <StatCounter value={stats.products} label={t("món trên thực đơn")} />
+            <StatCounter value={floorThousand(stats.cups)} suffix="+" label={t("ly đã phục vụ")} />
+            {stats.rating != null && <StatCounter value={stats.rating} decimals={1} suffix="/5" label={t("điểm đánh giá trung bình")} />}
+          </div>
         </section>
       )}
 
-      {/* ═══ HOT COMBOS ═══ */}
-      {data.hotCombos && data.hotCombos.length > 0 && (
-        <section className="hp-section hp-section--combo">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5, delay: 0.05 }}
-          >
-            <div className="hp-section-header">
-              <div className="hp-section-title-group">
-                <span className="hp-section-icon hp-section-icon--fire">
-                  <Flame size={20} />
-                </span>
-                <h2 className="hp-section-title">🔥 Combo Hot Hiện Tại</h2>
-              </div>
-              <span className="hp-combo-subtitle">Ưu đãi gói đặc biệt — tiết kiệm hơn mua lẻ!</span>
+      <BeanToCup />
+
+      {/* Voucher dạng vé, cuộn ngang trên nền kem đậm */}
+      {vouchers.length > 0 && (
+        <section className="c-voucher-band">
+          <div className="c-wrap c-sec">
+            <SectionHead eyebrow="Ưu đãi" title="Mã giảm giá" sub="chép mã, dán ở bước thanh toán" more={{ to: "/promotions", label: "Tất cả ưu đãi" }} />
+            <div className="c-tickets c-tickets-scroll">
+              {vouchers.map((v) => <VoucherTicket key={v.id} v={v} />)}
             </div>
-            <div className="hp-combo-carousel">
-              {data.hotCombos.map((combo) => (
-                <ComboCard key={combo.id} combo={combo} />
-              ))}
-            </div>
-          </motion.div>
+          </div>
         </section>
       )}
 
-      {/* ═══ BEST SELLERS ═══ */}
-      {data.bestSellers.length > 0 && (
-        <section className="hp-section hp-section--alt">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5, delay: 0.1 }}
-          >
-            <div className="hp-section-header">
-              <div className="hp-section-title-group">
-                <span className="hp-section-icon hp-section-icon--star">
-                  <Star size={20} />
-                </span>
-                <h2 className="hp-section-title">Món Bán Chạy</h2>
-              </div>
-              <Link to="/menu" className="hp-section-more">
-                Xem thêm <ArrowRight size={14} />
-              </Link>
+      {/* Mini game đang chạy: thẻ ngang có ảnh */}
+      {game && (
+        <section className="c-wrap c-sec c-sec-tight">
+          <div className="c-game2 c-float">
+            <figure className="c-game2-img"><SiteImg src="events/tiec-nhom" sizes="(max-width: 768px) 100vw, 420px" /></figure>
+            <div className="c-game2-copy">
+              <Eyebrow>{t("Mini game")}</Eyebrow>
+              <h2 className="c-game2-title">{game.name}</h2>
+              <p>{game.me?.tickets ? t("Bạn đang có {n} lượt chơi.", { n: game.me.tickets }) : game.description ?? t("Mỗi đơn từ {n} được 1 lượt chơi.", { n: formatVnd(game.minOrderValue) })}</p>
+              <Link to={`/game/${game.id}${storeId ? `?store=${storeId}` : ""}`} className="c-btn c-btn--solid">{t("Chơi ngay")}</Link>
             </div>
-            <div className="hp-product-grid">
-              {data.bestSellers.map((p) => (
-                <ProductCard key={p.id} product={p} showDiscount showAddToCart />
-              ))}
-            </div>
-          </motion.div>
+          </div>
         </section>
       )}
 
-      {/* ═══ CONTACT & MAP ═══ */}
-      <section className="hp-contact-section">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5 }}
-          className="hp-contact-inner"
-        >
-          {/* Info Column */}
-          <div className="hp-contact-info">
-            <h2 className="hp-contact-title">
-              <Flame size={20} style={{ color: "var(--accent)" }} /> Ghé thăm chúng tôi
-            </h2>
-            <div className="hp-contact-row">
-              <MapPin size={18} className="hp-contact-icon" />
-              <div>
-                <strong>Địa chỉ</strong>
-                <p>{STORE_INFO.address}</p>
-              </div>
-            </div>
-            <div className="hp-contact-row">
-              <Phone size={18} className="hp-contact-icon" />
-              <div>
-                <strong>Hotline</strong>
-                <p>
-                  <a href={`tel:${STORE_INFO.phone}`} className="hp-contact-phone">
-                    {STORE_INFO.phone}
-                  </a>
-                </p>
-              </div>
-            </div>
-            <div className="hp-contact-row">
-              <Clock size={18} className="hp-contact-icon" />
-              <div>
-                <strong>Giờ mở cửa</strong>
-                <p>{STORE_INFO.hours}</p>
-              </div>
-            </div>
-            <Link to="/menu" className="hp-contact-cta">
-              Đặt món ngay <ArrowRight size={16} />
+      {/* Khách nói gì: đánh giá thật, có lời nhận xét (không có thì ẩn mục) */}
+      {reviews.length > 0 && (
+        <section className="c-wrap c-sec c-quotes">
+          <SectionHead eyebrow="Khách nói gì" title="Lời thật từ khách quen" center />
+          <ul className={`c-quotes-list is-${reviews.length}`}>
+            {reviews.map((r, k) => (
+              <Reveal as="li" key={r.id} delay={k * 90} className="c-quote">
+                <Stars n={r.rating} />
+                <blockquote>{r.comment}</blockquote>
+                <div className="c-quote-who">
+                  <CustomerAvatar src={r.customer?.avatarUrl} name={r.customer?.fullName ?? t("Khách")} anonymous={!r.customer} seed={r.id} size={40} />
+                  <span>
+                    <strong>{r.customer?.fullName ?? t("Khách ẩn danh")}</strong>
+                    <small>{[r.product?.name, shortStore(r.storeName)].filter(Boolean).join(" · ")}</small>
+                  </span>
+                </div>
+              </Reveal>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* Tin tức: 1 bài lớn + 2 bài nhỏ */}
+      {posts === null ? (
+        <section className="c-wrap c-sec"><Skeleton variant="news" count={3} /></section>
+      ) : lead ? (
+        <section className="c-wrap c-sec c-news2">
+          <SectionHead eyebrow="Tin tức" title="Chuyện ở quán" more={{ to: "/blog", label: "Xem tất cả bài" }} />
+          <div className="c-news2-grid">
+            <Link to={`/blog/${lead.id}`} className="c-news2-lead">
+              <span className="c-news2-img">{lead.imageUrl ? <img src={mediaUrl(lead.imageUrl)} alt="" loading="lazy" /> : <span className="c-noimg">{lead.title}</span>}</span>
+              <span className="c-news2-txt">
+                <time dateTime={lead.createdAt}>{date(lead.createdAt)}</time>
+                <strong>{lead.title}</strong>
+                <span>{plain(lead.body).slice(0, 180)}…</span>
+              </span>
             </Link>
+            <div className="c-news2-side">
+              {restPosts.map((p) => (
+                <Link key={p.id} to={`/blog/${p.id}`} className="c-news2-item">
+                  <span className="c-news2-img">{p.imageUrl ? <img src={mediaUrl(p.imageUrl)} alt="" loading="lazy" /> : <span className="c-noimg" />}</span>
+                  <span className="c-news2-txt">
+                    <time dateTime={p.createdAt}>{date(p.createdAt)}</time>
+                    <strong>{p.title}</strong>
+                  </span>
+                </Link>
+              ))}
+            </div>
           </div>
-
-          {/* Map Column */}
-          <div className="hp-contact-map">
-            <MapContainer
-              center={[STORE_LAT, STORE_LNG]}
-              zoom={16}
-              scrollWheelZoom={false}
-              style={{ height: "100%", width: "100%", borderRadius: 16, zIndex: 0 }}
-            >
-              <TileLayer
-                attribution='&copy; Google Maps'
-                url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
-              />
-              <Marker position={[STORE_LAT, STORE_LNG]}>
-                <Popup>
-                  <strong>TD Coffee</strong>
-                  <br />
-                  {STORE_INFO.address}
-                </Popup>
-              </Marker>
-            </MapContainer>
-          </div>
-        </motion.div>
-      </section>
+        </section>
+      ) : null}
     </div>
   );
 }

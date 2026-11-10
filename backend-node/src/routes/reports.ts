@@ -1,6 +1,9 @@
 import { Router } from "express";
 import { PrismaClient } from "@prisma/client";
 import { attachStaff, requireRoles } from "../middleware/staff.js";
+import { storeWhere } from "../lib/storeScope.js";
+import { bizRange, daysInRange } from "../lib/bizTime.js";
+import { dashboardReport, profitReport, revenueReport, storesCompareReport, topProductsReport } from "../lib/analytics/sales.js";
 
 const prisma = new PrismaClient();
 
@@ -18,40 +21,9 @@ export function reportsRouter() {
   r.get("/reports/revenue", ...admin, async (req, res) => {
     const fromStr = req.query.from as string | undefined;
     const toStr   = req.query.to   as string | undefined;
-    const from = fromStr ? new Date(fromStr) : (() => { const d = new Date(); d.setDate(d.getDate() - 29); d.setHours(0,0,0,0); return d; })();
-    const to   = toStr   ? new Date(toStr)   : new Date();
-    from.setHours(0, 0, 0, 0);
-    to.setHours(23, 59, 59, 999);
+    const { from, to, fromYmd, toYmd } = bizRange(fromStr, toStr, 29);
 
-    const payments = await prisma.payment.findMany({
-      where: { paymentTime: { gte: from, lte: to }, order: { status: "Paid" } },
-      include: { order: { select: { status: true } } },
-    });
-
-    // Tách riêng: tiền thật vs. điểm đổi
-    const cashPayments = payments.filter(p => p.method !== "Points");
-    const pointsPayments = payments.filter(p => p.method === "Points");
-
-    const total = cashPayments.reduce((s, p) => s + p.amount, 0);
-    const pointsRedeemTotal = pointsPayments.reduce((s, p) => s + p.amount, 0);
-
-    const byDay: Record<string, { cash: number; points: number }> = {};
-    for (const p of payments) {
-      const d = p.paymentTime.toISOString().slice(0, 10);
-      if (!byDay[d]) byDay[d] = { cash: 0, points: 0 };
-      if (p.method !== "Points") byDay[d].cash += p.amount;
-      else byDay[d].points += p.amount;
-    }
-
-    res.json({
-      total,               // tiền thực thu (không bao gồm điểm)
-      pointsRedeemTotal,   // tổng điểm đổi (chi phí loyalty)
-      grandTotal: total + pointsRedeemTotal, // doanh thu gộp
-      byDay,
-      from: from.toISOString().slice(0, 10),
-      to: to.toISOString().slice(0, 10),
-    });
-
+    res.json({ ...(await revenueReport(prisma, storeWhere(req), from, to)), from: fromYmd, to: toYmd });
   });
 
   /**
@@ -63,19 +35,17 @@ export function reportsRouter() {
     const toStr   = req.query.to   as string | undefined;
     const page  = Math.max(1, Number(req.query.page)  || 1);
     const limit = Math.min(500, Number(req.query.limit) || 50);
-    const from = fromStr ? new Date(fromStr) : (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
-    const to   = toStr   ? new Date(toStr)   : new Date();
-    from.setHours(0, 0, 0, 0);
-    to.setHours(23, 59, 59, 999);
+    const { from, to, fromYmd, toYmd } = bizRange(fromStr, toStr, 0);
 
     const [total, orders] = await Promise.all([
-      prisma.order.count({ where: { createdAt: { gte: from, lte: to } } }),
+      prisma.order.count({ where: { ...storeWhere(req), createdAt: { gte: from, lte: to } } }),
       prisma.order.findMany({
-        where: { createdAt: { gte: from, lte: to } },
+        where: { ...storeWhere(req), createdAt: { gte: from, lte: to } },
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,
         take: limit,
         include: {
+          store:   { select: { name: true } },
           staff:   { select: { fullName: true, username: true } },
           table:   { select: { name: true } },
           details: { include: { product: { select: { name: true } } } },
@@ -94,16 +64,14 @@ export function reportsRouter() {
   r.get("/reports/orders/export", ...admin, async (req, res) => {
     const fromStr = req.query.from as string | undefined;
     const toStr   = req.query.to   as string | undefined;
-    const from = fromStr ? new Date(fromStr) : (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
-    const to   = toStr   ? new Date(toStr)   : new Date();
-    from.setHours(0, 0, 0, 0);
-    to.setHours(23, 59, 59, 999);
+    const { from, to, fromYmd, toYmd } = bizRange(fromStr, toStr, 0);
 
     const orders = await prisma.order.findMany({
-      where: { createdAt: { gte: from, lte: to } },
+      where: { ...storeWhere(req), createdAt: { gte: from, lte: to } },
       orderBy: { createdAt: "desc" },
       take: 5000,
       include: {
+        store:    { select: { name: true } },
         staff:    { select: { fullName: true, username: true } },
         table:    { select: { name: true } },
         customer: { select: { fullName: true, phone: true } },
@@ -115,7 +83,7 @@ export function reportsRouter() {
     const esc = (s: string | null | undefined) => `"${String(s ?? "").replace(/"/g, '""')}"`;
 
     const header = [
-      "Mã ĐH", "Ngày giờ", "Loại", "Bàn", "Nhân viên", "Khách hàng", "SĐT khách",
+      "Mã ĐH", "Ngày giờ", "Chi nhánh", "Loại", "Bàn", "Nhân viên", "Khách hàng", "SĐT khách",
       "Danh sách món", "Tạm tính", "Giảm giá", "VAT", "Tổng tiền",
       "Phương thức TT", "Trạng thái",
     ].map(esc).join(",");
@@ -126,6 +94,7 @@ export function reportsRouter() {
       return [
         o.id,
         new Date(o.createdAt).toLocaleString("vi-VN"),
+        o.store.name,
         o.orderType,
         o.table?.name ?? "Mang về",
         o.staff?.fullName ?? "—",
@@ -142,7 +111,7 @@ export function reportsRouter() {
     });
 
     const csv = "\uFEFF" + [header, ...rows].join("\r\n"); // UTF-8 BOM for Excel
-    const fname = `donhang_${from.toISOString().slice(0,10)}_${to.toISOString().slice(0,10)}.csv`;
+    const fname = `donhang_${fromYmd}_${toYmd}.csv`;
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(fname)}`);
     res.send(csv);
@@ -155,30 +124,9 @@ export function reportsRouter() {
     const fromStr = req.query.from as string | undefined;
     const toStr   = req.query.to   as string | undefined;
     const lim     = Math.min(50, Number(req.query.limit) || 15);
-    const from = fromStr ? new Date(fromStr) : (() => { const d = new Date(); d.setDate(d.getDate() - 29); d.setHours(0,0,0,0); return d; })();
-    const to   = toStr   ? new Date(toStr)   : new Date();
-    from.setHours(0, 0, 0, 0);
-    to.setHours(23, 59, 59, 999);
+    const { from, to, fromYmd, toYmd } = bizRange(fromStr, toStr, 29);
 
-    const lines = await prisma.orderDetail.findMany({
-      where: { order: { status: "Paid", createdAt: { gte: from, lte: to } } },
-      include: { product: { select: { name: true, sellPrice: true, costPrice: true } } },
-    });
-
-    const map: Record<string, { name: string; quantity: number; revenue: number; costPrice: number }> = {};
-    for (const l of lines) {
-      const key = String(l.productId);
-      if (!map[key]) map[key] = { name: l.product.name, quantity: 0, revenue: 0, costPrice: l.product.costPrice };
-      map[key].quantity += l.quantity;
-      map[key].revenue  += l.quantity * l.unitPrice;
-    }
-
-    const items = Object.values(map)
-      .sort((a, b) => b.quantity - a.quantity)
-      .slice(0, lim)
-      .map(i => ({ ...i, profit: i.revenue - i.quantity * i.costPrice }));
-
-    res.json({ items });
+    res.json(await topProductsReport(prisma, storeWhere(req), from, to, lim));
   });
 
   /**
@@ -188,74 +136,36 @@ export function reportsRouter() {
   r.get("/reports/profit", ...admin, async (req, res) => {
     const fromStr = req.query.from as string | undefined;
     const toStr   = req.query.to   as string | undefined;
-    const from = fromStr ? new Date(fromStr) : (() => { const d = new Date(); d.setDate(d.getDate() - 29); d.setHours(0,0,0,0); return d; })();
-    const to   = toStr   ? new Date(toStr)   : new Date();
-    from.setHours(0, 0, 0, 0);
-    to.setHours(23, 59, 59, 999);
+    const { from, to, fromYmd, toYmd } = bizRange(fromStr, toStr, 29);
 
-    // 1. Doanh thu từ đơn đã thanh toán
-    const payments = await prisma.payment.findMany({
-      where: { paymentTime: { gte: from, lte: to }, order: { status: "Paid" } },
-    });
-    const totalRevenue = payments.reduce((s, p) => s + p.amount, 0);
+    res.json({ from: fromYmd, to: toYmd, ...(await profitReport(prisma, storeWhere(req), from, to)) });
+  });
 
-    // 2. Giá vốn từ chi tiết đơn × costPrice sản phẩm
-    const orderLines = await prisma.orderDetail.findMany({
-      where: { order: { status: "Paid", createdAt: { gte: from, lte: to } } },
-      include: {
-        product: { select: { name: true, costPrice: true, sellPrice: true } },
-        order: { select: { createdAt: true } },
-      },
-    });
+  /**
+   * GET /api/admin/reports/dashboard?from=&to=
+   * Số liệu gộp cho Bảng điều khiển (thay việc tải từng trang /reports/orders):
+   *  - summary: doanh số (đơn không hủy, trừ phí ship), công nợ (đơn chưa thanh toán), số đơn, số đơn hủy
+   *  - series: theo giờ (khi xem 1 ngày) hoặc theo ngày — doanh số, thực thu, đơn tạo, đơn hủy (giờ quán)
+   *  - channels: doanh số theo kênh tại quán / mang đi / giao hàng
+   */
+  r.get("/reports/dashboard", ...admin, async (req, res) => {
+    const { from, to, fromYmd, toYmd } = bizRange(req.query.from, req.query.to, 6);
+    const days = daysInRange(fromYmd, toYmd);
+    if (days > 370) return res.status(400).json({ error: "Khoảng ngày tối đa 1 năm." });
 
-    let totalProductCost = 0;
-    const byProduct: Record<string, { name: string; qty: number; revenue: number; cost: number }> = {};
-    for (const l of orderLines) {
-      totalProductCost += l.quantity * l.product.costPrice;
-      const k = String(l.productId);
-      if (!byProduct[k]) byProduct[k] = { name: l.product.name, qty: 0, revenue: 0, cost: 0 };
-      byProduct[k].qty     += l.quantity;
-      byProduct[k].revenue += l.quantity * l.unitPrice;
-      byProduct[k].cost    += l.quantity * l.product.costPrice;
-    }
+    res.json({ from: fromYmd, to: toYmd, ...(await dashboardReport(prisma, storeWhere(req), fromYmd, toYmd)) });
+  });
 
-    // 3. Chi phí nguyên liệu nhập kho trong kỳ (từ StockReceipt)
-    const receipts = await prisma.stockReceipt.findMany({
-      where: { receivedAt: { gte: from, lte: to } },
-      include: { item: { select: { unitCostPrice: true } } },
-    });
-    const totalIngredientCost = receipts.reduce((s, r) => {
-      const price = r.unitPrice ?? r.item.unitCostPrice;
-      return s + r.qty * price;
-    }, 0);
+  /**
+   * GET /api/admin/reports/stores-compare?from=&to=
+   * So sánh các chi nhánh (chỉ Chủ chuỗi): doanh thu thực thu, số đơn, giá trị đơn TB, lợi nhuận gộp.
+   */
+  r.get("/reports/stores-compare", auth, requireRoles("Owner"), async (req, res) => {
+    const fromStr = req.query.from as string | undefined;
+    const toStr   = req.query.to   as string | undefined;
+    const { from, to, fromYmd, toYmd } = bizRange(fromStr, toStr, 29);
 
-    // Lợi nhuận gộp = Doanh thu - Giá vốn SP
-    const grossProfit = totalRevenue - totalProductCost;
-
-    // Theo ngày
-    const byDay: Record<string, { revenue: number; cost: number; profit: number }> = {};
-    for (const p of payments) {
-      const d = p.paymentTime.toISOString().slice(0, 10);
-      if (!byDay[d]) byDay[d] = { revenue: 0, cost: 0, profit: 0 };
-      byDay[d].revenue += p.amount;
-    }
-    for (const l of orderLines) {
-      const d = l.order.createdAt.toISOString().slice(0, 10);
-      if (!byDay[d]) byDay[d] = { revenue: 0, cost: 0, profit: 0 };
-      byDay[d].cost += l.quantity * l.product.costPrice;
-    }
-    for (const d of Object.values(byDay)) d.profit = d.revenue - d.cost;
-
-    res.json({
-      from: from.toISOString().slice(0, 10),
-      to: to.toISOString().slice(0, 10),
-      totalRevenue,
-      totalProductCost,
-      totalIngredientCost,
-      grossProfit,
-      byDay,
-      byProduct: Object.values(byProduct).sort((a, b) => b.revenue - a.revenue).slice(0, 20),
-    });
+    res.json({ from: fromYmd, to: toYmd, ...(await storesCompareReport(prisma, from, to)) });
   });
 
   return r;
