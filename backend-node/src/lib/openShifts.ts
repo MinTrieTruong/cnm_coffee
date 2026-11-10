@@ -46,9 +46,20 @@ export const shiftStart = (ws: Pick<WorkSchedule, "workDate" | "startMin">) => n
 
 /** "Ca sáng 26/10 (07:00–12:00)" */
 async function shiftLabel(db: PrismaClient, ws: WorkSchedule) {
-  const tpl = await db.shiftTemplate.findUnique({ where: { code: ws.shiftCode }, select: { name: true } });
-  return `${tpl?.name ?? `Ca ${ws.shiftCode}`} ${dmy(ws.workDate)} (${hhmm(ws.startMin)}–${hhmm(ws.endMin)})`;
+  const tpl = ws.isExtra ? null : await db.shiftTemplate.findUnique({ where: { code: ws.shiftCode }, select: { name: true } });
+  return `${ws.isExtra ? EXTRA_SHIFT_NAME : tpl?.name ?? `Ca ${ws.shiftCode}`} ${dmy(ws.workDate)} (${hhmm(ws.startMin)}–${hhmm(ws.endMin)})`;
 }
+
+/** Tên hiển thị của ca bổ sung (shiftCode EXTRA, giờ do quản lý chọn) */
+export const EXTRA_SHIFT_NAME = "Ca bổ sung";
+
+type Slot = Pick<WorkSchedule, "startMin" | "endMin" | "isExtra">;
+/**
+ * Ca `ws` có vướng ca `other` cùng ngày không.
+ * Ca thường: mỗi người một ca/ngày (như trước). Có ca bổ sung ở một trong hai bên: chỉ vướng khi trùng giờ
+ * (VD người ca chiều 14h vẫn nhận được ca bổ sung 10h–13h).
+ */
+export const clashes = (ws: Slot, other: Slot) => (ws.isExtra || other.isExtra ? ws.startMin < other.endMin && other.startMin < ws.endMin : true);
 
 /** Điều kiện "đang nghỉ phép đã duyệt vào ngày d" */
 const onLeaveWhere = (d: Date) => ({ status: "APPROVED" as const, date: { lte: d }, OR: [{ toDate: null, date: d }, { toDate: { gte: d } }] });
@@ -62,10 +73,10 @@ async function candidatesFor(db: PrismaClient, ws: WorkSchedule): Promise<number
   const ids = staff.map((s) => s.id);
   if (!ids.length) return [];
   const [busy, leaves] = await Promise.all([
-    db.workSchedule.findMany({ where: { staffId: { in: ids }, workDate: ws.workDate, status: { not: "REJECTED" } }, select: { staffId: true } }),
+    db.workSchedule.findMany({ where: { staffId: { in: ids }, workDate: ws.workDate, status: { not: "REJECTED" } }, select: { staffId: true, startMin: true, endMin: true, isExtra: true } }),
     db.leaveRequest.findMany({ where: { userId: { in: ids }, ...onLeaveWhere(ws.workDate) }, select: { userId: true } }),
   ]);
-  const out = new Set<number>([...busy.map((b) => b.staffId!), ...leaves.map((l) => l.userId)]);
+  const out = new Set<number>([...busy.filter((b) => clashes(ws, b)).map((b) => b.staffId!), ...leaves.map((l) => l.userId)]);
   return ids.filter((id) => !out.has(id));
 }
 
@@ -82,12 +93,27 @@ async function escalate(db: PrismaClient, ws: WorkSchedule, why: string) {
   });
 }
 
+/** Các chỗ còn trống của cùng nhóm ca bổ sung (trừ `exceptId`), thứ tự id */
+async function openSlotsOf(db: PrismaClient, group: string, exceptId?: number) {
+  return db.workSchedule.findMany({
+    where: { extraGroup: group, status: "OPEN_SHIFT", staffId: null, ...(exceptId ? { id: { not: exceptId } } : {}) },
+    orderBy: { id: "asc" },
+  });
+}
+
 /** Thu hồi lời mời nhận ca (đã có người nhận / quản lý tự xếp / ca bị xoá) */
 export async function closeOpenShift(wsId: number) {
   const db = prisma;
   if (!db) return;
   try {
-    const ws = await db.workSchedule.findUnique({ where: { id: wsId }, select: { openNotifId: true, openedAt: true } });
+    const ws = await db.workSchedule.findUnique({ where: { id: wsId }, select: { openNotifId: true, openedAt: true, extraGroup: true } });
+    // Ca bổ sung nhiều chỗ: chỗ này hết trống nhưng nhóm còn chỗ → giữ lời mời, chuyển sang chỗ kế tiếp
+    const next = ws?.extraGroup && ws.openNotifId ? (await openSlotsOf(db, ws.extraGroup, wsId))[0] : undefined;
+    if (next && ws?.openNotifId) {
+      await db.workSchedule.update({ where: { id: next.id }, data: { openNotifId: ws.openNotifId, openedAt: ws.openedAt ?? new Date() } });
+      await db.workSchedule.update({ where: { id: wsId }, data: { openNotifId: null, openedAt: null, escalatedAt: null } });
+      return;
+    }
     if (ws?.openNotifId) await recallNotification(ws.openNotifId).catch(() => {});
     if (ws?.openedAt) await db.workSchedule.update({ where: { id: wsId }, data: { openNotifId: null, openedAt: null, escalatedAt: null } });
   } catch (e) {
@@ -100,11 +126,23 @@ export async function announceOpenShifts(wsIds: number[], reason?: string) {
   const db = prisma;
   if (!db || !wsIds.length) return;
   try {
-    const rows = await db.workSchedule.findMany({ where: { id: { in: wsIds }, status: "OPEN_SHIFT", staffId: null } });
+    const rows = await db.workSchedule.findMany({ where: { id: { in: wsIds }, status: "OPEN_SHIFT", staffId: null }, orderBy: { id: "asc" } });
     const now = Date.now();
+    const doneGroups = new Set<string>();
     for (const ws of rows) {
       const start = shiftStart(ws).getTime();
       if (start <= now) continue;
+      // Ca bổ sung nhiều chỗ: một lời mời cho cả nhóm (gắn vào chỗ trống đầu tiên)
+      let slots = 1;
+      if (ws.extraGroup) {
+        if (doneGroups.has(ws.extraGroup)) continue;
+        doneGroups.add(ws.extraGroup);
+        const open = await openSlotsOf(db, ws.extraGroup);
+        slots = open.length;
+        const others = open.filter((o) => o.id !== ws.id);
+        for (const o of others) if (o.openNotifId) await recallNotification(o.openNotifId).catch(() => {});
+        await db.workSchedule.updateMany({ where: { id: { in: others.map((o) => o.id) } }, data: { openNotifId: null, openedAt: new Date(), escalatedAt: null } });
+      }
       if (ws.openNotifId) await recallNotification(ws.openNotifId).catch(() => {});
       const label = await shiftLabel(db, ws);
       const staffIds = await candidatesFor(db, ws);
@@ -113,8 +151,8 @@ export async function announceOpenShifts(wsIds: number[], reason?: string) {
             type: "SHIFT_OPEN",
             // Ca trong 24 giờ tới: bật hộp thoại
             severity: start - now < 24 * 3_600_000 ? "IMPORTANT" : "NORMAL",
-            title: `Cần người nhận ca: ${label}`,
-            body: `${reason ? `${reason}. ` : ""}Ai bấm "Nhận ca" trước sẽ được xếp vào ca này.`,
+            title: slots > 1 ? `Cần ${slots} người nhận ca: ${label}` : `Cần người nhận ca: ${label}`,
+            body: `${reason ? `${reason}. ` : ""}${slots > 1 ? `Còn ${slots} chỗ — ai bấm "Nhận ca" trước được xếp, đủ người thì ngưng nhận.` : `Ai bấm "Nhận ca" trước sẽ được xếp vào ca này.`}`,
             link: OPEN_SHIFTS_LINK,
             storeId: ws.storeId,
             to: { staffIds },
@@ -143,17 +181,31 @@ export async function openShiftsFor(staffId: number) {
   if (!rows.length) return [];
   const dates = rows.map((r) => r.workDate);
   const [busy, leaves, templates] = await Promise.all([
-    db.workSchedule.findMany({ where: { staffId, workDate: { in: dates }, status: { not: "REJECTED" } }, select: { workDate: true } }),
+    db.workSchedule.findMany({ where: { staffId, workDate: { in: dates }, status: { not: "REJECTED" } }, select: { workDate: true, startMin: true, endMin: true, isExtra: true } }),
     db.leaveRequest.findMany({ where: { userId: staffId, status: "APPROVED" } }),
     db.shiftTemplate.findMany({ select: { code: true, name: true } }),
   ]);
-  const busyDays = new Set(busy.map((b) => ymdOf(b.workDate)));
+  const busyFor = (r: WorkSchedule) => busy.some((b) => ymdOf(b.workDate) === ymdOf(r.workDate) && clashes(r, b));
   const onLeave = (d: Date) => leaves.some((l) => l.date <= d && (l.toDate ?? l.date) >= d);
   const names = new Map(templates.map((t) => [t.code, t.name]));
   const now = Date.now();
+  // Ca bổ sung nhiều chỗ: gộp thành 1 dòng (chỗ trống đầu tiên) kèm số chỗ còn lại
+  const left = new Map<string, number>();
+  for (const r of rows) if (r.extraGroup) left.set(r.extraGroup, (left.get(r.extraGroup) ?? 0) + 1);
+  const seen = new Set<string>();
   return rows
-    .filter((r) => shiftStart(r).getTime() > now && !busyDays.has(ymdOf(r.workDate)) && !onLeave(r.workDate))
-    .map((r) => ({ id: r.id, workDate: r.workDate, shiftCode: r.shiftCode, shiftName: names.get(r.shiftCode) ?? `Ca ${r.shiftCode}`, startMin: r.startMin, endMin: r.endMin, role: r.role, managerNote: r.managerNote }));
+    .filter((r) => {
+      if (!r.extraGroup) return true;
+      if (seen.has(r.extraGroup)) return false;
+      seen.add(r.extraGroup);
+      return true;
+    })
+    .filter((r) => shiftStart(r).getTime() > now && !busyFor(r) && !onLeave(r.workDate))
+    .map((r) => ({
+      id: r.id, workDate: r.workDate, shiftCode: r.shiftCode, shiftName: r.isExtra ? EXTRA_SHIFT_NAME : names.get(r.shiftCode) ?? `Ca ${r.shiftCode}`,
+      startMin: r.startMin, endMin: r.endMin, role: r.role, managerNote: r.managerNote, isExtra: r.isExtra,
+      slotsLeft: r.extraGroup ? left.get(r.extraGroup) ?? 1 : 1,
+    }));
 }
 
 /** Nhân viên nhận ca trống. Trả lỗi (tiếng Việt) nếu không nhận được. */
@@ -165,14 +217,20 @@ export async function claimOpenShift(staffId: number, wsId: number): Promise<{ o
     db.workSchedule.findUnique({ where: { id: wsId } }),
   ]);
   if (!me || !ws || ws.storeId !== me.storeId) return { ok: false, error: "Không tìm thấy ca." };
+  // Ca bổ sung nhiều chỗ: chỗ vừa bấm đã có người → nhận chỗ trống khác của nhóm
+  if (ws.extraGroup && (ws.status !== "OPEN_SHIFT" || ws.staffId != null)) {
+    const other = (await openSlotsOf(db, ws.extraGroup))[0];
+    if (!other) return { ok: false, error: "Ca bổ sung này đã đủ người." };
+    return claimOpenShift(staffId, other.id);
+  }
   if (ws.status !== "OPEN_SHIFT" || ws.staffId != null) return { ok: false, error: "Ca này đã có người nhận." };
   if (ws.role && ws.role !== me.role) return { ok: false, error: "Ca này dành cho vị trí khác." };
   if (shiftStart(ws).getTime() <= Date.now()) return { ok: false, error: "Ca đã bắt đầu, không nhận được nữa." };
   const [busy, leave] = await Promise.all([
-    db.workSchedule.findFirst({ where: { staffId, workDate: ws.workDate, status: { not: "REJECTED" } }, select: { id: true } }),
+    db.workSchedule.findMany({ where: { staffId, workDate: ws.workDate, status: { not: "REJECTED" } }, select: { startMin: true, endMin: true, isExtra: true } }),
     db.leaveRequest.findFirst({ where: { userId: staffId, ...onLeaveWhere(ws.workDate) }, select: { id: true } }),
   ]);
-  if (busy) return { ok: false, error: "Bạn đã có ca trong ngày này." };
+  if (busy.some((b) => clashes(ws, b))) return { ok: false, error: ws.isExtra ? "Bạn đã có ca trùng giờ với ca bổ sung này." : "Bạn đã có ca trong ngày này." };
   if (leave) return { ok: false, error: "Bạn đang nghỉ phép ngày này." };
 
   // Chỉ gán khi ca vẫn còn trống — ai cập nhật trước thì được ca
@@ -189,11 +247,14 @@ export async function claimOpenShift(staffId: number, wsId: number): Promise<{ o
     if (e.code === "P2002") return { ok: false, error: "Bạn đã có ca trong ngày này." };
     throw e;
   }
-  if (!won) return { ok: false, error: "Ca này vừa có người khác nhận trước." };
+  if (!won) {
+    if (ws.extraGroup && (await openSlotsOf(db, ws.extraGroup)).length) return claimOpenShift(staffId, wsId);
+    return { ok: false, error: ws.extraGroup ? "Ca bổ sung này vừa đủ người." : "Ca này vừa có người khác nhận trước." };
+  }
 
   // Cùng một người bấm nhận 2 ca khác nhau của cùng ngày gần như cùng lúc → trả lại ca này
-  const sameDay = await db.workSchedule.count({ where: { staffId, workDate: ws.workDate, status: { not: "REJECTED" } } });
-  if (sameDay > 1) {
+  const sameDay = await db.workSchedule.findMany({ where: { staffId, workDate: ws.workDate, status: { not: "REJECTED" }, id: { not: wsId } }, select: { startMin: true, endMin: true, isExtra: true } });
+  if (sameDay.some((b) => clashes(ws, b))) {
     await db.workSchedule.update({ where: { id: wsId }, data: { staffId: null, status: "OPEN_SHIFT", role: ws.role, managerNote: ws.managerNote } });
     return { ok: false, error: "Bạn đã có ca trong ngày này." };
   }
@@ -223,7 +284,10 @@ export function startOpenShiftJob() {
       const rows = await db.workSchedule.findMany({ where: { status: "OPEN_SHIFT", staffId: null, workDate: { gte: from, lte: to } } });
 
       const toAnnounce: number[] = [];
+      const leadOf = new Map<string, number>();
+      for (const r of rows) if (r.extraGroup && (!leadOf.has(r.extraGroup) || r.id < leadOf.get(r.extraGroup)!)) leadOf.set(r.extraGroup, r.id);
       for (const ws of rows) {
+        if (ws.extraGroup && leadOf.get(ws.extraGroup) !== ws.id && shiftStart(ws).getTime() > Date.now()) continue;
         const start = shiftStart(ws).getTime();
         if (start <= now) {
           if (ws.openNotifId) await closeOpenShift(ws.id);

@@ -292,30 +292,51 @@ textarea {
   height: 0.65rem;
   border-radius: 999px;
   display: inline-block;
+  background: var(--tile);
 }
 
 .table-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
   gap: 0.75rem;
 }
 
-/* Các tông 600–700: chữ trắng đạt ≥ 4.5:1 */
+/* Ô bàn = khung trong suốt chứa hình bàn có ghế (components/TableShape.tsx) + dòng #đơn · tiền + nút Báo trống */
 .table-tile {
-  border-radius: 14px;
-  padding: 0.7rem 0.6rem;
-  border: none;
-  text-align: left;
-  min-height: 92px;
-  color: #fff;
   position: relative;
-  box-shadow: var(--shadow-sm);
-  transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.25rem;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.15s var(--ease);
 }
+.table-tile:focus-visible { outline: 2px solid var(--o-primary, var(--accent)); outline-offset: 2px; }
+.table-tile:hover { transform: translateY(-2px); }
+.table-tile:hover .table-shape svg { filter: drop-shadow(0 6px 8px rgba(17, 24, 39, 0.22)); }
+.table-tile-meta { font-size: 0.72rem; line-height: 1.3; color: var(--muted); }
+/* Bàn từ 8 chỗ: chiếm 2 cột lưới để mặt bàn không bị thu nhỏ */
+.table-tile.is-wide { grid-column: span 2; }
 
-.table-tile:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+/* Hình bàn: mặt bàn tô màu trạng thái (--tile), ghế cùng tông nhạt hơn */
+.table-shape { position: relative; max-width: 100%; }
+.table-shape svg { display: block; overflow: visible; transition: filter 0.15s var(--ease); }
+.table-shape-top-rect { fill: var(--tile); }
+.table-shape-chair { fill: color-mix(in srgb, var(--tile) 55%, white); }
+.table-shape.is-selected .table-shape-top-rect { stroke: var(--o-primary, var(--accent)); stroke-width: 3px; }
+/* Chữ trên mặt bàn: trắng — các tông 600–700 đạt ≥ 4.5:1 */
+.table-shape-top { position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 2px 4px; color: #fff; text-align: center; overflow: hidden; }
+.table-shape-num { font-weight: 700; font-size: 1.05rem; line-height: 1; }
+.table-shape-label { font-size: 0.7rem; font-weight: 600; line-height: 1.15; }
+@media (prefers-reduced-motion: reduce) {
+  .table-tile, .table-shape svg { transition: none; }
+  .table-tile:hover { transform: none; }
 }
 
 @keyframes badge-pulse {
@@ -331,24 +352,12 @@ textarea {
   }
 }
 
-.table-tile-empty {
-  background: #57534e;
-}
-
-.table-tile-occupied {
-  background: #0369a1;
-}
-
-.table-tile-paying {
-  background: #b45309;
-  color: #fff;
-}
-
+/* Màu trạng thái bàn (giữ 4 mã cũ để chú thích khớp) — dùng qua biến --tile */
+.table-tile-empty { --tile: #57534e; }
+.table-tile-occupied { --tile: #0369a1; }
+.table-tile-paying { --tile: #b45309; }
 /* Khách vừa thanh toán, có thể còn ngồi — nhân viên bấm Báo trống */
-.table-tile-cleaning {
-  background: #047857;
-  color: #fff;
-}
+.table-tile-cleaning { --tile: #047857; }
 
 /* ═══════════════════════════════════════════════════════════════════
    ADMIN SHELL — sidebar sáng (desktop) / drawer + topbar (mobile)
@@ -1100,6 +1109,20 @@ textarea {
   text-align: center;
 }
 
+.staff-chat-back {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-left: -8px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 1.8rem;
+  line-height: 1;
+  cursor: pointer;
+}
 .staff-chat-thread-header {
   padding: 12px 20px;
   box-shadow: 0 1px 0 var(--border);
@@ -1212,11 +1235,16 @@ textarea {
     min-height: calc(100dvh - 140px);
   }
 
+  /* Điện thoại / máy tính bảng: một màn danh sách, chọn phiên thì sang màn hội thoại (có nút quay lại) */
   .staff-chat-sidebar {
     width: 100%;
-    max-height: 240px;
-    box-shadow: 0 1px 0 var(--border);
+    box-shadow: none;
   }
+  .staff-chat-layout:not(.has-thread) .staff-chat-main { display: none; }
+  .staff-chat-layout.has-thread .staff-chat-sidebar { display: none; }
+  /* Trừ header + thanh mục con (~106px) và thanh đáy (~60px) để ô nhập tin không bị che */
+  .staff-chat-layout.has-thread { height: calc(100dvh - 170px - env(safe-area-inset-bottom, 0px)); min-height: 0; }
+  .staff-chat-back { display: inline-flex !important; }
 
   .staff-msg {
     max-width: 88%;
@@ -3266,3 +3294,17 @@ textarea {
 .supplier-entry-text span { font-size: 0.82rem; color: var(--muted); }
 .supplier-entry-arrow { flex-shrink: 0; color: var(--accent); transition: transform 0.15s; }
 .supplier-entry:hover .supplier-entry-arrow { transform: translateX(3px); }
+
+/* ═══════════ Chụp ảnh bằng chứng (components/ProofCamera.tsx) ═══════════ */
+.proofcam { position: fixed; inset: 0; z-index: 3000; background: #000; display: flex; flex-direction: column; }
+.proofcam-video { flex: 1; width: 100%; min-height: 0; object-fit: cover; background: #000; }
+.proofcam-x { position: absolute; top: max(12px, env(safe-area-inset-top)); right: 12px; width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(0,0,0,0.5); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.proofcam-info { position: absolute; left: 0; right: 0; bottom: calc(110px + env(safe-area-inset-bottom)); padding: 10px 16px; display: flex; flex-direction: column; gap: 4px; color: #fff; font-size: 0.9rem; background: linear-gradient(transparent, rgba(0,0,0,0.6)); }
+.proofcam-info svg { vertical-align: -2px; }
+.proofcam-info .is-err { color: #fecaca; font-weight: 600; }
+.proofcam-info .is-err button { margin-left: 6px; border: 1px solid #fecaca; background: transparent; color: #fff; border-radius: 6px; padding: 2px 8px; font: inherit; cursor: pointer; }
+.proofcam-hint { font-size: 0.78rem; opacity: 0.8; }
+.proofcam-shutter { position: absolute; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: 72px; height: 72px; border-radius: 50%; border: 4px solid #fff; background: rgba(255,255,255,0.25); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.proofcam-shutter:disabled { opacity: 0.4; cursor: not-allowed; }
+.proof-meta { font-size: 0.78rem; color: var(--o-muted, #6b7280); display: block; margin-top: 4px; }
+.proof-meta.is-far { color: var(--o-danger, #b91c1c); font-weight: 600; }

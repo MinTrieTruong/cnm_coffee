@@ -35,7 +35,13 @@ export type NotifyType =
   | "TASK"
   | "SHIFT_OPEN"
   | "BRANCH_PROPOSAL"
-  | "INVENTORY_COUNT";
+  | "INVENTORY_COUNT"
+  /** Nhân viên vừa đăng ký FaceID / quản lý xoá FaceID */
+  | "STAFF_FACE"
+  /** Nhắc gửi nguyện vọng xếp ca */
+  | "SHIFT_WISH"
+  /** Lịch tháng đã công bố (kèm câu giải thích nguyện vọng của từng người) */
+  | "SCHEDULE_PUBLISHED";
 
 export type Audience = {
   /** Gửi đích danh */

@@ -8,6 +8,7 @@ import { useHideBottomNav } from "../components/BottomNav";
 import { PosBillHistory, type BillRecord } from "../components/PosBillHistory";
 import { PosPendingList } from "../components/PosPendingList";
 import { PosGiftClaim } from "../components/PosGiftClaim";
+import { TableShape } from "../components/TableShape";
 import { EntryDialog, SafeCloseDialog, SafeOpenDialog, ShiftCloseDialog, useSafe } from "../modules/finance/shared";
 
 /** Âm thanh nhỏ nhẹ khi nhận yêu cầu thanh toán từ phục vụ. */
@@ -45,6 +46,8 @@ type TableRow = {
   name: string;
   status: string;
   location: string | null;
+  /** Sức chứa — số ghế vẽ quanh bàn */
+  capacity?: number;
   zoneId?: number;
   paymentStatus?: string;
   orders: { id: number; status: string; totalAmount: number; details?: any[] }[];
@@ -794,7 +797,8 @@ export function Pos() {
               return (
                 <div
                   key={t.id}
-                  className={`table-tile ${meta.cls}`}
+                  className={(t.capacity ?? 4) >= 8 ? "table-tile is-wide" : "table-tile"}
+                  aria-label={`${t.name}, ${meta.label}`}
                   onClick={() => setMenuTableId(t.id)}
                   role="button"
                   tabIndex={0}
@@ -802,15 +806,16 @@ export function Pos() {
                     if (ev.key === "Enter" || ev.key === " ") setMenuTableId(t.id);
                   }}
                 >
-                  <div style={{ fontWeight: 700, fontSize: "1.05rem", lineHeight: 1 }}>{t.name.replace("Bàn ", "")}</div>
-                  {activeZoneId === "all" && (
-                    <div style={{ fontSize: "0.72rem", opacity: 0.95, marginTop: "0.25rem" }}>{t.location ?? "Tại quán"}</div>
-                  )}
+                  <TableShape seats={t.capacity ?? 4} className={meta.cls}>
+                    <span className="table-shape-num">{t.name.replace("Bàn ", "")}</span>
+                    <span className="table-shape-label">{meta.label}</span>
+                  </TableShape>
                   {getDrinkBadge(o)}
-                  <div style={{ fontSize: "0.74rem", marginTop: "0.35rem", fontWeight: 600 }}>{meta.label}</div>
-                  {o && (
-                    <div style={{ fontSize: "0.7rem", marginTop: "0.18rem" }}>
-                      #{o.id} · {formatVnd(o.totalAmount)}
+                  {(o || activeZoneId === "all") && (
+                    <div className="table-tile-meta">
+                      {o && <>#{o.id} · {formatVnd(o.totalAmount)}</>}
+                      {o && activeZoneId === "all" && <br />}
+                      {activeZoneId === "all" && (t.location ?? "Tại quán")}
                     </div>
                   )}
                 </div>

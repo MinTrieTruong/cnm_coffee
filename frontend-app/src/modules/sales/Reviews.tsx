@@ -15,6 +15,8 @@ type ReviewRow = {
   createdAt: string;
   customer: { fullName: string; phone: string | null };
   order: { id: number; totalAmount: number };
+  /** null = đánh giá chung cho quán */
+  product: { id: number; name: string } | null;
   replyBy: { fullName: string } | null;
 };
 
@@ -54,6 +56,7 @@ export function ReviewList() {
         { key: "date", label: "Ngày", value: (r) => r.createdAt, render: (r) => fmtDate(r.createdAt) },
         { key: "rating", label: "Đánh giá", value: (r) => r.rating, render: (r) => <Stars n={r.rating} /> },
         { key: "customer", label: "Khách hàng", value: (r) => r.customer.fullName },
+        { key: "product", label: "Món", value: (r) => r.product?.name ?? "", render: (r) => r.product?.name ?? <span className="o-muted">Chung cho quán</span> },
         { key: "comment", label: "Nội dung", value: (r) => r.comment ?? "", wrap: true },
         { key: "order", label: "Đơn", value: (r) => r.order.id, numeric: true, render: (r) => `#${r.order.id}`, optional: true },
         {
@@ -68,9 +71,14 @@ export function ReviewList() {
           ),
         },
       ]}
-      searchText={(r) => `${r.customer.fullName} ${r.comment ?? ""}`}
-      filters={[5, 4, 3, 2, 1].map((s) => ({ id: `s${s}`, label: `${s} sao`, test: (r: ReviewRow) => r.rating === s }))}
+      searchText={(r) => `${r.customer.fullName} ${r.product?.name ?? ""} ${r.comment ?? ""}`}
+      filters={[
+        ...[5, 4, 3, 2, 1].map((s) => ({ id: `s${s}`, label: `${s} sao`, test: (r: ReviewRow) => r.rating === s })),
+        { id: "product", label: "Đánh giá món", test: (r: ReviewRow) => !!r.product },
+        { id: "overall", label: "Đánh giá chung cho quán", test: (r: ReviewRow) => !r.product },
+      ]}
       groupBys={[
+        { id: "product", label: "Món", key: (r) => r.product?.name ?? "Chung cho quán" },
         { id: "rating", label: "Số sao", key: (r) => `${r.rating} sao` },
         { id: "reply", label: "Phản hồi", key: (r) => (r.adminReply ? "Đã phản hồi" : "Chưa phản hồi") },
       ]}
@@ -135,6 +143,7 @@ export function ReviewForm({ recordId }: { recordId?: string }) {
         <FormGroup>
           <Field label="SĐT">{r.customer.phone ?? <span className="o-muted">—</span>}</Field>
           <Field label="Đơn hàng">#{r.order.id} · {formatVnd(r.order.totalAmount)}</Field>
+          <Field label="Món">{r.product?.name ?? <span className="o-muted">Đánh giá chung cho quán</span>}</Field>
         </FormGroup>
         <FormGroup>
           <Field label="Người phản hồi">{r.replyBy?.fullName ?? <span className="o-muted">—</span>}</Field>

@@ -6,6 +6,7 @@ import { getStoreSettings } from "../lib/pricing.js";
 import { reqStoreId } from "../lib/storeScope.js";
 import { attachStaff, isOwner, requireRoles, type StaffRequest } from "../middleware/staff.js";
 import { mergeButtons } from "./contactButtons.js";
+import { siteStats } from "../lib/siteStats.js";
 
 const idOf = (req: Request) => Number(req.params.id);
 const storeParam = (req: Request) => {
@@ -22,9 +23,15 @@ const cleanLink = (v: unknown) => {
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const HEX = /^#[0-9a-f]{6}$/i;
 type Occasion = { id: string; until: string | null; effects: boolean };
-type SiteTheme = { preset: string; primary: string; accent: string; defaultMode: "light" | "dark" | "auto"; allowToggle: boolean; occasion: Occasion | null };
+type SiteTheme = {
+  preset: string; primary: string; accent: string; defaultMode: "light" | "dark" | "auto"; allowToggle: boolean; occasion: Occasion | null;
+  /** Hiện thông tin dinh dưỡng (nhãn, bảng ước tính, bộ lọc ăn kiêng) cho khách */
+  showNutrition: boolean;
+  /** Hiện khối "Hợp thời tiết hôm nay" trên trang chủ */
+  showWeatherPicks: boolean;
+};
 /** Màu mặc định "gạch bông Sài Gòn" — trùng customer-tokens.css */
-const DEFAULT_THEME: SiteTheme = { preset: "gach-bong", primary: "#1e5a5f", accent: "#e0a531", defaultMode: "light", allowToggle: true, occasion: null };
+const DEFAULT_THEME: SiteTheme = { preset: "espresso-kem", primary: "#4a2c1d", accent: "#c08a4b", defaultMode: "light", allowToggle: true, occasion: null, showNutrition: true, showWeatherPicks: true };
 /** Chủ đề dịp lễ — trùng frontend lib/occasions.ts */
 const OCCASION_IDS = ["tet", "8-3", "30-4", "noel"];
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -33,7 +40,7 @@ function readOccasion(raw: unknown): Occasion | null {
   if (!o || typeof o.id !== "string" || !OCCASION_IDS.includes(o.id)) return null;
   return { id: o.id, until: typeof o.until === "string" && YMD.test(o.until) ? o.until : null, effects: o.effects !== false };
 }
-function readTheme(raw: unknown): SiteTheme {
+export function readTheme(raw: unknown): SiteTheme {
   const t = (raw && typeof raw === "object" ? raw : {}) as Partial<SiteTheme>;
   return {
     preset: typeof t.preset === "string" ? t.preset.slice(0, 30) : DEFAULT_THEME.preset,
@@ -42,7 +49,16 @@ function readTheme(raw: unknown): SiteTheme {
     defaultMode: t.defaultMode === "dark" || t.defaultMode === "auto" ? t.defaultMode : "light",
     allowToggle: t.allowToggle !== false,
     occasion: readOccasion(t.occasion),
+    showNutrition: t.showNutrition !== false,
+    showWeatherPicks: t.showWeatherPicks !== false,
   };
+}
+
+/** Công tắc hiển thị của trang khách (dinh dưỡng, gợi ý thời tiết) */
+export async function siteFlags(prisma: PrismaClient) {
+  const s = await getStoreSettings(prisma);
+  const t = readTheme(s.siteTheme);
+  return { showNutrition: t.showNutrition, showWeatherPicks: t.showWeatherPicks };
 }
 
 /** Website khách: thông tin công ty, banner trang chủ, tin liên hệ / đăng ký nhận tin */
@@ -72,6 +88,9 @@ export function siteRouter(prisma: PrismaClient) {
     res.json({
       company: { name: s.companyName, intro: s.companyIntro, address: s.companyAddress, email: s.companyEmail, phone: s.companyPhone, hours: s.companyHours },
       theme: readTheme(s.siteTheme),
+      // Web khách chỉ gửi sự kiện hành vi khi quán bật ghi nhận (lib/track.ts)
+      tracking: s.behaviorTracking,
+      trackingDays: s.behaviorRetentionDays,
       hotline: { value: hotline, display: formatVnPhone(hotline), href: `tel:${hotline}` },
       stores,
       // Mạng xã hội ở footer = nút liên hệ đang bật (Zalo, Messenger, TikTok…) — không ghi cứng link
@@ -120,11 +139,14 @@ export function siteRouter(prisma: PrismaClient) {
     const theme = readTheme(b);
     await getStoreSettings(prisma);
     await prisma.storeSettings.update({ where: { id: 1 }, data: { siteTheme: theme } });
-    audit((req as StaffRequest).staffRow!.id, "SITE_THEME_UPDATE", "Giao diện trang khách", `${theme.primary} · ${theme.accent} · ${theme.defaultMode}${theme.occasion ? ` · lễ ${theme.occasion.id}${theme.occasion.until ? ` tới ${theme.occasion.until}` : ""}` : ""}`);
+    audit((req as StaffRequest).staffRow!.id, "SITE_THEME_UPDATE", "Giao diện trang khách", `${theme.primary} · ${theme.accent} · ${theme.defaultMode} · dinh dưỡng ${theme.showNutrition ? "hiện" : "ẩn"} · thời tiết ${theme.showWeatherPicks ? "hiện" : "ẩn"}${theme.occasion ? ` · lễ ${theme.occasion.id}${theme.occasion.until ? ` tới ${theme.occasion.until}` : ""}` : ""}`);
     res.json(theme);
   });
 
   /* ═══════════ Banner trang chủ ═══════════ */
+
+  /** GET /site/stats — số liệu trang chủ (lib/siteStats.ts, đệm 5 phút) */
+  r.get("/site/stats", async (_req, res) => res.json(await siteStats(prisma)));
 
   r.get("/banners", async (req, res) => {
     const storeId = storeParam(req);

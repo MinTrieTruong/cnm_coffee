@@ -6,7 +6,7 @@ import { getStaffInfo, isAdminRole, staffApi } from "../lib/staffApi";
 import { fmtQty } from "../components/erp";
 import { mediaUrl } from "../lib/api";
 import { REJECT_REASON } from "../lib/supplierReturns";
-import { PhotoPicker } from "../components/PhotoPicker";
+import { ReceiveDialog } from "../components/procurement/ReceiveDialog";
 import { SupplierReturnsPanel } from "../components/SupplierReturnsPanel";
 
 /** Trạng thái đơn mua (PO) */
@@ -15,12 +15,6 @@ const PO_STATUS: Record<string, { label: string; bg: string; color: string }> = 
   PARTIAL: { label: "Đã nhận một phần", bg: "rgba(59,130,246,0.2)", color: "#1d4ed8" },
   DELIVERED: { label: "Đã Giao & Nhập Kho", bg: "rgba(16,185,129,0.2)", color: "#047857" },
   CLOSED: { label: "Đã đóng (giao thiếu)", bg: "rgba(107,114,128,0.2)", color: "#4b5563" },
-};
-
-type RecvLine = {
-  qty: string; rejected: string; expiry: string; note: string;
-  reason: string; photo: string | null;
-  action: "BACKORDER" | "CANCEL"; backorder: string;
 };
 
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -46,17 +40,6 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
   const [selectedRfq, setSelectedRfq] = useState<any>(null);
 
   const [receivingPo, setReceivingPo] = useState<any>(null);
-  /**
-   * Nhận hàng theo PO, từng mặt hàng (itemId → giá trị): số thực nhận / trả lại (lý do + ảnh) / hạn dùng / ghi chú,
-   * phần còn thiếu: chờ giao bù (ngày hẹn) hoặc hủy
-   */
-  const [recv, setRecv] = useState<Record<number, RecvLine>>({});
-  const [recvNote, setRecvNote] = useState("");
-  /** Ảnh hoá đơn / phiếu giao hàng của NCC — chứng từ công nợ của đợt nhận */
-  const [recvInvoice, setRecvInvoice] = useState<string | null>(null);
-  const [recvReorder, setRecvReorder] = useState(false);
-  const [recvBusy, setRecvBusy] = useState(false);
-
   const [previewDoc, setPreviewDoc] = useState<any>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
@@ -134,14 +117,6 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
   }
 
   function openReceive(po: any) {
-    const backorder = ymd(new Date(Date.now() + 3 * 86400_000));
-    setRecv(Object.fromEntries(po.lines.filter((l: any) => l.remaining > 0).map((l: any) => [
-      l.itemId,
-      { qty: String(l.remaining), rejected: "", expiry: "", note: "", reason: "", photo: null, action: "BACKORDER", backorder },
-    ])));
-    setRecvNote("");
-    setRecvInvoice(null);
-    setRecvReorder(false);
     setReceivingPo(po);
   }
 
@@ -156,61 +131,6 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
       if (r.reorderCode) alert(`Đã tạo đề xuất mua ${r.reorderCode} (chờ duyệt).`);
       loadData();
     } catch (e: any) { alert(e.message); }
-  }
-
-  async function receiveOrder() {
-    if (!receivingPo) return;
-    const toInt = (v: string) => (v.trim() === "" ? 0 : Number(v));
-    const lines = receivingPo.lines
-      .filter((l: any) => recv[l.itemId])
-      .map((l: any) => {
-        const r = recv[l.itemId];
-        return {
-          itemId: l.itemId, name: l.name, remaining: l.remaining, receivedQty: toInt(r.qty), rejectedQty: toInt(r.rejected), expiryDate: r.expiry || null, note: r.note,
-          rejectReason: r.reason || undefined, rejectPhoto: r.photo || undefined, shortAction: r.action, backorderDate: r.backorder || null,
-        };
-      });
-    const bad = lines.find((l: any) => !Number.isInteger(l.receivedQty) || l.receivedQty < 0 || !Number.isInteger(l.rejectedQty) || l.rejectedQty < 0 || l.receivedQty + l.rejectedQty > l.remaining);
-    if (bad) return alert(`Số lượng của ${bad.name} không hợp lệ: thực nhận + trả lại tối đa ${bad.remaining}.`);
-    const noProof = lines.find((l: any) => l.rejectedQty > 0 && (!l.rejectReason || !l.rejectPhoto));
-    if (noProof) return alert(`${noProof.name}: chọn lý do và chụp ảnh hàng bị trả lại.`);
-    if (lines.some((l: any) => l.receivedQty > 0) && !recvInvoice) return alert("Chụp ảnh hoá đơn / phiếu giao hàng của nhà cung cấp làm chứng từ công nợ.");
-    const short = lines.filter((l: any) => l.receivedQty < l.remaining);
-    if (!lines.some((l: any) => l.receivedQty > 0 || l.rejectedQty > 0) && !short.some((l: any) => l.shortAction === "CANCEL")) return alert("Nhập số thực nhận cho ít nhất 1 mặt hàng.");
-    const noExpiry = lines.filter((l: any) => l.receivedQty > 0 && !l.expiryDate).map((l: any) => l.name);
-    const waiting = short.filter((l: any) => l.shortAction === "BACKORDER");
-    const cut = short.filter((l: any) => l.shortAction === "CANCEL");
-    const msg = [
-      "Xác nhận nhập kho (tạo phiếu nhập GRN)? Tồn kho và công nợ NCC tính theo số thực nhận.",
-      waiting.length ? `\nChờ giao bù: ${waiting.map((l: any) => `${l.name} thiếu ${l.remaining - l.receivedQty}${l.backorderDate ? ` (hẹn ${dateVi(l.backorderDate)})` : ""}`).join(", ")}.` : "",
-      cut.length ? `\nHủy phần thiếu: ${cut.map((l: any) => `${l.name} ${l.remaining - l.receivedQty}`).join(", ")}${recvReorder ? " — tạo đề xuất mua mới" : ""}.` : "",
-      noExpiry.length ? `\nChưa nhập hạn sử dụng: ${noExpiry.join(", ")} — sẽ không có cảnh báo hết hạn cho lô này.` : "",
-    ].join("");
-    if (!window.confirm(msg)) return;
-    setRecvBusy(true);
-    try {
-      const r = await staffApi<{ reorderCode: string | null }>(`/api/purchasing/orders/${receivingPo.id}/receive`, {
-        method: "POST",
-        body: JSON.stringify({
-          note: recvNote,
-          reorder: recvReorder,
-          invoicePhoto: recvInvoice ?? undefined,
-          lines: lines.map((l: any) => ({
-            itemId: l.itemId, receivedQty: l.receivedQty, rejectedQty: l.rejectedQty, expiryDate: l.expiryDate, note: l.note,
-            rejectReason: l.rejectReason, rejectPhoto: l.rejectPhoto, shortAction: l.shortAction, backorderDate: l.backorderDate,
-          })),
-        })
-      });
-      if (r.reorderCode) alert(`Đã tạo đề xuất mua ${r.reorderCode} cho phần bị hủy (chờ duyệt).`);
-      setReceivingPo(null);
-      setRecv({});
-      setRecvInvoice(null);
-      loadData();
-    } catch (e: any) {
-      alert(e.message);
-    } finally {
-      setRecvBusy(false);
-    }
   }
 
   async function downloadPDF() {
@@ -536,73 +456,17 @@ export function ProcurementAdmin({ embedded = false }: { embedded?: boolean } = 
 
       {tab === "rtv" && <SupplierReturnsPanel canCreate={keeper || approver} canApprove={approver} />}
 
-      {/* RECEIVE PO MODAL */}
-      <AnimatePresence>
-        {receivingPo && (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} style={{ background: "var(--bg)", width: "100%", maxWidth: 600, padding: "2rem", borderRadius: 12, border: "1px solid var(--border)", maxHeight: "90vh", overflowY: "auto" }}>
-              <h2 style={{ margin: "0 0 1rem 0", color: "var(--accent)" }}>Nhập Kho - {receivingPo.code}</h2>
-              <p style={{ color: "var(--muted)", marginBottom: "1.5rem" }}>Đếm hàng thực nhận. Hàng hỏng / sai quy cách ghi vào "Trả lại" kèm lý do và ảnh (không nhập kho, không tính tiền). Phần còn thiếu: chờ nhà cung cấp giao bù hoặc hủy.</p>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                {receivingPo.lines.filter((l: any) => recv[l.itemId]).map((l: any) => {
-                  const r = recv[l.itemId];
-                  const set = <K extends keyof RecvLine>(k: K, v: RecvLine[K]) => setRecv((prev) => ({ ...prev, [l.itemId]: { ...prev[l.itemId], [k]: v } }));
-                  const got = Number(r.qty || 0);
-                  const rejected = Number(r.rejected || 0);
-                  const short = Math.max(0, l.remaining - got);
-                  return (
-                    <div key={l.itemId} style={{ background: "var(--surface2)", padding: "1rem", borderRadius: 8, display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                      <div>
-                        <div style={{ fontWeight: "bold" }}>{l.name}</div>
-                        <div style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Đặt {l.ordered} {l.unit}{l.received ? ` · đã nhận ${l.received}` : ""} · còn phải giao {l.remaining}</div>
-                      </div>
-                      <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-                        <label style={{ fontSize: "0.85rem" }}>Thực nhận<br /><input className="input-field" style={{ padding: "0.4rem", width: 90 }} inputMode="numeric" value={r.qty} onChange={(e) => set("qty", e.target.value.replace(/\D/g, ""))} /></label>
-                        <label style={{ fontSize: "0.85rem" }}>Trả lại (hỏng)<br /><input className="input-field" style={{ padding: "0.4rem", width: 90 }} inputMode="numeric" value={r.rejected} onChange={(e) => set("rejected", e.target.value.replace(/\D/g, ""))} /></label>
-                        <label style={{ fontSize: "0.85rem" }}>Hạn sử dụng<br /><input type="date" className="input-field" style={{ padding: "0.4rem" }} value={r.expiry} onChange={(e) => set("expiry", e.target.value)} /></label>
-                        <label style={{ fontSize: "0.85rem", flex: 1, minWidth: 140 }}>Ghi chú<br /><input className="input-field" style={{ padding: "0.4rem", width: "100%" }} value={r.note} onChange={(e) => set("note", e.target.value)} placeholder="VD: 2 hộp móp" /></label>
-                      </div>
-                      {rejected > 0 && (
-                        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "flex-end", padding: "0.6rem", borderRadius: 6, background: "var(--danger-soft)" }}>
-                          <label style={{ fontSize: "0.85rem" }}>Lý do trả lại<br />
-                            <select className="input-field" style={{ padding: "0.4rem" }} value={r.reason} onChange={(e) => set("reason", e.target.value)}>
-                              <option value="">-- Chọn --</option>
-                              {Object.entries(REJECT_REASON).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                            </select>
-                          </label>
-                          <PhotoPicker value={r.photo} onChange={(v) => set("photo", v)} />
-                        </div>
-                      )}
-                      {short > 0 && (
-                        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "flex-end", fontSize: "0.85rem" }}>
-                          <span style={{ color: "#b45309", fontWeight: 600 }}>Còn thiếu {short}{rejected ? ` (gồm ${rejected} trả lại)` : ""}:</span>
-                          <label><input type="radio" checked={r.action === "BACKORDER"} onChange={() => set("action", "BACKORDER")} /> Chờ giao bù</label>
-                          {r.action === "BACKORDER" && <input type="date" className="input-field" style={{ padding: "0.3rem" }} min={ymd(new Date())} value={r.backorder} onChange={(e) => set("backorder", e.target.value)} />}
-                          <label><input type="radio" checked={r.action === "CANCEL"} onChange={() => set("action", "CANCEL")} /> Hủy phần thiếu</label>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                {Object.values(recv).some((r) => r.action === "CANCEL") && (
-                  <label style={{ fontSize: "0.85rem" }}><input type="checkbox" checked={recvReorder} onChange={(e) => setRecvReorder(e.target.checked)} /> Tạo đề xuất mua mới cho phần bị hủy (lấy báo giá NCC khác)</label>
-                )}
-                <div style={{ padding: "0.75rem", border: `1px dashed ${recvInvoice ? "var(--success)" : "var(--danger)"}`, borderRadius: 10 }}>
-                  <PhotoPicker value={recvInvoice} onChange={setRecvInvoice} label="Ảnh hoá đơn / phiếu giao hàng của NCC (bắt buộc)" />
-                  <div style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: "0.3rem" }}>Chứng từ để đối chiếu công nợ với nhà cung cấp.</div>
-                </div>
-                <label style={{ fontSize: "0.85rem" }}>Ghi chú đợt nhận<br /><input className="input-field" style={{ padding: "0.4rem", width: "100%" }} value={recvNote} onChange={(e) => setRecvNote(e.target.value)} placeholder="VD: tài xế NCC ký biên bản trả hàng" /></label>
-              </div>
-
-              <div style={{ display: "flex", gap: "1rem", marginTop: "2rem", justifyContent: "flex-end" }}>
-                <button className="secondary-btn" onClick={() => setReceivingPo(null)}>Hủy</button>
-                <button className="primary-btn" onClick={receiveOrder} disabled={recvBusy}>{recvBusy ? "Đang lưu…" : "Xác nhận Nhập Kho (Tạo GRN)"}</button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* Nhận hàng theo đơn mua (+ đọc hoá đơn bằng AI) */}
+      {receivingPo && (
+        <ReceiveDialog
+          po={receivingPo}
+          onClose={() => setReceivingPo(null)}
+          onDone={() => {
+            setReceivingPo(null);
+            loadData();
+          }}
+        />
+      )}
 
       {/* DOCUMENT DRIVE TAB */}
       {tab === "drive" && (

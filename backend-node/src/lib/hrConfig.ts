@@ -65,7 +65,7 @@ const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}
 
 /** Dạng gọn trả cho frontend (thay cho SHIFT_DEFS cố định trước đây) */
 export function shiftDefsOf(templates: ShiftTemplate[]) {
-  return templates.map((t) => ({
+  return [...templates.map((t) => ({
     code: t.code,
     name: t.name,
     label: `${hhmm(t.startMin)} – ${hhmm(t.endMin)}`,
@@ -74,7 +74,10 @@ export function shiftDefsOf(templates: ShiftTemplate[]) {
     hours: Math.round(((t.endMin - t.startMin) / 60) * 10) / 10,
     color: t.color,
     isActive: t.isActive,
-  }));
+  })),
+    // Ca bổ sung (shiftCode EXTRA, giờ từng ca tự chọn): để màn lịch tra tên / màu; isActive=false nên không hiện trong danh sách chọn ca mẫu
+    { code: "EXTRA", name: "Ca bổ sung", label: "Giờ linh hoạt", startMin: 0, endMin: 0, hours: 0, color: "#d97706", isActive: false },
+  ];
 }
 
 /** Mã ca từ tên: "Ca sáng" → "CASANG" (không dấu, ≤ 10 ký tự, không trùng) */

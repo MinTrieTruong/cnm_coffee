@@ -29,6 +29,8 @@ const CONFIG_FIELDS = {
   maxShiftsPerWeek: [1, 7],
   overtimeRatePercent: [0, 300],
   maxOvertimeMinutes: [15, 720],
+  wishDeadlineDay: [1, 28],
+  maxWishRules: [1, 30],
 } as const;
 
 const isInt = (v: unknown, min: number, max: number) => Number.isInteger(v) && (v as number) >= min && (v as number) <= max;

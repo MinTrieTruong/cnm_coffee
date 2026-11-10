@@ -6,12 +6,13 @@ import { CustomerAvatar } from "../components/CustomerAvatar";
 import { clearSession } from "../lib/session";
 import { useLang } from "../lib/i18n";
 import { Crumbs } from "../components/site/parts";
+import { PhoneReminder } from "./SocialComplete";
 import {
   ALL_SECTIONS, LEGACY_TAB, SECTIONS, rankLabel, rankProgress, readImage, sectionLabel, useAccountData, useIsPhone,
   type AccountData, type Section,
 } from "./account/shared";
 import {
-  FeedbackSection, GiftsSection, OrdersSection, PointsSection, ProfileSection, ReviewsSection, SecuritySection, VouchersSection,
+  DietSection, GiftsSection, InboxSection, OrdersSection, PointsSection, ProfileSection, ReviewsSection, SecuritySection, VouchersSection,
 } from "./account/sections";
 
 /** Ảnh đại diện — bấm để đổi (tải lên ngay, không nằm trong form hồ sơ) */
@@ -72,12 +73,13 @@ function SectionContent({ s, data }: { s: Section; data: AccountData }) {
   switch (s) {
     case "profile": return <ProfileSection data={data} />;
     case "security": return <SecuritySection />;
+    case "diet": return <DietSection />;
     case "orders": return <OrdersSection data={data} />;
     case "reviews": return <ReviewsSection data={data} />;
     case "points": return <PointsSection />;
     case "vouchers": return <VouchersSection data={data} />;
     case "gifts": return <GiftsSection />;
-    case "feedback": return <FeedbackSection />;
+    case "inbox": return <InboxSection data={data} />;
   }
 }
 
@@ -111,7 +113,7 @@ export function Account() {
     );
   }
   const u = data.user;
-  const badge = (id: Section) => (id === "vouchers" ? data.counts.vouchers : id === "gifts" ? data.counts.gifts : 0);
+  const badge = (id: Section) => (id === "vouchers" ? data.counts.vouchers : id === "gifts" ? data.counts.gifts : id === "inbox" ? data.counts.inbox : 0);
 
   /* ── Điện thoại: /account là trang hub, mục mở trang con ── */
   if (phone && !section) {
@@ -126,6 +128,7 @@ export function Account() {
           <span className="c-rank-chip">{t(rankLabel(u.rankTier))}</span>
           <RankLine data={data} compact />
         </header>
+        <PhoneReminder next="/account" />
         <div className="c-hub-quick">
           <Link to="/account/orders"><ReceiptText size={18} aria-hidden /><strong>{data.counts.openOrders}</strong><span>{t("Đơn đang xử lý")}</span></Link>
           <Link to="/account/vouchers"><Ticket size={18} aria-hidden /><strong>{data.counts.vouchers}</strong><span>{t("Voucher")}</span></Link>
@@ -198,6 +201,7 @@ export function Account() {
         </aside>
         <section className="c-acc-main" aria-labelledby="acc-title">
           <h1 id="acc-title" className="c-acc-title">{t(sectionLabel(current))}</h1>
+          <PhoneReminder next={`/account/${current}`} />
           <SectionContent s={current} data={data} />
         </section>
       </div>

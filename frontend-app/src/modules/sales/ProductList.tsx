@@ -21,10 +21,13 @@ export type ProductRow = {
   storeAvailable?: boolean;
   imageUrl: string | null;
   tags?: unknown;
+  /** Tên gọi khác ("bx", "bac siu") — đặt món giọng nói & ô tìm kiếm khớp theo */
+  aliases?: unknown;
   category?: { name: string };
   discountPercent?: number | null;
   /** false = món 1 loại (bánh…): không có giá S/L */
   hasSizes?: boolean;
+  temps?: import("../../lib/api").ProductTemps;
 };
 
 export const PRODUCTS_BASE = "/app/sales/products";

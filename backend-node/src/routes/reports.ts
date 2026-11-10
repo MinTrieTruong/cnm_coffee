@@ -2,7 +2,8 @@ import { Router } from "express";
 import { PrismaClient } from "@prisma/client";
 import { attachStaff, requireRoles } from "../middleware/staff.js";
 import { storeWhere } from "../lib/storeScope.js";
-import { bizHour, bizRange, bizYmd, daysInRange, addDaysYmd } from "../lib/bizTime.js";
+import { bizRange, daysInRange } from "../lib/bizTime.js";
+import { dashboardReport, profitReport, revenueReport, storesCompareReport, topProductsReport } from "../lib/analytics/sales.js";
 
 const prisma = new PrismaClient();
 
@@ -22,50 +23,7 @@ export function reportsRouter() {
     const toStr   = req.query.to   as string | undefined;
     const { from, to, fromYmd, toYmd } = bizRange(fromStr, toStr, 29);
 
-    const payments = await prisma.payment.findMany({
-      where: { paymentTime: { gte: from, lte: to }, order: { ...storeWhere(req), status: "Paid" } },
-      include: { order: { select: { id: true, status: true, shippingFee: true } } },
-    });
-
-    // Tách riêng: tiền thật vs. điểm đổi
-    const cashPayments = payments.filter(p => p.method !== "Points");
-    const pointsPayments = payments.filter(p => p.method === "Points");
-
-    // Phí ship khách trả cùng đơn là tiền của shipper (cộng vào lương) — không tính doanh thu quán
-    // Chỉ đơn có tiền thu trong kỳ (dòng hoàn ra điểm ở kỳ sau không trừ phí ship lần nữa)
-    const shipOf = new Map(payments.filter(p => p.amount > 0).map(p => [p.order.id, p.order.shippingFee]));
-    const shippingFee = [...shipOf.values()].reduce((s, v) => s + v, 0);
-    const total = cashPayments.reduce((s, p) => s + p.amount, 0) - shippingFee;
-    const pointsRedeemTotal = pointsPayments.reduce((s, p) => s + p.amount, 0);
-
-    const byDay: Record<string, { cash: number; points: number }> = {};
-    const shipCounted = new Set<number>();
-    for (const p of payments) {
-      const d = bizYmd(p.paymentTime);
-      if (!byDay[d]) byDay[d] = { cash: 0, points: 0 };
-      if (p.method !== "Points") {
-        byDay[d].cash += p.amount;
-        if (p.amount > 0 && !shipCounted.has(p.order.id)) {
-          shipCounted.add(p.order.id);
-          byDay[d].cash -= p.order.shippingFee;
-        }
-      } else byDay[d].points += p.amount;
-    }
-    // Theo phương thức thanh toán (tiền mặt / chuyển khoản / thẻ / online…)
-    const byMethod: Record<string, number> = {};
-    for (const p of cashPayments) byMethod[p.method] = (byMethod[p.method] ?? 0) + p.amount;
-
-    res.json({
-      total,               // tiền thực thu (không bao gồm điểm)
-      pointsRedeemTotal,   // tổng điểm đổi (chi phí loyalty)
-      grandTotal: total + pointsRedeemTotal, // doanh thu gộp
-      shippingFee,         // phí ship thu hộ shipper (không tính doanh thu)
-      byMethod,
-      byDay,
-      from: fromYmd,
-      to: toYmd,
-    });
-
+    res.json({ ...(await revenueReport(prisma, storeWhere(req), from, to)), from: fromYmd, to: toYmd });
   });
 
   /**
@@ -168,25 +126,7 @@ export function reportsRouter() {
     const lim     = Math.min(50, Number(req.query.limit) || 15);
     const { from, to, fromYmd, toYmd } = bizRange(fromStr, toStr, 29);
 
-    const lines = await prisma.orderDetail.findMany({
-      where: { order: { ...storeWhere(req), status: "Paid", createdAt: { gte: from, lte: to } } },
-      include: { product: { select: { name: true, sellPrice: true, costPrice: true } } },
-    });
-
-    const map: Record<string, { name: string; quantity: number; revenue: number; costPrice: number }> = {};
-    for (const l of lines) {
-      const key = String(l.productId);
-      if (!map[key]) map[key] = { name: l.product.name, quantity: 0, revenue: 0, costPrice: l.product.costPrice };
-      map[key].quantity += l.quantity;
-      map[key].revenue  += l.quantity * l.unitPrice;
-    }
-
-    const items = Object.values(map)
-      .sort((a, b) => b.quantity - a.quantity)
-      .slice(0, lim)
-      .map(i => ({ ...i, profit: i.revenue - i.quantity * i.costPrice }));
-
-    res.json({ items });
+    res.json(await topProductsReport(prisma, storeWhere(req), from, to, lim));
   });
 
   /**
@@ -198,78 +138,7 @@ export function reportsRouter() {
     const toStr   = req.query.to   as string | undefined;
     const { from, to, fromYmd, toYmd } = bizRange(fromStr, toStr, 29);
 
-    // 1. Doanh thu từ đơn đã thanh toán
-    // Tiền thật (bỏ điểm đổi) trừ phí ship thu hộ shipper
-    const payments = (await prisma.payment.findMany({
-      where: { paymentTime: { gte: from, lte: to }, method: { not: "Points" }, order: { ...storeWhere(req), status: "Paid" } },
-      include: { order: { select: { id: true, shippingFee: true } } },
-    }));
-    const shipSeen = new Set<number>();
-    const netOf = (p: (typeof payments)[number]) => {
-      if (p.amount <= 0 || shipSeen.has(p.order.id)) return p.amount;
-      shipSeen.add(p.order.id);
-      return p.amount - p.order.shippingFee;
-    };
-    const netAmounts = payments.map((p) => ({ p, net: netOf(p) }));
-    const totalRevenue = netAmounts.reduce((s, x) => s + x.net, 0);
-
-    // 2. Giá vốn từ chi tiết đơn × costPrice sản phẩm
-    const orderLines = await prisma.orderDetail.findMany({
-      where: { order: { ...storeWhere(req), status: "Paid", createdAt: { gte: from, lte: to } } },
-      include: {
-        product: { select: { name: true, costPrice: true, sellPrice: true } },
-        order: { select: { createdAt: true } },
-      },
-    });
-
-    let totalProductCost = 0;
-    const byProduct: Record<string, { name: string; qty: number; revenue: number; cost: number }> = {};
-    for (const l of orderLines) {
-      totalProductCost += l.quantity * l.product.costPrice;
-      const k = String(l.productId);
-      if (!byProduct[k]) byProduct[k] = { name: l.product.name, qty: 0, revenue: 0, cost: 0 };
-      byProduct[k].qty     += l.quantity;
-      byProduct[k].revenue += l.quantity * l.unitPrice;
-      byProduct[k].cost    += l.quantity * l.product.costPrice;
-    }
-
-    // 3. Chi phí nguyên liệu nhập kho trong kỳ (từ StockReceipt)
-    const receipts = await prisma.stockReceipt.findMany({
-      where: { ...storeWhere(req), receivedAt: { gte: from, lte: to } },
-      include: { item: { select: { unitCostPrice: true } } },
-    });
-    const totalIngredientCost = receipts.reduce((s, r) => {
-      const price = r.unitPrice ?? r.item.unitCostPrice;
-      return s + r.qty * price;
-    }, 0);
-
-    // Lợi nhuận gộp = Doanh thu - Giá vốn SP
-    const grossProfit = totalRevenue - totalProductCost;
-
-    // Theo ngày
-    const byDay: Record<string, { revenue: number; cost: number; profit: number }> = {};
-    for (const { p, net } of netAmounts) {
-      const d = bizYmd(p.paymentTime);
-      if (!byDay[d]) byDay[d] = { revenue: 0, cost: 0, profit: 0 };
-      byDay[d].revenue += net;
-    }
-    for (const l of orderLines) {
-      const d = bizYmd(l.order.createdAt);
-      if (!byDay[d]) byDay[d] = { revenue: 0, cost: 0, profit: 0 };
-      byDay[d].cost += l.quantity * l.product.costPrice;
-    }
-    for (const d of Object.values(byDay)) d.profit = d.revenue - d.cost;
-
-    res.json({
-      from: fromYmd,
-      to: toYmd,
-      totalRevenue,
-      totalProductCost,
-      totalIngredientCost,
-      grossProfit,
-      byDay,
-      byProduct: Object.values(byProduct).sort((a, b) => b.revenue - a.revenue).slice(0, 20),
-    });
+    res.json({ from: fromYmd, to: toYmd, ...(await profitReport(prisma, storeWhere(req), from, to)) });
   });
 
   /**
@@ -284,58 +153,7 @@ export function reportsRouter() {
     const days = daysInRange(fromYmd, toYmd);
     if (days > 370) return res.status(400).json({ error: "Khoảng ngày tối đa 1 năm." });
 
-    const orders = await prisma.order.findMany({
-      where: { ...storeWhere(req), createdAt: { gte: from, lte: to } },
-      select: { createdAt: true, status: true, orderType: true, totalAmount: true, shippingFee: true, payments: { select: { method: true, amount: true } } },
-    });
-
-    const byHour = days === 1;
-    type Bucket = { key: string; sales: number; cash: number; created: number; cancelled: number };
-    const buckets = new Map<string, Bucket>();
-    const blank = (key: string): Bucket => ({ key, sales: 0, cash: 0, created: 0, cancelled: 0 });
-    if (byHour) {
-      const hours = orders.map((o) => bizHour(o.createdAt));
-      for (let h = Math.min(6, ...hours); h <= Math.max(22, ...hours); h++) buckets.set(String(h), blank(String(h)));
-    } else {
-      for (let i = 0; i < days; i++) {
-        const k = addDaysYmd(fromYmd, i);
-        buckets.set(k, blank(k));
-      }
-    }
-
-    const channelOf = (t: string) => (t === "Delivery" ? "ship" : t.toLowerCase().includes("take") ? "take" : "dine");
-    const channels: Record<"dine" | "take" | "ship", number> = { dine: 0, take: 0, ship: 0 };
-    const summary = { sales: 0, debt: 0, orders: 0, cancelled: 0 };
-    for (const o of orders) {
-      const b = buckets.get(byHour ? String(bizHour(o.createdAt)) : bizYmd(o.createdAt));
-      if (b) b.created += 1;
-      if (o.status === "Cancelled") {
-        summary.cancelled += 1;
-        if (b) b.cancelled += 1;
-        continue;
-      }
-      // Phí ship là tiền của shipper — không tính doanh số quán
-      const net = o.totalAmount - o.shippingFee;
-      summary.sales += net;
-      summary.orders += 1;
-      channels[channelOf(o.orderType)] += net;
-      if (o.status !== "Paid") summary.debt += net;
-      else if (b) b.cash += Math.max(0, o.payments.filter((p) => p.method !== "Points").reduce((s, p) => s + p.amount, 0) - o.shippingFee);
-      if (b) b.sales += net;
-    }
-
-    res.json({
-      from: fromYmd,
-      to: toYmd,
-      granularity: byHour ? "hour" : "day",
-      summary,
-      series: [...buckets.values()],
-      channels: [
-        { id: "dine", label: "Tại quán", value: channels.dine },
-        { id: "take", label: "Mang đi", value: channels.take },
-        { id: "ship", label: "Giao hàng", value: channels.ship },
-      ],
-    });
+    res.json({ from: fromYmd, to: toYmd, ...(await dashboardReport(prisma, storeWhere(req), fromYmd, toYmd)) });
   });
 
   /**
@@ -347,61 +165,7 @@ export function reportsRouter() {
     const toStr   = req.query.to   as string | undefined;
     const { from, to, fromYmd, toYmd } = bizRange(fromStr, toStr, 29);
 
-    const [stores, payments, orders, lines] = await Promise.all([
-      prisma.store.findMany({ orderBy: { id: "asc" }, select: { id: true, code: true, name: true, isActive: true } }),
-      prisma.payment.findMany({
-        where: { paymentTime: { gte: from, lte: to }, method: { not: "Points" }, order: { status: "Paid" } },
-        select: { amount: true, order: { select: { id: true, storeId: true, shippingFee: true } } },
-      }),
-      prisma.order.groupBy({
-        by: ["storeId"],
-        where: { status: "Paid", createdAt: { gte: from, lte: to } },
-        _count: { _all: true },
-        _sum: { totalAmount: true, shippingFee: true },
-      }),
-      prisma.orderDetail.findMany({
-        where: { order: { status: "Paid", createdAt: { gte: from, lte: to } } },
-        select: { quantity: true, product: { select: { costPrice: true } }, order: { select: { storeId: true } } },
-      }),
-    ]);
-
-    // Doanh thu quán không gồm phí ship (thu hộ, trả cho shipper qua lương) — trừ 1 lần mỗi đơn
-    const revenue = new Map<number, number>();
-    const shipDeducted = new Set<number>();
-    for (const p of payments) {
-      let amt = p.amount;
-      if (p.amount > 0 && p.order.shippingFee > 0 && !shipDeducted.has(p.order.id)) {
-        shipDeducted.add(p.order.id);
-        amt -= p.order.shippingFee;
-      }
-      revenue.set(p.order.storeId, (revenue.get(p.order.storeId) ?? 0) + amt);
-    }
-    const cost = new Map<number, number>();
-    for (const l of lines) cost.set(l.order.storeId, (cost.get(l.order.storeId) ?? 0) + l.quantity * l.product.costPrice);
-
-    const rows = stores.map((s) => {
-      const o = orders.find((x) => x.storeId === s.id);
-      const orderCount = o?._count._all ?? 0;
-      const rev = revenue.get(s.id) ?? 0;
-      return {
-        ...s,
-        revenue: rev,
-        orders: orderCount,
-        avgOrderValue: orderCount ? Math.round(((o?._sum.totalAmount ?? 0) - (o?._sum.shippingFee ?? 0)) / orderCount) : 0,
-        grossProfit: rev - (cost.get(s.id) ?? 0),
-      };
-    });
-
-    res.json({
-      from: fromYmd,
-      to: toYmd,
-      stores: rows,
-      total: {
-        revenue: rows.reduce((s, r) => s + r.revenue, 0),
-        orders: rows.reduce((s, r) => s + r.orders, 0),
-        grossProfit: rows.reduce((s, r) => s + r.grossProfit, 0),
-      },
-    });
+    res.json({ from: fromYmd, to: toYmd, ...(await storesCompareReport(prisma, from, to)) });
   });
 
   return r;

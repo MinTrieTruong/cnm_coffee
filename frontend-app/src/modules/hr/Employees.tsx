@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Lock, ScanFace, Users } from "lucide-react";
-import { activeStoreId, getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
+import { activeStoreId, getStaffInfo, isOwnerRole, staffApi, staffBlobUrl } from "../../lib/staffApi";
 import { BRANCH_STAFF_ROLES, ROLE_LABEL } from "../../lib/roles";
 import {
   Alert, Badge, Button, Chatter, EmptyState, Field, FormGroup, FormGroups, FormView, RecordList, StatusBar, Tabs,
-  errMsg, fmtDate, formatVnd, ymd } from "../../components/erp";
+  errMsg, fmtDate, fmtDateTime, formatVnd, ymd } from "../../components/erp";
 import { useRecordNav, useResource } from "../shared";
 import { PasswordInput } from "../../components/PasswordInput";
+import { CustomerAvatar } from "../../components/CustomerAvatar";
 import { useAttendanceWarnings } from "./AttendanceWarnings";
 
 type StaffRow = {
@@ -23,6 +24,13 @@ type StaffRow = {
   baseSalary: number;
   allowance?: number;
   hasFaceData?: boolean;
+  /** Lúc nhân viên tự đăng ký FaceID */
+  faceRegisteredAt?: string | null;
+  /** Có ảnh chụp lúc đăng ký để đối chiếu (GET /api/admin/staff/:id/face-photo) */
+  hasFacePhoto?: boolean;
+  cccd?: string | null;
+  /** Ảnh đại diện nhân viên tự đặt (Tài khoản của tôi) */
+  avatarUrl?: string | null;
   storeId?: number | null;
   store?: { name: string } | null;
 };
@@ -62,7 +70,17 @@ export function EmployeeList() {
       defaultFilters={["active"]}
       columns={[
         { key: "id", label: "Mã", value: (s) => s.id, numeric: true, width: 60 },
-        { key: "name", label: "Họ tên", value: (s) => s.fullName },
+        {
+          key: "name",
+          label: "Họ tên",
+          value: (s) => s.fullName,
+          render: (s) => (
+            <span className="o-inline" style={{ flexWrap: "nowrap", gap: 8 }}>
+              <CustomerAvatar src={s.avatarUrl} name={s.fullName} size={28} />
+              <span>{s.fullName}</span>
+            </span>
+          ),
+        },
         { key: "user", label: "Tên đăng nhập", value: (s) => s.username ?? "" },
         { key: "role", label: "Vai trò", value: (s) => ROLE_LABEL[s.role] ?? s.role },
         ...(allStores ? [{ key: "store", label: "Chi nhánh", value: storeName }] : []),
@@ -87,10 +105,13 @@ export function EmployeeList() {
         columns: ROLES.map((r) => ({ id: r, label: ROLE_LABEL[r] })),
         columnOf: (s) => s.role,
         card: (s) => (
-          <div>
-            <div style={{ fontWeight: 500 }}>{s.fullName}</div>
-            <div className="o-muted">{s.username ?? "—"} · {s.phone ?? "—"}</div>
-            {s.status !== "Active" && <Badge tone="danger">Đã khóa</Badge>}
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <CustomerAvatar src={s.avatarUrl} name={s.fullName} size={40} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 500 }}>{s.fullName}</div>
+              <div className="o-muted">{s.username ?? "—"} · {s.phone ?? "—"}</div>
+              {s.status !== "Active" && <Badge tone="danger">Đã khóa</Badge>}
+            </div>
           </div>
         ),
       }}
@@ -102,8 +123,27 @@ export function EmployeeList() {
 
 const EMPTY = {
   username: "", password: "", fullName: "", role: "Cashier", status: "Active", phone: "", address: "",
-  dob: "", hireDate: ymd(new Date()), baseSalary: "0", allowance: "0", storeId: "",
+  dob: "", cccd: "", hireDate: ymd(new Date()), baseSalary: "0", allowance: "0", storeId: "",
 };
+
+/** Ảnh chụp lúc nhân viên đăng ký FaceID — quản lý đối chiếu đúng người (ảnh riêng tư, tải kèm đăng nhập) */
+function FacePhoto({ staffId, has }: { staffId: number; has?: boolean }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    setUrl(null);
+    if (!has) return;
+    let made: string | null = null;
+    void staffBlobUrl(`/api/admin/staff/${staffId}/face-photo`).then((u) => {
+      made = u;
+      setUrl(u);
+    });
+    return () => {
+      if (made) URL.revokeObjectURL(made);
+    };
+  }, [staffId, has]);
+  if (!has) return <span className="o-muted">Không có ảnh (đăng ký trước khi có tính năng này)</span>;
+  return url ? <img src={url} alt="Ảnh chụp lúc đăng ký FaceID" className="o-myacc-face-img" /> : <span className="o-muted">Đang tải ảnh…</span>;
+}
 
 export function EmployeeForm({ recordId }: { recordId?: string }) {
   const isNew = recordId === "new";
@@ -124,7 +164,7 @@ export function EmployeeForm({ recordId }: { recordId?: string }) {
   const reset = (x: StaffRow) =>
     setForm({
       username: x.username ?? "", password: "", fullName: x.fullName, role: x.role, status: x.status,
-      phone: x.phone ?? "", address: x.address ?? "", dob: x.dob ? x.dob.slice(0, 10) : "",
+      phone: x.phone ?? "", address: x.address ?? "", dob: x.dob ? x.dob.slice(0, 10) : "", cccd: x.cccd ?? "",
       hireDate: x.hireDate.slice(0, 10), baseSalary: String(x.baseSalary ?? 0), allowance: x.allowance != null ? String(x.allowance) : "",
       storeId: x.storeId != null ? String(x.storeId) : "",
     });
@@ -138,6 +178,7 @@ export function EmployeeForm({ recordId }: { recordId?: string }) {
     if (!form.fullName.trim()) return setErr("Thiếu họ tên nhân viên.");
     if (form.password && form.password.length < 6) return setErr("Mật khẩu tối thiểu 6 ký tự.");
     if (isNew && !form.password) return setErr("Nhập mật khẩu cho nhân viên mới.");
+    if (form.cccd && !/^\d{12}$/.test(form.cccd.trim())) return setErr("CCCD gồm đúng 12 chữ số.");
     setSaving(true);
     setErr(null);
     try {
@@ -155,6 +196,8 @@ export function EmployeeForm({ recordId }: { recordId?: string }) {
         // API danh sách không trả allowance → chỉ gửi khi người dùng có nhập
         allowance: form.allowance === "" ? undefined : Number(form.allowance),
         ...(owner && form.role !== "Owner" && form.storeId ? { storeId: Number(form.storeId) } : {}),
+        // CCCD: nhân viên tự nhập 1 lần, sau đó chỉ quản lý sửa ở đây
+        ...(!isNew ? { cccd: form.cccd.trim() || null } : {}),
       };
       if (owner && form.role !== "Owner" && !form.storeId) {
         setSaving(false);
@@ -188,11 +231,17 @@ export function EmployeeForm({ recordId }: { recordId?: string }) {
   }
 
   async function resetFace() {
-    if (!s || !window.confirm(`Bạn chắc chắn muốn xóa dữ liệu khuôn mặt của [${s.fullName}]? Nhân viên sẽ phải đăng ký lại.`)) return;
+    if (!s) return;
+    const reason = window.prompt(`Xoá FaceID của ${s.fullName}? Nhân viên sẽ phải tự đăng ký lại.
+
+Lý do (bắt buộc, ghi vào lịch sử):`);
+    if (reason == null) return;
+    if (reason.trim().length < 5) return setErr("Nhập lý do xoá FaceID (tối thiểu 5 ký tự).");
     try {
-      await staffApi(`/api/admin/staff/${s.id}/reset-face`, { method: "PATCH" });
+      await staffApi(`/api/admin/staff/${s.id}/reset-face`, { method: "PATCH", body: JSON.stringify({ reason: reason.trim() }) });
       setInfo("Đã xóa dữ liệu khuôn mặt thành công!");
       await list.reload();
+      setReloadKey((k) => k + 1);
     } catch (e) {
       setErr(errMsg(e));
     }
@@ -294,9 +343,19 @@ export function EmployeeForm({ recordId }: { recordId?: string }) {
           <FormGroups>
             <FormGroup>
               <Field label="Ngày sinh"><input className="o-input" type="date" value={form.dob} disabled={ro} onChange={(e) => set("dob", e.target.value)} /></Field>
+              <Field label="CCCD">
+                <input className="o-input" inputMode="numeric" maxLength={12} value={form.cccd} disabled={ro || isNew} onChange={(e) => set("cccd", e.target.value.replace(/\D/g, ""))} placeholder={isNew ? "Nhân viên tự nhập sau khi có tài khoản" : ""} />
+              </Field>
             </FormGroup>
             <FormGroup>
-              <Field label="FaceID">{s?.hasFaceData ? <Badge tone="info">Đã đăng ký</Badge> : <span className="o-muted">Chưa đăng ký</span>}</Field>
+              <Field label="FaceID">
+                {s?.hasFaceData ? (
+                  <span className="o-inline"><Badge tone="info">Đã đăng ký</Badge>{s.faceRegisteredAt && <span className="o-muted">{fmtDateTime(s.faceRegisteredAt)}</span>}</span>
+                ) : (
+                  <span className="o-muted">Chưa đăng ký</span>
+                )}
+              </Field>
+              {s?.hasFaceData && <Field label="Ảnh lúc đăng ký"><FacePhoto staffId={s.id} has={s.hasFacePhoto} /></Field>}
             </FormGroup>
           </FormGroups>
         )}

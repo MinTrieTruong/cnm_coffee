@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Socket } from "socket.io-client";
 import { activeStoreId, getStaffInfo, staffApi, staffSocket as openStaffSocket, isAdminRole } from "../lib/staffApi";
+import { TableShape } from "../components/TableShape";
 import { TablePanel, type OrderLine } from "../components/TablePanel";
 
 /** Phát âm thanh ding khi món sẵn sàng phục vụ. */
@@ -32,6 +33,8 @@ type TableRow = {
   name: string;
   status: string;
   location: string | null;
+  /** Sức chứa — số ghế vẽ quanh bàn */
+  capacity?: number;
   zoneId?: number;
   paymentStatus?: string;
   orders: { id: number; status: string; totalAmount: number; details?: any[] }[];
@@ -420,8 +423,7 @@ export function StaffTables() {
               return (
                 <div
                   key={t.id}
-                  className={`table-tile ${meta.cls}`}
-                  style={{ outline: selectedTable === t.id ? "3px solid var(--o-primary)" : undefined, outlineOffset: 2 }}
+                  className={(t.capacity ?? 4) >= 8 ? "table-tile is-wide" : "table-tile"}
                   onClick={() => void openTable(t.id)}
                   role="button"
                   tabIndex={0}
@@ -430,15 +432,16 @@ export function StaffTables() {
                     if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); void openTable(t.id); }
                   }}
                 >
-                  <div style={{ fontWeight: 700, fontSize: "1.05rem", lineHeight: 1 }}>{t.name.replace("Bàn ", "")}</div>
-                  {activeZoneId === "all" && (
-                    <div style={{ fontSize: "0.72rem", opacity: 0.95, marginTop: "0.25rem" }}>{t.location ?? "Tại quán"}</div>
-                  )}
+                  <TableShape seats={t.capacity ?? 4} className={meta.cls} selected={selectedTable === t.id}>
+                    <span className="table-shape-num">{t.name.replace("Bàn ", "")}</span>
+                    <span className="table-shape-label">{meta.label}</span>
+                  </TableShape>
                   {getDrinkBadge(o)}
-                  <div style={{ fontSize: "0.74rem", marginTop: "0.35rem", fontWeight: 600 }}>{meta.label}</div>
-                  {o && (
-                    <div style={{ fontSize: "0.7rem", marginTop: "0.18rem" }}>
-                      #{o.id} · {formatVnd(o.totalAmount)}
+                  {(o || activeZoneId === "all") && (
+                    <div className="table-tile-meta">
+                      {o && <>#{o.id} · {formatVnd(o.totalAmount)}</>}
+                      {o && activeZoneId === "all" && <br />}
+                      {activeZoneId === "all" && (t.location ?? "Tại quán")}
                     </div>
                   )}
                   {/* Nút Báo trống khi khách đã thanh toán nhưng còn ngồi */}
@@ -448,7 +451,7 @@ export function StaffTables() {
                       className="btn btn-primary"
                       disabled={clearingIds.has(t.id)}
                       style={{
-                        marginTop: "0.4rem", width: "100%",
+                        width: "100%",
                         padding: "0.3rem 0.5rem", fontSize: "0.74rem",
                         background: "#7c3aed", borderColor: "#7c3aed",
                         opacity: clearingIds.has(t.id) ? 0.6 : 1,

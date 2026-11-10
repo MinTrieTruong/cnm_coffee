@@ -5,7 +5,8 @@ import { staffApi } from "../../lib/staffApi";
 import { roleLabel } from "../../lib/roles";
 import { Alert, Button, EmptyState, KpiCard, Modal, PageHeader, errMsg } from "../../components/erp";
 import { TASK_PRESETS, doneCount, isOverdue, minToTime, shiftDay, timeToMin, todayYmd, type Assignable, type WorkTask } from "../../lib/tasks";
-import { DayNav, TaskMeta, doneTime, useTaskSocket } from "./taskParts";
+import { DayNav, TaskFilter, TaskMeta, doneTime, useTaskSocket, type TaskFilterKey } from "./taskParts";
+import { ProofInfo } from "../../components/ProofCamera";
 
 type View = "task" | "staff";
 
@@ -18,6 +19,7 @@ export function TaskBoard() {
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [view, setView] = useState<View>("task");
+  const [filter, setFilter] = useState<TaskFilterKey>("all");
   const [editing, setEditing] = useState<WorkTask | "new" | null>(null);
   const [redo, setRedo] = useState<{ task: WorkTask; staffId: number; name: string } | null>(null);
 
@@ -78,6 +80,27 @@ export function TaskBoard() {
     return [...m.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name, "vi"));
   }, [tasks]);
 
+  // Theo việc: xong khi mọi người đều xong. Theo nhân viên: xét từng lượt giao. Quá hạn nằm trong "chưa xong".
+  const taskIs = (t: WorkTask, f: TaskFilterKey) => {
+    const allDone = t.assignees.length > 0 && doneCount(t) === t.assignees.length;
+    return f === "all" || (f === "done" ? allDone : f === "todo" ? !allDone : isOverdue(t));
+  };
+  const itemIs = (task: WorkTask, status: string, f: TaskFilterKey) =>
+    f === "all" || (f === "done" ? status === "DONE" : status !== "DONE" && (f === "todo" || isOverdue(task)));
+  const filterKeys: TaskFilterKey[] = ["all", "todo", "late", "done"];
+  const counts = Object.fromEntries(
+    filterKeys.map((k) => [
+      k,
+      view === "task" ? tasks.filter((t) => taskIs(t, k)).length : byStaff.reduce((s, [, r]) => s + r.items.filter((i) => itemIs(i.task, i.status, k)).length, 0),
+    ]),
+  ) as Record<TaskFilterKey, number>;
+  // Quá hạn lên đầu, rồi chưa xong, cuối cùng đã xong
+  const rank = (t: WorkTask) => (isOverdue(t) ? 0 : taskIs(t, "done") ? 2 : 1);
+  const shownTasks = tasks.filter((t) => taskIs(t, filter)).sort((a, b) => rank(a) - rank(b));
+  const shownStaff = byStaff
+    .map(([id, s]) => [id, { ...s, all: s.items, items: s.items.filter((i) => itemIs(i.task, i.status, filter)) }] as const)
+    .filter(([, s]) => s.items.length);
+
   return (
     <div className="o-dash">
       <PageHeader
@@ -101,6 +124,7 @@ export function TaskBoard() {
         <KpiCard icon={AlertTriangle} tone="red" label="Quá hạn" value={overdue} sub="Đã qua giờ hạn" />
       </div>
 
+      <div className="o-task-tools-row">
       <div className="o-seg" role="tablist" aria-label="Kiểu xem">
         <button type="button" role="tab" aria-selected={view === "task"} className={view === "task" ? "active" : ""} onClick={() => setView("task")}>
           <ClipboardCheck size={16} aria-hidden /> Theo việc
@@ -108,6 +132,8 @@ export function TaskBoard() {
         <button type="button" role="tab" aria-selected={view === "staff"} className={view === "staff" ? "active" : ""} onClick={() => setView("staff")}>
           <Users size={16} aria-hidden /> Theo nhân viên
         </button>
+      </div>
+      {tasks.length > 0 && <TaskFilter value={filter} onChange={setFilter} counts={counts} />}
       </div>
 
       {loading && !tasks.length ? (
@@ -119,9 +145,11 @@ export function TaskBoard() {
           hint="Giao việc cho một hoặc nhiều nhân viên, ví dụ: vệ sinh Khu A trước 10:00."
           action={<Button variant="primary" icon={Plus} onClick={() => setEditing("new")}>Giao việc mới</Button>}
         />
+      ) : (view === "task" ? !shownTasks.length : !shownStaff.length) ? (
+        <EmptyState icon={ClipboardCheck} title="Không có việc nào khớp bộ lọc" action={<Button onClick={() => setFilter("all")}>Xem tất cả</Button>} />
       ) : view === "task" ? (
         <div className="o-task-grid">
-          {tasks.map((t) => {
+          {shownTasks.map((t) => {
             const n = doneCount(t);
             const all = t.assignees.length;
             return (
@@ -152,6 +180,7 @@ export function TaskBoard() {
                           {a.status !== "DONE" && a.redoNote && ` · làm lại: ${a.redoNote}`}
                         </span>
                         {a.note && <em>“{a.note}”</em>}
+                        {a.photoUrl && <ProofInfo takenAt={a.photoTakenAt} distanceM={a.photoDistanceM} target="quán" farM={500} />}
                       </span>
                       {a.photoUrl && (
                         <a href={mediaUrl(a.photoUrl)} target="_blank" rel="noreferrer" className="o-task-photo" aria-label="Xem ảnh xác nhận">
@@ -171,14 +200,14 @@ export function TaskBoard() {
         </div>
       ) : (
         <div className="o-task-grid">
-          {byStaff.map(([id, s]) => {
-            const n = s.items.filter((i) => i.status === "DONE").length;
+          {shownStaff.map(([id, s]) => {
+            const n = s.all.filter((i) => i.status === "DONE").length;
             return (
               <article key={id} className="o-dcard o-task">
                 <header className="o-task-head">
                   <div className="o-task-titles">
                     <h3 className="o-task-title">{s.name}</h3>
-                    <span className="o-muted">{roleLabel(s.role)} · xong {n}/{s.items.length}</span>
+                    <span className="o-muted">{roleLabel(s.role)} · xong {n}/{s.all.length}</span>
                   </div>
                 </header>
                 <ul className="o-task-people">

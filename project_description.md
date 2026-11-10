@@ -407,3 +407,4 @@ Thanh toán → POST /vouchers/validate-public → POST /vouchers/apply
 | AI Service | Python FastAPI (mock) |
 | Thanh toán | VNPay, MoMo, SePay |
 | Auth | JWT (staff) + bcrypt (khách) |
+  

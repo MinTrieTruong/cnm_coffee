@@ -9,39 +9,45 @@ datasource db {
 
 /// Cấu hình chung cả chuỗi (1 dòng): VAT, quy đổi điểm. Toạ độ/bán kính nằm ở từng Store.
 model StoreSettings {
-  id                  Int   @id @default(1)
-  vatRatePercent      Int   @default(10) @map("VAT_Rate_Percent")
+  id                   Int     @id @default(1)
+  vatRatePercent       Int     @default(10) @map("VAT_Rate_Percent")
   /// Legacy — không dùng cho công thức tích điểm mới
-  pointPerVnd         Int   @default(10000) @map("Point_Per_VND")
+  pointPerVnd          Int     @default(10000) @map("Point_Per_VND")
   /// 1 điểm đổi được bao nhiêu VND giảm trừ (1 = 1 điểm = 1đ)
-  pointValueVnd       Int   @default(1) @map("Point_Value_VND")
-  cashRoundTo         Int   @default(1000) @map("Cash_Round_To")
+  pointValueVnd        Int     @default(1) @map("Point_Value_VND")
+  cashRoundTo          Int     @default(1000) @map("Cash_Round_To")
   /// Cứ mỗi N VND thành tiền thanh toán → cộng `pointEarnEach` điểm
-  pointEarnEveryVnd   Int   @default(1000) @map("Point_Earn_Every_VND")
-  pointEarnEach       Int   @default(100) @map("Point_Earn_Each")
+  pointEarnEveryVnd    Int     @default(1000) @map("Point_Earn_Every_VND")
+  pointEarnEach        Int     @default(100) @map("Point_Earn_Each")
   /// Độ nhạy nhận diện khuôn mặt (FaceID) - càng thấp càng khắt khe
-  faceMatchThreshold  Float @default(0.5) @map("Face_Match_Threshold")
+  faceMatchThreshold   Float   @default(0.5) @map("Face_Match_Threshold")
   /// Thu ngân tự chi từ két / ngăn kéo tối đa bao nhiêu mỗi phiếu; vượt mức cần quản lý duyệt
-  pettyCashLimit      Int   @default(200000) @map("Petty_Cash_Limit")
+  pettyCashLimit       Int     @default(200000) @map("Petty_Cash_Limit")
   /// Đơn giao hàng đã trả online: khách tự hủy (hoàn 100% ra điểm) trong N phút sau khi thanh toán, khi quán chưa nhận đơn
-  cancelWindowMinutes Int   @default(5) @map("Cancel_Window_Minutes")
+  cancelWindowMinutes  Int     @default(5) @map("Cancel_Window_Minutes")
   /// Hàng nhập theo đơn mua: trả lại nhà cung cấp trong N ngày kể từ ngày nhận (quá hạn quản lý duyệt kèm lý do)
-  supplierReturnDays  Int   @default(7) @map("Supplier_Return_Days")
+  supplierReturnDays   Int     @default(7) @map("Supplier_Return_Days")
   /// Gợi ý món từ tìm kiếm rỗng: tối thiểu N khách khác nhau và tỷ lệ % khách, trong cửa sổ số ngày
-  searchMinCustomers  Int   @default(3) @map("Search_Min_Customers")
-  searchMinPercent    Float @default(2) @map("Search_Min_Percent")
-  searchWindowDays    Int   @default(30) @map("Search_Window_Days")
+  searchMinCustomers   Int     @default(3) @map("Search_Min_Customers")
+  searchMinPercent     Float   @default(2) @map("Search_Min_Percent")
+  searchWindowDays     Int     @default(30) @map("Search_Window_Days")
+  /// Đăng nhập khách bằng Google / Facebook (tắt → ẩn nút, API từ chối)
+  googleLoginEnabled   Boolean @default(true) @map("Google_Login_Enabled")
+  facebookLoginEnabled Boolean @default(true) @map("Facebook_Login_Enabled")
+  /// Ghi nhận hành vi khách trên web (xem màn hình / món, thêm-bớt giỏ) — Chủ chuỗi tắt được; xoá sau N ngày
+  behaviorTracking      Boolean @default(true) @map("Behavior_Tracking")
+  behaviorRetentionDays Int     @default(90) @map("Behavior_Retention_Days")
 
   /// Thông tin công ty hiện ở header / footer / trang Liên hệ của web khách
-  companyName    String  @default("TD Coffee") @map("Company_Name") @db.VarChar(150)
-  companyIntro   String  @default("Cà phê pha phin, bánh nướng mỗi sáng. Ngồi lại quán hoặc đặt mang về.") @map("Company_Intro") @db.VarChar(500)
-  companyAddress String  @default("114 Dương Quảng Hàm, Phường 5, Gò Vấp, TP.HCM") @map("Company_Address") @db.VarChar(255)
-  companyEmail   String  @default("hello@tdcoffee.vn") @map("Company_Email") @db.VarChar(150)
+  companyName    String @default("TD Coffee") @map("Company_Name") @db.VarChar(150)
+  companyIntro   String @default("Cà phê pha phin, bánh nướng mỗi sáng. Ngồi lại quán hoặc đặt mang về.") @map("Company_Intro") @db.VarChar(500)
+  companyAddress String @default("114 Dương Quảng Hàm, Phường 5, Gò Vấp, TP.HCM") @map("Company_Address") @db.VarChar(255)
+  companyEmail   String @default("hello@tdcoffee.vn") @map("Company_Email") @db.VarChar(150)
   /// Hotline chung (khi chi nhánh / nút liên hệ chưa có số)
-  companyPhone   String  @default("0389730362") @map("Company_Phone") @db.VarChar(20)
-  companyHours   String  @default("7:00 – 22:00 hằng ngày") @map("Company_Hours") @db.VarChar(100)
+  companyPhone   String @default("0389730362") @map("Company_Phone") @db.VarChar(20)
+  companyHours   String @default("7:00 – 22:00 hằng ngày") @map("Company_Hours") @db.VarChar(100)
   /// Màu trang khách: { preset, primary, accent, defaultMode: light|dark|auto, allowToggle } — null = mặc định "gạch bông"
-  siteTheme      Json?   @map("Site_Theme")
+  siteTheme      Json?  @map("Site_Theme")
 
   @@map("Store_Settings")
 }
@@ -51,6 +57,8 @@ model Category {
   name      String     @map("Category_Name") @db.VarChar(255)
   sortOrder Int        @default(0) @map("Sort_Order")
   parentId  Int?       @map("Parent_ID")
+  /// Ảnh đại diện (tròn trên menu web khách). null → web dùng ảnh món đầu tiên có ảnh
+  imageUrl  String?    @map("Image_URL") @db.VarChar(1024)
   parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
   children  Category[] @relation("CategoryTree")
   products  Product[]
@@ -93,6 +101,7 @@ model InventoryItem {
   supplierReturnItems SupplierReturnItem[]
 
   @@map("Inventory")
+  nutrition     IngredientNutrition?
 }
 
 model Product {
@@ -106,12 +115,16 @@ model Product {
   priceSizeL      Int?             @map("Price_Size_L")
   /// false = món chỉ 1 loại (bánh, đồ ăn): không chọn size, giá = sellPrice, công thức không phân size
   hasSizes        Boolean          @default(true) @map("Has_Sizes")
+  /// Nhiệt độ phục vụ: BOTH = khách chọn nóng/đá, ICED = chỉ đá, HOT = chỉ nóng, NONE = không áp dụng (bánh, đồ ăn)
+  temps           String           @default("BOTH") @map("Temperature") @db.VarChar(10)
   isActive        Boolean          @map("Is_Active")
   outOfStock      Boolean          @default(false) @map("Out_Of_Stock")
   isBestSeller    Boolean          @default(false) @map("Is_Best_Seller")
   discountPercent Int?             @map("Discount_Percent")
   imageUrl        String?          @map("Image_URL") @db.VarChar(1024)
   tags            Json?            @map("Tags")
+  /// Tên gọi khác / viết tắt ("bx", "bac siu") — đặt món bằng giọng nói và ô tìm kiếm khớp theo; string[] ≤ 10, mỗi chuỗi ≤ 40 ký tự
+  aliases         Json?            @map("Aliases")
   category        Category         @relation(fields: [categoryId], references: [id])
   orderLines      OrderDetail[]
   formulas        ProductFormula[]
@@ -122,8 +135,10 @@ model Product {
   proposals  MenuProposal[]
   gamePrizes GamePrize[]
   giftClaims GiftClaim[]
+  reviews    Review[]
 
   @@map("Products")
+  nutrition       ProductNutrition[]
 }
 
 /// Định mức nguyên liệu: 1 sản phẩm → bao nhiêu nguyên liệu/ly
@@ -203,6 +218,10 @@ model Customer {
   rankTier          String             @default("Dong") @map("Rank_Tier") @db.VarChar(20)
   createdAt         DateTime           @default(now()) @map("Created_At")
   lastLogin         DateTime?          @map("Last_Login")
+  /// Sở thích ăn uống: ["low_caffeine","no_caffeine","no_milk","low_sugar","low_fat","vegan","no_nuts"] — thực đơn cảnh báo món không hợp
+  dietPrefs         Json?              @map("Diet_Prefs")
+  /// Ghi chú mặc định cho mọi đơn ("Không ống hút, ít ngọt") — điền sẵn ở bước thanh toán, POS hiện cho thu ngân
+  defaultNote       String?            @map("Default_Note") @db.VarChar(120)
   orders            Order[]
   reviews           Review[]
   pointTransactions PointTransaction[]
@@ -211,8 +230,51 @@ model Customer {
   gameTickets       GameTicket[]
   gamePlays         GamePlay[]
   giftClaims        GiftClaim[]
+  identities        CustomerIdentity[]
+  authLogs          CustomerAuthLog[]
+  messages          CustomerMessage[]
 
   @@map("Customers")
+}
+
+/// Tài khoản Google / Facebook liên kết với khách — 1 khách có thể liên kết nhiều nhà cung cấp
+model CustomerIdentity {
+  id             Int       @id @default(autoincrement()) @map("Identity_ID")
+  customerId     Int       @map("Customer_ID")
+  /// GOOGLE | FACEBOOK
+  provider       String    @map("Provider") @db.VarChar(20)
+  /// Google `sub` / Facebook user id (theo app)
+  providerUserId String    @map("Provider_User_ID") @db.VarChar(100)
+  /// Email nhà cung cấp trả về lúc liên kết (Facebook có thể không có)
+  email          String?   @map("Email") @db.VarChar(150)
+  name           String?   @map("Name") @db.VarChar(255)
+  avatarUrl      String?   @map("Avatar_URL") @db.VarChar(255)
+  createdAt      DateTime  @default(now()) @map("Created_At")
+  lastLoginAt    DateTime? @map("Last_Login_At")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@index([customerId])
+  @@map("Customer_Identities")
+}
+
+/// Nhật ký đăng nhập / liên kết tài khoản của khách
+model CustomerAuthLog {
+  id         Int      @id @default(autoincrement()) @map("Log_ID")
+  customerId Int      @map("Customer_ID")
+  /// LOGIN | REGISTER | LINK | UNLINK | SET_PASSWORD
+  event      String   @map("Event") @db.VarChar(20)
+  /// PASSWORD | GOOGLE | FACEBOOK
+  provider   String   @map("Provider") @db.VarChar(20)
+  ip         String?  @map("IP") @db.VarChar(64)
+  userAgent  String?  @map("User_Agent") @db.VarChar(255)
+  createdAt  DateTime @default(now()) @map("Created_At")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, createdAt])
+  @@map("Customer_Auth_Logs")
 }
 
 model CustomerAddress {
@@ -247,6 +309,10 @@ model Staff {
   status           String             @default("Active") @map("Status") @db.VarChar(20)
   /// Face descriptor JSON (128-d Float32Array) cho nhận diện khuôn mặt
   faceDescriptor   String?            @map("Face_Descriptor") @db.Text
+  /// Lúc nhân viên tự đăng ký FaceID (chỉ đăng ký 1 lần; quản lý xoá thì mới đăng ký lại)
+  faceRegisteredAt DateTime?          @map("Face_Registered_At")
+  /// Ảnh chụp lúc đăng ký FaceID để quản lý đối chiếu — lưu thư mục riêng, không công khai (/api/.../face-photo)
+  facePhotoPath    String?            @map("Face_Photo_Path") @db.VarChar(255)
   orders           Order[]
   shifts           Shift[]            @relation("ShiftStaff")
   workSchedules    WorkSchedule[]
@@ -291,23 +357,27 @@ model Staff {
   store   Store? @relation(fields: [storeId], references: [id])
 
   wasteLogs               WasteLog[]
-  stockRequests           StockRequest[]   @relation("StockRequestBy")
-  stockRequestsAccepted   StockRequest[]   @relation("StockRequestAcceptedBy")
-  menuProposals           MenuProposal[]   @relation("MenuProposalBy")
-  menuProposalsReviewed   MenuProposal[]   @relation("MenuProposalReviewer")
-  branchProposals         BranchProposal[] @relation("BranchProposalBy")
-  branchProposalsReviewed BranchProposal[] @relation("BranchProposalReviewer")
-  inventoryCounts         InventoryCount[] @relation("InventoryCountBy")
-  inventoryCountsApproved InventoryCount[] @relation("InventoryCountApprover")
+  stockRequests           StockRequest[]      @relation("StockRequestBy")
+  stockRequestsAccepted   StockRequest[]      @relation("StockRequestAcceptedBy")
+  menuProposals           MenuProposal[]      @relation("MenuProposalBy")
+  menuProposalsReviewed   MenuProposal[]      @relation("MenuProposalReviewer")
+  branchProposals         BranchProposal[]    @relation("BranchProposalBy")
+  branchProposalsReviewed BranchProposal[]    @relation("BranchProposalReviewer")
+  inventoryCounts         InventoryCount[]    @relation("InventoryCountBy")
+  inventoryCountsApproved InventoryCount[]    @relation("InventoryCountApprover")
   /// Thu chi & két
-  cashEntriesCreated      CashEntry[]      @relation("CashEntryCreatedBy")
-  cashEntriesApproved     CashEntry[]      @relation("CashEntryApprovedBy")
-  safeSessionsOpened      SafeSession[]    @relation("SafeOpenedBy")
-  safeSessionsClosed      SafeSession[]    @relation("SafeClosedBy")
-  shiftsReviewed          Shift[]          @relation("ShiftReviewer")
-  supplierBillsCreated    SupplierBill[]   @relation("SupplierBillCreatedBy")
-  supplierReturnsCreated  SupplierReturn[] @relation("SupplierReturnCreatedBy")
-  supplierReturnsApproved SupplierReturn[] @relation("SupplierReturnApprovedBy")
+  cashEntriesCreated      CashEntry[]         @relation("CashEntryCreatedBy")
+  cashEntriesApproved     CashEntry[]         @relation("CashEntryApprovedBy")
+  safeSessionsOpened      SafeSession[]       @relation("SafeOpenedBy")
+  safeSessionsClosed      SafeSession[]       @relation("SafeClosedBy")
+  shiftsReviewed          Shift[]             @relation("ShiftReviewer")
+  supplierBillsCreated    SupplierBill[]      @relation("SupplierBillCreatedBy")
+  supplierReturnsCreated  SupplierReturn[]    @relation("SupplierReturnCreatedBy")
+  supplierReturnsApproved SupplierReturn[]    @relation("SupplierReturnApprovedBy")
+  knowledgeBases          KnowledgeBase[]
+  knowledgeDocuments      KnowledgeDocument[]
+  aiAgents                AiAgent[]
+  analystConversations    AnalystConversation[]
 
   @@index([storeId])
   @@map("Staff")
@@ -402,6 +472,12 @@ model Order {
   routeSeq         Int?      @map("Route_Seq")
   /// Ảnh xác nhận đã giao
   deliveryProofUrl String?   @map("Delivery_Proof_Url") @db.VarChar(1024)
+  /// Ảnh giao hàng: vị trí GPS + lúc chụp (camera trong app) + khoảng cách tới địa chỉ khách — lib/photoProof.ts
+  proofLat         Float?    @map("Proof_Lat")
+  proofLng         Float?    @map("Proof_Lng")
+  proofAccuracy    Int?      @map("Proof_Accuracy")
+  proofTakenAt     DateTime? @map("Proof_Taken_At")
+  proofDistanceM   Int?      @map("Proof_Distance_M")
   /// Ghi chú giao hàng / lý do thất bại
   deliveryNote     String?   @map("Delivery_Note") @db.VarChar(255)
   confirmedAt      DateTime? @map("Confirmed_At")
@@ -436,6 +512,8 @@ model OrderDetail {
   quantity    Int       @map("Quantity")
   unitPrice   Int       @map("Unit_Price")
   size        String?   @map("Size") @db.VarChar(10)
+  /// HOT | ICED (null = món không áp dụng nóng/đá)
+  temperature String?   @map("Temperature") @db.VarChar(10)
   customNotes String?   @map("Custom_Notes") @db.VarChar(512)
   /// Các dòng cùng 1 lần mua combo có chung mã này (đếm số combo đã bán, doanh thu theo combo)
   comboRef    String?   @map("Combo_Ref") @db.VarChar(36)
@@ -492,6 +570,8 @@ model PointTransaction {
 model Review {
   id         Int      @id @default(autoincrement()) @map("Review_ID")
   orderId    Int      @map("Order_ID")
+  /// Món được đánh giá (phải có trong đơn); null = đánh giá chung cho quán / cả đơn
+  productId  Int?     @map("Product_ID")
   customerId Int      @map("Customer_ID")
   rating     Int      @map("Rating")
   comment    String?  @map("Comment") @db.VarChar(500)
@@ -503,9 +583,13 @@ model Review {
   anonymous  Boolean  @default(false) @map("Anonymous")
   createdAt  DateTime @default(now()) @map("Created_At")
   order      Order    @relation(fields: [orderId], references: [id])
+  product    Product? @relation(fields: [productId], references: [id])
   customer   Customer @relation(fields: [customerId], references: [id])
   replyBy    Staff?   @relation(fields: [replyById], references: [id])
 
+  /// Mỗi món trong một đơn chỉ đánh giá 1 lần (đánh giá chung productId = null: kiểm tra ở API)
+  @@unique([orderId, productId])
+  @@index([productId])
   @@map("Reviews")
 }
 
@@ -806,6 +890,10 @@ model WorkSchedule {
   overtimeNote    String?            @map("Overtime_Note") @db.VarChar(500)
   /// Vị trí của ca (Cashier/Waiter/Kitchen…) — giữ lại khi ca thành ca trống
   role            String?            @map("Role") @db.VarChar(20)
+  /// Ca bổ sung (shiftCode "EXTRA"): quản lý tự chọn giờ khi cần thêm người vài tiếng; toàn bộ giờ trong ca tính lương như làm thêm
+  isExtra         Boolean            @default(false) @map("Is_Extra")
+  /// Ca bổ sung đăng cho nhiều người (VD cần 5 người): các chỗ cùng khung giờ chung một mã — mời 1 lần, đủ người thì ngưng
+  extraGroup      String?            @map("Extra_Group") @db.VarChar(36)
   /// Đi muộn đã được duyệt đơn — không tính cảnh báo
   lateExcused     Boolean            @default(false) @map("Late_Excused")
   /// Về sớm đã được duyệt đơn — không tính cảnh báo
@@ -829,37 +917,56 @@ model WorkSchedule {
   @@unique([staffId, workDate, shiftCode])
   @@index([staffId])
   @@index([workDate])
+  @@index([extraGroup])
   @@index([storeId])
   @@map("Work_Schedules")
 }
 
 /// Phiên chat của khách — 1 phiên = 1 cuộc trò chuyện
 model ChatSession {
-  id              Int           @id @default(autoincrement()) @map("Session_ID")
+  id               Int           @id @default(autoincrement()) @map("Session_ID")
   /// Khách đã đăng nhập (null nếu vãng lai)
-  customerId      Int?          @map("Customer_ID")
+  customerId       Int?          @map("Customer_ID")
   /// Tên hiển thị (khách vãng lai thì để "Khách")
-  guestName       String        @default("Khách") @map("Guest_Name") @db.VarChar(100)
-  tableId         Int?          @map("Table_ID")
+  guestName        String        @default("Khách") @map("Guest_Name") @db.VarChar(100)
+  tableId          Int?          @map("Table_ID")
   /// "open" | "closed"
-  status          String        @default("open") @map("Status") @db.VarChar(20)
+  status           String        @default("open") @map("Status") @db.VarChar(20)
   /// CHAT = hỏi đáp (bot / nhân viên) · COMPLAINT = khiếu nại (chuyển thẳng quản lý chi nhánh)
-  kind            String        @default("CHAT") @map("Kind") @db.VarChar(10)
+  kind             String        @default("CHAT") @map("Kind") @db.VarChar(10)
   /// Mã bí mật của phiên — khách cần để xem lịch sử / nhận tin (phòng socket chat:<id>:<key>)
-  accessKey       String?       @map("Access_Key") @db.VarChar(36)
+  accessKey        String?       @map("Access_Key") @db.VarChar(36)
   /// Khiếu nại: HYGIENE · SERVICE · FOOD · WAIT · DELIVERY · BILLING · OTHER
-  category        String?       @map("Category") @db.VarChar(20)
+  category         String?       @map("Category") @db.VarChar(20)
   /// Khiếu nại: NEW → IN_PROGRESS → RESOLVED
-  complaintStatus String?       @map("Complaint_Status") @db.VarChar(15)
-  resolutionNote  String?       @map("Resolution_Note") @db.VarChar(1000)
-  handledById     Int?          @map("Handled_By")
-  resolvedAt      DateTime?     @map("Resolved_At")
-  createdAt       DateTime      @default(now()) @map("Created_At")
-  updatedAt       DateTime      @updatedAt @map("Updated_At")
-  messages        ChatMessage[]
+  complaintStatus  String?       @map("Complaint_Status") @db.VarChar(15)
+  resolutionNote   String?       @map("Resolution_Note") @db.VarChar(1000)
+  handledById      Int?          @map("Handled_By")
+  resolvedAt       DateTime?     @map("Resolved_At")
+  /// Lần cuối nhân viên chi nhánh mở xem / trả lời phiên — tin cần nhân viên mới hơn mốc này = chưa đọc (badge Tin nhắn)
+  staffReadAt      DateTime?     @map("Staff_Read_At")
+  /// Kênh: WEB (chat trên web) · sau này MESSENGER / ZALO / INSTAGRAM (hộp thư đa kênh)
+  channel          String        @default("WEB") @map("Channel") @db.VarChar(20)
+  /// AI Agent đang trả lời phiên (gán khi phiên mở, theo kênh + chi nhánh)
+  aiAgentId        Int?          @map("AI_Agent_ID")
+  /// AI dừng ở phiên này (nhân viên tiếp quản / đã chuyển nhân viên / tắt tay)
+  aiPaused         Boolean       @default(false) @map("AI_Paused")
+  /// STAFF_TAKEOVER | HANDOFF | MANUAL
+  aiPausedReason   String?       @map("AI_Paused_Reason") @db.VarChar(20)
+  /// Lần cuối gửi tin ngoài giờ (mỗi phiên tối đa 1 lần / 2 giờ)
+  aiOutOfHoursAt   DateTime?     @map("AI_Out_Of_Hours_At")
+  /// AI sẽ trả lời lúc này (gộp tin / đợi nhân viên) — khởi động lại server thì hẹn lại theo mốc này
+  aiReplyDueAt     DateTime?     @map("AI_Reply_Due_At")
+  /// Tin khách đã được xử lý tới Msg_ID này (AI không trả lời lại tin cũ hơn)
+  aiAnsweredMsgId  Int?          @map("AI_Answered_Msg_ID")
+  /// Tóm tắt AI gửi nhân viên khi chuyển phiên
+  aiHandoffSummary String?       @map("AI_Handoff_Summary") @db.VarChar(1000)
+  createdAt        DateTime      @default(now()) @map("Created_At")
+  updatedAt        DateTime      @updatedAt @map("Updated_At")
+  messages         ChatMessage[]
   /// Chi nhánh
-  storeId         Int           @map("Store_ID")
-  store           Store         @relation(fields: [storeId], references: [id])
+  storeId          Int           @map("Store_ID")
+  store            Store         @relation(fields: [storeId], references: [id])
 
   @@index([status])
   @@index([storeId])
@@ -879,6 +986,8 @@ model ChatMessage {
   body       String         @map("Body") @db.VarChar(2000)
   /// Ảnh đính kèm (đường dẫn /uploads/…)
   imageUrl   String?        @map("Image_URL") @db.VarChar(1024)
+  /// Tin của AI: lần chạy tạo ra tin (AiRunLog) — để xem chi tiết / đánh giá
+  aiRunId    Int?           @map("AI_Run_ID")
   reactions  ChatReaction[]
   createdAt  DateTime       @default(now()) @map("Created_At")
   session    ChatSession    @relation(fields: [sessionId], references: [id])
@@ -1060,6 +1169,8 @@ model GoodsReceipt {
   note         String?  @map("Note") @db.VarChar(500)
   /// Ảnh hoá đơn / phiếu giao hàng của nhà cung cấp cho đợt nhận này (chứng từ công nợ)
   invoicePhoto String?  @map("Invoice_Photo") @db.VarChar(1024)
+  /// Số hoá đơn của NCC (đọc bằng AI hoặc người nhận gõ) — cảnh báo trùng hoá đơn
+  invoiceNo    String?  @map("Invoice_No") @db.VarChar(50)
   createdAt    DateTime @default(now()) @map("Created_At")
 
   po         PurchaseOrder      @relation(fields: [poId], references: [id])
@@ -1072,6 +1183,7 @@ model GoodsReceipt {
   store   Store @relation(fields: [storeId], references: [id])
 
   @@index([storeId])
+  @@index([invoiceNo])
   @@map("Goods_Receipts")
 }
 
@@ -1186,6 +1298,21 @@ model Store {
   closeTime     String?  @map("Close_Time") @db.VarChar(5)
   isActive      Boolean  @default(true) @map("Is_Active")
   createdAt     DateTime @default(now()) @map("Created_At")
+  /// ─── Hồ sơ trang giới thiệu (/stores/:id) — kiểu ở src/shared/brand.ts (StoreProfile) ───
+  /// Ảnh: { url, small, alt, focus: { x, y } }
+  coverImage    Json?    @map("Cover_Image")
+  story         String?  @map("Story") @db.Text
+  openedYear    Int?     @map("Opened_Year")
+  /// Một câu riêng của quán, VD "Quán có cây bàng trăm tuổi trước cửa"
+  tagline       String?  @map("Tagline") @db.VarChar(140)
+  managerName   String?  @map("Manager_Name") @db.VarChar(80)
+  managerPhoto  Json?    @map("Manager_Photo")
+  managerQuote  String?  @map("Manager_Quote") @db.VarChar(300)
+  /// Mảng khóa tiện ích: wifi, outlet, parking, aircon, outdoor, pets, quiet
+  amenities     Json?    @map("Amenities")
+  /// Mảng { image, caption }
+  galleryImages Json?    @map("Gallery_Images")
+  favoriteSpots Json?    @map("Favorite_Spots")
 
   staff                 Staff[]
   zones                 Zone[]
@@ -1226,6 +1353,8 @@ model Store {
   gamePlays             GamePlay[]
   giftClaims            GiftClaim[]
   popups                PopupStore[]
+  knowledgeBases        KnowledgeBase[]
+  aiBindings            AiAgentBinding[]
   contactButtons        ContactButton[]
   banners               Banner[]
   contactMessages       ContactMessage[]
@@ -1367,8 +1496,101 @@ model HrConfig {
   overtimeRatePercent Int @default(15) @map("Overtime_Rate_Percent")
   /// Mỗi phiếu làm thêm tối đa N phút
   maxOvertimeMinutes  Int @default(240) @map("Max_Overtime_Minutes")
+  /// Hạn gửi nguyện vọng xếp ca: ngày N của tháng trước tháng cần xếp
+  wishDeadlineDay     Int @default(20) @map("Wish_Deadline_Day")
+  /// Số ràng buộc tối đa trong một bản nguyện vọng
+  maxWishRules        Int @default(15) @map("Max_Wish_Rules")
 
   @@map("Hr_Configs")
+}
+
+/// Nguyện vọng xếp ca của 1 nhân viên cho 1 tháng: câu gốc + các ràng buộc (ShiftWishRule) — xem lib/shiftWish
+model ShiftWish {
+  id          Int             @id @default(autoincrement()) @map("Wish_ID")
+  storeId     Int             @map("Store_ID")
+  staffId     Int             @map("Staff_ID")
+  /// "YYYY-MM"
+  month       String          @map("Month") @db.Char(7)
+  rawText     String?         @map("Raw_Text") @db.Text
+  /// DRAFT | CONFIRMED
+  status      String          @default("DRAFT") @map("Status") @db.VarChar(10)
+  /// Xác nhận sau hạn chót
+  late        Boolean         @default(false) @map("Late")
+  submittedAt DateTime?       @map("Submitted_At")
+  createdAt   DateTime        @default(now()) @map("Created_At")
+  updatedAt   DateTime        @updatedAt @map("Updated_At")
+  rules       ShiftWishRule[]
+
+  @@unique([staffId, month])
+  @@index([storeId, month])
+  @@map("Shift_Wishes")
+}
+
+/// Một ràng buộc: UNAVAILABLE | PREFER | AVOID | MAX_SHIFTS | MIN_SHIFTS | DAY_OFF_PATTERN
+model ShiftWishRule {
+  id         Int       @id @default(autoincrement()) @map("Rule_ID")
+  wishId     Int       @map("Wish_ID")
+  type       String    @map("Type") @db.VarChar(20)
+  /// ["YYYY-MM-DD"]
+  dates      Json?     @map("Dates")
+  /// [0..6], 0 = CN
+  weekdays   Json?     @map("Weekdays")
+  fromDate   DateTime? @map("From_Date") @db.Date
+  toDate     DateTime? @map("To_Date") @db.Date
+  /// Mã ca (ShiftTemplate.code); null = mọi ca (hoặc theo timeFrom–timeTo)
+  shiftCodes Json?     @map("Shift_Codes")
+  /// Khung giờ (phút trong ngày)
+  timeFrom   Int?      @map("Time_From")
+  timeTo     Int?      @map("Time_To")
+  count      Int?      @map("Count")
+  /// WEEK | MONTH | RANGE
+  period     String?   @map("Period") @db.VarChar(10)
+  /// Đoạn câu gốc sinh ra ràng buộc
+  quote      String?   @map("Quote") @db.VarChar(255)
+  /// AI | MANUAL
+  source     String    @default("MANUAL") @map("Source") @db.VarChar(10)
+  confidence Float?    @map("Confidence")
+  wish       ShiftWish @relation(fields: [wishId], references: [id], onDelete: Cascade)
+
+  @@index([wishId])
+  @@map("Shift_Wish_Rules")
+}
+
+/// Trạng thái lịch tháng của chi nhánh: publishedAt ≠ null = đã công bố (khóa sửa nguyện vọng)
+model ScheduleMonth {
+  id            Int       @id @default(autoincrement()) @map("SM_ID")
+  storeId       Int       @map("Store_ID")
+  month         String    @map("Month") @db.Char(7)
+  publishedAt   DateTime? @map("Published_At")
+  publishedById Int?      @map("Published_By_ID")
+  /// Lần chạy tự xếp đang nằm trong bản nháp / đã công bố (ScheduleRun)
+  appliedRunId  Int?      @map("Applied_Run_ID")
+
+  @@unique([storeId, month])
+  @@map("Schedule_Months")
+}
+
+/// Một lần chạy "Tự xếp lịch tháng" — lib/autoSchedule.ts; giữ lại để so sánh / áp dụng lại phương án
+model ScheduleRun {
+  id           Int      @id @default(autoincrement()) @map("Run_ID")
+  storeId      Int      @map("Store_ID")
+  month        String   @map("Month") @db.Char(7)
+  seed         Int      @map("Seed")
+  useWishes    Boolean  @default(true) @map("Use_Wishes")
+  includeLate  Boolean  @default(false) @map("Include_Late")
+  /// AutoMetrics
+  metrics      Json     @map("Metrics")
+  /// UnmetWish[]
+  unmetWishes  Json     @map("Unmet_Wishes")
+  /// [{ date, code, role, staffId|null, startMin, endMin, reason }]
+  assignments  Json     @map("Assignments")
+  /// { summary, perStaff: { [staffId]: text }, source: "AI" | "TEMPLATE" }
+  explanations Json?    @map("Explanations")
+  createdById  Int?     @map("Created_By_ID")
+  createdAt    DateTime @default(now()) @map("Created_At")
+
+  @@index([storeId, month])
+  @@map("Schedule_Runs")
 }
 
 /// Đơn gắn với 1 ca: làm thêm giờ / xin về sớm / đi muộn / khác
@@ -1479,6 +1701,20 @@ model MenuProposal {
   source         String    @default("STAFF") @map("Source") @db.VarChar(10)
   /// Từ khóa (đã chuẩn hóa) sinh ra đề xuất này
   searchTerm     String?   @map("Search_Term") @db.VarChar(100)
+  /// Định mức nháp [{ itemId | newIngredient, qtyS, qtyM, qtyL, recipeUnit, role }] — thành ProductFormula khi tạo món
+  formulaDraft   Json?     @map("Formula_Draft")
+  /// Giá vốn ước tính lúc gửi (server tính lại, không tin client)
+  estCostS       Int?      @map("Est_Cost_S")
+  estCostM       Int?      @map("Est_Cost_M")
+  estCostL       Int?      @map("Est_Cost_L")
+  temps          String?   @map("Temps") @db.VarChar(10)
+  hasSizes       Boolean?  @map("Has_Sizes")
+  /// Giá S / L đề xuất (giá M = suggestedPrice)
+  priceS         Int?      @map("Price_S")
+  priceL         Int?      @map("Price_L")
+  /// Toàn bộ kết quả AI phác thảo + đánh giá (để đối chiếu / trình bày)
+  aiDraft        Json?     @map("AI_Draft")
+  aiGenerated    Boolean   @default(false) @map("AI_Generated")
   createdAt      DateTime  @default(now()) @map("Created_At")
   updatedAt      DateTime  @updatedAt @map("Updated_At")
   store          Store     @relation(fields: [storeId], references: [id])
@@ -1808,19 +2044,25 @@ model WorkTask {
 
 /// Người được giao một công việc — mỗi người tự báo xong phần của mình
 model WorkTaskAssignee {
-  id       Int       @id @default(autoincrement()) @map("WTA_ID")
-  taskId   Int       @map("Task_ID")
-  staffId  Int       @map("Staff_ID")
+  id             Int       @id @default(autoincrement()) @map("WTA_ID")
+  taskId         Int       @map("Task_ID")
+  staffId        Int       @map("Staff_ID")
   /// TODO | DONE
-  status   String    @default("TODO") @map("Status") @db.VarChar(10)
-  doneAt   DateTime? @map("Done_At")
+  status         String    @default("TODO") @map("Status") @db.VarChar(10)
+  doneAt         DateTime? @map("Done_At")
   /// Ghi chú của nhân viên khi báo xong
-  note     String?   @map("Note") @db.VarChar(500)
-  photoUrl String?   @map("Photo_Url") @db.VarChar(1024)
+  note           String?   @map("Note") @db.VarChar(500)
+  photoUrl       String?   @map("Photo_Url") @db.VarChar(1024)
+  /// Ảnh báo xong: vị trí GPS + lúc chụp + khoảng cách tới chi nhánh — lib/photoProof.ts
+  photoLat       Float?    @map("Photo_Lat")
+  photoLng       Float?    @map("Photo_Lng")
+  photoAccuracy  Int?      @map("Photo_Accuracy")
+  photoTakenAt   DateTime? @map("Photo_Taken_At")
+  photoDistanceM Int?      @map("Photo_Distance_M")
   /// Quản lý yêu cầu làm lại: lý do
-  redoNote String?   @map("Redo_Note") @db.VarChar(500)
-  task     WorkTask  @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  staff    Staff     @relation(fields: [staffId], references: [id])
+  redoNote       String?   @map("Redo_Note") @db.VarChar(500)
+  task           WorkTask  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  staff          Staff     @relation(fields: [staffId], references: [id])
 
   @@unique([taskId, staffId])
   @@index([staffId, status])
@@ -1911,6 +2153,41 @@ model SearchLog {
   @@index([createdAt])
   @@index([term])
   @@map("Search_Logs")
+}
+
+/// Hành vi khách trên web/app khách (xem màn hình, xem món, thêm/bớt giỏ, đặt đơn) — xoá sau N ngày
+model CustomerEvent {
+  id         Int      @id @default(autoincrement()) @map("CE_ID")
+  /// Mã ẩn danh trình duyệt (dùng chung với SearchLog)
+  sessionKey String   @map("Session_Key") @db.VarChar(64)
+  /// Mã phiên: đổi khi khách vắng > 30 phút (client tự sinh)
+  visitId    String   @map("Visit_ID") @db.VarChar(40)
+  customerId Int?     @map("Customer_ID")
+  storeId    Int?     @map("Store_ID")
+  /// PAGE_VIEW | PRODUCT_VIEW | ADD_TO_CART | REMOVE_FROM_CART | CART_VIEW | CHECKOUT_START | ORDER_PLACED
+  type       String   @map("Type") @db.VarChar(24)
+  /// Tên màn hình đã chuẩn hoá: home, menu, product, cart, promotions, blog, account, checkout, tracking, game…
+  screen     String?  @map("Screen") @db.VarChar(32)
+  productId  Int?     @map("Product_ID")
+  comboId    Int?     @map("Combo_ID")
+  qty        Int?     @map("Qty")
+  /// PAGE_VIEW: thời gian khách THỰC SỰ xem (ms, đã trừ lúc ẩn tab / không thao tác)
+  durationMs Int?     @map("Duration_Ms")
+  /// Nguồn thêm giỏ: card_quick | product_detail | voice | usual | combo | reorder
+  source     String?  @map("Source") @db.VarChar(24)
+  orderId    Int?     @map("Order_ID")
+  /// mobile | desktop
+  device     String?  @map("Device") @db.VarChar(10)
+  /// web | qr_table
+  channel    String?  @map("Channel") @db.VarChar(10)
+  createdAt  DateTime @default(now()) @map("Created_At")
+
+  @@index([createdAt])
+  @@index([type, createdAt])
+  @@index([productId, type])
+  @@index([storeId, createdAt])
+  @@index([visitId])
+  @@map("Customer_Events")
 }
 
 /// Từ khóa quản lý bấm "Bỏ qua" (không liên quan) — không gợi ý nữa. storeId null = toàn chuỗi
@@ -2027,7 +2304,8 @@ model ChatReaction {
   @@map("Chat_Reactions")
 }
 
-/* ═══════════════════════ MINI GAME (tầng chung) ═══════════════════════
+/**
+ * ═══════════════════════ MINI GAME (tầng chung) ═══════════════════════
  * Mọi mini game (vòng quay, thẻ cào, hộp quà…) dùng chung các bảng dưới.
  * Phần riêng của từng game nằm trong GameCampaign.config (Json) và GamePlay.data (Json).
  * Xem docs/minigame-architecture.md trước khi thêm game mới.
@@ -2243,7 +2521,8 @@ model GiftClaim {
   @@map("Gift_Claims")
 }
 
-/* ═══════════════════════ POP UP quảng bá trang khách ═══════════════════════
+/**
+ * ═══════════════════════ POP UP quảng bá trang khách ═══════════════════════
  * Loại đích (targetType) khai báo MỘT chỗ: backend-node/src/lib/popupTargets.ts
  */
 
@@ -2291,7 +2570,8 @@ model PopupStore {
   @@map("Popup_Stores")
 }
 
-/* ═══════════════════════ NÚT LIÊN HỆ NỔI (trang khách) ═══════════════════════
+/**
+ * ═══════════════════════ NÚT LIÊN HỆ NỔI (trang khách) ═══════════════════════
  * Link / SĐT do quản lý dán trên trang quản trị — không ghi cứng trong code.
  * Chuẩn hoá & loại nút: backend-node/src/lib/contactLinks.ts
  */
@@ -2337,7 +2617,9 @@ model ContactClick {
   @@map("Contact_Clicks")
 }
 
-/* ═══════════════════════ WEBSITE KHÁCH: BANNER & LIÊN HỆ ═══════════════════════ */
+/**
+ * ═══════════════════════ WEBSITE KHÁCH: BANNER & LIÊN HỆ ═══════════════════════
+ */
 
 /// Banner carousel trang chủ (ảnh do quản lý tải lên)
 model Banner {
@@ -2382,4 +2664,454 @@ model ContactMessage {
 
   @@index([kind, status, createdAt])
   @@map("Contact_Messages")
+}
+
+/// Hộp thư của khách: quán nhắn / tặng voucher / điều chỉnh điểm (thao tác chăm sóc trên hồ sơ khách)
+model CustomerMessage {
+  id         Int       @id @default(autoincrement()) @map("Msg_ID")
+  customerId Int       @map("Customer_ID")
+  /// MESSAGE | VOUCHER | POINTS
+  kind       String    @default("MESSAGE") @map("Kind") @db.VarChar(10)
+  title      String    @map("Title") @db.VarChar(150)
+  body       String?   @map("Body") @db.VarChar(1000)
+  /// Nhân viên gửi (quản lý chi nhánh / Chủ chuỗi)
+  senderId   Int?      @map("Sender_ID")
+  storeId    Int?      @map("Store_ID")
+  readAt     DateTime? @map("Read_At")
+  createdAt  DateTime  @default(now()) @map("Created_At")
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, createdAt])
+  @@map("Customer_Messages")
+}
+
+/// Kho tri thức cho AI tư vấn (RAG) — tài liệu ít thay đổi: thương hiệu, chính sách, FAQ. Giá / món / giờ mở cửa lấy từ CSDL, không để ở đây.
+model KnowledgeBase {
+  id          Int                    @id @default(autoincrement()) @map("KB_ID")
+  name        String                 @map("Name") @db.VarChar(150)
+  description String?                @map("Description") @db.VarChar(1000)
+  /// null = dùng chung cả chuỗi; có giá trị = kho riêng của chi nhánh
+  storeId     Int?                   @map("Store_ID")
+  enabled     Boolean                @default(true) @map("Enabled")
+  createdById Int                    @map("Created_By")
+  createdAt   DateTime               @default(now()) @map("Created_At")
+  updatedAt   DateTime               @updatedAt @map("Updated_At")
+  store       Store?                 @relation(fields: [storeId], references: [id])
+  createdBy   Staff                  @relation(fields: [createdById], references: [id])
+  documents   KnowledgeDocument[]
+  agents      AiAgentKnowledgeBase[]
+
+  @@index([storeId])
+  @@map("Knowledge_Bases")
+}
+
+/// Một tài liệu trong kho: tệp tải lên (PDF / DOCX / TXT / MD), văn bản nhập tay, hoặc bảng Hỏi–Đáp
+model KnowledgeDocument {
+  id              Int              @id @default(autoincrement()) @map("Doc_ID")
+  knowledgeBaseId Int              @map("KB_ID")
+  title           String           @map("Title") @db.VarChar(200)
+  /// FILE | TEXT | FAQ
+  sourceType      String           @map("Source_Type") @db.VarChar(10)
+  fileName        String?          @map("File_Name") @db.VarChar(255)
+  mimeType        String?          @map("Mime_Type") @db.VarChar(120)
+  /// Tệp gốc (thư mục uploads/knowledge/)
+  fileUrl         String?          @map("File_URL") @db.VarChar(1024)
+  /// Văn bản đã trích & làm sạch; FAQ: JSON [{q, a}]
+  rawText         String           @map("Raw_Text") @db.LongText
+  charCount       Int              @default(0) @map("Char_Count")
+  chunkCount      Int              @default(0) @map("Chunk_Count")
+  /// PENDING | PROCESSING | READY | ERROR
+  status          String           @default("PENDING") @map("Status") @db.VarChar(12)
+  errorMessage    String?          @map("Error_Message") @db.VarChar(1000)
+  enabled         Boolean          @default(true) @map("Enabled")
+  /// sha256 của văn bản đã làm sạch — giống lần trước thì không tạo lại embedding
+  contentHash     String?          @map("Content_Hash") @db.VarChar(64)
+  createdById     Int              @map("Created_By")
+  createdAt       DateTime         @default(now()) @map("Created_At")
+  updatedAt       DateTime         @updatedAt @map("Updated_At")
+  knowledgeBase   KnowledgeBase    @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  createdBy       Staff            @relation(fields: [createdById], references: [id])
+  chunks          KnowledgeChunk[]
+
+  @@index([knowledgeBaseId])
+  @@index([status])
+  @@map("Knowledge_Documents")
+}
+
+/// Một đoạn đã cắt của tài liệu + vector embedding (Float32 little-endian, đã chuẩn hoá L2)
+model KnowledgeChunk {
+  id              Int               @id @default(autoincrement()) @map("Chunk_ID")
+  documentId      Int               @map("Doc_ID")
+  /// Trùng với tài liệu — để lọc nhanh theo kho
+  knowledgeBaseId Int               @map("KB_ID")
+  ordinal         Int               @map("Ordinal")
+  heading         String?           @map("Heading") @db.VarChar(300)
+  content         String            @map("Content") @db.Text
+  charCount       Int               @map("Char_Count")
+  embedding       Bytes?            @map("Embedding") @db.MediumBlob
+  embedModel      String?           @map("Embed_Model") @db.VarChar(60)
+  embedDim        Int?              @map("Embed_Dim")
+  createdAt       DateTime          @default(now()) @map("Created_At")
+  document        KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([knowledgeBaseId])
+  @@index([documentId])
+  @@map("Knowledge_Chunks")
+}
+
+/// AI Agent tư vấn: giọng điệu, kho tri thức, hành vi, giờ hoạt động, kênh — ai/agent/
+model AiAgent {
+  id                    Int                    @id @default(autoincrement()) @map("Agent_ID")
+  name                  String                 @map("Name") @db.VarChar(60)
+  description           String?                @map("Description") @db.VarChar(500)
+  /// DEFAULT | CHAT | CREATIVE | TECH | CSKH | SALES | SUPPORT | VIP
+  icon                  String                 @default("DEFAULT") @map("Icon") @db.VarChar(12)
+  enabled               Boolean                @default(true) @map("Enabled")
+  botName               String                 @default("TD Bot") @map("Bot_Name") @db.VarChar(60)
+  /// PROFESSIONAL | FRIENDLY | CASUAL
+  tone                  String                 @default("FRIENDLY") @map("Tone") @db.VarChar(15)
+  selfPronoun           String                 @default("em") @map("Self_Pronoun") @db.VarChar(20)
+  customerPronoun       String                 @default("anh/chị") @map("Customer_Pronoun") @db.VarChar(20)
+  greeting              String                 @map("Greeting") @db.Text
+  fallbackMessage       String                 @map("Fallback_Message") @db.Text
+  /// "Ghi nhớ cố định" — luôn nằm trong prompt
+  memory                String?                @map("Memory") @db.VarChar(1000)
+  extraInstructions     String?                @map("Extra_Instructions") @db.VarChar(2000)
+  /// SHORT | MEDIUM | LONG | VERY_LONG
+  responseLength        String                 @default("MEDIUM") @map("Response_Length") @db.VarChar(10)
+  splitLongMessages     Boolean                @default(true) @map("Split_Long_Messages")
+  /// Được trả lời bằng hiểu biết chung (ngoài kho tri thức) về cà phê / đồ uống
+  allowGeneralKnowledge Boolean                @default(false) @map("Allow_General_Knowledge")
+  /// Được tìm thêm trên Internet (Google Search qua Gemini)
+  allowWebSearch        Boolean                @default(false) @map("Allow_Web_Search")
+  /// Gộp tin: đợi N giây sau tin cuối của khách rồi mới trả lời một lần
+  mergeWindowSec        Int                    @default(5) @map("Merge_Window_Sec")
+  historySize           Int                    @default(20) @map("History_Size")
+  /// OFF | NORMAL | DEEP
+  reasoningLevel        String                 @default("NORMAL") @map("Reasoning_Level") @db.VarChar(10)
+  /// Ngưỡng độ tương đồng vector: đoạn tài liệu thấp hơn coi như không liên quan
+  minScore              Float                  @default(0.68) @map("Min_Score")
+  handoffEnabled        Boolean                @default(true) @map("Handoff_Enabled")
+  quickRepliesEnabled   Boolean                @default(true) @map("Quick_Replies_Enabled")
+  /// ALWAYS | SCHEDULE
+  scheduleMode          String                 @default("ALWAYS") @map("Schedule_Mode") @db.VarChar(10)
+  /// [{ day: 0–6 (0 = Chủ nhật), from: "07:00", to: "22:00" }]
+  schedule              Json?                  @map("Schedule")
+  outOfHoursMessage     String?                @map("Out_Of_Hours_Message") @db.Text
+  /// Đợi nhân viên trả lời trước N phút; hết giờ chưa ai trả lời thì AI mới trả lời (0 = không đợi)
+  staffWaitMinutes      Int                    @default(0) @map("Staff_Wait_Minutes")
+  /// Số lượt gọi AI tối đa mỗi ngày (null = không giới hạn)
+  dailyRequestLimit     Int?                   @map("Daily_Request_Limit")
+  createdById           Int                    @map("Created_By")
+  createdAt             DateTime               @default(now()) @map("Created_At")
+  updatedAt             DateTime               @updatedAt @map("Updated_At")
+  createdBy             Staff                  @relation(fields: [createdById], references: [id])
+  knowledgeBases        AiAgentKnowledgeBase[]
+  bindings              AiAgentBinding[]
+  quickReplies          AiQuickReply[]
+  runs                  AiRunLog[]
+
+  @@map("AI_Agents")
+}
+
+model AiAgentKnowledgeBase {
+  agentId         Int           @map("Agent_ID")
+  knowledgeBaseId Int           @map("KB_ID")
+  agent           AiAgent       @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, knowledgeBaseId])
+  @@map("AI_Agent_Knowledge_Bases")
+}
+
+/// Gán agent cho kênh: đúng kênh + chi nhánh, không có thì dùng bản gán "cả chuỗi" (storeId null) của kênh
+model AiAgentBinding {
+  id               Int     @id @default(autoincrement()) @map("Binding_ID")
+  agentId          Int     @map("Agent_ID")
+  /// WEB | MESSENGER | INSTAGRAM | ZALO
+  channel          String  @map("Channel") @db.VarChar(20)
+  storeId          Int?    @map("Store_ID")
+  /// Để dành cho hộp thư đa kênh (tài khoản Zalo OA / trang Facebook…)
+  channelAccountId Int?    @map("Channel_Account_ID")
+  agent            AiAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  store            Store?  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([channel, storeId, channelAccountId])
+  @@index([agentId])
+  @@map("AI_Agent_Bindings")
+}
+
+/// Mẫu trả lời nhanh — khớp thì trả lời ngay, không gọi AI
+model AiQuickReply {
+  id        Int     @id @default(autoincrement()) @map("QR_ID")
+  agentId   Int     @map("Agent_ID")
+  name      String  @map("Name") @db.VarChar(60)
+  /// EXACT (cả câu) | CONTAINS (có chứa)
+  matchType String  @default("CONTAINS") @map("Match_Type") @db.VarChar(10)
+  /// string[] — so khớp trên chữ đã bỏ dấu
+  patterns  Json    @map("Patterns")
+  /// string[] — chọn ngẫu nhiên một câu
+  replies   Json    @map("Replies")
+  /// NONE | HANDOFF (chuyển nhân viên)
+  action    String  @default("NONE") @map("Action") @db.VarChar(10)
+  enabled   Boolean @default(true) @map("Enabled")
+  sortOrder Int     @default(0) @map("Sort_Order")
+  agent     AiAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@map("AI_Quick_Replies")
+}
+
+/// Nhật ký mỗi lần AI xử lý: đầu vào, đầu ra, đoạn tài liệu, công cụ đã gọi, token, độ trễ
+model AiRunLog {
+  id             Int      @id @default(autoincrement()) @map("Run_ID")
+  agentId        Int      @map("Agent_ID")
+  sessionId      Int?     @map("Session_ID")
+  channel        String   @default("WEB") @map("Channel") @db.VarChar(20)
+  storeId        Int?     @map("Store_ID")
+  /// QUICK_REPLY | RAG | FALLBACK | HANDOFF | OUT_OF_HOURS | LIMIT | ERROR | TEST
+  kind           String   @map("Kind") @db.VarChar(15)
+  input          String   @map("Input") @db.Text
+  output         String   @map("Output") @db.Text
+  /// [{ chunkId, documentId, title, heading, vectorScore, keywordScore }]
+  retrieved      Json?    @map("Retrieved")
+  /// [{ name, args, resultSummary, ms }]
+  toolCalls      Json?    @map("Tool_Calls")
+  model          String?  @map("Model") @db.VarChar(60)
+  promptTokens   Int      @default(0) @map("Prompt_Tokens")
+  outputTokens   Int      @default(0) @map("Output_Tokens")
+  thinkingTokens Int      @default(0) @map("Thinking_Tokens")
+  latencyMs      Int      @default(0) @map("Latency_Ms")
+  costVnd        Decimal  @default(0) @map("Cost_VND") @db.Decimal(12, 2)
+  errorMessage   String?  @map("Error_Message") @db.VarChar(1000)
+  /// GOOD | BAD — nhân viên đánh giá (phiên 3)
+  rating         String?  @map("Rating") @db.VarChar(5)
+  ratedById      Int?     @map("Rated_By")
+  correction     String?  @map("Correction") @db.Text
+  createdAt      DateTime @default(now()) @map("Created_At")
+  agent          AiAgent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, createdAt])
+  @@index([createdAt])
+  @@index([sessionId])
+  @@map("AI_Run_Logs")
+}
+
+/// Bật / tắt + hạn mức từng tính năng AI (ANALYST = trợ lý hỏi số liệu) — ai/settings.ts
+model AiSetting {
+  /// ANALYST | …
+  feature    String   @id @map("Feature") @db.VarChar(30)
+  enabled    Boolean  @default(true) @map("Enabled")
+  /// Số lượt tối đa mỗi ngày toàn hệ thống (null = không giới hạn)
+  dailyLimit Int?     @map("Daily_Limit")
+  /// Số lượt tối đa mỗi người mỗi giờ (null = không giới hạn)
+  hourlyPerUser Int?  @map("Hourly_Per_User")
+  updatedAt  DateTime @updatedAt @map("Updated_At")
+
+  @@map("AI_Settings")
+}
+
+/// Trợ lý AI hỏi số liệu: một cuộc hội thoại của một nhân sự (Owner / Admin) — ai/analyst/
+model AnalystConversation {
+  id         Int              @id @default(autoincrement()) @map("Conversation_ID")
+  staffId    Int              @map("Staff_ID")
+  /// "ALL" hoặc danh sách id chi nhánh người hỏi được xem lúc tạo, VD "1"
+  storeScope String           @map("Store_Scope") @db.VarChar(100)
+  /// Lấy từ câu hỏi đầu (≤ 80 ký tự)
+  title      String           @map("Title") @db.VarChar(80)
+  createdAt  DateTime         @default(now()) @map("Created_At")
+  updatedAt  DateTime         @updatedAt @map("Updated_At")
+  staff      Staff            @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  messages   AnalystMessage[]
+
+  @@index([staffId, updatedAt])
+  @@map("Analyst_Conversations")
+}
+
+model AnalystMessage {
+  id             Int                 @id @default(autoincrement()) @map("Message_ID")
+  conversationId Int                 @map("Conversation_ID")
+  /// user | assistant
+  role           String              @map("Role") @db.VarChar(10)
+  /// Câu hỏi, hoặc câu trả lời markdown
+  content        String              @map("Content") @db.Text
+  /// [{ type, title, x, y, unit, data: [...] }] — dữ liệu lấy từ kết quả công cụ, không do AI viết
+  charts         Json?               @map("Charts")
+  /// [{ name, args, rowCount, ms, error? }]
+  toolCalls      Json?               @map("Tool_Calls")
+  /// string[] — câu hỏi gợi ý tiếp
+  followUps      Json?               @map("Follow_Ups")
+  model          String?             @map("Model") @db.VarChar(60)
+  tokensIn       Int                 @default(0) @map("Tokens_In")
+  tokensOut      Int                 @default(0) @map("Tokens_Out")
+  latencyMs      Int                 @default(0) @map("Latency_Ms")
+  /// -1 không thích | 0 chưa đánh giá | 1 thích
+  rating         Int                 @default(0) @map("Rating")
+  /// Lỗi gọi Gemini (câu trả lời khi đó là thông báo lỗi)
+  errorMessage   String?             @map("Error_Message") @db.VarChar(1000)
+  createdAt      DateTime            @default(now()) @map("Created_At")
+  conversation   AnalystConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([createdAt])
+  @@map("Analyst_Messages")
+}
+
+/// Nhật ký mỗi lần gọi AI của các tính năng nhỏ (đặt món bằng giọng nói…): hạn mức, token, độ trễ. Không lưu âm thanh.
+model AiCallLog {
+  id         Int      @id @default(autoincrement()) @map("Call_ID")
+  /// VOICE_ORDER_POS | VOICE_ORDER_WEB | …
+  feature    String   @map("Feature") @db.VarChar(30)
+  storeId    Int?     @map("Store_ID")
+  staffId    Int?     @map("Staff_ID")
+  /// Mã phiên trình duyệt của khách (giới hạn số lần / phiên)
+  sessionKey String?  @map("Session_Key") @db.VarChar(64)
+  /// SHA-256 rút gọn của IP (giới hạn theo IP, không lưu IP thật)
+  ipHash     String?  @map("IP_Hash") @db.VarChar(16)
+  /// OK | ERROR
+  status     String   @map("Status") @db.VarChar(10)
+  /// audio | text
+  inputKind  String   @map("Input_Kind") @db.VarChar(10)
+  model      String?  @map("Model") @db.VarChar(60)
+  tokensIn   Int      @default(0) @map("Tokens_In")
+  tokensOut  Int      @default(0) @map("Tokens_Out")
+  latencyMs  Int      @default(0) @map("Latency_Ms")
+  error      String?  @map("Error") @db.VarChar(500)
+  /// Câu AI nghe / đọc được (để tra khi người dùng báo "nói không được")
+  transcript String?  @map("Transcript") @db.VarChar(500)
+  /// Tóm tắt kết quả: "2 món; chưa có: matcha dừa; hỏi lại: …"
+  summary    String?  @map("Summary") @db.VarChar(500)
+  createdAt  DateTime @default(now()) @map("Created_At")
+
+  @@index([feature, createdAt])
+  @@index([sessionKey, createdAt])
+  @@index([ipHash, createdAt])
+  @@map("AI_Call_Logs")
+}
+
+/// AI đọc ảnh hoá đơn NCC khi nhận hàng: kết quả gốc, sau kiểm tra, và giá trị người nhận xác nhận (đo độ chính xác) — lib/invoiceOcr/
+model InvoiceExtraction {
+  id         Int      @id @default(autoincrement()) @map("Extraction_ID")
+  storeId    Int      @map("Store_ID")
+  poId       Int      @map("PO_ID")
+  /// Phiếu nhập tạo từ lần đọc này (null tới khi xác nhận nhập kho)
+  grnId      Int?     @map("GRN_ID")
+  staffId    Int      @map("Staff_ID")
+  /// string[] — ảnh đã lưu (/uploads/…), ảnh đầu dùng làm chứng từ công nợ
+  imageUrls  Json     @map("Image_URLs")
+  readable   Boolean  @default(true) @map("Readable")
+  /// Nguyên văn JSON AI trả về
+  result     Json?    @map("Result")
+  /// Sau kiểm tra bằng code: dòng nháp + cảnh báo
+  validated  Json?    @map("Validated")
+  /// Giá trị người nhận xác nhận khi nhập kho
+  finalLines Json?    @map("Final_Lines")
+  model      String?  @map("Model") @db.VarChar(60)
+  tokensIn   Int      @default(0) @map("Tokens_In")
+  tokensOut  Int      @default(0) @map("Tokens_Out")
+  latencyMs  Int      @default(0) @map("Latency_Ms")
+  error      String?  @map("Error") @db.VarChar(500)
+  createdAt  DateTime @default(now()) @map("Created_At")
+
+  @@index([poId])
+  @@index([grnId])
+  @@index([createdAt])
+  @@map("Invoice_Extractions")
+}
+
+/// Quy đổi đơn vị trên hoá đơn → đơn vị kho đã được người nhận xác nhận, theo (NCC, tên hàng trên hoá đơn)
+model SupplierUnitAlias {
+  id            Int      @id @default(autoincrement()) @map("Alias_ID")
+  supplierId    Int      @map("Supplier_ID")
+  /// Tên hàng trên hoá đơn đã chuẩn hoá (normalizeTerm)
+  rawName       String   @map("Raw_Name") @db.VarChar(150)
+  itemId        Int      @map("Item_ID")
+  /// 1 đơn vị trên hoá đơn = factor đơn vị kho
+  factor        Float    @default(1) @map("Factor")
+  /// Đơn vị in trên hoá đơn (thùng, lốc…)
+  unitInvoice   String?  @map("Unit_Invoice") @db.VarChar(30)
+  confirmedById Int      @map("Confirmed_By")
+  updatedAt     DateTime @updatedAt @map("Updated_At")
+
+  @@unique([supplierId, rawName])
+  @@map("Supplier_Unit_Aliases")
+}
+
+/// Dinh dưỡng của 1 nguyên liệu (1–1 với Inventory) — món tính bằng công thức × bảng này (lib/nutrition/)
+model IngredientNutrition {
+  itemId        Int       @id @map("Item_ID")
+  /// PER_100 = trên 100 g/ml đơn vị công thức · PER_UNIT = trên 1 cái (bánh…)
+  basis         String    @default("PER_100") @map("Basis") @db.VarChar(10)
+  kcal          Float?    @map("Kcal")
+  fatG          Float?    @map("Fat_G")
+  satFatG       Float?    @map("Sat_Fat_G")
+  sugarG        Float?    @map("Sugar_G")
+  proteinG      Float?    @map("Protein_G")
+  carbG         Float?    @map("Carb_G")
+  caffeineMg    Float?    @map("Caffeine_Mg")
+  /// string[] trong milk | nuts | peanut | gluten | egg | soy
+  allergens     Json?     @map("Allergens")
+  isVegan       Boolean   @default(false) @map("Is_Vegan")
+  /// Nguyên liệu tạo ngọt (đường, siro, sữa đặc…) — co giãn theo mức đường khách chọn
+  isSugarSource Boolean   @default(false) @map("Is_Sugar_Source")
+  /// AI | MANUAL
+  source        String    @default("MANUAL") @map("Source") @db.VarChar(10)
+  /// Độ tin AI (0–1) + ghi chú giả định khi AI gợi ý
+  confidence    Float?    @map("Confidence")
+  note          String?   @map("Note") @db.VarChar(500)
+  /// Cảnh báo kiểm tra bằng code (kcal lệch, caffeine bất thường…)
+  warnings      Json?     @map("Warnings")
+  /// Chưa duyệt thì không dùng để tính dinh dưỡng món cho khách
+  approved      Boolean   @default(false) @map("Approved")
+  approvedById  Int?      @map("Approved_By")
+  approvedAt    DateTime? @map("Approved_At")
+  updatedAt     DateTime  @updatedAt @map("Updated_At")
+  item          InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@map("Ingredient_Nutrition")
+}
+
+/// Dinh dưỡng món theo size (bảng tính sẵn, cập nhật khi đổi công thức / duyệt nguyên liệu)
+model ProductNutrition {
+  productId         Int      @map("Product_ID")
+  /// S | M | L | "-" (món 1 loại)
+  size              String   @map("Size") @db.VarChar(2)
+  kcal              Float    @default(0) @map("Kcal")
+  fatG              Float    @default(0) @map("Fat_G")
+  satFatG           Float    @default(0) @map("Sat_Fat_G")
+  sugarG            Float    @default(0) @map("Sugar_G")
+  proteinG          Float    @default(0) @map("Protein_G")
+  caffeineMg        Float    @default(0) @map("Caffeine_Mg")
+  /// Phần đường đến từ nguyên liệu tạo ngọt (co giãn theo mức đường 0 / 50 / 100%)
+  sugarFromSourcesG Float    @default(0) @map("Sugar_From_Sources_G")
+  kcalFromSources   Float    @default(0) @map("Kcal_From_Sources")
+  allergens         Json?    @map("Allergens")
+  isVegan           Boolean  @default(false) @map("Is_Vegan")
+  /// Mọi nguyên liệu trong công thức đã có dinh dưỡng được duyệt
+  complete          Boolean  @default(false) @map("Complete")
+  /// Nguyên liệu còn thiếu / chưa duyệt: [{ itemId, name }]
+  missing           Json?    @map("Missing")
+  /// { caffeine: none|low|high|null, sugar: low|high|null, fat: low|high|null, allergens: string[], vegan: boolean }
+  labels            Json?    @map("Labels")
+  computedAt        DateTime @default(now()) @map("Computed_At")
+  product           Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([productId, size])
+  @@map("Product_Nutrition")
+}
+
+/// Trang câu chuyện thương hiệu (/about): mỗi mục một dòng, chủ chuỗi sửa ở Website › Câu chuyện thương hiệu.
+/// Data / Data_En theo kiểu BrandDataMap[key] trong src/shared/brand.ts; thiếu Data_En thì trang tiếng Anh hiện tiếng Việt.
+model BrandSection {
+  id         Int      @id @default(autoincrement()) @map("Section_ID")
+  /// hero | founder | journey | hardest | stats | values | farm | team | signature | stores | community | testimonials | press | gallery | future
+  key        String   @unique @map("Section_Key") @db.VarChar(30)
+  sortOrder  Int      @default(0) @map("Sort_Order")
+  isVisible  Boolean  @default(true) @map("Is_Visible")
+  data       Json     @map("Data")
+  dataEn     Json?    @map("Data_En")
+  updatedAt  DateTime @default(now()) @updatedAt @map("Updated_At")
+  updatedBy  Int?     @map("Updated_By")
+
+  @@map("Brand_Sections")
 }

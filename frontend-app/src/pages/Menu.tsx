@@ -8,7 +8,12 @@ import { useCustomerStore } from "../lib/customerStore";
 import { logMenuSearch } from "../lib/searchLog";
 import { formatVnd } from "../lib/site";
 import { useLang } from "../lib/i18n";
-import { Crumbs, ProductCard, SectionHead, listPrice } from "../components/site/parts";
+import { Crumbs, ProductCard, SectionHead, UsualLine, listPrice, quickAddUsual } from "../components/site/parts";
+import { UsualStrip } from "../components/site/UsualStrip";
+import { QuickOrderMic, openQuickOrder, useQuickOrder } from "../components/site/QuickOrder";
+import { looksLikeOrder } from "../lib/voiceOrder";
+import { useSiteInfo } from "../lib/site";
+import { DIETS, DIET_TEXT, useDietPrefs, type Diet } from "../lib/nutrition";
 
 type FilterState = { search: string; categoryId: number | "all"; minPrice: string; maxPrice: string; tags: string[] };
 type View = "grid" | "paper";
@@ -73,8 +78,28 @@ function PaperGroup({ name, list, query }: { name: string; list: Product[]; quer
   );
 }
 
+const DIET_APPLIED_KEY = "c-diet-applied";
+
 export function Menu() {
   const { t } = useLang();
+  const quick = useQuickOrder();
+  const site = useSiteInfo();
+  const showNutrition = site?.theme?.showNutrition !== false;
+  const [prefs] = useDietPrefs();
+  /** Bộ lọc ăn kiêng (lọc ở server: chỉ món đủ dữ liệu dinh dưỡng mới lọt) */
+  const [diets, setDiets] = useState<Diet[]>([]);
+  // Khách có sở thích ăn uống → bật sẵn chip ở lần đầu mở thực đơn trong phiên (bỏ được)
+  useEffect(() => {
+    if (!prefs.length) return;
+    try {
+      if (sessionStorage.getItem(DIET_APPLIED_KEY)) return;
+      sessionStorage.setItem(DIET_APPLIED_KEY, "1");
+    } catch {
+      /* chế độ riêng tư */
+    }
+    setDiets(prefs);
+  }, [prefs]);
+  const toggleDiet = (d: Diet) => setDiets((cur) => (cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d]));
   const [data, setData] = useState<MenuResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [view, setView] = useState<View>(readView);
@@ -100,26 +125,29 @@ export function Menu() {
   const tableId = getTableId();
   const takeawaySid = getTakeawaySessionId();
 
+  // Câu gọi món ("2 bạc xỉu ít đá…") dành cho Đặt nhanh: không lọc thực đơn, không ghi thống kê tìm kiếm
+  const search = quick.enabled && looksLikeOrder(filters.search) ? "" : filters.search;
+
   const qs = useMemo(() => {
     const q = new URLSearchParams();
-    if (user?.customerId) q.append("customerId", String(user.customerId));
     // Ẩn món chi nhánh không bán / báo hết
     if (storeId) q.append("store", String(storeId));
-    if (filters.search) q.append("search", filters.search);
+    if (search) q.append("search", search);
     if (filters.categoryId !== "all") q.append("categoryId", String(filters.categoryId));
     if (filters.minPrice) q.append("minPrice", filters.minPrice);
     if (filters.maxPrice) q.append("maxPrice", filters.maxPrice);
     if (filters.tags.length > 0) q.append("tags", filters.tags.join(","));
+    if (showNutrition && diets.length) q.append("diet", diets.join(","));
     return `?${q.toString()}`;
-  }, [user?.customerId, filters, storeId]);
+  }, [user?.customerId, filters.categoryId, filters.minPrice, filters.maxPrice, filters.tags, search, storeId, diets, showNutrition]);
 
   // Thống kê "khách tìm gì": chỉ ghi khi khách ngừng gõ 1,5 giây (không ghi từng ký tự)
   useEffect(() => {
-    const q = filters.search;
+    const q = search;
     if (q.trim().length < 2) return;
     const t = window.setTimeout(() => logMenuSearch(q, storeId), 1500);
     return () => window.clearTimeout(t);
-  }, [filters.search, storeId]);
+  }, [search, storeId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,6 +180,7 @@ export function Menu() {
   }
   function clearAll() {
     setFilters(EMPTY);
+    setDiets([]);
     setParams(new URLSearchParams(), { replace: true });
   }
 
@@ -160,8 +189,10 @@ export function Menu() {
   for (const p of data?.products ?? []) byCat.set(p.categoryId, [...(byCat.get(p.categoryId) ?? []), p]);
   const groups = categories.map((c) => ({ ...c, list: byCat.get(c.id) ?? [] })).filter((c) => c.list.length);
   const total = groups.reduce((s, c) => s + c.list.length, 0);
-  const query = filters.search;
-  const hasFilter = !!(filters.search || filters.categoryId !== "all" || filters.minPrice || filters.maxPrice || filters.tags.length);
+  const query = search;
+  const hasFilter = !!(filters.search || filters.categoryId !== "all" || filters.minPrice || filters.maxPrice || filters.tags.length || (showNutrition && diets.length));
+  // Khách chủ động tìm / lọc (không tính chip ăn kiêng tự bật theo sở thích) → ẩn khối món quen
+  const narrowed = !!(filters.search || filters.categoryId !== "all" || filters.minPrice || filters.maxPrice || filters.tags.length);
   const current = filters.categoryId === "all" ? null : categories.find((c) => c.id === filters.categoryId);
   const catName = new Map(categories.map((c) => [c.id, c.name]));
   const priceOn = (r: (typeof PRICES)[number]) => filters.minPrice === r.min && filters.maxPrice === r.max;
@@ -204,10 +235,22 @@ export function Menu() {
           <label className="c-menu-search">
             <Search size={18} aria-hidden />
             <span className="c-sr">{t("Tìm món")}</span>
-            <input value={filters.search} onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))} placeholder={t("Tìm theo tên món")} />
+            <input
+              value={filters.search}
+              onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+              onKeyDown={(e) => {
+                // Câu gọi món ("2 bạc xỉu ít đá…") + Enter → Đặt nhanh; gõ tên món thì vẫn là tìm kiếm
+                if (e.key === "Enter" && quick.enabled && looksLikeOrder(filters.search)) {
+                  e.preventDefault();
+                  openQuickOrder({ text: filters.search });
+                }
+              }}
+              placeholder={quick.enabled ? t("Tìm món, hoặc nói / gõ món bạn muốn") : t("Tìm theo tên món")}
+            />
             {filters.search && (
               <button type="button" onClick={() => setFilters((f) => ({ ...f, search: "" }))} aria-label={t("Xóa từ khóa")}><X size={16} aria-hidden /></button>
             )}
+            <QuickOrderMic />
           </label>
           <label className="c-filter-sel">
             <span className="c-sr">{t("Mức giá")}</span>
@@ -236,16 +279,57 @@ export function Menu() {
             <button type="button" className={view === "paper" ? "is-on" : undefined} aria-pressed={view === "paper"} onClick={() => changeView("paper")}>{t("Menu giấy")}</button>
           </div>
         </div>
+        {showNutrition && (
+          <div className="c-diet" role="group" aria-label={t("Ăn kiêng")}>
+            <span className="c-diet-label">{t("Ăn kiêng")}:</span>
+            {DIETS.map((d) => (
+              <button key={d} type="button" className={diets.includes(d) ? "is-on" : undefined} aria-pressed={diets.includes(d)} onClick={() => toggleDiet(d)}>{t(DIET_TEXT[d])}</button>
+            ))}
+            {diets.length > 0 && <button type="button" className="c-linkish" onClick={() => setDiets([])}>{t("Bỏ chọn")}</button>}
+          </div>
+        )}
+        {quick.enabled && looksLikeOrder(filters.search) && (
+          <div className="qo-quick-row">
+            <button type="button" className="c-btn qo-quick-btn" onClick={() => openQuickOrder({ text: filters.search })}>{t("Đặt nhanh")}</button>
+            <span>“{filters.search.trim()}”</span>
+          </div>
+        )}
+        {quick.enabled && !filters.search && (
+          <p className="qo-try">
+            {quick.mic ? t("Thử nói:") : t("Thử gõ:")}{" "}
+            <button type="button" onClick={() => openQuickOrder(quick.mic ? { mic: true } : { text: t("Hai bạc xỉu ít đá") })}>“{t("Hai bạc xỉu ít đá")}”</button>
+            {/* Khách có món quen: "Như mọi khi" → điền món quen số 1 đúng tuỳ chọn quen */}
+            {data?.favoritesKind === "usual" && (
+              <>
+                {" "}{t("hoặc")}{" "}
+                <button type="button" onClick={() => openQuickOrder(quick.mic ? { mic: true } : { text: t("Như mọi khi") })}>“{t("Như mọi khi")}”</button>
+              </>
+            )}
+          </p>
+        )}
       </div>
 
       {err && <p className="c-err">{err}</p>}
       {!data && !err && <p className="c-muted-txt">{t("Đang tải thực đơn…")}</p>}
       {data && hasFilter && <p className="c-muted-txt c-menu-count">{total === 0 ? t("Không có món nào khớp bộ lọc.") : t("{n} món", { n: total })}</p>}
 
-      {data && !hasFilter && data.favorites.length > 0 && view === "grid" && (
-        <section className="c-menu-group">
-          <SectionHead title="Món quen của bạn" sub="bạn hay gọi" />
-          <div className="c-grid">{data.favorites.slice(0, 8).map((p) => <ProductCard key={p.id} p={p} line={catName.get(p.categoryId)} />)}</div>
+      {/* Món quen luôn đứng đầu thực đơn (cả lưới ảnh lẫn menu giấy); thẻ hiện + thêm đúng tuỳ chọn quen */}
+      {data && !narrowed && data.favorites.length > 0 && data.favoritesKind !== "none" && (
+        <section className="c-menu-group c-menu-usual">
+          {data.favoritesKind === "ai" ? <SectionHead title="Có thể bạn sẽ thích" sub="gợi ý cho bạn" /> : <SectionHead title="Món quen của bạn" sub="bạn hay gọi — bấm + là thêm đúng kiểu quen" />}
+          {view === "grid" ? (
+            <div className="c-grid">
+              {data.favorites.slice(0, 8).map((p) =>
+                data.favoritesKind === "usual" ? (
+                  <ProductCard key={p.id} p={p} line={p.hasSizes === false && !p.usualNote ? catName.get(p.categoryId) : <UsualLine p={p} usual={p.usual} note={p.usualNote} />} onAdd={() => quickAddUsual(p, p.usual, p.usualNote)} />
+                ) : (
+                  <ProductCard key={p.id} p={p} line={catName.get(p.categoryId)} />
+                ),
+              )}
+            </div>
+          ) : (
+            <UsualStrip items={data.favorites.slice(0, 8).map((p) => ({ product: p, usual: p.usual, usualNote: p.usualNote, soldOut: p.soldOut }))} />
+          )}
         </section>
       )}
 

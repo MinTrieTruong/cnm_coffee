@@ -9,7 +9,7 @@ import { issueOrderTickets, revokeOrderTickets } from "../games/service.js";
 
 type Tx = Prisma.TransactionClient;
 
-export type PointTxType = "EARN" | "REDEEM" | "CANCEL_REFUND" | "REDEEM_RETURN" | "EARN_REVERSAL" | "GAME_REWARD" | "GAME_EXCHANGE";
+export type PointTxType = "EARN" | "REDEEM" | "CANCEL_REFUND" | "REDEEM_RETURN" | "EARN_REVERSAL" | "GAME_REWARD" | "GAME_EXCHANGE" | "ADJUST";
 
 /** Cộng/trừ điểm khách và ghi lịch sử. delta = 0 thì bỏ qua. */
 export async function addPoints(
@@ -29,15 +29,18 @@ export async function settlePaidPoints(
   args: { customerId: number; orderId: number; pointsUsed: number; pointsEarned: number },
 ) {
   const { customerId, orderId } = args;
+  // Tài khoản tạo từ Google / Facebook chưa bổ sung SĐT: chưa tích điểm (điểm gắn với SĐT thành viên)
+  const hasPhone = !!(await tx.customer.findUnique({ where: { id: customerId }, select: { phone: true } }))?.phone;
+  const pointsEarned = hasPhone ? args.pointsEarned : 0;
   await addPoints(tx, { customerId, orderId, delta: -args.pointsUsed, type: "REDEEM", note: `Dùng điểm cho đơn #${orderId}` });
-  await addPoints(tx, { customerId, orderId, delta: args.pointsEarned, type: "EARN", note: `Tích điểm đơn #${orderId}` });
+  await addPoints(tx, { customerId, orderId, delta: pointsEarned, type: "EARN", note: `Tích điểm đơn #${orderId}` });
   // Đơn hiện tại đã được đánh dấu Paid trước khi gọi → đã nằm trong tổng
   const paid = await tx.order.aggregate({ where: { customerId, status: "Paid" }, _sum: { totalAmount: true } });
   await tx.customer.update({
     where: { id: customerId },
     data: { rankTier: rankTierFromLifetimeSpend(paid._sum.totalAmount ?? 0) },
   });
-  await tx.order.update({ where: { id: orderId }, data: { pointsEarned: args.pointsEarned } });
+  await tx.order.update({ where: { id: orderId }, data: { pointsEarned } });
   // Mini game: đơn đạt mức tối thiểu của chiến dịch đang chạy → tặng lượt chơi
   await issueOrderTickets(tx, orderId);
 }

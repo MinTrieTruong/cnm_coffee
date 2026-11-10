@@ -50,7 +50,7 @@ function Preview({ theme, mode }: { theme: SiteTheme; mode: ColorMode }) {
   // Xem trước luôn hiện chủ đề lễ đã chọn, kể cả khi ngày tự tắt đã qua (để chủ chuỗi thấy trước khi chỉnh ngày)
   const oc = activeOccasion(theme.occasion ? { ...theme, occasion: { ...theme.occasion, until: null } } : theme);
   const box: CSSProperties = { borderRadius: 6, overflow: "hidden", border: "1px solid var(--o-border)", background: n.paper, color: n.ink, fontFamily: "'Be Vietnam Pro', system-ui, sans-serif" };
-  const display: CSSProperties = { fontFamily: "Oswald, 'Arial Narrow', sans-serif", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em" };
+  const display: CSSProperties = { fontFamily: "'Playfair Display', Georgia, serif", fontWeight: 500, letterSpacing: "0" };
   return (
     <div style={box} aria-label={mode === "dark" ? "Xem trước giao diện tối" : "Xem trước giao diện sáng"}>
       <div style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -232,6 +232,20 @@ export function SiteThemeSettings() {
               <label className="o-row" style={{ gap: 6 }}>
                 <input type="checkbox" checked={f.allowToggle} onChange={(e) => set({ allowToggle: e.target.checked })} />
                 Hiện nút sáng/tối trên thanh điều hướng và chân trang
+              </label>
+            </Field>
+          </FormGroup>
+          <FormGroup title="Nội dung cho khách">
+            <Field label="Dinh dưỡng">
+              <label className="o-row" style={{ gap: 6 }}>
+                <input type="checkbox" checked={f.showNutrition !== false} onChange={(e) => set({ showNutrition: e.target.checked })} />
+                Hiện thông tin dinh dưỡng ước tính (nhãn caffeine / đường / dị ứng, bộ lọc ăn kiêng)
+              </label>
+            </Field>
+            <Field label="Gợi ý theo thời tiết">
+              <label className="o-row" style={{ gap: 6 }}>
+                <input type="checkbox" checked={f.showWeatherPicks !== false} onChange={(e) => set({ showWeatherPicks: e.target.checked })} />
+                Hiện khối "Hợp thời tiết hôm nay" trên trang chủ
               </label>
             </Field>
           </FormGroup>

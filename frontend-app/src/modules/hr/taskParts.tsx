@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { ChevronLeft, ChevronRight, Clock, Flag, MapPin, Camera } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, Circle, CheckCircle2, Clock, Flag, LayoutList, MapPin, Camera } from "lucide-react";
 import { acquireSocket } from "../../lib/sharedSocket";
 import { dayLabel, isOverdue, minToTime, shiftDay, todayYmd, type WorkTask } from "../../lib/tasks";
 
@@ -20,6 +20,36 @@ export function DayNav({ value, onChange }: { value: string; onChange: (d: strin
       {value !== todayYmd() && (
         <button type="button" className="o-btn o-btn-link" onClick={() => onChange(todayYmd())}>Về hôm nay</button>
       )}
+    </div>
+  );
+}
+
+export type TaskFilterKey = "all" | "todo" | "late" | "done";
+
+const FILTERS: { key: TaskFilterKey; label: string; icon: typeof Circle }[] = [
+  { key: "all", label: "Tất cả", icon: LayoutList },
+  { key: "todo", label: "Chưa xong", icon: Circle },
+  { key: "late", label: "Quá hạn", icon: AlertTriangle },
+  { key: "done", label: "Đã xong", icon: CheckCircle2 },
+];
+
+/** Lọc theo trạng thái: Tất cả · Chưa xong · Quá hạn · Đã xong (kèm số lượng) */
+export function TaskFilter({ value, onChange, counts }: { value: TaskFilterKey; onChange: (v: TaskFilterKey) => void; counts: Record<TaskFilterKey, number> }) {
+  return (
+    <div className="o-task-filter" role="tablist" aria-label="Lọc theo trạng thái">
+      {FILTERS.map(({ key, label, icon: Icon }) => (
+        <button
+          key={key}
+          type="button"
+          role="tab"
+          aria-selected={value === key}
+          className={`o-task-filter-btn is-${key}${value === key ? " active" : ""}`}
+          onClick={() => onChange(key)}
+        >
+          <Icon size={14} aria-hidden /> {label}
+          <span className="o-task-filter-n">{counts[key]}</span>
+        </button>
+      ))}
     </div>
   );
 }

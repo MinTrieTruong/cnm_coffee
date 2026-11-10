@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { safeNext, setSession, type SessionUser } from "../lib/session";
 import { Crumbs } from "../components/site/parts";
 import { PasswordInput } from "../components/PasswordInput";
+import { SocialButtons, useSocialSignIn } from "../components/site/SocialLogin";
 import { useLang } from "../lib/i18n";
 
 export function Register() {
@@ -17,6 +18,7 @@ export function Register() {
   const [email, setEmail] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const onSocial = useSocialSignIn(next);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -95,8 +97,9 @@ export function Register() {
               {loading ? t("Đang tạo…") : t("Tạo tài khoản")}
             </button>
           </form>
+          <SocialButtons onToken={onSocial} divider googleText="signup_with" />
           <p style={{ textAlign: "center", color: "var(--muted)", margin: "1.5rem 0 0", fontSize: "0.9rem" }}>
-            {t("Đã có tài khoản?")} <Link to="/" style={{ color: "var(--accent)", fontWeight: 600 }}>{t("Đăng nhập")}</Link>
+            {t("Đã có tài khoản?")} <Link to={params.get("next") ? `/login?next=${encodeURIComponent(next)}` : "/login"} style={{ color: "var(--accent)", fontWeight: 600 }}>{t("Đăng nhập")}</Link>
           </p>
         </div>
       </div>

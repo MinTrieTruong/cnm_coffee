@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Camera, Check, CheckCircle2, ClipboardCheck, RotateCcw, X } from "lucide-react";
 import { mediaUrl } from "../../lib/api";
 import { getStaffInfo, staffApi } from "../../lib/staffApi";
-import { compressImage, doneCount, todayYmd, type WorkTask } from "../../lib/tasks";
+import { doneCount, isOverdue, todayYmd, type WorkTask } from "../../lib/tasks";
 import { Alert, Button, EmptyState, PageHeader, errMsg } from "../../components/erp";
-import { DayNav, TaskMeta, doneTime, useTaskSocket } from "./taskParts";
+import { DayNav, TaskFilter, TaskMeta, doneTime, useTaskSocket, type TaskFilterKey } from "./taskParts";
+import { ProofCamera, type ProofMeta } from "../../components/ProofCamera";
 
 /** Báo cho badge sidebar / thanh đáy tính lại */
 const changed = () => window.dispatchEvent(new Event("td:tasks-changed"));
@@ -47,16 +48,19 @@ export function MyTaskItem({ task, me, onChange, compact }: { task: WorkTask; me
   const [photo, setPhoto] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  // Ảnh chụp trực tiếp bằng camera trong app (đóng dấu giờ + địa điểm), kèm GPS gửi máy chủ
+  const [camOpen, setCamOpen] = useState(false);
+  const [proof, setProof] = useState<ProofMeta | null>(null);
 
   async function submit() {
     if (task.requirePhoto && !photo) return setErr("Việc này cần chụp ảnh xác nhận.");
     setBusy(true);
     try {
-      onChange(await staffApi<WorkTask>(`/api/tasks/${task.id}/done`, { method: "POST", body: JSON.stringify({ note, photoDataUrl: photo ?? undefined }) }));
+      onChange(await staffApi<WorkTask>(`/api/tasks/${task.id}/done`, { method: "POST", body: JSON.stringify({ note, photoDataUrl: photo ?? undefined, proof: photo ? proof : undefined }) }));
       setOpen(false);
       setNote("");
       setPhoto(null);
+      setProof(null);
       setErr(null);
     } catch (e) {
       setErr(errMsg(e));
@@ -113,31 +117,21 @@ export function MyTaskItem({ task, me, onChange, compact }: { task: WorkTask; me
         {open && !done && (
           <div className="o-mytask-form">
             <textarea className="o-input" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ghi chú (không bắt buộc)" maxLength={500} />
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              hidden
-              onChange={async (e) => {
-                const f = e.target.files?.[0];
-                e.target.value = "";
-                if (!f) return;
-                try {
-                  setPhoto(await compressImage(f));
-                } catch (ex) {
-                  setErr(errMsg(ex));
-                }
-              }}
-            />
+            {camOpen && (
+              <ProofCamera
+                context={`Việc: ${task.title} · ${getStaffInfo()?.fullName ?? ""}`}
+                onClose={() => setCamOpen(false)}
+                onCapture={(s) => { setPhoto(s.dataUrl); setProof(s.proof); setCamOpen(false); }}
+              />
+            )}
             <div className="o-mytask-form-row">
               {photo ? (
                 <span className="o-task-photo is-lg">
                   <img src={photo} alt="Ảnh vừa chụp" />
-                  <button type="button" onClick={() => setPhoto(null)} aria-label="Bỏ ảnh"><X size={14} /></button>
+                  <button type="button" onClick={() => { setPhoto(null); setProof(null); }} aria-label="Bỏ ảnh"><X size={14} /></button>
                 </span>
               ) : (
-                <Button icon={Camera} onClick={() => fileRef.current?.click()}>{task.requirePhoto ? "Chụp ảnh (bắt buộc)" : "Chụp ảnh"}</Button>
+                <Button icon={Camera} onClick={() => setCamOpen(true)}>{task.requirePhoto ? "Chụp ảnh (bắt buộc)" : "Chụp ảnh"}</Button>
               )}
               <span style={{ flex: 1 }} />
               <Button onClick={() => setOpen(false)}>Hủy</Button>
@@ -155,8 +149,14 @@ export function MyTasks() {
   const [date, setDate] = useState(todayYmd);
   const { tasks, loading, error, replace, me } = useMyTasks(date);
   const mineDone = tasks.filter((t) => t.assignees.some((a) => a.staffId === me && a.status === "DONE")).length;
-  const todo = tasks.filter((t) => !t.assignees.some((a) => a.staffId === me && a.status === "DONE"));
-  const done = tasks.filter((t) => t.assignees.some((a) => a.staffId === me && a.status === "DONE"));
+  const [filter, setFilter] = useState<TaskFilterKey>("all");
+  const allTodo = tasks.filter((t) => !t.assignees.some((a) => a.staffId === me && a.status === "DONE"));
+  const allDone = tasks.filter((t) => t.assignees.some((a) => a.staffId === me && a.status === "DONE"));
+  const late = allTodo.filter((t) => isOverdue(t));
+  const counts = { all: tasks.length, todo: allTodo.length, late: late.length, done: allDone.length };
+  // Việc quá hạn lên đầu danh sách cần làm
+  const todo = filter === "done" ? [] : filter === "late" ? late : [...late, ...allTodo.filter((t) => !late.includes(t))];
+  const done = filter === "all" || filter === "done" ? allDone : [];
 
   return (
     <div className="o-dash">
@@ -170,15 +170,22 @@ export function MyTasks() {
           <div className="o-task-progress"><span style={{ width: `${(mineDone / tasks.length) * 100}%` }} /></div>
         </div>
       )}
+      {tasks.length > 0 && <TaskFilter value={filter} onChange={setFilter} counts={counts} />}
       {loading && !tasks.length ? (
         <div className="o-muted">Đang tải…</div>
       ) : !tasks.length ? (
         <EmptyState icon={ClipboardCheck} title="Không có việc nào được giao" hint="Khi quản lý giao việc, việc sẽ hiện ở đây và trên Bảng điều khiển." />
+      ) : !todo.length && !done.length ? (
+        <EmptyState
+          icon={ClipboardCheck}
+          title={filter === "late" ? "Không có việc nào quá hạn" : filter === "todo" ? "Đã làm xong hết việc" : "Chưa xong việc nào"}
+          action={<Button onClick={() => setFilter("all")}>Xem tất cả</Button>}
+        />
       ) : (
         <>
           {todo.length > 0 && (
             <section className="o-dcard">
-              <h2 className="o-dcard-title" style={{ marginBottom: 8 }}>Cần làm ({todo.length})</h2>
+              <h2 className="o-dcard-title" style={{ marginBottom: 8 }}>{filter === "late" ? "Quá hạn" : "Cần làm"} ({todo.length})</h2>
               <ul className="o-mytasks">{todo.map((t) => <MyTaskItem key={t.id} task={t} me={me} onChange={replace} />)}</ul>
             </section>
           )}

@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { mediaUrl } from "../../lib/api";
 import { useLang } from "../../lib/i18n";
 import { CustomerAvatar } from "../CustomerAvatar";
@@ -12,6 +13,10 @@ export type PublicReviewRow = {
   createdAt: string;
   /** null = đánh giá ẩn danh */
   customer: { fullName: string; avatarUrl?: string | null } | null;
+  /** Đánh giá món (danh sách chung hiện tên món); không có = đánh giá chung cho quán */
+  product?: { id: number; name: string } | null;
+  /** Chi nhánh của đơn được đánh giá (GET /api/reviews) */
+  storeName?: string;
 };
 
 /** Một đánh giá: avatar trái · tên + sao + ngày · nội dung · ảnh · phản hồi của quán (logo + "TD Coffee phản hồi") */
@@ -27,6 +32,7 @@ export function ReviewItem({ r }: { r: PublicReviewRow }) {
           <span className="c-review-stars" aria-label={t("{n} trên 5 sao", { n: r.rating })}>{"★".repeat(r.rating)}<span aria-hidden className="is-dim">{"★".repeat(5 - r.rating)}</span></span>
           <time dateTime={r.createdAt}>{date(r.createdAt)}</time>
         </div>
+        {r.product && <Link to={`/product/${r.product.id}`} className="c-review-prod">{t("Món")}: {r.product.name}</Link>}
         {r.comment && <p>{r.comment}</p>}
         {r.imageUrl && <img src={mediaUrl(r.imageUrl)} alt={t("Ảnh khách gửi")} loading="lazy" className="c-review-img" />}
         {r.adminReply && (

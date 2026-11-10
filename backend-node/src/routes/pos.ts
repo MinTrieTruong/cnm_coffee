@@ -9,6 +9,9 @@ import { refreshOrderPromotion } from "../lib/promotions.js";
 import { deductInventoryForOrder } from "../lib/inventory.js";
 import { releaseOrderToKitchen } from "../lib/delivery.js";
 import { consumeVoucher, resolveVoucher, VoucherUnavailableError } from "../lib/vouchers.js";
+import { getUsualItems, usualLabel } from "../lib/customerHabits.js";
+import { normalizeVnPhone } from "../lib/contactLinks.js";
+import { RANK_LABELS } from "../lib/rank.js";
 
 /** Phương thức thanh toán tại quầy (khớp METHOD_LABEL trong lib/cash.ts) */
 const POS_METHODS = ["Cash", "Transfer_QR", "Card"];
@@ -544,6 +547,29 @@ export function posRouter(prisma: PrismaClient, io: Server) {
     } catch (e: any) {
       res.status(400).json({ error: e.message });
     }
+  });
+
+  /**
+   * Thói quen khách cho thu ngân khi nhập SĐT tích điểm: tên, hạng, điểm, ghi chú mặc định, ăn kiêng
+   * + 3 món quen kèm tuỳ chọn quen. Món quen chỉ tính đơn tại chi nhánh đang làm (storeWhere); điểm, ghi chú là của cả chuỗi.
+   */
+  r.get("/pos/customer-habits", ...cashier, async (req, res) => {
+    const phone = normalizeVnPhone(String(req.query.phone ?? ""));
+    if (!phone) return res.status(400).json({ error: "Số điện thoại không hợp lệ." });
+    const c = await prisma.customer.findFirst({
+      where: { phone },
+      select: { id: true, fullName: true, phone: true, points: true, rankTier: true, defaultNote: true, dietPrefs: true },
+    });
+    if (!c) return res.json({ customer: null });
+    const storeId = (req as StaffRequest).storeId ?? null;
+    const items = await getUsualItems(prisma, c.id, { storeId, limit: 3, orderWhere: storeWhere(req) });
+    res.json({
+      customer: {
+        id: c.id, fullName: c.fullName, phone: c.phone, points: c.points, rankTier: c.rankTier, rankLabel: RANK_LABELS[c.rankTier] ?? c.rankTier,
+        defaultNote: c.defaultNote, dietPrefs: Array.isArray(c.dietPrefs) ? c.dietPrefs : [],
+      },
+      items: items.map((u) => ({ productId: u.productId, name: u.product.name, timesOrdered: u.timesOrdered, usual: u.usual, usualNote: u.usualNote, label: usualLabel(u.usual), soldOut: u.soldOut })),
+    });
   });
 
   return r;

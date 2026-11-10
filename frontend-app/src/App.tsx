@@ -1,8 +1,10 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { PublicLayout } from "./components/PublicLayout";
 import { Welcome } from "./pages/Welcome";
 import { HomePage } from "./pages/HomePage";
 import { Register } from "./pages/Register";
+import { CompletePhone, LinkAccount } from "./pages/SocialComplete";
 import { Menu } from "./pages/Menu";
 import { ProductDetail } from "./pages/ProductDetail";
 import { Cart } from "./pages/Cart";
@@ -12,7 +14,6 @@ import { OrderTracking } from "./pages/OrderTracking";
 import { OrderSuccess } from "./pages/OrderSuccess";
 import { StaffLogin } from "./pages/StaffLogin";
 import { Account } from "./pages/Account";
-import { StorePage } from "./pages/StorePage";
 import { VnpayReturn } from "./pages/VnpayReturn";
 import { Promotions } from "./pages/Promotions";
 import { Blog } from "./pages/Blog";
@@ -24,6 +25,12 @@ import { GamePlay } from "./pages/GamePlay";
 import { Policy } from "./pages/Policy";
 import { Contact } from "./pages/Contact";
 import { useTrackAppHistory } from "./lib/appHistory";
+
+// Trang câu chuyện thương hiệu + cửa hàng: tải lười (Leaflet, nhiều mục ảnh)
+const About = lazy(() => import("./pages/About").then((m) => ({ default: m.About })));
+const Stores = lazy(() => import("./pages/Stores").then((m) => ({ default: m.Stores })));
+const StoreDetail = lazy(() => import("./pages/Stores").then((m) => ({ default: m.StoreDetail })));
+const page = (el: React.ReactNode) => <Suspense fallback={<div className="c-wrap c-sec" aria-busy="true" />}>{el}</Suspense>;
 
 function HistoryTracker() {
   useTrackAppHistory();
@@ -45,10 +52,14 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<Welcome />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/login/phone" element={<CompletePhone />} />
+          <Route path="/login/link" element={<LinkAccount />} />
           <Route path="/staff/login" element={<StaffLogin />} />
           <Route path="/account" element={<Account />} />
           <Route path="/account/:section" element={<Account />} />
-          <Route path="/about" element={<StorePage />} />
+          <Route path="/about" element={page(<About />)} />
+          <Route path="/stores" element={page(<Stores />)} />
+          <Route path="/stores/:id" element={page(<StoreDetail />)} />
           <Route path="/menu" element={<Menu />} />
           <Route path="/product/:id" element={<ProductDetail />} />
           <Route path="/cart" element={<Cart />} />
@@ -62,6 +73,8 @@ export default function App() {
           <Route path="/vnpay-return" element={<VnpayReturn />} />
           <Route path="/game/:campaignId" element={<GamePlay />} />
           <Route path="/policy/:slug" element={<Policy />} />
+          <Route path="/privacy" element={<Policy slug="privacy" />} />
+          <Route path="/data-deletion" element={<Policy slug="data-deletion" />} />
           <Route path="/contact" element={<Contact />} />
         </Route>
 

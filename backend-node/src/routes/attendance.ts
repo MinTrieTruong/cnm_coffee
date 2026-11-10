@@ -18,6 +18,11 @@ import { getStoreSettings } from "../lib/pricing.js";
 import { getHrConfig, getShiftTemplates } from "../lib/hrConfig.js";
 import { evaluateShift, shiftWindow } from "../lib/attendanceRules.js";
 import { syncOvertime } from "../lib/overtime.js";
+import { deletePrivateFacePhoto, savePrivateFacePhoto } from "../lib/uploadImage.js";
+import { audit } from "../lib/audit.js";
+import { notify } from "../lib/notify.js";
+import { EXTRA_SHIFT_NAME } from "../lib/openShifts.js";
+import { attendanceReport } from "../lib/analytics/attendance.js";
 
 /* ── Haversine formula ──────────────────────────────────────────── */
 function haversineDistance(
@@ -93,7 +98,7 @@ export function attendanceRouter(prisma: PrismaClient) {
       orderBy: { startMin: "asc" },
     });
     const names = new Map((await getShiftTemplates(prisma)).map((t) => [t.code, t.name]));
-    res.json({ schedules: schedules.map((s) => ({ ...s, shiftName: names.get(s.shiftCode) ?? s.shiftCode })) });
+    res.json({ schedules: schedules.map((s) => ({ ...s, shiftName: (s.isExtra ? EXTRA_SHIFT_NAME : names.get(s.shiftCode) ?? s.shiftCode) })) });
   });
 
   /* ══════════════════════════════════════════════════════════════════
@@ -125,7 +130,7 @@ export function attendanceRouter(prisma: PrismaClient) {
         fullName: s.staff?.fullName ?? "",
         role: s.staff?.role ?? s.role,
         shiftCode: s.shiftCode,
-        shiftName: names.get(s.shiftCode) ?? s.shiftCode,
+        shiftName: (s.isExtra ? EXTRA_SHIFT_NAME : names.get(s.shiftCode) ?? s.shiftCode),
         startMin: s.startMin,
         endMin: s.endMin,
         actualCheckIn: s.actualCheckIn,
@@ -355,51 +360,7 @@ export function attendanceRouter(prisma: PrismaClient) {
     const from = new Date(Date.UTC(y, mo - 1, 1));
     const to = new Date(Date.UTC(y, mo, 0));
 
-    const [cfg, templates, staff, schedules] = await Promise.all([
-      getHrConfig(prisma),
-      getShiftTemplates(prisma),
-      prisma.staff.findMany({
-        where: { ...storeWhere(req), status: "Active", role: { notIn: ["Owner"] } },
-        select: { id: true, fullName: true, role: true, storeId: true, store: { select: { name: true } } },
-        orderBy: { fullName: "asc" },
-      }),
-      prisma.workSchedule.findMany({
-        where: { ...storeWhere(req), workDate: { gte: from, lte: to }, status: "APPROVED", staffId: { not: null } },
-        orderBy: [{ workDate: "asc" }, { startMin: "asc" }],
-      }),
-    ]);
-
-    const names = new Map(templates.map((t) => [t.code, t.name]));
-    type Incident = { scheduleId: number; date: string; shiftCode: string; shiftName: string; kind: "late" | "early" | "absent"; minutes: number };
-    const byStaff = new Map<number, Incident[]>();
-    const shifts = new Map<number, number>();
-    for (const w of schedules) {
-      shifts.set(w.staffId!, (shifts.get(w.staffId!) ?? 0) + 1);
-      const v = evaluateShift(w, cfg, now);
-      const list = byStaff.get(w.staffId!) ?? byStaff.set(w.staffId!, []).get(w.staffId!)!;
-      const base = { scheduleId: w.id, date: w.workDate.toISOString().slice(0, 10), shiftCode: w.shiftCode, shiftName: names.get(w.shiftCode) ?? w.shiftCode };
-      if (v.absent) list.push({ ...base, kind: "absent", minutes: 0 });
-      if (v.late) list.push({ ...base, kind: "late", minutes: v.lateMin });
-      if (v.early) list.push({ ...base, kind: "early", minutes: v.earlyMin });
-    }
-
-    const rows = staff.map((s) => {
-      const incidents = byStaff.get(s.id) ?? [];
-      const lateCount = incidents.filter((i) => i.kind === "late").length;
-      return {
-        staffId: s.id,
-        fullName: s.fullName,
-        role: s.role,
-        storeName: s.store?.name ?? null,
-        shiftCount: shifts.get(s.id) ?? 0,
-        lateCount,
-        lateMinutes: incidents.filter((i) => i.kind === "late").reduce((a, i) => a + i.minutes, 0),
-        earlyCount: incidents.filter((i) => i.kind === "early").length,
-        absentCount: incidents.filter((i) => i.kind === "absent").length,
-        warned: lateCount >= cfg.lateWarnThreshold,
-        incidents,
-      };
-    });
+    const { cfg, rows } = await attendanceReport(prisma, storeWhere(req), from, to, now);
     res.json({
       month: `${y}-${String(mo).padStart(2, "0")}`,
       threshold: cfg.lateWarnThreshold,
@@ -412,19 +373,43 @@ export function attendanceRouter(prisma: PrismaClient) {
      POST /attendance/register-face — Đăng ký khuôn mặt
      Body: { faceDescriptor: number[] }
   ══════════════════════════════════════════════════════════════════ */
+  /* Chỉ đăng ký 1 lần: đã có khuôn mặt thì từ chối (tránh nhờ người khác đăng ký thay / chấm công hộ).
+     Muốn đăng ký lại → quản lý xoá FaceID trong hồ sơ nhân viên. Ảnh chụp lúc đăng ký lưu riêng để quản lý đối chiếu. */
   r.post("/attendance/register-face", ...anyStaff, async (req, res) => {
     const me = (req as StaffRequest).staffRow!;
-    const { faceDescriptor } = req.body as { faceDescriptor: number[] };
+    const { faceDescriptor, photoDataUrl } = req.body as { faceDescriptor?: unknown; photoDataUrl?: string };
 
-    if (!faceDescriptor || !Array.isArray(faceDescriptor)) {
-      return res.status(400).json({ error: "Thiếu faceDescriptor." });
+    if (!Array.isArray(faceDescriptor) || faceDescriptor.length !== 128 || !faceDescriptor.every((n) => typeof n === "number" && Number.isFinite(n))) {
+      return res.status(400).json({ error: "Dữ liệu khuôn mặt không hợp lệ." });
+    }
+    if (typeof photoDataUrl !== "string" || !photoDataUrl.startsWith("data:image/")) {
+      return res.status(400).json({ error: "Thiếu ảnh chụp khuôn mặt." });
+    }
+    let photo: string;
+    try {
+      photo = await savePrivateFacePhoto(photoDataUrl);
+    } catch (e) {
+      return res.status(400).json({ error: e instanceof Error ? e.message : "Ảnh khuôn mặt không hợp lệ." });
+    }
+    // Ghi có điều kiện: hai yêu cầu cùng lúc cũng chỉ một cái thành công
+    const { count } = await prisma.staff.updateMany({
+      where: { id: me.id, faceDescriptor: null },
+      data: { faceDescriptor: JSON.stringify(faceDescriptor), faceRegisteredAt: new Date(), facePhotoPath: photo },
+    });
+    if (!count) {
+      await deletePrivateFacePhoto(photo);
+      return res.status(409).json({ error: "FaceID đã đăng ký — liên hệ quản lý nếu cần đăng ký lại." });
     }
 
-    await prisma.staff.update({
-      where: { id: me.id },
-      data: { faceDescriptor: JSON.stringify(faceDescriptor) },
+    audit(me.id, "STAFF_FACE_REGISTER", `Staff #${me.id}`, "Tự đăng ký FaceID (có ảnh đối chiếu)");
+    void notify({
+      type: "STAFF_FACE",
+      title: `${me.fullName} vừa đăng ký FaceID`,
+      body: "Mở hồ sơ nhân viên để đối chiếu ảnh chụp lúc đăng ký.",
+      link: `/app/hr/employees/${me.id}`,
+      storeId: me.storeId,
+      to: { storeId: me.storeId, roles: ["Admin"], exceptStaffId: me.id },
     });
-
     res.json({ ok: true, message: "Đã lưu dữ liệu khuôn mặt." });
   });
 

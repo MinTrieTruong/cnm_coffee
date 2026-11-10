@@ -1,61 +1,86 @@
 /* ═══════════════════════════════════════════════════════════════════
-   TD COFFEE — NHẬN DIỆN TRANG KHÁCH: "Quán cà phê Sài Gòn — poster & menu giấy"
+   TD COFFEE — NHẬN DIỆN TRANG KHÁCH: "Một buổi sáng ở quán cà phê có nắng"
+   Mềm, ấm, cao cấp: ảnh lớn, serif thanh lịch, bo góc mềm, khung vòm, nhiều khoảng thở.
    Chỉ dùng cho khu vực khách (PublicLayout gắn class .c-site). Khu nhân sự dùng token --o-* riêng.
-   Bố cục: header 2 tầng (giấy kem + thanh xanh gạch bông), nội dung trên nền giấy, footer xanh đêm.
+   Màu chủ đạo / nhấn / footer do lib/siteTheme.ts tính từ màu chủ chuỗi chọn (Website › Giao diện).
    ═══════════════════════════════════════════════════════════════════ */
 :root {
-  /* Màu — "gạch bông Sài Gòn": xanh men gạch bông / cửa sắt quán cũ, vàng nghệ, giấy kem.
-     Tránh đỏ + kem (Highlands), xanh lá (Phúc Long, Cộng, Starbucks), navy (Katinat), cam (The Coffee House). */
-  --c-paper: #f4efe6;        /* nền giấy kem */
-  --c-paper-2: #e9e1d3;      /* khối nền ảnh món, ô xen kẽ */
-  --c-surface: #fffdf8;      /* bề mặt trắng ngà */
-  --c-ink: #1d2423;          /* chữ mực — 13.8:1 trên giấy */
-  --c-ink-2: #3f4a48;        /* chữ phụ — 8:1 */
-  --c-muted: #5e6662;        /* chữ mờ — 5.2:1 */
-  --c-primary: #1e5a5f;      /* xanh gạch bông — chủ đạo; chữ trên giấy 6.8:1, chữ trắng trên nền này 7.7:1 */
-  --c-primary-dark: #15434a;
-  --c-coffee: #7a5a3a;       /* nâu cà phê sữa — dải mini game */
-  --c-accent: #e0a531;       /* vàng nghệ — tem giảm giá (chữ mực trên nền 7.2:1) */
-  --c-rule: #d8cfbf;         /* đường kẻ menu giấy */
-  --c-rule-strong: #b3a690;
-  --c-on-primary: #fffdf8;
-  --c-danger: #a8321c;       /* lỗi / hết hàng — 6:1 trên giấy */
-  --c-ok: #2f6b2f;           /* còn hàng / ưu đãi đạt */
-  --c-on-accent: #1d2423;    /* chữ trên nền màu nhấn (tem) */
-  --c-strip: #6b4e33;        /* nền dải mini game — chữ trắng 7:1, giữ nguyên ở chế độ tối */
-  --c-footer: #14363b;       /* xanh đêm */
-  --c-on-footer: #efe7d8;
+  /* Nền trung tính — bộ "Espresso & Kem" (trùng NEUTRAL trong lib/siteTheme.ts) */
+  --c-paper: #faf6f0;        /* nền kem */
+  --c-paper-2: #f1e8dc;      /* nền kem đậm: khối lệch sau ảnh, ô ảnh món */
+  --c-surface: #ffffff;      /* bề mặt thẻ */
+  --c-ink: #2b1d14;          /* chữ — 15:1 trên nền kem */
+  --c-ink-2: #4d3b2f;        /* chữ phụ — 10:1 */
+  --c-muted: #6f5f52;        /* chữ mờ — 5.6:1 */
+  --c-primary: #4a2c1d;      /* nâu espresso — mặc định, bị siteTheme ghi đè */
+  --c-primary-dark: #37200f;
+  --c-coffee: #8a5f3a;       /* nâu sữa: chữ nghiêng phụ — 5:1 */
+  --c-accent: #c08a4b;       /* vàng đồng */
+  --c-accent-ink: #8a5f3a;   /* màu nhấn dùng làm chữ (siteTheme tính lại cho đủ 4.5:1) */
+  --c-rule: #e8dccc;         /* đường kẻ mảnh (dùng tiết chế) */
+  --c-rule-strong: #cdb9a0;
+  --c-on-primary: #fffaf3;
+  --c-danger: #a8321c;
+  --c-ok: #2f6b2f;
+  --c-on-accent: #2b1d14;
+  --c-strip: #4a2c1d;        /* nền dải số liệu / mini game — chữ sáng, giữ ở chế độ tối */
+  --c-on-strip: #fbf3e8;
+  --c-footer: #1f1510;
+  --c-on-footer: #efe4d6;
+  --c-footer-muted: #b9a998;
+
+  /* Lớp phủ ảnh: gradient đen trong suốt từ dưới lên — CHỈ dùng phủ ảnh để chữ trên ảnh đạt tương phản */
+  --c-photo-shade: linear-gradient(to top, rgb(20 12 8 / 0.78) 0%, rgb(20 12 8 / 0.35) 45%, rgb(20 12 8 / 0.08) 100%);
+  --c-photo-dim: 0;          /* chế độ tối: phủ thêm cho ảnh bớt chói */
+  /* Nét vẽ tay SVG (hạt cà phê, cành lá, hơi nước) */
+  --c-sketch: #b98b5e;
 
   /* Chữ */
-  --c-font-display: "Oswald", "Arial Narrow", "Roboto Condensed", Impact, sans-serif;
+  --c-font-display: "Playfair Display", "Cormorant Garamond", Georgia, "Times New Roman", serif;
   --c-font-serif: "Playfair Display", Georgia, "Times New Roman", serif;
+  --c-font-num: "Oswald", "Arial Narrow", sans-serif;   /* chỉ cho giá lớn + con số thống kê */
   --c-font-body: "Be Vietnam Pro", system-ui, -apple-system, "Segoe UI", sans-serif;
 
   /* Hình khối */
-  --c-radius: 4px;
-  --c-radius-md: 6px;
+  --c-radius-sm: 10px;
+  --c-radius: 18px;
+  --c-radius-md: 18px;
+  --c-radius-lg: 28px;
+  --c-radius-pill: 999px;
+  --c-arch: 999px 999px 24px 24px;   /* khung vòm — dấu ấn TD Coffee, dùng có chủ ý */
+  --c-shadow: 0 20px 50px -20px rgb(43 29 20 / 0.25);
+  --c-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
   --c-wrap: 1240px;
+  /* Hạt nhiễu SVG khử màu (feTurbulence) — dùng cho nền trang và khối nền màu */
+  --c-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  /* Ô gạch bông: hoa bốn cánh + góc chéo + viền ô (mask — màu lấy từ token) */
+  --c-tile-svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64' fill='none' stroke='%23000' stroke-width='1.1'%3E%3Cpath d='M32 5c6 9 6 18 0 27c-6-9-6-18 0-27zM32 59c6-9 6-18 0-27c-6 9-6 18 0 27zM5 32c9-6 18-6 27 0c-9 6-18 6-27 0zM59 32c-9-6-18-6-27 0c9 6 18 6 27 0z'/%3E%3Ccircle cx='32' cy='32' r='2.5'/%3E%3Cpath d='M0 9a9 9 0 0 0 9-9M55 0a9 9 0 0 0 9 9M64 55a9 9 0 0 0-9 9M9 64a9 9 0 0 0-9-9'/%3E%3C/svg%3E");
+  --c-head-h: 88px;
 }
 
 /*
- * CHẾ ĐỘ TỐI: chỉ nền trung tính ở đây; màu chủ đạo / nhấn / footer do lib/siteTheme.ts
- * tính từ màu chủ chuỗi chọn (đảm bảo tương phản ≥ 4.5:1) và gắn lên .c-site.
+ * CHẾ ĐỘ TỐI: nền nâu đêm ấm; ảnh phủ tối thêm 15%, nét vẽ chuyển màu sáng.
  * Thuộc tính data-c-mode đặt trên <html> (script đầu index.html → không chớp màu khi tải).
  */
 :root[data-c-mode="dark"] .c-site {
   color-scheme: dark;
-  --c-paper: #141a1a;
-  --c-paper-2: #212b2b;
-  --c-surface: #1b2323;
-  --c-ink: #ece6da;          /* 14:1 trên nền */
-  --c-ink-2: #c9c2b5;
-  --c-muted: #a8a194;        /* 7:1 */
-  --c-coffee: #d2b48c;       /* tông nâu sữa cho chữ phụ nghiêng */
-  --c-rule: #2f3b3b;
-  --c-rule-strong: #4a5959;
+  --c-paper: #16100c;
+  --c-paper-2: #221912;
+  --c-surface: #1d1510;
+  --c-ink: #f1e8dc;          /* 15:1 trên nền */
+  --c-ink-2: #d6c9b8;
+  --c-muted: #ab9c8b;        /* 7:1 */
+  --c-coffee: #d9b48a;
+  --c-accent-ink: #d9b48a;
+  --c-rule: #33271e;
+  --c-rule-strong: #4d3d30;
   --c-danger: #f2957d;
   --c-ok: #8fd19a;
-  --c-on-footer: #e6dfd2;
+  --c-on-footer: #e9ddcd;
+  --c-footer-muted: #a89685;
+  --c-photo-dim: 0.15;
+  --c-sketch: #e0c39f;
+  --c-shadow: 0 20px 50px -20px rgb(0 0 0 / 0.6);
 }
 
 /*
@@ -79,24 +104,65 @@
   --accent: var(--c-primary);
   --accent-hover: var(--c-primary-dark);
   --accent-dim: var(--c-coffee);
-  --accent-rgb: 30, 90, 95;
-  --accent-soft: #dce9e8;
-  --accent-soft-2: #c7dcdb;
+  --accent-rgb: 74, 44, 29;
+  --accent-soft: #efe4da;
+  --accent-soft-2: #e3d2c3;
   --on-accent: var(--c-on-primary);
   --border: var(--c-rule);
   --border-strong: var(--c-rule-strong);
   --shadow-xs: none;
   --shadow-sm: none;
-  --shadow-md: 0 1px 0 var(--c-rule);
-  --shadow-lg: 0 2px 0 var(--c-rule);
-  --radius: var(--c-radius-md);
-  --radius-sm: var(--c-radius);
-  --radius-lg: var(--c-radius-md);
+  --shadow-md: var(--c-shadow);
+  --shadow-lg: var(--c-shadow);
+  --radius: var(--c-radius);
+  --radius-sm: var(--c-radius-sm);
+  --radius-lg: var(--c-radius-lg);
   --font-display: var(--c-font-display);
   --font-body: var(--c-font-body);
 
+  position: relative;
   min-height: 100vh;
   background: var(--c-paper);
   color: var(--c-ink);
   font-family: var(--c-font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  /* Playfair mặc định số kiểu cổ (lên xuống dòng) — dùng số thẳng hàng cho giá, giờ, nhiệt độ */
+  font-variant-numeric: lining-nums;
+}
+
+/* Lớp hạt nhiễu rất nhẹ trên nền kem (không phẳng); không bắt chuột, không ảnh hưởng in ấn */
+.c-site::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: var(--c-grain);
+}
+:root[data-c-mode="dark"] .c-site::before { opacity: 0.05; filter: invert(1); }
+@media print { .c-site::before { display: none; } }
+
+/* Đổi sáng / tối mượt: nền, chữ, viền của trang và thẻ (giảm chuyển động → tắt ở customer.css) */
+.c-site, .c-site .c-card, .c-site .card, .c-site .c-pcard, .c-site .c-ticket, .c-header, .c-footer {
+  transition: background-color 0.28s var(--c-ease), color 0.28s var(--c-ease), border-color 0.28s var(--c-ease);
+}
+
+/* ── Nền có chiều sâu, không cần ảnh ── */
+/* Hạt nhiễu phủ lên khối nền màu (hero tối, dải số liệu, footer) */
+.c-grain { position: relative; isolation: isolate; }
+.c-grain::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; background-image: var(--c-grain); opacity: 0.06; mix-blend-mode: overlay; }
+/* Hoa văn gạch bông Sài Gòn: nét mảnh lặp, màu theo --c-tile-ink (mặc định màu nhấn) */
+.c-tile { position: relative; isolation: isolate; }
+.c-tile::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: var(--c-tile-ink, var(--c-accent)); opacity: var(--c-tile-op, 0.18);
+  -webkit-mask: var(--c-tile-svg) 0 0 / 64px 64px repeat; mask: var(--c-tile-svg) 0 0 / 64px 64px repeat;
+}
+/* Hai vệt đèn rọi màu nhấn lệch tâm (một to, một nhỏ) trên nền tối */
+.c-spotlights {
+  background-image:
+    radial-gradient(circle at 78% 32%, color-mix(in srgb, var(--c-accent) 30%, transparent) 0, transparent 38%),
+    radial-gradient(circle at 12% 88%, color-mix(in srgb, var(--c-accent) 18%, transparent) 0, transparent 26%);
 }

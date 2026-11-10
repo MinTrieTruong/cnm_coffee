@@ -72,11 +72,13 @@ r.get("/payroll/calculate", auth, requireRoles("Admin"), async (req, res) => {
 
     // Giờ thường: chỉ tính trong khung ca (vào sớm / ở lại muộn không tính).
     // Làm thêm: chỉ tính khi có phiếu đã duyệt, số phút = min(phiếu, giờ check-out sau hết ca).
+    // Ca bổ sung (quản lý gọi thêm người vài tiếng): giờ làm trong khung ca tính hết là làm thêm.
     const approvedOt = await approvedOvertimeBySchedule(prisma, schedules.map((s) => s.id));
     let regularMin = 0;
     let overtimeMinutes = 0;
     for (const sch of schedules) {
-      regularMin += regularMinutes(sch);
+      if (sch.isExtra) overtimeMinutes += regularMinutes(sch);
+      else regularMin += regularMinutes(sch);
       overtimeMinutes += paidOvertimeMinutes(sch, approvedOt.get(sch.id) ?? 0);
     }
 

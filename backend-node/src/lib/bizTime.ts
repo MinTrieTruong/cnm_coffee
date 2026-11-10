@@ -6,6 +6,8 @@
  * Đổi múi giờ: biến môi trường BIZ_TZ_OFFSET_MIN (phút, VD 420 = UTC+7).
  */
 const OFFSET_MIN = Number.isFinite(Number(process.env.BIZ_TZ_OFFSET_MIN)) && process.env.BIZ_TZ_OFFSET_MIN !== undefined ? Number(process.env.BIZ_TZ_OFFSET_MIN) : 420;
+/** Lệch múi giờ quán so với UTC (phút) — dùng trong SQL: `Created_At + INTERVAL n MINUTE` */
+export const BIZ_OFFSET_MIN = OFFSET_MIN;
 const OFF = OFFSET_MIN * 60_000;
 const DAY = 86_400_000;
 const YMD = /^\d{4}-\d{2}-\d{2}$/;

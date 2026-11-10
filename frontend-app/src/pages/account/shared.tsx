@@ -4,19 +4,18 @@ import { getUser, isGuestMode, mergeSessionUser, type SessionUser } from "../../
 import { useLang } from "../../lib/i18n";
 
 /* ── Mục của trang tài khoản (route con /account/:section, dùng chung máy tính + điện thoại) ── */
-export type Section = "profile" | "security" | "orders" | "reviews" | "points" | "vouchers" | "gifts" | "feedback";
+export type Section = "profile" | "inbox" | "security" | "diet" | "orders" | "reviews" | "points" | "vouchers" | "gifts";
 export const SECTIONS: { group: string; items: { id: Section; label: string }[] }[] = [
-  { group: "Tài khoản", items: [{ id: "profile", label: "Thông tin cá nhân" }, { id: "security", label: "Bảo mật" }] },
+  { group: "Tài khoản", items: [{ id: "profile", label: "Thông tin cá nhân" }, { id: "inbox", label: "Hộp thư" }, { id: "security", label: "Bảo mật" }, { id: "diet", label: "Sở thích ăn uống" }] },
   { group: "Mua hàng", items: [{ id: "orders", label: "Đơn hàng" }, { id: "reviews", label: "Đánh giá đơn" }] },
   { group: "Ưu đãi#account", items: [{ id: "points", label: "Lịch sử điểm" }, { id: "vouchers", label: "Ví voucher" }, { id: "gifts", label: "Quà của tôi" }] },
-  { group: "Khác", items: [{ id: "feedback", label: "Nhận xét chung" }] },
 ];
 export const ALL_SECTIONS = SECTIONS.flatMap((g) => g.items.map((i) => i.id));
 export const sectionLabel = (s: Section) => SECTIONS.flatMap((g) => g.items).find((i) => i.id === s)!.label;
 /** Link cũ /account?tab=… → route con */
 export const LEGACY_TAB: Record<string, Section> = {
   profile: "profile", orders: "orders", points: "points", vouchers: "vouchers", gifts: "gifts",
-  reviews_write: "reviews", reviews_public: "feedback", security: "security",
+  reviews_write: "reviews", reviews_public: "reviews", security: "security",
 };
 
 /* ── Hạng thành viên: theo tổng chi tiêu đơn đã thanh toán (backend lib/rank.ts) ── */
@@ -61,6 +60,8 @@ export function useAccountData() {
   const [spent, setSpent] = useState<number | null>(null);
   const [myVouchers, setMyVouchers] = useState<MyVoucher[] | null>(null);
   const [giftsWaiting, setGiftsWaiting] = useState(0);
+  /** Tin quán gửi chưa đọc (Hộp thư) */
+  const [unreadInbox, setUnreadInbox] = useState(0);
   const loggedIn = !isGuestMode() && !!user;
 
   const refreshMe = useCallback(async () => {
@@ -84,20 +85,26 @@ export function useAccountData() {
   const loadVouchers = useCallback(async () => {
     setMyVouchers(await api<MyVoucher[]>("/api/vouchers/my").catch(() => [] as MyVoucher[]));
   }, []);
+  const loadInbox = useCallback(async () => {
+    const d = await api<{ unread: number }>("/api/customer/messages").catch(() => null);
+    if (d) setUnreadInbox(d.unread);
+  }, []);
 
   useEffect(() => {
     if (!loggedIn) return;
     void refreshMe();
     void loadOrders();
     void loadVouchers();
+    void loadInbox();
     api<GamesMe>("/api/games/me")
       .then((d) => setGiftsWaiting(d.plays.filter((p) => p.giftClaim?.status === "WAITING" && +new Date(p.giftClaim.expiresAt) > Date.now()).length))
       .catch(() => undefined);
-  }, [loggedIn, refreshMe, loadOrders, loadVouchers]);
+  }, [loggedIn, refreshMe, loadOrders, loadVouchers, loadInbox]);
 
   return {
-    user, loggedIn, orders, spent, myVouchers, giftsWaiting, refreshMe, loadOrders, loadVouchers,
+    user, loggedIn, orders, spent, myVouchers, giftsWaiting, refreshMe, loadOrders, loadVouchers, loadInbox,
     counts: {
+      inbox: unreadInbox,
       openOrders: (orders ?? []).filter(isOpenOrder).length,
       vouchers: (myVouchers ?? []).filter(voucherActive).length,
       gifts: giftsWaiting,

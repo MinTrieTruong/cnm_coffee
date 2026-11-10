@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { api } from "../lib/api";
-import { backupCart, cartTotal, clearCart, getCart, updateQty, type CartItem } from "../lib/cart";
+import { backupCart, cartTotal, clearCart, getCart, lineKey, removeLines, updateQty, type CartItem } from "../lib/cart";
 import { getTableId, getTakeawaySessionId, getUser, newSessionId, setTakeawaySessionId } from "../lib/session";
 import { Trash2, Plus, Minus } from "lucide-react";
 import { Crumbs, ProductImage, SectionHead } from "../components/site/parts";
@@ -11,7 +11,87 @@ import { useCustomerStore, withStore } from "../lib/customerStore";
 import { StorePicker } from "../components/StorePicker";
 import { formatVnd } from "../lib/site";
 import { useLang } from "../lib/i18n";
+import { PhoneReminder } from "./SocialComplete";
+import { loadNutrition } from "../lib/nutrition";
+import "../styles/nutrition.css";
+import { UsualStrip } from "../components/site/UsualStrip";
+import { reloadUsual, saveDefaultNote, useUsual, withOrderNote } from "../lib/habits";
+import { track, trackIds } from "../lib/track";
 
+const SWIPE_OPEN = 88; // độ rộng nút Xoá lộ ra khi vuốt
+
+/** Dòng giỏ hàng vuốt sang trái để xoá (chỉ cảm ứng): vuốt ngắn lộ nút Xoá, vuốt quá nửa dòng thì xoá luôn */
+function SwipeRow({ open, onOpen, onDelete, label, children }: { open: boolean; onOpen: (v: boolean) => void; onDelete: () => void; label: string; children: ReactNode }) {
+  const [dx, setDx] = useState<number | null>(null);
+  const start = useRef<{ x: number; y: number; axis: "x" | "y" | null } | null>(null);
+  const rowRef = useRef<HTMLLIElement>(null);
+  const base = open ? -SWIPE_OPEN : 0;
+  const x = dx ?? base;
+
+  function onTouchStart(e: React.TouchEvent) {
+    const t = e.touches[0];
+    start.current = { x: t.clientX, y: t.clientY, axis: null };
+  }
+  function onTouchMove(e: React.TouchEvent) {
+    const s = start.current;
+    if (!s) return;
+    const t = e.touches[0];
+    const mx = t.clientX - s.x, my = t.clientY - s.y;
+    if (!s.axis) {
+      if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
+      s.axis = Math.abs(mx) > Math.abs(my) ? "x" : "y";
+    }
+    if (s.axis === "x") setDx(Math.min(0, base + mx));
+  }
+  function onTouchEnd() {
+    const s = start.current;
+    start.current = null;
+    if (!s || s.axis !== "x" || dx == null) return setDx(null);
+    const width = rowRef.current?.offsetWidth ?? 320;
+    setDx(null);
+    if (-dx > width / 2) onDelete();
+    else onOpen(-dx > SWIPE_OPEN / 2);
+  }
+
+  return (
+    <li ref={rowRef} className="c-cart-row">
+      {x < 0 && <button type="button" className="c-cart-swipe-del" style={{ width: Math.max(SWIPE_OPEN, -x) }} onClick={onDelete}>{label}</button>}
+      <div
+        className="c-cart-item"
+        style={{ transform: x ? `translateX(${x}px)` : undefined, transition: dx == null ? "transform .2s ease" : "none" }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchEnd}
+        onClickCapture={(e) => { if (open) { e.stopPropagation(); e.preventDefault(); onOpen(false); } }}
+      >
+        {children}
+      </div>
+    </li>
+  );
+}
+
+
+/** Tổng caffeine ước tính của giỏ (theo size từng ly) — nhắc khi ≥ 300 mg (khuyến nghị FDA ≤ 400 mg / ngày) */
+function CartCaffeine({ items }: { items: CartItem[] }) {
+  const { t } = useLang();
+  const [mg, setMg] = useState(0);
+  const key = items.map((i) => `${i.productId}:${i.size}:${i.quantity}`).join(",");
+  useEffect(() => {
+    let alive = true;
+    const drinks = items.filter((i) => !i.isCombo && i.productId > 0);
+    void Promise.all(drinks.map((i) => loadNutrition(i.productId).then((d) => {
+      const n = d?.sizes.find((s) => s.size === i.size) ?? d?.sizes.find((s) => s.size === "-");
+      return n?.complete ? n.caffeineMg * i.quantity : 0;
+    }))).then((v) => alive && setMg(Math.round(v.reduce((a, b) => a + b, 0))));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  if (mg < 300) return null;
+  return <p className="c-cart-caffeine" role="note">{t("Giỏ hàng có khoảng {n} mg caffeine (khuyến nghị người lớn ≤ 400 mg / ngày).", { n: mg })}</p>;
+}
 
 export function Cart() {
   const loc = useLocation();
@@ -34,6 +114,11 @@ export function Cart() {
   const [storeLoc, setStoreLoc] = useState<LatLng | null>(null);
   const [savedAddresses, setSavedAddresses] = useState<any[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<number | "new">("new");
+
+  // Vào giỏ có món → CART_VIEW (phễu "Hành vi khách")
+  useEffect(() => {
+    if (getCart().length) track("CART_VIEW", { qty: getCart().reduce((n, i) => n + i.quantity, 0) });
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -68,6 +153,25 @@ export function Cart() {
     setShippingFee(distanceKm != null ? shippingFeeForDistance(distanceKm) : 0);
   }, [distanceKm]);
 
+  // Thói quen khách: ghi chú mặc định điền sẵn vào "Ghi chú cho quán" (sửa / xoá được) + gợi ý món quen
+  const usual = useUsual(storeId);
+  const [orderNote, setOrderNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (usual && orderNote === null) setOrderNote(usual.savedNote ?? "");
+  }, [usual, orderNote]);
+  const [noteMsg, setNoteMsg] = useState<string | null>(null);
+  async function saveSuggestedNote(note: string) {
+    try {
+      await saveDefaultNote(note);
+      if (!(orderNote ?? "").trim()) setOrderNote(note);
+      setNoteMsg(t("Đã lưu làm ghi chú mặc định."));
+    } catch (e) {
+      setNoteMsg(e instanceof Error ? e.message : t("Không lưu được."));
+    }
+  }
+  const usualSuggest = (usual?.items ?? []).filter((u) => !u.soldOut).slice(0, 3);
+  const hasUsualInCart = items.some((i) => !i.isCombo && (usual?.items ?? []).some((u) => u.productId === i.productId));
+
   const total = cartTotal(items);
   const currentTable = getTableId();
 
@@ -101,6 +205,32 @@ export function Cart() {
 
   function refresh() {
     setItems(getCart());
+  }
+
+  // Chọn nhiều dòng để xoá; khoá theo nội dung dòng để +/- số lượng không làm mất lựa chọn
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [swipeOpen, setSwipeOpen] = useState<string | null>(null);
+  const keys = items.map(lineKey);
+  const pickedCount = keys.filter((k) => selected.has(k)).length;
+  const allPicked = items.length > 0 && pickedCount === items.length;
+  function toggle(key: string) {
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
+  }
+  function removeIdx(idxs: number[]) {
+    removeLines(idxs);
+    setSwipeOpen(null);
+    refresh();
+  }
+  function removeSelected() {
+    if (!pickedCount) return;
+    if (!window.confirm(t("Xoá {n} món đã chọn khỏi giỏ?", { n: pickedCount }))) return;
+    removeIdx(keys.flatMap((k, i) => (selected.has(k) ? [i] : [])));
+    setSelected(new Set());
   }
 
   async function submitOrder(mode: "now" | "later") {
@@ -156,9 +286,12 @@ export function Cart() {
         }
       }
 
+      track("CHECKOUT_START", { qty: items.reduce((n, i) => n + i.quantity, 0) });
       const created = await api<{ id: number; status: string }>("/api/orders", {
         method: "POST",
         body: JSON.stringify({
+          // Máy chủ tự ghi ORDER_PLACED theo mã ẩn danh / mã phiên này
+          ...trackIds(),
           tableId: finalOrderType === "Dine-in" ? tableId : null,
           storeId,
           customerId: user?.customerId ?? null,
@@ -174,7 +307,9 @@ export function Cart() {
             quantity: i.quantity,
             unitPrice: i.unitPrice,
             size: i.size,
-            customNotes: i.notes,
+            temp: i.temp ?? null,
+            // Ghi chú cho quán nối vào ghi chú từng món (KDS / hoá đơn đọc customNotes như cũ)
+            customNotes: i.isCombo ? i.notes : withOrderNote(i.notes, orderNote ?? ""),
             comboId: i.comboId ?? null,
           })),
         }),
@@ -182,6 +317,7 @@ export function Cart() {
       clearCart();
       setPayOpen(false);
       refresh();
+      reloadUsual();
       if (finalOrderType === "Takeaway" || finalOrderType === "Delivery") {
         nav(`/order/${created.id}/checkout`, { replace: true });
         return;
@@ -219,6 +355,7 @@ export function Cart() {
       <p className="c-muted-txt c-cart-type-note">
         {orderTypeSelection === "takeaway" ? t("Đơn mang về — ghé quầy nhận khi quán báo xong.") : orderTypeSelection === "delivery" ? t("Giao tận nơi — phí giao tính theo khoảng cách từ chi nhánh.") : t("Bàn hiện tại: {table}", { table: currentTable ? tableName ?? `#${currentTable}` : t("chưa xác định") })}
       </p>
+      <PhoneReminder next="/cart" />
 
       {orderTypeSelection === "delivery" && (
         <div className="c-box">
@@ -306,14 +443,36 @@ export function Cart() {
       {items.length === 0 ? (
         <div className="c-empty">
           <p className="c-empty-title">{t("Giỏ hàng đang trống")}</p>
-          <p className="c-muted-txt">{t("Chọn vài món rồi quay lại đây chốt đơn.")}</p>
+          <p className="c-muted-txt">{t("Chọn vài món rồi quay lại đây thanh toán.")}</p>
           <Link to="/menu" className="c-btn">{t("Xem thực đơn")}</Link>
         </div>
       ) : (
         <div className="c-cart-grid">
+          <div>
+          <div className="c-cart-bar">
+            <label className="c-cart-check">
+              <input
+                type="checkbox"
+                checked={allPicked}
+                ref={(el) => { if (el) el.indeterminate = pickedCount > 0 && !allPicked; }}
+                onChange={() => setSelected(allPicked ? new Set() : new Set(keys))}
+              />
+              {t("Chọn tất cả ({n})", { n: items.length })}
+            </label>
+            <button type="button" className="c-linkbtn is-danger" disabled={!pickedCount} onClick={removeSelected}>
+              <Trash2 size={15} aria-hidden /> {t("Xoá đã chọn ({n})", { n: pickedCount })}
+            </button>
+          </div>
           <ul className="c-cart-list">
             {items.map((item, idx) => (
-              <li key={`${item.productId}-${idx}`} className="c-cart-item">
+              <SwipeRow
+                key={keys[idx]}
+                open={swipeOpen === keys[idx]}
+                onOpen={(v) => setSwipeOpen(v ? keys[idx] : null)}
+                onDelete={() => removeIdx([idx])}
+                label={t("Xoá")}
+              >
+                <input type="checkbox" className="c-cart-pick" checked={selected.has(keys[idx])} onChange={() => toggle(keys[idx])} aria-label={t("Chọn {name}", { name: item.name })} />
                 <span className="c-cart-img"><ProductImage p={{ name: item.name, imageUrl: item.imageUrl }} /></span>
                 <div className="c-cart-txt">
                   <span className="c-cart-name">{item.name}</span>
@@ -327,12 +486,23 @@ export function Cart() {
                   <output>{item.quantity}</output>
                   <button type="button" aria-label={t("Thêm 1")} onClick={() => { updateQty(idx, item.quantity + 1); refresh(); }}><Plus size={16} aria-hidden /></button>
                 </div>
-              </li>
+              </SwipeRow>
             ))}
           </ul>
+          <p className="c-muted-txt c-cart-swipe-hint">{t("Vuốt sang trái trên một món để xoá nhanh.")}</p>
+          {!hasUsualInCart && usualSuggest.length > 0 && (
+            <UsualStrip
+              compact
+              title={t("Thêm món quen?")}
+              items={usualSuggest.map((u) => ({ product: u.product, usual: u.usual, usualNote: u.usualNote, soldOut: u.soldOut }))}
+              onAdded={refresh}
+            />
+          )}
+          </div>
 
           <aside className="c-bill">
             <h2 className="c-pd-h">{t("Hoá đơn tạm")}</h2>
+            <CartCaffeine items={items} />
             <dl className="c-bill-rows">
               <div><dt>{t("Tổng món")}</dt><dd>{items.reduce((acc, it) => acc + it.quantity, 0)}</dd></div>
               <div><dt>{t("Tạm tính")}</dt><dd>{formatVnd(total)}</dd></div>
@@ -351,8 +521,27 @@ export function Cart() {
             </dl>
             {promo.applied && promo.applied.discount === 0 && <p className="c-bill-good">{t("Ưu đãi")} {promo.applied.name}: {promo.applied.text}</p>}
             {promo.next && <p className="c-bill-next">{t("Thêm {n} ly nữa để được {gift}", { n: promo.next.needQty, gift: promo.next.text })} ({promo.next.name})</p>}
+            {user && (
+              <label className="c-bill-note">
+                <span className="c-field-label">{t("Ghi chú cho quán")}</span>
+                <input
+                  className="c-input"
+                  value={orderNote ?? ""}
+                  onChange={(e) => setOrderNote(e.target.value)}
+                  maxLength={120}
+                  placeholder={t("Không ống hút, ít ngọt…")}
+                />
+                {usual?.noteSuggestion && !noteMsg && (
+                  <p className="c-bill-note-hint">
+                    {t("Bạn hay ghi “{note}”.", { note: usual.noteSuggestion })}
+                    <button type="button" className="c-linkish" onClick={() => void saveSuggestedNote(usual.noteSuggestion!)}>{t("Lưu làm ghi chú mặc định?")}</button>
+                  </p>
+                )}
+                {noteMsg && <p className="c-bill-note-hint" role="status">{noteMsg}</p>}
+              </label>
+            )}
             <div className="c-bill-total"><span>{t("Tổng cộng")}</span><span className="c-price">{formatVnd(grand)}</span></div>
-            <button type="button" className="c-btn c-btn-block" onClick={() => setPayOpen(true)}>{t("Chốt đơn")}</button>
+            <button type="button" className="c-btn c-btn-block" onClick={() => setPayOpen(true)}>{t("Thanh toán")}</button>
           </aside>
         </div>
       )}

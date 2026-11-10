@@ -18,6 +18,9 @@ type Settings = {
   searchMinCustomers?: number;
   searchMinPercent?: number;
   searchWindowDays?: number;
+  googleLoginEnabled?: boolean;
+  facebookLoginEnabled?: boolean;
+  socialConfigured?: { GOOGLE: boolean; FACEBOOK: boolean };
 };
 
 /** Cấu hình › Cài đặt chung (cả chuỗi — chỉ Chủ chuỗi sửa) */

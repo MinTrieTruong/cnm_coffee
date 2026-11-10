@@ -199,7 +199,7 @@ Ra đúng IP của VPS là xong.
 
 ## 8. Những gì sẽ chạy trên VPS
 
-Sau khi có VPS + tên miền, phần cài đặt sẽ có **script viết sẵn** — bạn chỉ chạy, không cần cài tay từng thứ.
+Sau khi có VPS + tên miền, làm tiếp theo **[trien-khai-ten-mien.md](trien-khai-ten-mien.md)** (nginx, HTTPS, PM2, `.env` production, khai báo IPN cổng thanh toán).
 
 ```
 Bạn git push lên main

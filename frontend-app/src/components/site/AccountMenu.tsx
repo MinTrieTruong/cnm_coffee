@@ -8,6 +8,7 @@ import { rankLabel } from "../../pages/account/shared";
 
 const ITEMS = [
   { to: "/account", label: "Tài khoản" },
+  { to: "/account/inbox", label: "Hộp thư" },
   { to: "/account/orders", label: "Đơn hàng" },
   { to: "/account/vouchers", label: "Ví voucher" },
   { to: "/account/gifts", label: "Quà của tôi" },

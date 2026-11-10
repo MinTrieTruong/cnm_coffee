@@ -9,6 +9,7 @@ import {
   Monitor,
   ShoppingBag,
   ShoppingCart,
+  Sparkles,
   UsersRound,
   UtensilsCrossed,
   Wallet,
@@ -29,21 +30,25 @@ const Kds = L(() => import("../pages/Kds"), "Kds");
 const WorkSchedule = L(() => import("../pages/WorkSchedule"), "WorkSchedule");
 const Schedule = L(() => import("../modules/hr/Schedule"), "Schedule");
 const ShiftConfig = L(() => import("../modules/hr/ShiftConfig"), "ShiftConfig");
+const ShiftWishes = L(() => import("../pages/ShiftWishes"), "ShiftWishes");
 const StockRequests = L(() => import("../modules/inventory/StockRequests"), "StockRequests");
 const ProposalList = L(() => import("../modules/sales/Proposals"), "ProposalList");
 const SearchInsights = L(() => import("../modules/sales/SearchInsights"), "SearchInsights");
+const BehaviorInsights = L(() => import("../modules/sales/BehaviorInsights"), "BehaviorInsights");
 const BulkPromotions = L(() => import("../modules/sales/BulkPromotions"), "BulkPromotions");
 const WasteList = L(() => import("../modules/inventory/Waste"), "WasteList");
 const InventoryCounts = L(() => import("../modules/inventory/Counts"), "InventoryCounts");
 const AttendanceWarnings = L(() => import("../modules/hr/AttendanceWarnings"), "AttendanceWarnings");
 const StaffChat = L(() => import("../pages/StaffChat"), "StaffChat");
 const StaffOrderStatus = L(() => import("../pages/StaffOrderStatus"), "StaffOrderStatus");
+const StaffAccount = L(() => import("../pages/StaffAccount"), "StaffAccount");
 const Attendance = L(() => import("../pages/Attendance"), "Attendance");
 const StaffPayslips = L(() => import("../pages/StaffPayslips"), "StaffPayslips");
 const HrRequests = L(() => import("../pages/HrRequests"), "HrRequests");
 const ShipperDashboard = L(() => import("../pages/ShipperDashboard"), "ShipperDashboard");
 const KitchenStats = L(() => import("../modules/kitchen/KitchenStats"), "KitchenStats");
 const IngredientFormula = L(() => import("../pages/IngredientFormula"), "IngredientFormula");
+const IngredientNutrition = L(() => import("../modules/kitchen/IngredientNutrition"), "IngredientNutrition");
 const QrGenerator = L(() => import("../pages/QrGenerator"), "QrGenerator");
 const ProcurementAdmin = L(() => import("../pages/ProcurementAdmin"), "ProcurementAdmin");
 const AdminPayroll = L(() => import("../pages/AdminPayroll"), "AdminPayroll");
@@ -64,6 +69,7 @@ const ReviewList = L(() => import("../modules/sales/Reviews"), "ReviewList");
 const ReviewForm = L(() => import("../modules/sales/Reviews"), "ReviewForm");
 
 const Dashboard = L(() => import("../modules/overview/Dashboard"), "Dashboard");
+const Analyst = L(() => import("../modules/overview/Analyst"), "Analyst");
 const Revenue = L(() => import("../modules/overview/Revenue"), "Revenue");
 const Profit = L(() => import("../modules/overview/Profit"), "Profit");
 const StoresCompare = L(() => import("../modules/overview/StoresCompare"), "StoresCompare");
@@ -105,12 +111,18 @@ const BannerList = L(() => import("../modules/website/SiteAdmin"), "BannerList")
 const ContactMessages = L(() => import("../modules/website/SiteAdmin"), "ContactMessages");
 const SiteInfoSettings = L(() => import("../modules/website/SiteAdmin"), "SiteInfoSettings");
 const SiteThemeSettings = L(() => import("../modules/website/SiteTheme"), "SiteThemeSettings");
+const BrandStoryAdmin = L(() => import("../modules/website/BrandStory"), "BrandStoryAdmin");
 const GamesHub = L(() => import("../modules/games/GamesHub"), "GamesHub");
 const GameCampaignDetail = L(() => import("../modules/games/GameCampaignDetail"), "GameCampaignDetail");
 const WinnersPage = L(() => import("../modules/games/WinnerList"), "WinnersPage");
 const GiftItems = L(() => import("../modules/games/GiftItems"), "GiftItems");
 const PopupList = L(() => import("../modules/popups/PopupList"), "PopupList");
 const PopupForm = L(() => import("../modules/popups/PopupForm"), "PopupForm");
+const KnowledgeBaseList = L(() => import("../modules/ai/KnowledgeBases"), "KnowledgeBaseList");
+const KnowledgeBaseDetail = L(() => import("../modules/ai/KnowledgeBaseDetail"), "KnowledgeBaseDetail");
+const AgentList = L(() => import("../modules/ai/Agents"), "AgentList");
+const AgentEditor = L(() => import("../modules/ai/AgentEditor"), "AgentEditor");
+const AiDashboard = L(() => import("../modules/ai/AiDashboard"), "AiDashboard");
 
 export type Layout = "erp" | "legacy" | "full";
 
@@ -133,6 +145,10 @@ export type MenuLeaf = {
   ownHeader?: boolean;
   /** Cùng màn hình với mục `alias` của app — không hiện trong menu, sidebar tô sáng mục kia */
   alias?: string;
+  /** Không hiện trong menu (mở từ chỗ khác, vd "Tài khoản của tôi" ở menu hồ sơ) */
+  hidden?: boolean;
+  /** Tính năng AI cần bật (GET /api/ai/settings) — tắt thì ẩn khỏi menu */
+  feature?: string;
 };
 
 export type MenuNode = MenuLeaf | { id: string; label: string; children: MenuLeaf[] };
@@ -159,7 +175,7 @@ const STAFF = ["Admin", "Warehouse", "Waiter", "Kitchen", "Cashier", "Shipper"];
 const SHIFT_STAFF = ["Warehouse", "Waiter", "Kitchen", "Cashier", "Shipper"];
 /** Thu ngân + quản lý + chủ chuỗi (chủ chuỗi xem tổng hợp mọi chi nhánh) */
 const CASH = ["Owner", "Admin", "Cashier"];
-/** Quản lý vào được màn thao tác ca để hỗ trợ, nhưng không hiện trong menu thường (nhóm "Theo dõi ca" ở sidebar) */
+/** Quản lý vào được màn thao tác ca để hỗ trợ, nhưng không hiện trong menu thường (sidebar gom vào nhóm "Vận hành ca") */
 const SUPPORT = ["Admin"];
 
 export const APPS: AppDef[] = [
@@ -169,6 +185,8 @@ export const APPS: AppDef[] = [
     icon: LayoutDashboard,
     menus: [
       { id: "home", label: "Bảng điều khiển", roles: "all", component: Dashboard, layout: "erp", ownHeader: true },
+      // Hỏi số liệu bằng tiếng Việt — AI tự tra các báo cáo có sẵn (theo quyền người hỏi)
+      { id: "assistant", label: "Trợ lý AI", roles: CHAIN_AND_BRANCH, component: Analyst, layout: "erp", ownHeader: true, feature: "ANALYST" },
       // Đường dẫn cũ — cùng màn hình với "home", không lặp lại trong menu
       { id: "dashboard", label: "Bảng điều khiển", roles: CHAIN_AND_BRANCH, component: Dashboard, layout: "erp", ownHeader: true, alias: "home" },
       { id: "revenue", label: "Doanh thu", description: "Tiền thực thu theo ngày, món bán chạy và danh sách đơn", roles: CHAIN_AND_BRANCH, component: Revenue, layout: "erp" },
@@ -192,7 +210,9 @@ export const APPS: AppDef[] = [
       { id: "vouchers", label: "Voucher", description: "Mã giảm giá và điều kiện áp dụng", roles: CHAIN_AND_BRANCH, component: VoucherList, form: VoucherForm, layout: "erp" },
       { id: "proposals", label: "Đề xuất món", description: "Món mới do chi nhánh đề xuất chờ duyệt", roles: CHAIN_AND_BRANCH, component: ProposalList, layout: "erp" },
       { id: "search", label: "Khách tìm kiếm", description: "Khách tìm món gì, bao nhiêu % tìm mà quán chưa có", roles: CHAIN_AND_BRANCH, component: SearchInsights, layout: "erp" },
-      { id: "customers", label: "Khách hàng", description: "Khách thành viên, điểm tích lũy và lịch sử mua", roles: OWNER, component: CustomerList, form: CustomerForm, layout: "erp" },
+      { id: "behavior", label: "Hành vi khách", description: "Khách xem món gì, thêm giỏ món gì, ở lâu màn hình nào", roles: CHAIN_AND_BRANCH, component: BehaviorInsights, layout: "erp", ownHeader: true },
+      // Quản lý chi nhánh: chỉ xem (số liệu mua tại chi nhánh mình); sửa thông tin / đặt lại mật khẩu: Chủ chuỗi
+      { id: "customers", label: "Khách hàng", description: "Khách thành viên, thói quen, lịch sử mua và tích điểm", roles: CHAIN_AND_BRANCH, component: CustomerList, form: CustomerForm, layout: "erp" },
       { id: "reviews", label: "Đánh giá", description: "Nhận xét của khách về món và chi nhánh", roles: CHAIN_AND_BRANCH, component: ReviewList, form: ReviewForm, layout: "erp" },
     ],
   },
@@ -223,6 +243,8 @@ export const APPS: AppDef[] = [
       { id: "kds", label: "KDS", roles: ["Admin", "Kitchen"], supportFor: SUPPORT, component: Kds, layout: "full" },
       { id: "stats", label: "Thống kê pha chế", description: "Tổng ly đã pha, món pha nhiều nhất theo ngày / tháng", roles: ["Admin", "Kitchen"], component: KitchenStats, layout: "erp", ownHeader: true },
       { id: "formulas", label: "Công thức & giá vốn", description: "Định mức nguyên liệu và giá vốn từng món", roles: CHAIN_AND_BRANCH, component: IngredientFormula, layout: "erp" },
+      // Dinh dưỡng món tính từ công thức × bảng này; Chủ chuỗi sửa / duyệt, Quản lý chi nhánh xem
+      { id: "nutrition", label: "Dinh dưỡng nguyên liệu", description: "Calo, caffeine, đường, béo, dị ứng của nguyên liệu — món tự tính từ công thức. AI gợi ý, Chủ chuỗi duyệt.", roles: CHAIN_AND_BRANCH, component: IngredientNutrition, layout: "erp" },
     ],
   },
   {
@@ -274,6 +296,8 @@ export const APPS: AppDef[] = [
     icon: UsersRound,
     menus: [
       { id: "employees", label: "Nhân viên", description: "Hồ sơ, vai trò và trạng thái nhân viên", roles: CHAIN_AND_BRANCH, component: EmployeeList, form: EmployeeForm, layout: "erp" },
+      // Mở từ menu hồ sơ (thanh bên / "Thêm" trên điện thoại), không cần mục riêng trong danh sách
+      { id: "me", label: "Tài khoản của tôi", roles: "all", component: StaffAccount, layout: "erp", ownHeader: true, hidden: true },
       { id: "broadcast", label: "Gửi thông báo", roles: CHAIN_AND_BRANCH, component: Broadcast, layout: "erp", ownHeader: true },
       {
         id: "work",
@@ -297,6 +321,7 @@ export const APPS: AppDef[] = [
             layout: "erp",
           },
           { id: "my-schedule", label: "Lịch cá nhân", description: "Ca làm của bạn và đăng ký ca", roles: STAFF, component: WorkSchedule, layout: "legacy" },
+          { id: "shift-wishes", label: "Nguyện vọng xếp ca", description: "Gửi ngày / ca muốn làm, không làm được cho tháng tới", roles: SHIFT_STAFF, component: ShiftWishes, layout: "erp" },
           { id: "open-shifts", label: "Ca trống cần người", description: "Nhận ca của đồng nghiệp xin nghỉ — ai bấm trước được ca", roles: SHIFT_STAFF, component: OpenShifts, layout: "erp", ownHeader: true },
           { id: "attendance", label: "Chấm công", roles: "all", component: Attendance, layout: "full" },
           { id: "warnings", label: "Cảnh báo chấm công", description: "Đi muộn, về sớm, quên chấm công", roles: CHAIN_AND_BRANCH, component: AttendanceWarnings, layout: "erp" },
@@ -334,6 +359,19 @@ export const APPS: AppDef[] = [
     ],
   },
   {
+    id: "ai",
+    label: "Trí tuệ nhân tạo",
+    icon: Sparkles,
+    menus: [
+      // Tài liệu cho AI tư vấn tra cứu (RAG). Quản lý chi nhánh: xem kho chung, sửa kho của chi nhánh mình
+      // Số liệu & chi phí AI toàn chuỗi: chỉ Chủ chuỗi
+      { id: "dashboard", label: "Bảng điều khiển AI", description: "AI đang xử lý gì, trả lời được bao nhiêu, token và chi phí", roles: OWNER, component: AiDashboard, layout: "erp", ownHeader: true },
+      // Chủ chuỗi tạo / sửa; Quản lý chi nhánh xem và thử agent
+      { id: "agents", label: "AI Agents", description: "Quản lý Agent. Gán vào kênh để bật trả lời tự động.", roles: CHAIN_AND_BRANCH, component: AgentList, form: AgentEditor, layout: "erp", ownHeader: true },
+      { id: "knowledge", label: "Kho tri thức", description: "Lưu trữ và cập nhật tài liệu để AI tra cứu khi tư vấn", roles: CHAIN_AND_BRANCH, component: KnowledgeBaseList, form: KnowledgeBaseDetail, layout: "erp", ownHeader: true },
+    ],
+  },
+  {
     id: "website",
     label: "Website",
     icon: Globe,
@@ -341,6 +379,7 @@ export const APPS: AppDef[] = [
       { id: "posts", label: "Bài đăng", description: "Tin tức và bài viết trên trang khách", roles: OWNER, component: PostList, form: PostForm, layout: "erp" },
       { id: "banners", label: "Banner", description: "Ảnh banner chạy ở đầu trang chủ — cả chuỗi hoặc theo chi nhánh", roles: CHAIN_AND_BRANCH, component: BannerList, layout: "erp" },
       { id: "theme", label: "Giao diện", description: "Màu trang khách (bộ màu gợi ý hoặc tự chọn), chế độ sáng/tối mặc định", roles: OWNER, component: SiteThemeSettings, layout: "erp" },
+      { id: "brand", label: "Câu chuyện thương hiệu", description: "Mọi ảnh và chữ trên trang Về TD Coffee (/about): hành trình, đội ngũ, món signature…", roles: OWNER, component: BrandStoryAdmin, layout: "erp" },
       { id: "company", label: "Thông tin công ty", description: "Tên, giới thiệu, địa chỉ, SĐT, email, giờ mở cửa hiện ở chân trang và trang Liên hệ", roles: OWNER, component: SiteInfoSettings, layout: "erp" },
     ],
   },
@@ -370,9 +409,9 @@ export const canSee = (leaf: MenuLeaf, role: string) =>
   leaf.roles.includes(role) ||
   (role === "Owner" && leaf.roles.includes("Admin") && getOwnerStore() != null);
 
-/** Có hiện trong menu không (màn "hỗ trợ ca" của quản lý nằm ở nhóm "Theo dõi ca" của sidebar) */
+/** Có hiện trong menu không (màn "hỗ trợ ca" của quản lý nằm ở nhóm "Vận hành ca" của sidebar) */
 export const listed = (leaf: MenuLeaf, role: string) => {
-  if (!canSee(leaf, role) || leaf.alias) return false;
+  if (!canSee(leaf, role) || leaf.alias || leaf.hidden) return false;
   const support = leaf.supportFor ?? [];
   return !(support.includes(role) || (role === "Owner" && support.includes("Admin") && !leaf.roles.includes("Owner")));
 };

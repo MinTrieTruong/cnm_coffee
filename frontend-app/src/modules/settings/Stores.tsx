@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Store as StoreIcon } from "lucide-react";
 import { getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
-import { Badge, EmptyState, Field, FormGroup, FormGroups, FormView, RecordList, errMsg } from "../../components/erp";
+import { Badge, EmptyState, Field, FormGroup, FormGroups, FormView, RecordList, Tabs, errMsg } from "../../components/erp";
+import { StoreProfileEditor } from "../website/BrandFields";
 import { StoreLocationPicker } from "../../components/StoreLocationPicker";
 import { useRecordNav, useResource } from "../shared";
 
@@ -75,7 +77,30 @@ const EMPTY: FormState = {
   isActive: true, lat: 10.7769, lng: 106.7009, radius: 50,
 };
 
+/** Chi nhánh: tab "Thông tin" (vận hành) + tab "Trang giới thiệu" (ảnh, câu chuyện, tiện ích hiện ở /stores/:id) */
 export function StoreForm({ recordId }: { recordId?: string }) {
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "profile" && recordId !== "new" ? "profile" : "info";
+  const tabs = recordId !== "new" && (
+    <Tabs tabs={[{ id: "info", label: "Thông tin" }, { id: "profile", label: "Trang giới thiệu" }]} active={tab} onChange={(t) => setParams(t === "profile" ? { tab: "profile" } : {}, { replace: true })} />
+  );
+  if (tab === "profile") {
+    return (
+      <div className="o-stack" style={{ gap: 12 }}>
+        {tabs}
+        <StoreProfileEditor storeId={Number(recordId)} field={params.get("field")} />
+      </div>
+    );
+  }
+  return (
+    <div className="o-stack" style={{ gap: 12 }}>
+      {tabs}
+      <StoreInfoForm recordId={recordId} />
+    </div>
+  );
+}
+
+function StoreInfoForm({ recordId }: { recordId?: string }) {
   const isNew = recordId === "new";
   const go = useRecordNav(BASE);
   const owner = isOwnerRole(getStaffInfo()?.role);

@@ -58,17 +58,24 @@ export function ImageField({
   onChange,
   disabled,
   onBusy,
+  round,
 }: {
   value: string;
   onChange: (url: string) => void;
   disabled?: boolean;
   onBusy?: (b: boolean) => void;
+  /** Xem trước dạng tròn, lớn hơn (ảnh hiện hình tròn ngoài web, VD ảnh danh mục) */
+  round?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const img = mediaUrl(value || undefined);
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [value]);
+  const size = round ? 72 : 56;
+  const thumb = { width: size, height: size, flex: "none", ...(round ? { borderRadius: "50%", objectFit: "cover" as const } : {}) };
   return (
     <div className="o-row" style={{ alignItems: "flex-start", flexWrap: "nowrap" }}>
-      {img ? <img src={img} alt="" className="o-thumb" style={{ width: 56, height: 56 }} /> : <span className="o-thumb" style={{ width: 56, height: 56 }} />}
+      {img && !broken ? <img src={img} alt="" className="o-thumb" style={thumb} onError={() => setBroken(true)} /> : <span className="o-thumb" style={thumb} title={img ? "Ảnh không tải được" : undefined} />}
       {!disabled && (
         <div className="o-stack" style={{ gap: 6, flex: 1, minWidth: 0 }}>
           <input className="o-input" value={value} onChange={(e) => onChange(e.target.value)} placeholder="URL ảnh hoặc tải file" />

@@ -3,7 +3,8 @@ import type { PrismaClient, Staff } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { ALL_ROLES, BRANCH_STAFF_ROLES, attachStaff, isOwner, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
-import { saveDataUrlImage } from "../lib/uploadImage.js";
+import { deletePrivateFacePhoto, readPrivateFacePhoto, saveDataUrlImage } from "../lib/uploadImage.js";
+import { notify } from "../lib/notify.js";
 import { audit } from "../lib/audit.js";
 import { inStore, mustStoreId, reqStoreId, storeWhere } from "../lib/storeScope.js";
 import { applyIncomingCost, productsUsingItems, recalcProductCost } from "../lib/productCost.js";
@@ -11,6 +12,40 @@ import { createBill, createEntry, fundBalance, openSafeSession } from "../lib/ca
 import { getStoreSettings } from "../lib/pricing.js";
 import { adjustStoreStock, roundQty } from "../lib/inventory.js";
 import { announceMenuChange } from "../lib/menuEvents.js";
+import { PRODUCT_TEMPS } from "../lib/menuPrice.js";
+import { cleanAliases } from "../lib/productAliases.js";
+import { invalidateMenuContext } from "../lib/voiceOrder/menuContext.js";
+import { computeProductNutrition } from "../lib/nutrition/compute.js";
+import { socialConfigured } from "../lib/socialAuth.js";
+import { resetTrackingSettings } from "../lib/customerEvents.js";
+
+/**
+ * Chỉ nhận các trường được phép (không đưa nguyên body vào Prisma — tránh ghi đè id hay trường khác).
+ * imageUrl: "/uploads/…" hoặc "https://…", ≤ 1024 ký tự; rỗng / null → xoá ảnh. Trả lỗi theo từng ô.
+ */
+export function categoryInput(b: Record<string, unknown>, partial: boolean) {
+  const data: { name?: string; sortOrder?: number; imageUrl?: string | null } = {};
+  const fields: Record<string, string> = {};
+  if (b.name !== undefined || !partial) {
+    const name = typeof b.name === "string" ? b.name.trim() : "";
+    if (!name) fields.name = "Thiếu tên";
+    else if (name.length > 255) fields.name = "Tên tối đa 255 ký tự";
+    else data.name = name;
+  }
+  if (b.sortOrder !== undefined && b.sortOrder !== null && b.sortOrder !== "") {
+    const n = Number(b.sortOrder);
+    if (!Number.isInteger(n) || n < 0 || n > 100000) fields.sortOrder = "Thứ tự phải là số nguyên ≥ 0";
+    else data.sortOrder = n;
+  }
+  if (b.imageUrl !== undefined) {
+    const u = typeof b.imageUrl === "string" ? b.imageUrl.trim() : b.imageUrl === null ? "" : null;
+    if (u === null) fields.imageUrl = "Ảnh không hợp lệ";
+    else if (!u) data.imageUrl = null;
+    else if (u.length > 1024 || !(/^\/uploads\/[\w.-]+$/.test(u) || /^https:\/\/[^\s"'<>]+$/i.test(u))) fields.imageUrl = "Ảnh phải là ảnh tải lên hoặc link https://";
+    else data.imageUrl = u;
+  }
+  return { data, fields };
+}
 
 export function adminRouter(prisma: PrismaClient) {
   const r = Router();
@@ -210,9 +245,18 @@ export function adminRouter(prisma: PrismaClient) {
       discountPercent?: number;
       /** false = món 1 loại (bánh…): không size */
       hasSizes?: boolean;
+      /** BOTH | ICED | HOT | NONE */
+      temps?: string;
+      /** Tên gọi khác ("bx", "bac siu") */
+      aliases?: unknown;
     };
+    const al = cleanAliases(b.aliases);
+    if ("error" in al) return res.status(400).json({ error: al.error });
     if (!b.name || typeof b.sellPrice !== "number" || !b.categoryId) {
       return res.status(400).json({ error: "Thiếu tên, giá bán hoặc danh mục." });
+    }
+    if (b.temps !== undefined && !(PRODUCT_TEMPS as readonly string[]).includes(b.temps)) {
+      return res.status(400).json({ error: "Nhiệt độ phục vụ không hợp lệ." });
     }
     const maxId = (await prisma.product.aggregate({ _max: { id: true } }))._max.id ?? 0;
     const p = await prisma.product.create({
@@ -224,14 +268,18 @@ export function adminRouter(prisma: PrismaClient) {
         costPrice: b.costPrice ?? 0,
         sellPrice: b.sellPrice,
         hasSizes: b.hasSizes ?? true,
+        // Món 1 loại (bánh…) mặc định không áp dụng nóng/đá
+        temps: b.temps ?? (b.hasSizes === false ? "NONE" : "BOTH"),
         priceSizeS: b.hasSizes === false ? null : b.priceSizeS ?? null,
         priceSizeL: b.hasSizes === false ? null : b.priceSizeL ?? null,
         isActive: b.isActive ?? true,
         imageUrl: b.imageUrl ?? null,
         tags: b.tags ?? null,
+        aliases: al.aliases.length ? al.aliases : Prisma.DbNull,
         discountPercent: b.discountPercent ?? null,
       },
     });
+    invalidateMenuContext();
     res.status(201).json(p);
   });
 
@@ -251,9 +299,24 @@ export function adminRouter(prisma: PrismaClient) {
       tags: any;
       discountPercent: number | null;
       hasSizes: boolean;
+      temps: string;
+      aliases: unknown;
     }>;
+    if (b.temps !== undefined && !(PRODUCT_TEMPS as readonly string[]).includes(b.temps)) {
+      return res.status(400).json({ error: "Nhiệt độ phục vụ không hợp lệ." });
+    }
     // outOfStock là trạng thái theo chi nhánh — không ghi vào món chung
-    const { outOfStock, ...rest } = b;
+    const { outOfStock, aliases, ...fields } = b;
+    // Toàn chuỗi (chưa chọn chi nhánh): "còn hàng" không có gì để báo → bỏ qua; báo hết thì phải chọn chi nhánh
+    const storeId = reqStoreId(req);
+    if (outOfStock === true && storeId == null) return res.status(400).json({ error: "Hãy chọn chi nhánh để báo hết món." });
+    const writeStock = typeof outOfStock === "boolean" && storeId != null;
+    const rest: Prisma.ProductUncheckedUpdateInput & typeof fields = fields;
+    if (aliases !== undefined) {
+      const al = cleanAliases(aliases);
+      if ("error" in al) return res.status(400).json({ error: al.error });
+      rest.aliases = al.aliases.length ? al.aliases : Prisma.DbNull;
+    }
     // Món 1 loại: bỏ giá S/L và định mức theo size (công thức trừ 1 mức duy nhất)
     if (rest.hasSizes === false) {
       rest.priceSizeS = null;
@@ -264,9 +327,7 @@ export function adminRouter(prisma: PrismaClient) {
     if (rest.costPrice !== undefined && (await prisma.productFormula.count({ where: { productId: id } })) > 0) delete rest.costPrice;
     const actor = (req as StaffRequest).staffRow!;
     const prev = await prisma.product.findUnique({ where: { id }, select: { isActive: true, name: true } });
-    if (typeof outOfStock === "boolean") {
-      const storeId = reqStoreId(req);
-      if (storeId == null) return res.status(400).json({ error: "Hãy chọn chi nhánh để báo hết món." });
+    if (writeStock) {
       const old = await prisma.storeProduct.findUnique({ where: { storeId_productId: { storeId, productId: id } } });
       const sp = await prisma.storeProduct.upsert({
         where: { storeId_productId: { storeId, productId: id } },
@@ -280,12 +341,15 @@ export function adminRouter(prisma: PrismaClient) {
     const p = Object.keys(rest).length
       ? await prisma.product.update({ where: { id }, data: rest })
       : await prisma.product.findUniqueOrThrow({ where: { id } });
+    invalidateMenuContext();
+    // Món chuyển 1 size ↔ nhiều size → bảng dinh dưỡng theo size tính lại
+    if (rest.hasSizes !== undefined) await computeProductNutrition(id).catch((e) => console.error("[nutrition]", e));
     // Chủ chuỗi bật/tắt món cho cả chuỗi → báo mọi chi nhánh đang hoạt động
     if (prev && typeof rest.isActive === "boolean" && rest.isActive !== prev.isActive) {
       const stores = await prisma.store.findMany({ where: { isActive: true }, select: { id: true } });
       announceMenuChange({ storeIds: stores.map((s) => s.id), productId: id, name: p.name, outOfStock: false, isAvailable: p.isActive, actor, chainWide: true });
     }
-    res.json(typeof outOfStock === "boolean" ? { ...p, outOfStock } : p);
+    res.json(writeStock ? { ...p, outOfStock } : p);
   });
 
   r.get("/categories", ...admin, async (_req, res) => {
@@ -293,19 +357,23 @@ export function adminRouter(prisma: PrismaClient) {
   });
 
   r.post("/categories", ...owner, async (req, res) => {
-    const { name, sortOrder } = req.body as { name?: string; sortOrder?: number };
-    if (!name?.trim()) return res.status(400).json({ error: "Thiếu tên" });
+    const { data, fields } = categoryInput((req.body ?? {}) as Record<string, unknown>, false);
+    if (Object.keys(fields).length) return res.status(400).json({ error: Object.values(fields)[0], fields });
     const maxId = (await prisma.category.aggregate({ _max: { id: true } }))._max.id ?? 0;
     const c = await prisma.category.create({
-      data: { id: maxId + 1, name: name.trim(), sortOrder: sortOrder ?? maxId + 1 },
+      data: { id: maxId + 1, name: data.name!, sortOrder: data.sortOrder ?? maxId + 1, imageUrl: data.imageUrl ?? null },
     });
     res.status(201).json(c);
   });
 
   r.patch("/categories/:id", ...owner, async (req, res) => {
     const id = Number(req.params.id);
-    const b = req.body as { name?: string; sortOrder?: number };
-    res.json(await prisma.category.update({ where: { id }, data: b }));
+    if (!Number.isInteger(id)) return res.status(400).json({ error: "Danh mục không hợp lệ" });
+    const { data, fields } = categoryInput((req.body ?? {}) as Record<string, unknown>, true);
+    if (Object.keys(fields).length) return res.status(400).json({ error: Object.values(fields)[0], fields });
+    const c = await prisma.category.update({ where: { id }, data }).catch(() => null);
+    if (!c) return res.status(404).json({ error: "Không tìm thấy danh mục" });
+    res.json(c);
   });
 
   r.delete("/categories/:id", ...owner, async (req, res) => {
@@ -320,16 +388,41 @@ export function adminRouter(prisma: PrismaClient) {
     res.status(204).send();
   });
 
+  /** Xoá FaceID để nhân viên đăng ký lại — bắt buộc lý do, ghi nhật ký; quản lý chi nhánh không tự xoá FaceID của mình */
   r.patch("/staff/:id/reset-face", ...admin, async (req, res) => {
+    const actor = (req as StaffRequest).staffRow!;
     const id = Number(req.params.id);
+    const reason = String((req.body as { reason?: string })?.reason ?? "").trim().slice(0, 300);
+    if (reason.length < 5) return res.status(400).json({ error: "Nhập lý do xoá FaceID (tối thiểu 5 ký tự)." });
     const staff = await prisma.staff.findUnique({ where: { id } });
     if (!staff || !inStore(req, staff)) return res.status(404).json({ error: "Không tìm thấy nhân viên." });
+    if (staff.id === actor.id && !isOwner(actor.role)) return res.status(403).json({ error: "Không tự xoá FaceID của chính mình — nhờ Chủ chuỗi." });
 
     await prisma.staff.update({
       where: { id },
-      data: { faceDescriptor: null },
+      data: { faceDescriptor: null, faceRegisteredAt: null, facePhotoPath: null },
+    });
+    await deletePrivateFacePhoto(staff.facePhotoPath);
+    audit(actor.id, "STAFF_FACE_RESET", `Staff #${id}`, `Xoá FaceID của ${staff.fullName} — lý do: ${reason}`);
+    void notify({
+      type: "STAFF_FACE",
+      title: "FaceID của bạn đã được xoá",
+      body: `${actor.fullName}: ${reason}. Vào Chấm công để đăng ký lại.`,
+      link: "/app/hr/attendance",
+      storeId: staff.storeId,
+      to: { staffIds: [id] },
     });
     res.json({ message: "Đã xóa dữ liệu khuôn mặt" });
+  });
+
+  /** Ảnh chụp lúc nhân viên đăng ký FaceID — chỉ quản lý chi nhánh / Chủ chuỗi xem để đối chiếu */
+  r.get("/staff/:id/face-photo", ...admin, async (req, res) => {
+    const staff = await prisma.staff.findUnique({ where: { id: Number(req.params.id) }, select: { storeId: true, facePhotoPath: true } });
+    if (!staff || !inStore(req, staff)) return res.status(404).json({ error: "Không tìm thấy nhân viên." });
+    const photo = staff.facePhotoPath ? await readPrivateFacePhoto(staff.facePhotoPath) : null;
+    if (!photo) return res.status(404).json({ error: "Chưa có ảnh." });
+    res.setHeader("Cache-Control", "private, no-store");
+    res.type(photo.type).send(photo.buf);
   });
 
   r.post("/upload-image", ...admin, async (req, res) => {
@@ -362,10 +455,14 @@ export function adminRouter(prisma: PrismaClient) {
         status: true,
         hireDate: true,
         baseSalary: true,
+        cccd: true,
+        avatarUrl: true,
         faceDescriptor: true,
+        faceRegisteredAt: true,
+        facePhotoPath: true,
       },
     });
-    res.json(rows.map(r => ({ ...r, hasFaceData: !!r.faceDescriptor, faceDescriptor: undefined })));
+    res.json(rows.map(({ faceDescriptor, facePhotoPath, ...r }) => ({ ...r, hasFaceData: !!faceDescriptor, hasFacePhoto: !!facePhotoPath })));
   });
 
   r.post("/staff", ...admin, async (req, res) => {
@@ -456,6 +553,7 @@ export function adminRouter(prisma: PrismaClient) {
       phone?: string;
       address?: string;
       dob?: string;
+      cccd?: string | null;
       hireDate?: string;
       imageUrl?: string;
       baseSalary?: number;
@@ -492,6 +590,14 @@ export function adminRouter(prisma: PrismaClient) {
       if (Number.isNaN(parsed.getTime())) return res.status(400).json({ error: "hireDate không hợp lệ." });
       data.hireDate = parsed;
     }
+    if (b.cccd !== undefined && (b.cccd ?? "").trim() !== (target.cccd ?? "")) {
+      const v = (b.cccd ?? "").trim();
+      if (v && !/^\d{12}$/.test(v)) return res.status(400).json({ error: "CCCD gồm đúng 12 chữ số." });
+      if (v && (await prisma.staff.findFirst({ where: { cccd: v, id: { not: id } }, select: { id: true } }))) {
+        return res.status(409).json({ error: "CCCD này đã có trong hồ sơ nhân viên khác." });
+      }
+      data.cccd = v || null;
+    }
     if (b.dob !== undefined) {
       const parsedDob = b.dob ? new Date(b.dob) : null;
       if (parsedDob && Number.isNaN(parsedDob.getTime())) return res.status(400).json({ error: "dob không hợp lệ." });
@@ -499,7 +605,7 @@ export function adminRouter(prisma: PrismaClient) {
     }
     const updated = await prisma.staff.update({ where: { id }, data });
     audit(actor.id, "STAFF_UPDATE", `Staff #${id}`, `${updated.username ?? updated.fullName}${data.baseSalary !== undefined && data.baseSalary !== target.baseSalary ? ` · lương ${target.baseSalary} → ${data.baseSalary}` : ""}`);
-    const { passwordHash: _h, faceDescriptor: _f, ...safe } = updated;
+    const { passwordHash: _h, faceDescriptor: _f, facePhotoPath: _p, ...safe } = updated;
     res.json(safe);
   });
 
@@ -532,6 +638,7 @@ export function adminRouter(prisma: PrismaClient) {
         rankTier: true,
         createdAt: true,
         lastLogin: true,
+        avatarUrl: true,
       },
     });
     res.json(rows);
@@ -982,6 +1089,7 @@ export function adminRouter(prisma: PrismaClient) {
       include: {
         customer: { select: { fullName: true, phone: true } },
         order: { select: { id: true, totalAmount: true } },
+        product: { select: { id: true, name: true } },
         replyBy: { select: { fullName: true } },
       },
     });
@@ -1018,7 +1126,8 @@ export function adminRouter(prisma: PrismaClient) {
       },
       update: {},
     });
-    res.json(s);
+    // Có đủ biến môi trường chưa — thiếu thì bật công tắc nút vẫn ẩn
+    res.json({ ...s, socialConfigured });
   });
 
   // Cấu hình chung cả chuỗi (VAT, điểm, làm tròn) — chỉ Chủ chuỗi sửa
@@ -1037,49 +1146,64 @@ export function adminRouter(prisma: PrismaClient) {
       searchMinCustomers: number;
       searchMinPercent: number;
       searchWindowDays: number;
+      googleLoginEnabled: boolean;
+      facebookLoginEnabled: boolean;
+      behaviorTracking: boolean;
+      behaviorRetentionDays: number;
     }>;
+    const boolOr = (v: unknown) => (typeof v === "boolean" ? v : undefined);
     const intIn = (v: unknown, lo: number, hi: number) => (v == null ? undefined : Math.min(hi, Math.max(lo, Math.floor(Number(v)) || lo)));
     const searchMinCustomers = intIn(b.searchMinCustomers, 1, 1000);
     const searchWindowDays = intIn(b.searchWindowDays, 1, 365);
+    const behaviorRetentionDays = intIn(b.behaviorRetentionDays, 7, 365);
     const searchMinPercent = b.searchMinPercent == null ? undefined : Math.min(100, Math.max(0, Number(b.searchMinPercent) || 0));
     const supplierReturnDays = b.supplierReturnDays == null ? undefined : Math.min(90, Math.max(1, Math.floor(Number(b.supplierReturnDays)) || 7));
     const cancelWindowMinutes = b.cancelWindowMinutes == null ? undefined : Math.min(120, Math.max(0, Math.floor(Number(b.cancelWindowMinutes)) || 0));
-    res.json(
-      await prisma.storeSettings.upsert({
-        where: { id: 1 },
-        create: {
-          id: 1,
-          vatRatePercent: b.vatRatePercent ?? 10,
-          pointPerVnd: b.pointPerVnd ?? 10000,
-          pointValueVnd: b.pointValueVnd ?? 1,
-          cashRoundTo: b.cashRoundTo ?? 1000,
-          pointEarnEveryVnd: b.pointEarnEveryVnd ?? 1000,
-          pointEarnEach: b.pointEarnEach ?? 100,
-          faceMatchThreshold: b.faceMatchThreshold ?? 0.5,
-          pettyCashLimit: b.pettyCashLimit ?? 200000,
-          cancelWindowMinutes: cancelWindowMinutes ?? 5,
-          supplierReturnDays: supplierReturnDays ?? 7,
-          searchMinCustomers: searchMinCustomers ?? 3,
-          searchMinPercent: searchMinPercent ?? 2,
-          searchWindowDays: searchWindowDays ?? 30,
-        },
-        update: {
-          vatRatePercent: b.vatRatePercent,
-          pointPerVnd: b.pointPerVnd,
-          pointValueVnd: b.pointValueVnd,
-          cashRoundTo: b.cashRoundTo,
-          pointEarnEveryVnd: b.pointEarnEveryVnd,
-          pointEarnEach: b.pointEarnEach,
-          faceMatchThreshold: b.faceMatchThreshold,
-          pettyCashLimit: b.pettyCashLimit,
-          cancelWindowMinutes,
-          supplierReturnDays,
-          searchMinCustomers,
-          searchMinPercent,
-          searchWindowDays,
-        },
-      }),
-    );
+    const saved = await prisma.storeSettings.upsert({
+      where: { id: 1 },
+      create: {
+        id: 1,
+        vatRatePercent: b.vatRatePercent ?? 10,
+        pointPerVnd: b.pointPerVnd ?? 10000,
+        pointValueVnd: b.pointValueVnd ?? 1,
+        cashRoundTo: b.cashRoundTo ?? 1000,
+        pointEarnEveryVnd: b.pointEarnEveryVnd ?? 1000,
+        pointEarnEach: b.pointEarnEach ?? 100,
+        faceMatchThreshold: b.faceMatchThreshold ?? 0.5,
+        pettyCashLimit: b.pettyCashLimit ?? 200000,
+        cancelWindowMinutes: cancelWindowMinutes ?? 5,
+        supplierReturnDays: supplierReturnDays ?? 7,
+        searchMinCustomers: searchMinCustomers ?? 3,
+        searchMinPercent: searchMinPercent ?? 2,
+        searchWindowDays: searchWindowDays ?? 30,
+        googleLoginEnabled: boolOr(b.googleLoginEnabled) ?? true,
+        facebookLoginEnabled: boolOr(b.facebookLoginEnabled) ?? true,
+        behaviorTracking: boolOr(b.behaviorTracking) ?? true,
+        behaviorRetentionDays: behaviorRetentionDays ?? 90,
+      },
+      update: {
+        vatRatePercent: b.vatRatePercent,
+        pointPerVnd: b.pointPerVnd,
+        pointValueVnd: b.pointValueVnd,
+        cashRoundTo: b.cashRoundTo,
+        pointEarnEveryVnd: b.pointEarnEveryVnd,
+        pointEarnEach: b.pointEarnEach,
+        faceMatchThreshold: b.faceMatchThreshold,
+        pettyCashLimit: b.pettyCashLimit,
+        cancelWindowMinutes,
+        supplierReturnDays,
+        searchMinCustomers,
+        searchMinPercent,
+        searchWindowDays,
+        googleLoginEnabled: boolOr(b.googleLoginEnabled),
+        facebookLoginEnabled: boolOr(b.facebookLoginEnabled),
+        behaviorTracking: boolOr(b.behaviorTracking),
+        behaviorRetentionDays,
+      },
+    });
+    // POST /api/track đọc lại công tắc ngay (không chờ hết đệm 60 giây)
+    resetTrackingSettings();
+    res.json(saved);
   });
 
   // Báo cáo doanh thu: xem reports.ts (/reports/revenue — tách tiền thật, điểm, phí ship)

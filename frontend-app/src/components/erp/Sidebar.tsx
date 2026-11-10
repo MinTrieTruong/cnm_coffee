@@ -3,8 +3,10 @@ import { Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight, ChevronUp, KeyRound, LogOut, Store } from "lucide-react";
 import { LogoMark } from "../LogoMark";
 import { StoreSwitcher } from "./StoreSwitcher";
+import { SidebarSearch } from "./SidebarSearch";
 import type { BadgeKey } from "../../lib/navConfig";
 import type { SideGroup, SideItem, SideLeaf } from "../../apps/sidebar";
+import type { SearchIndex } from "../../apps/sidebarSearch";
 
 const OPEN_KEY = "td.sidebar.open";
 
@@ -48,6 +50,8 @@ export function Sidebar({
   onChangePassword,
   onLogout,
   bell,
+  searchIndex,
+  disableSlash,
 }: {
   groups: SideGroup[];
   currentKey: string;
@@ -59,12 +63,20 @@ export function Sidebar({
   onLogout: () => void;
   /** Chuông thông báo (đặt cạnh logo; khi thu gọn nằm dưới logo) */
   bell?: ReactNode;
+  /** Chỉ mục ô "Tìm chức năng…" (buildSearchIndex(groups) — dùng chung với sheet "Thêm" trên điện thoại) */
+  searchIndex: SearchIndex;
+  /** Tắt phím "/" (trang có ô nhập riêng: POS, KDS…) — Ctrl+K vẫn dùng được */
+  disableSlash?: boolean;
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>(readOpen);
   const [pop, setPop] = useState<Pop | null>(null);
   const [userOpen, setUserOpen] = useState(false);
   const popTimer = useRef<number | undefined>(undefined);
   const footRef = useRef<HTMLDivElement>(null);
+
+  // Nhóm mặc định mở (trừ nhóm đánh dấu thu gọn sẵn), menu con mặc định đóng
+  const startCollapsed = new Set(groups.filter((g) => g.collapsed).map((g) => `g:${g.id}`));
+  const defaultOpen = (k: string) => k.startsWith("g:") && !startCollapsed.has(k);
 
   // Mở sẵn nhóm & menu con chứa trang hiện tại
   useEffect(() => {
@@ -78,13 +90,13 @@ export function Sidebar({
       }
     }
     setOpen((prev) => {
-      if (need.every((k) => prev[k] !== false)) return prev;
+      if (need.every((k) => prev[k] ?? defaultOpen(k))) return prev;
       const next = { ...prev };
       for (const k of need) next[k] = true;
       writeOpen(next);
       return next;
     });
-  }, [currentKey, groups]);
+  }, [currentKey, groups]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setPop(null);
@@ -105,11 +117,10 @@ export function Sidebar({
     };
   }, [userOpen]);
 
-  // Nhóm mặc định mở, menu con mặc định đóng
-  const isOpen = (k: string) => open[k] ?? k.startsWith("g:");
+  const isOpen = (k: string) => open[k] ?? defaultOpen(k);
   const toggle = (k: string) =>
     setOpen((prev) => {
-      const next = { ...prev, [k]: !(prev[k] ?? k.startsWith("g:")) };
+      const next = { ...prev, [k]: !(prev[k] ?? defaultOpen(k)) };
       writeOpen(next);
       return next;
     });
@@ -193,6 +204,7 @@ export function Sidebar({
           {bell}
         </div>
         <StoreSwitcher variant="side" iconOnly={collapsed} />
+        <SidebarSearch index={searchIndex} badges={badges} currentKey={currentKey} collapsed={collapsed} disableSlash={disableSlash} />
       </div>
       <button type="button" className="o-side-collapse" onClick={onToggle} aria-label={collapsed ? "Mở rộng sidebar" : "Thu gọn sidebar"} title={collapsed ? "Mở rộng" : "Thu gọn"}>
         <ChevronLeft size={14} strokeWidth={2} aria-hidden />
@@ -203,7 +215,7 @@ export function Sidebar({
           const k = `g:${g.id}`;
           const expanded = collapsed || isOpen(k);
           return (
-            <section key={g.id} className={g.support ? "o-side-group is-support" : "o-side-group"}>
+            <section key={g.id} className="o-side-group">
               {collapsed ? (
                 <div className="o-side-sep" role="separator" aria-label={g.label} />
               ) : (
@@ -230,7 +242,7 @@ export function Sidebar({
         {userOpen && (
           <div className="o-side-usermenu" role="menu">
             <button type="button" role="menuitem" className="o-dropdown-item" onClick={() => { setUserOpen(false); onChangePassword(); }}>
-              <KeyRound size={16} aria-hidden /> Ảnh đại diện & mật khẩu
+              <KeyRound size={16} aria-hidden /> Tài khoản của tôi
             </button>
             <Link to="/menu" role="menuitem" className="o-dropdown-item"><Store size={16} aria-hidden /> Trang khách</Link>
             <div className="o-dropdown-sep" />

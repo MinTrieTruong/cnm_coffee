@@ -83,9 +83,24 @@ export function staffSocket(): Socket {
   });
 }
 
+/** Tải ảnh cần đăng nhập (vd. ảnh chụp lúc đăng ký FaceID) → object URL để gắn vào <img>; null nếu không có / không được xem */
+export async function staffBlobUrl(path: string): Promise<string | null> {
+  const headers = new Headers();
+  const t = getStaffToken();
+  if (t) headers.set("Authorization", `Bearer ${t}`);
+  setStoreHeader(headers);
+  try {
+    const res = await fetch(`${apiBase()}${path}`, { headers });
+    return res.ok ? URL.createObjectURL(await res.blob()) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function staffApi<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
-  headers.set("Content-Type", "application/json");
+  // Gửi tệp (FormData): để trình duyệt tự đặt multipart + boundary
+  if (!(init?.body instanceof FormData)) headers.set("Content-Type", "application/json");
   const t = getStaffToken();
   if (t) headers.set("Authorization", `Bearer ${t}`);
   setStoreHeader(headers);
@@ -104,16 +119,19 @@ export async function staffApi<T>(path: string, init?: RequestInit): Promise<T> 
       throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
     }
     let msg = res.statusText;
-    const extra: { fields?: Record<string, string>; rows?: Record<number, Record<string, string>> } = {};
+    const extra: { status: number; data?: unknown; fields?: Record<string, string>; rows?: Record<number, Record<string, string>> } = { status: res.status };
     try {
-      const j = (await res.json()) as { error?: string; fields?: Record<string, string>; rows?: Record<number, Record<string, string>> };
+      const j = (await res.json()) as { error?: string; reason?: string; fields?: Record<string, string>; rows?: Record<number, Record<string, string>> };
+      extra.data = j;
       if (j.error) msg = j.error;
+      // Tính năng AI tạm tắt / lỗi: { unavailable, reason }
+      else if (j.reason) msg = j.reason;
       if (j.fields) extra.fields = j.fields;
       if (j.rows) extra.rows = j.rows;
     } catch {
       /* ignore */
     }
-    // `fields`: lỗi theo từng ô của form (vd pop up); `rows`: lỗi theo từng dòng của bảng (vd nút liên hệ)
+    // `status`: mã HTTP; `data`: body lỗi (VD ảnh đã lưu khi AI tắt); `fields`: lỗi theo từng ô của form (vd pop up); `rows`: lỗi theo từng dòng của bảng (vd nút liên hệ)
     throw Object.assign(new Error(msg), extra);
   }
   if (res.status === 204) return undefined as T;

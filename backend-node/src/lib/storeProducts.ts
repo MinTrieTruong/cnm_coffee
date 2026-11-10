@@ -21,14 +21,25 @@ export async function unsellableProductIds(
 
 /** Món chi nhánh đang tắt, báo hết, hoặc hết nguyên liệu — ẩn khỏi thực đơn của khách. */
 export async function hiddenProductIds(prisma: PrismaClient, storeId: number | null): Promise<Set<number>> {
-  if (storeId == null) return new Set();
+  const { disabled, soldOut } = await storeMenuState(prisma, storeId);
+  return new Set([...disabled, ...soldOut]);
+}
+
+/**
+ * Trạng thái thực đơn tại chi nhánh, tách hai loại:
+ * - `disabled`: chi nhánh không bán món (`isAvailable = false`) → ẩn hẳn
+ * - `soldOut`: chi nhánh báo hết hoặc hết nguyên liệu → vẫn hiện, làm mờ "Hết hàng"
+ */
+export async function storeMenuState(prisma: PrismaClient, storeId: number | null): Promise<{ disabled: Set<number>; soldOut: Set<number> }> {
+  if (storeId == null) return { disabled: new Set(), soldOut: new Set() };
   const rows = await prisma.storeProduct.findMany({
     where: { storeId, OR: [{ isAvailable: false }, { outOfStock: true }] },
-    select: { productId: true },
+    select: { productId: true, isAvailable: true },
   });
-  const out = new Set(rows.map((r) => r.productId));
-  for (const id of await ingredientShortProductIds(prisma, storeId)) out.add(id);
-  return out;
+  const disabled = new Set(rows.filter((r) => !r.isAvailable).map((r) => r.productId));
+  const soldOut = new Set(rows.filter((r) => r.isAvailable).map((r) => r.productId));
+  for (const id of await ingredientShortProductIds(prisma, storeId)) if (!disabled.has(id)) soldOut.add(id);
+  return { disabled, soldOut };
 }
 
 type Db = PrismaClient | Prisma.TransactionClient;

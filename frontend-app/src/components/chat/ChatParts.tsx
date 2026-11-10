@@ -26,6 +26,8 @@ export type ChatMessage = {
   imageUrl?: string | null;
   createdAt: string;
   reactions?: ChatReaction[];
+  /** Tin do AI tư vấn trả lời (nhật ký AiRunLog) */
+  aiRunId?: number | null;
 };
 
 /** Nút 😊 mở bảng icon; chọn icon → chèn vào ô nhập */

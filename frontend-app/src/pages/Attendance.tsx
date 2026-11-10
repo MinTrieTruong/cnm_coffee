@@ -345,10 +345,18 @@ export function Attendance() {
         setMessage({ text: "Không phát hiện khuôn mặt. Hãy nhìn thẳng vào camera.", type: "err" });
         return;
       }
+      if (!window.confirm("FaceID chỉ đăng ký một lần và dùng để chấm công của chính bạn. Sau khi lưu, muốn đăng ký lại phải nhờ quản lý xoá. Tiếp tục?")) return;
       const descriptor = Array.from(det.descriptor);
+      // Ảnh chụp lúc đăng ký (lưu riêng tư) để quản lý đối chiếu đúng người
+      const shot = document.createElement("canvas");
+      const scale = Math.min(1, 480 / (video.videoWidth || 480));
+      shot.width = Math.round((video.videoWidth || 480) * scale);
+      shot.height = Math.round((video.videoHeight || 360) * scale);
+      shot.getContext("2d")?.drawImage(video, 0, 0, shot.width, shot.height);
+      const photoDataUrl = shot.toDataURL("image/jpeg", 0.85);
       await staffApi("/api/attendance/register-face", {
         method: "POST",
-        body: JSON.stringify({ faceDescriptor: descriptor }),
+        body: JSON.stringify({ faceDescriptor: descriptor, photoDataUrl }),
       });
       setSavedDescriptor(new Float32Array(descriptor));
       setFaceRegistered(true);
@@ -634,6 +642,9 @@ export function Attendance() {
                   Đăng ký khuôn mặt
 
                 </button>
+              )}
+              {!faceRegistered && faceReady && (
+                <p className="attendance-face-hint" style={{ marginTop: "0.5rem" }}>Chỉ đăng ký một lần bằng khuôn mặt của chính bạn — muốn đăng ký lại phải nhờ quản lý.</p>
               )}
             </>
           )}

@@ -5,6 +5,7 @@ dist/
 .DS_Store
 frontend-app/dist/
 backend-node/uploads/
+backend-node/private-uploads/
 *.sql
 # Migration SQL viết tay thì cần commit
 !backend-node/prisma/sql/*.sql

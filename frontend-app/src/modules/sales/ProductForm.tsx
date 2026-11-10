@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
+import { X } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
-import { mediaUrl } from "../../lib/api";
-import { getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
-import { Alert, Button, Field, FormGroup, FormGroups, FormView, StatusBar, Tabs, errMsg, formatVnd } from "../../components/erp";
+import { mediaUrl, type ProductTemps } from "../../lib/api";
+import { activeStoreId, getStaffInfo, isOwnerRole, staffApi } from "../../lib/staffApi";
+import { Alert, Badge, Button, Field, FormGroup, FormGroups, FormView, StatusBar, Tabs, errMsg, formatVnd } from "../../components/erp";
+import "../../styles/nutrition-admin.css";
 import { ImageField, TagsInput, digits, parseTags, useRecordNav, useResource } from "../shared";
 import { PRODUCTS_BASE, type ProductRow } from "./ProductList";
 
@@ -13,6 +15,10 @@ type CostRow = { id: number; hasFormula: boolean; cost: { S: number; M: number; 
 type Proposal = {
   id: number; name: string; description: string | null; recipe: string | null; suggestedPrice: number | null;
   categoryId: number | null; imageUrl: string | null; status: string; staff: { fullName: string }; store: { name: string };
+  /** Từ AI phác thảo: định mức nháp (tạo thành định mức khi lưu món), size, nóng / đá, giá S / L */
+  formulaDraft: { itemId: number | null; newIngredient: { name: string } | null }[] | null;
+  temps: ProductTemps | null; hasSizes: boolean | null; priceS: number | null; priceL: number | null;
+  costNow: { costs: { M: number } } | null;
 };
 
 type Draft = {
@@ -25,17 +31,78 @@ type Draft = {
   categoryId: number | "";
   imageUrl: string;
   tags: string[];
+  /** Tên gọi khác / viết tắt cho đặt món bằng giọng nói & tìm kiếm */
+  aliases: string[];
   discountPercent: string;
   isActive: boolean;
   outOfStock: boolean;
   /** false = món 1 loại (bánh, đồ ăn): 1 giá, công thức trừ 1 mức */
   hasSizes: boolean;
+  /** Nhiệt độ phục vụ: BOTH = khách chọn nóng/đá, ICED = chỉ đá, HOT = chỉ nóng, NONE = không áp dụng */
+  temps: ProductTemps;
 };
 
 const EMPTY: Draft = {
   name: "", sku: "", costPrice: "", sellPrice: "", priceSizeS: "", priceSizeL: "",
-  categoryId: "", imageUrl: "", tags: [], discountPercent: "", isActive: true, outOfStock: false, hasSizes: true,
+  categoryId: "", imageUrl: "", tags: [], aliases: [], discountPercent: "", isActive: true, outOfStock: false, hasSizes: true, temps: "BOTH",
 };
+
+const TEMP_OPTIONS: { value: ProductTemps; label: string }[] = [
+  { value: "BOTH", label: "Nóng & đá — khách chọn" },
+  { value: "ICED", label: "Chỉ đá" },
+  { value: "HOT", label: "Chỉ nóng" },
+  { value: "NONE", label: "Không áp dụng" },
+];
+
+const MAX_ALIASES = 10;
+const MAX_ALIAS_LEN = 40;
+
+/** Tên gọi khác dạng thẻ: Enter hoặc dấu phẩy để thêm (≤ 10 tên, mỗi tên ≤ 40 ký tự) */
+function AliasInput({ aliases, onChange, disabled }: { aliases: string[]; onChange: (a: string[]) => void; disabled?: boolean }) {
+  const [text, setText] = useState("");
+  if (disabled) {
+    return aliases.length ? (
+      <span className="o-row" style={{ gap: 4, flexWrap: "wrap" }}>
+        {aliases.map((a) => <span key={a} className="o-badge">{a}</span>)}
+      </span>
+    ) : (
+      <span className="o-muted">—</span>
+    );
+  }
+  const add = () => {
+    const parts = text.split(",").map((t) => t.trim().replace(/\s+/g, " ").slice(0, MAX_ALIAS_LEN)).filter(Boolean);
+    const next = [...aliases];
+    for (const t of parts) if (!next.some((a) => a.toLowerCase() === t.toLowerCase()) && next.length < MAX_ALIASES) next.push(t);
+    onChange(next);
+    setText("");
+  };
+  const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      add();
+    } else if (e.key === "Backspace" && !text && aliases.length) onChange(aliases.slice(0, -1));
+  };
+  return (
+    <div className="o-stack" style={{ gap: 6 }}>
+      {aliases.length > 0 && (
+        <div className="o-row" style={{ gap: 4, flexWrap: "wrap" }}>
+          {aliases.map((a) => (
+            <span key={a} className="o-badge">
+              {a}
+              <button type="button" onClick={() => onChange(aliases.filter((x) => x !== a))} aria-label={`Bỏ ${a}`} style={{ border: 0, background: "none", padding: 0, marginLeft: 2, cursor: "pointer", display: "flex", color: "inherit" }}>
+                <X size={12} aria-hidden />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {aliases.length < MAX_ALIASES && (
+        <input className="o-input" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey} onBlur={() => text.trim() && add()} maxLength={MAX_ALIAS_LEN * 3} placeholder="VD: bx, bạc xỉu, bac siu — Enter để thêm" />
+      )}
+      <div className="o-hint">Cách khách hay gọi / viết tắt. Đặt món bằng giọng nói và ô tìm kiếm thực đơn sẽ hiểu các tên này.</div>
+    </div>
+  );
+}
 
 /** Danh mục đồ ăn / bánh → món mới mặc định không size */
 const isFoodCategory = (name?: string) => !!name && /đồ ăn|bánh/i.test(name);
@@ -66,10 +133,12 @@ function toDraft(p: ProductRow): Draft {
     categoryId: p.categoryId,
     imageUrl: p.imageUrl ?? "",
     tags: parseTags(p.tags),
+    aliases: Array.isArray(p.aliases) ? p.aliases.filter((a): a is string => typeof a === "string") : [],
     discountPercent: p.discountPercent != null ? String(p.discountPercent) : "",
     isActive: p.isActive,
     outOfStock: p.outOfStock,
     hasSizes: p.hasSizes !== false,
+    temps: p.hasSizes === false ? "NONE" : p.temps ?? "BOTH",
   };
 }
 
@@ -79,6 +148,8 @@ export function ProductForm({ recordId }: { recordId?: string }) {
   const products = useResource<ProductRow[]>(isNew ? null : "/api/admin/products", []);
   const cats = useResource<Category[]>("/api/admin/categories", []);
   const record = isNew ? null : products.data.find((p) => String(p.id) === recordId) ?? null;
+  // Hết hàng là trạng thái theo chi nhánh — toàn chuỗi (null) thì không gửi/không hiện
+  const storeId = activeStoreId();
 
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [editing, setEditing] = useState(isNew);
@@ -104,6 +175,10 @@ export function ProductForm({ recordId }: { recordId?: string }) {
       sellPrice: p.suggestedPrice != null ? String(p.suggestedPrice) : d.sellPrice,
       categoryId: p.categoryId ?? d.categoryId,
       imageUrl: p.imageUrl ?? d.imageUrl,
+      hasSizes: p.hasSizes ?? d.hasSizes,
+      temps: p.temps ?? d.temps,
+      priceSizeS: p.priceS != null ? String(p.priceS) : d.priceSizeS,
+      priceSizeL: p.priceL != null ? String(p.priceL) : d.priceSizeL,
       tags: d.tags.length ? d.tags : ["🆕 Món Mới"],
     }));
   }, [proposal.data]);
@@ -126,12 +201,14 @@ export function ProductForm({ recordId }: { recordId?: string }) {
             name: draft.name.trim(),
             sellPrice: price,
             hasSizes: draft.hasSizes,
+            temps: draft.hasSizes ? draft.temps : "NONE",
             priceSizeS: draft.hasSizes && draft.priceSizeS ? digits(draft.priceSizeS) : undefined,
             priceSizeL: draft.hasSizes && draft.priceSizeL ? digits(draft.priceSizeL) : undefined,
             categoryId: draft.categoryId,
             sku: draft.sku.trim() || undefined,
             imageUrl: draft.imageUrl.trim() || undefined,
             tags: draft.tags.length > 0 ? draft.tags : undefined,
+            aliases: draft.aliases,
             discountPercent: draft.discountPercent ? Number(draft.discountPercent) : undefined,
           }),
         });
@@ -149,14 +226,17 @@ export function ProductForm({ recordId }: { recordId?: string }) {
           sku: draft.sku.trim() || null,
           sellPrice: price,
           hasSizes: draft.hasSizes,
+          temps: draft.hasSizes ? draft.temps : "NONE",
           priceSizeS: draft.hasSizes && draft.priceSizeS ? digits(draft.priceSizeS) : null,
           priceSizeL: draft.hasSizes && draft.priceSizeL ? digits(draft.priceSizeL) : null,
           categoryId: draft.categoryId,
           imageUrl: draft.imageUrl.trim() || null,
           tags: draft.tags.length > 0 ? draft.tags : null,
+          aliases: draft.aliases,
           discountPercent: draft.discountPercent ? Number(draft.discountPercent) : null,
-          isActive: draft.isActive,
-          outOfStock: draft.outOfStock,
+          // Chỉ gửi cờ khi người dùng thực sự đổi — tránh bắn thông báo thừa
+          ...(record && draft.isActive !== record.isActive ? { isActive: draft.isActive } : {}),
+          ...(storeId != null && record && draft.outOfStock !== record.outOfStock ? { outOfStock: draft.outOfStock } : {}),
         }),
       });
       await products.reload();
@@ -228,7 +308,20 @@ export function ProductForm({ recordId }: { recordId?: string }) {
           <strong>Tạo từ đề xuất của {proposal.data.staff.fullName}</strong> ({proposal.data.store.name})
           {proposal.data.description && <div>{proposal.data.description}</div>}
           {proposal.data.recipe && <div style={{ whiteSpace: "pre-line", marginTop: 4 }}><em>Nguyên liệu & cách làm:</em> {proposal.data.recipe}</div>}
-          <div className="o-muted" style={{ marginTop: 4 }}>Kiểm tra giá vốn, size, rồi thêm định mức nguyên liệu ở "Định mức NL" sau khi lưu.</div>
+          {proposal.data.formulaDraft?.length ? (
+            <div style={{ marginTop: 4 }}>
+              Lưu món → <b>tự tạo định mức</b> {proposal.data.formulaDraft.filter((l) => l.itemId != null).length} nguyên liệu từ đề xuất
+              {proposal.data.costNow && <> (giá vốn ly M hiện tại ≈ {proposal.data.costNow.costs.M.toLocaleString("vi-VN")}đ)</>}.
+              {proposal.data.formulaDraft.some((l) => l.itemId == null) && (
+                <div style={{ marginTop: 4 }}>
+                  Nguyên liệu mới chưa có trong kho: <b>{proposal.data.formulaDraft.filter((l) => l.itemId == null).map((l) => l.newIngredient?.name).join(", ")}</b> — tạo trong{" "}
+                  <Link to="/app/inventory/stock">Kho</Link> trước, rồi thêm vào định mức ở <Link to="/app/kitchen/formulas">Công thức & giá vốn</Link>.
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="o-muted" style={{ marginTop: 4 }}>Kiểm tra giá vốn, size, rồi thêm định mức nguyên liệu ở "Định mức NL" sau khi lưu.</div>
+          )}
         </Alert>
       )}
       <div className="o-sheet-title">
@@ -277,8 +370,25 @@ export function ProductForm({ recordId }: { recordId?: string }) {
               </select>
             )}
           </Field>
+          {draft.hasSizes && (
+            <Field label="Nóng / đá">
+              {ro ? (
+                TEMP_OPTIONS.find((o) => o.value === draft.temps)?.label
+              ) : (
+                <>
+                  <select className="o-input" value={draft.temps} onChange={(e) => set("temps", e.target.value as ProductTemps)}>
+                    {TEMP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <div className="o-hint">Món chỉ đá hoặc chỉ nóng: khách không chọn được kiểu còn lại trên thực đơn.</div>
+                </>
+              )}
+            </Field>
+          )}
           <Field label="Nhãn">
             <TagsInput tags={draft.tags} onChange={(t) => set("tags", t)} disabled={ro} />
+          </Field>
+          <Field label="Tên gọi khác">
+            <AliasInput aliases={draft.aliases} onChange={(a) => set("aliases", a)} disabled={ro} />
           </Field>
         </FormGroup>
         <FormGroup>
@@ -366,10 +476,14 @@ export function ProductForm({ recordId }: { recordId?: string }) {
                     <input type="checkbox" checked={draft.isActive} disabled={ro} onChange={(e) => set("isActive", e.target.checked)} />
                   </Field>
                   <Field label="Hết hàng">
-                    <label className="o-check">
-                      <input type="checkbox" checked={draft.outOfStock} disabled={ro} onChange={(e) => set("outOfStock", e.target.checked)} />
-                      <span className="o-muted">Hiển thị "Hết hàng" trên menu</span>
-                    </label>
+                    {storeId == null ? (
+                      <span className="o-muted">Hết hàng là trạng thái theo chi nhánh — chọn chi nhánh ở thanh trên để báo hết món.</span>
+                    ) : (
+                      <label className="o-check">
+                        <input type="checkbox" checked={draft.outOfStock} disabled={ro} onChange={(e) => set("outOfStock", e.target.checked)} />
+                        <span className="o-muted">Báo hết món tại chi nhánh đang chọn</span>
+                      </label>
+                    )}
                   </Field>
                 </>
               )}
@@ -377,6 +491,54 @@ export function ProductForm({ recordId }: { recordId?: string }) {
           </FormGroups>
         )}
       </div>
+      {!isNew && recordId && <NutritionCard productId={Number(recordId)} />}
     </FormView>
+  );
+}
+
+type NutSize = {
+  size: string; kcal: number; caffeineMg: number; sugarG: number; fatG: number; proteinG: number; complete: boolean;
+  missing: { itemId: number; name: string }[]; allergens: string[];
+  labels: { caffeine: string | null; sugar: string | null; fat: string | null; vegan: boolean; allergens: string[] };
+};
+const ALLERGEN_VI: Record<string, string> = { milk: "sữa", nuts: "hạt", peanut: "đậu phộng", gluten: "gluten", egg: "trứng", soy: "đậu nành" };
+
+/** Dinh dưỡng ước tính theo size (tính từ công thức × nguyên liệu đã duyệt) + nguyên liệu còn thiếu */
+function NutritionCard({ productId }: { productId: number }) {
+  const r = useResource<{ sizes: NutSize[] } | null>(`/api/nutrition/products/${productId}`, null);
+  const sizes = r.data?.sizes ?? [];
+  if (!sizes.length) return null;
+  const missing = sizes[0].missing;
+  const l = sizes.find((x) => x.size === "M")?.labels ?? sizes[0].labels;
+  const tags = [
+    l.caffeine === "none" ? "Không caffeine" : l.caffeine === "low" ? "Ít caffeine" : l.caffeine === "high" ? "Caffeine cao" : "",
+    l.sugar === "high" ? "Nhiều đường" : l.sugar === "low" ? "Ít đường" : "",
+    l.fat === "high" ? "Nhiều béo" : l.fat === "low" ? "Ít béo" : "",
+    l.vegan ? "Thuần chay" : "",
+    ...l.allergens.map((a) => `Có ${ALLERGEN_VI[a] ?? a}`),
+  ].filter(Boolean);
+  return (
+    <div className="o-card nut-card" style={{ marginTop: 16, padding: 16 }}>
+      <strong>Dinh dưỡng ước tính</strong>
+      <div className="o-muted" style={{ fontSize: 12, margin: "2px 0 8px" }}>Tính từ công thức × dinh dưỡng nguyên liệu đã duyệt, mức đường 100%. Khách thấy khi Website › Giao diện bật hiện dinh dưỡng.</div>
+      {missing.length > 0 ? (
+        <Alert tone="warning">
+          Chưa đủ dữ liệu — còn thiếu / chưa duyệt: {missing.map((m) => m.name).join(", ")}.{" "}
+          <Link to="/app/kitchen/nutrition">Mở Dinh dưỡng nguyên liệu</Link>
+        </Alert>
+      ) : (
+        <>
+          <table>
+            <thead><tr><th>Size</th><th>kcal</th><th>Caffeine (mg)</th><th>Đường (g)</th><th>Béo (g)</th><th>Đạm (g)</th></tr></thead>
+            <tbody>
+              {sizes.map((x) => (
+                <tr key={x.size}><td>{x.size === "-" ? "1 phần" : x.size}</td><td>{x.kcal}</td><td>{x.caffeineMg}</td><td>{x.sugarG}</td><td>{x.fatG}</td><td>{x.proteinG}</td></tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="nut-labels">{tags.length ? tags.map((t) => <Badge key={t}>{t}</Badge>) : <span className="o-muted">Không có nhãn</span>}</div>
+        </>
+      )}
+    </div>
   );
 }

@@ -102,6 +102,54 @@ npm run db:owner          # tạo tài khoản Chủ chuỗi: owner / owner123 (
 npm run db:seed-store2    # Chi nhánh #2 mẫu + tài khoản Thủ kho `kho` cho Chi nhánh #1
 ```
 
+### Cập nhật DB cho các tính năng sau (005 → 022)
+
+Chạy lần lượt các file chưa chạy trong `backend-node/prisma/sql/` (mỗi file chỉ chạy một lần), rồi `npx prisma generate`. Dừng backend trước để `prisma generate` không bị khoá file trên Windows.
+
+```bash
+cd backend-node
+for f in prisma/sql/0{05,06,07,08,09,10,11,12,13,14,15,16,17,18,19,20,21,22}_*.sql; do
+  docker exec -i cmn-mysql mysql -uroot -proot --default-character-set=utf8mb4 coffee_shop_db < "$f"
+done
+npx prisma generate
+```
+
+| File | Nội dung |
+|------|----------|
+| `012`–`014` | Kho tri thức (RAG), AI Agent tư vấn chat web |
+| `015_ai_analyst.sql` | Bật / tắt tính năng AI (`AI_Settings`), Trợ lý AI hỏi số liệu |
+| `016_voice_order.sql` | Đặt món bằng giọng nói: tên gọi khác của món, nhật ký gọi AI |
+| `017_invoice_ocr.sql` | Đọc hoá đơn NCC bằng AI khi nhận hàng, số hoá đơn trên phiếu nhập, quy đổi đơn vị |
+| `018_ai_call_log_transcript.sql` | Nhật ký gọi AI lưu câu AI nghe được + tóm tắt kết quả (tra lỗi "nói không được") |
+| `019_nutrition.sql` | Dinh dưỡng nguyên liệu, dinh dưỡng món theo size (tính từ công thức), sở thích ăn uống của khách |
+| `020_menu_draft.sql` | Đề xuất món lưu định mức nháp, giá vốn ước tính, giá S/L, bản AI phác thảo; bật / tắt MENU_DRAFT |
+| `021_brand_story.sql` | Trang câu chuyện thương hiệu `/about` (bảng `Brand_Sections`: 15 mục, JSON tiếng Việt + tiếng Anh) và hồ sơ giới thiệu chi nhánh `/stores/:id` (ảnh bìa, câu chuyện, quản lý, tiện ích, góc ngồi, thư viện ảnh trong bảng `Stores`) |
+
+| `022_category_image.sql` | Ảnh đại diện danh mục (`Categories.Image_URL`) — sửa ở Bán hàng › Danh mục; menu "Thực đơn" web khách dùng ảnh này, thiếu thì lấy ảnh món. `npm run db:site` gán ảnh mẫu cho danh mục còn trống + thay link ảnh món mẫu đã chết |
+
+Nội dung mẫu cho trang câu chuyện + hồ sơ mọi chi nhánh (chạy sau `021`, chạy lại không ghi đè phần đã sửa trong quản trị):
+
+```bash
+npm run seed:brand            # chỉ tạo mục / hồ sơ còn trống
+npm run seed:brand -- --force # ghi đè bằng nội dung mẫu
+```
+
+Sửa nội dung ở **Website › Câu chuyện thương hiệu** (Chủ chuỗi) và **Cấu hình › Chi nhánh › Trang giới thiệu** (Chủ chuỗi, quản lý chi nhánh của mình). Kiểu dữ liệu dùng chung frontend / backend: `backend-node/src/shared/brand.ts` (frontend import qua alias `@shared`).
+
+### Kiểm thử tính năng AI (cần `GEMINI_API_KEY`)
+
+```bash
+cd backend-node
+npx tsx scripts/testAnalyst.ts            # Trợ lý hỏi số liệu (--no-ai: chỉ đối chiếu số / phân quyền)
+npx tsx scripts/testVoiceOrder.ts 1       # Đặt món bằng câu tự nhiên → docs/qa/voice-order-ket-qua.md (--audio: thêm file ghi âm)
+npx tsx scripts/seedInvoiceDemo.ts 1      # Đơn mua mẫu cho đọc hoá đơn (--fresh: tạo thêm)
+npx tsx scripts/testInvoiceOcr.ts         # Đọc hoá đơn mẫu → docs/qa/invoice-ocr-ket-qua.md
+npx tsx scripts/testNutrition.ts --suggest   # AI gợi ý dinh dưỡng nguyên liệu chưa duyệt + kiểm tra (--approve: duyệt)
+npx tsx scripts/recomputeNutrition.ts --md   # Tính lại dinh dưỡng mọi món → docs/qa/nutrition-bang-mon.md
+npx tsx scripts/testWeatherPicks.ts 1 --ai    # Gợi ý món theo thời tiết: 5 tình huống (nóng / mưa / sáng / tối / mất mạng) + câu dẫn AI
+npx tsx scripts/testMenuDraft.ts 1 --md      # AI phác thảo món mới: 4 đầu vào + kiểm tra giá vốn → docs/qa/menu-draft-ket-qua.md (--no-ai: chỉ kiểm tra code)
+```
+
 ---
 
 ## 🔑 Tài khoản demo

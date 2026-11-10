@@ -1,0 +1,49 @@
+/* ═══════════ Trang khách › Dinh dưỡng ước tính (lib/nutrition.ts) — chỉ dùng token --c-* nên theo chế độ tối ═══════════ */
+.c-ntags { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 4px; }
+.c-ntag { display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px; border: 1px solid var(--c-rule-strong); border-radius: 999px; font-size: 0.72rem; font-weight: 600; line-height: 1.5; color: var(--c-ink-2); white-space: nowrap; }
+.c-ntag.is-warn { border-color: var(--c-accent); color: var(--c-ink); background: color-mix(in srgb, var(--c-accent) 22%, transparent); }
+.c-ntag.is-ok { border-color: var(--c-ok); color: var(--c-ok); }
+.c-ntag.is-info { border-color: var(--c-primary); color: var(--c-primary); }
+.c-ntag.is-conflict { border-color: var(--c-danger); color: var(--c-danger); background: color-mix(in srgb, var(--c-danger) 10%, transparent); }
+
+/* Trang chi tiết món */
+.c-nut { margin-top: 18px; padding: 16px 18px; border: 1px solid var(--c-rule); border-radius: var(--c-radius-md); background: var(--c-surface); }
+.c-nut h3 { margin: 0 0 4px; font-family: var(--c-font-display); font-size: 1.15rem; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; }
+.c-nut-sub { margin: 0 0 12px; color: var(--c-muted); font-size: 0.85rem; }
+.c-nut-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.c-nut-cell { padding: 8px 6px; border-radius: var(--c-radius); background: var(--c-paper-2); text-align: center; }
+.c-nut-cell b { display: block; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+.c-nut-cell span { font-size: 0.75rem; color: var(--c-muted); }
+.c-nut-bars { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.c-nut-bar { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 0.85rem; }
+.c-nut-track { display: block; height: 8px; border-radius: 999px; background: var(--c-paper-2); overflow: hidden; }
+.c-nut-fill { display: block; height: 100%; border-radius: 999px; background: var(--c-primary); }
+.c-nut-fill.is-high { background: var(--c-accent); }
+.c-nut-bar small { color: var(--c-muted); font-variant-numeric: tabular-nums; }
+.c-nut-tip { margin: 12px 0 0; padding: 8px 10px; border-left: 3px solid var(--c-ok); background: var(--c-paper-2); font-size: 0.88rem; }
+.c-nut-allergy { margin: 10px 0 0; font-size: 0.88rem; }
+.c-nut-note { margin: 10px 0 0; color: var(--c-muted); font-size: 0.78rem; line-height: 1.5; }
+.c-nut-missing { color: var(--c-muted); font-size: 0.88rem; }
+
+/* Bộ lọc ăn kiêng (trang Thực đơn) */
+.c-diet { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.c-diet-label { font-size: 0.82rem; color: var(--c-muted); margin-right: 2px; }
+.c-diet button { min-height: 32px; padding: 3px 12px; border: 1px solid var(--c-rule-strong); border-radius: 999px; background: transparent; color: var(--c-ink-2); font: inherit; font-size: 0.82rem; cursor: pointer; }
+.c-diet button.is-on { border-color: var(--c-primary); background: var(--c-primary); color: var(--c-on-primary); font-weight: 600; }
+.c-diet .c-linkish { min-height: 0; border: 0; padding: 0 4px; }
+
+/* Tài khoản › Sở thích ăn uống */
+.c-prefs { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.c-prefs label { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--c-rule); border-radius: var(--c-radius-md); cursor: pointer; }
+.c-prefs label.is-on { border-color: var(--c-primary); background: color-mix(in srgb, var(--c-primary) 8%, transparent); }
+
+/* Giỏ hàng */
+.c-cart-caffeine { display: flex; gap: 6px; align-items: flex-start; margin: 8px 0; padding: 8px 10px; border-radius: var(--c-radius); background: color-mix(in srgb, var(--c-accent) 18%, transparent); font-size: 0.85rem; }
+
+@media (max-width: 640px) {
+  .c-diet { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .c-diet::-webkit-scrollbar { display: none; }
+  .c-diet > * { flex-shrink: 0; }
+  .c-nut-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .c-nut-bar { grid-template-columns: 76px minmax(0, 1fr) auto; }
+}

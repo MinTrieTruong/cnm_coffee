@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { categoryImages } from "./sample-images.js";
 
 const prisma = new PrismaClient();
 
@@ -10,11 +11,12 @@ const productImages: Record<number, string> = {
   4: "https://images.unsplash.com/photo-1570968915860-54d5c301fa9f?w=800&q=80",
   5: "https://images.unsplash.com/photo-1556679343-c7306c1976bc?w=800&q=80",
   6: "https://images.unsplash.com/photo-1597481499750-3e6b22637e12?w=800&q=80",
-  7: "https://images.unsplash.com/photo-1558857563-b37103387b5f?w=800&q=80",
+  // 7, 9, 11: link cũ đã 404 trên Unsplash — thay ảnh còn sống (kiểm tra 11/2026)
+  7: "https://images.unsplash.com/photo-1525803377221-4f6ccdaa5133?w=800&q=80",
   8: "https://images.unsplash.com/photo-1525385133512-2f3bdd039054?w=800&q=80",
-  9: "https://images.unsplash.com/photo-1556679343-c1306c40fc7a?w=800&q=80",
+  9: "https://images.unsplash.com/photo-1558857563-b371033873b8?w=800&q=80",
   10: "https://images.unsplash.com/photo-1515825838458-f2a94b20105a?w=800&q=80",
-  11: "https://images.unsplash.com/photo-1515823064-d6e0c04616e7?w=800&q=80",
+  11: "https://images.unsplash.com/photo-1582785513054-8d1bf9d69c1a?w=800&q=80",
   12: "https://images.unsplash.com/photo-1572490122747-3968b75cc699?w=800&q=80",
 };
 
@@ -54,14 +56,14 @@ async function main() {
   // ── Danh mục phân cấp (Mega Menu) ──────────────────────────────
   // Cấp 1: Danh mục gốc
   await prisma.category.create({ data: { id: 100, name: "Thức Uống", sortOrder: 1, parentId: null } });
-  await prisma.category.create({ data: { id: 200, name: "Đồ Ăn Nhẹ", sortOrder: 2, parentId: null } });
+  await prisma.category.create({ data: { id: 200, name: "Đồ Ăn Nhẹ", sortOrder: 2, parentId: null, imageUrl: categoryImages[200] } });
 
   // Cấp 2: Danh mục con
-  await prisma.category.create({ data: { id: 1, name: "Cà Phê Phin & Truyền Thống", sortOrder: 1, parentId: 100 } });
-  await prisma.category.create({ data: { id: 2, name: "Cà Phê Pha Máy (Espresso)", sortOrder: 2, parentId: 100 } });
-  await prisma.category.create({ data: { id: 3, name: "Trà Trái Cây (Syrup/Mứt)", sortOrder: 3, parentId: 100 } });
-  await prisma.category.create({ data: { id: 4, name: "Trà Sữa & Trân Châu", sortOrder: 4, parentId: 100 } });
-  await prisma.category.create({ data: { id: 5, name: "Matcha & Sữa Tươi", sortOrder: 5, parentId: 100 } });
+  await prisma.category.create({ data: { id: 1, name: "Cà Phê Phin & Truyền Thống", sortOrder: 1, parentId: 100, imageUrl: categoryImages[1] } });
+  await prisma.category.create({ data: { id: 2, name: "Cà Phê Pha Máy (Espresso)", sortOrder: 2, parentId: 100, imageUrl: categoryImages[2] } });
+  await prisma.category.create({ data: { id: 3, name: "Trà Trái Cây (Syrup/Mứt)", sortOrder: 3, parentId: 100, imageUrl: categoryImages[3] } });
+  await prisma.category.create({ data: { id: 4, name: "Trà Sữa & Trân Châu", sortOrder: 4, parentId: 100, imageUrl: categoryImages[4] } });
+  await prisma.category.create({ data: { id: 5, name: "Matcha & Sữa Tươi", sortOrder: 5, parentId: 100, imageUrl: categoryImages[5] } });
 
   const inventorySeed = [
     { id: 1, name: "Cà Phê Phin Robusta (Bịch 1Kg)", stockQty: 15, minLevel: 3, unit: "Bịch" },

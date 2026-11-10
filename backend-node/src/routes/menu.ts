@@ -1,6 +1,24 @@
 import { Router } from "express";
 import type { PrismaClient } from "@prisma/client";
-import { hiddenProductIds, storeFromQuery } from "../lib/storeProducts.js";
+import { hiddenProductIds, storeFromQuery, storeMenuState } from "../lib/storeProducts.js";
+import { productRatings } from "./reviews.js";
+import { matchesSearch } from "../lib/productAliases.js";
+import { fitsDiet, isDiet, type NutritionValues } from "../lib/nutrition/labels.js";
+import { parseAllergens } from "../lib/nutrition/compute.js";
+import { siteFlags } from "./site.js";
+import { optionalCustomerAuth } from "../middleware/customer.js";
+import { getUsualItems } from "../lib/customerHabits.js";
+
+type NutritionRow = { size: string; kcal: number; fatG: number; sugarG: number; caffeineMg: number; proteinG: number; allergens: unknown; isVegan: boolean; complete: boolean; labels: unknown };
+/** Size mặc định của món: M (hoặc "-" với món 1 loại) */
+function defaultNutrition(rows: NutritionRow[]): NutritionValues | null {
+  const n = rows.find((r) => r.size === "M") ?? rows.find((r) => r.size === "-");
+  return n ? { kcal: n.kcal, fatG: n.fatG, sugarG: n.sugarG, caffeineMg: n.caffeineMg, allergens: parseAllergens(n.allergens), isVegan: n.isVegan, complete: n.complete } : null;
+}
+export function publicNutrition(rows: NutritionRow[]) {
+  const n = rows.find((r) => r.size === "M") ?? rows.find((r) => r.size === "-");
+  return n ? { size: n.size, kcal: n.kcal, caffeineMg: n.caffeineMg, sugarG: n.sugarG, fatG: n.fatG, proteinG: n.proteinG, complete: n.complete, labels: n.labels } : null;
+}
 
 const AI_URL = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
 
@@ -84,23 +102,25 @@ export function menuRouter(prisma: PrismaClient) {
     res.json({ categoryTree: categories, categories: allCategories, flashSale, bestSellers, hotCombos });
   });
 
-  r.get("/menu", async (req, res) => {
-    const customerId = req.query.customerId ? Number(req.query.customerId) : undefined;
+  // Khách lấy từ token (không đọc ?customerId= — tránh xem món hay uống của người khác)
+  r.get("/menu", optionalCustomerAuth, async (req, res) => {
+    const customerId = (req as typeof req & { customerId?: number }).customerId;
     const search = req.query.search as string;
     const categoryId = req.query.categoryId ? Number(req.query.categoryId) : undefined;
     const minPrice = req.query.minPrice ? Number(req.query.minPrice) : undefined;
     const maxPrice = req.query.maxPrice ? Number(req.query.maxPrice) : undefined;
     const tagsParam = req.query.tags as string;
+    // Lọc ăn kiêng: diet=no_caffeine,low_caffeine,no_milk,low_sugar,low_fat,vegan,no_nuts
+    const diets = String(req.query.diet ?? "").split(",").filter(isDiet);
+    const { showNutrition } = await siteFlags(prisma);
 
     const categories = await prisma.category.findMany({
       orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
     });
     
-    const hidden = await hiddenProductIds(prisma, storeFromQuery(req.query.store));
-    let where: any = { isActive: true, outOfStock: false, id: { notIn: [...hidden] } };
-    if (search) {
-      where.name = { contains: search }; // note: MySQL handles case-insensitivity by default
-    }
+    // Món chi nhánh tắt → ẩn; món hết hàng (báo hết / hết nguyên liệu) → vẫn trả về với soldOut để khách thấy mờ
+    const { disabled, soldOut } = await storeMenuState(prisma, storeFromQuery(req.query.store));
+    let where: any = { isActive: true, id: { notIn: [...disabled] } };
     if (categoryId && !Number.isNaN(categoryId)) {
       // Chọn danh mục cha → gồm cả món của danh mục con
       where.categoryId = { in: [categoryId, ...categories.filter((c) => c.parentId === categoryId).map((c) => c.id)] };
@@ -111,11 +131,27 @@ export function menuRouter(prisma: PrismaClient) {
       if (maxPrice !== undefined && !Number.isNaN(maxPrice)) where.sellPrice.lte = maxPrice;
     }
 
-    let products = await prisma.product.findMany({
+    const ratings = await productRatings(prisma);
+    const rows = await prisma.product.findMany({
       where,
-      include: { category: true },
+      include: { category: true, nutrition: true },
       orderBy: [{ categoryId: "asc" }, { id: "asc" }],
     });
+    const shape = ({ nutrition, ...p }: (typeof rows)[number]) => ({
+      ...p,
+      soldOut: p.outOfStock || soldOut.has(p.id),
+      rating: ratings.get(p.id) ?? null,
+      // Dinh dưỡng ước tính (size mặc định) — ẩn khi Website › Giao diện tắt
+      nutrition: showNutrition ? publicNutrition(nutrition) : null,
+    });
+    let products = rows
+      // Tìm theo tên hoặc tên gọi khác, bỏ dấu ("bx", "ca phe sua")
+      .filter((p) => !search || matchesSearch(p, search))
+      // Ăn kiêng: theo size mặc định (M, món 1 loại "-"); chỉ món đủ dữ liệu mới lọt bộ lọc loại trừ
+      .filter((p) => !diets.length || (showNutrition && diets.every((d) => { const n = defaultNutrition(p.nutrition); return !!n && fitsDiet(n, d); })))
+      .map(shape)
+      // Món hết hàng xuống cuối danh mục (sort ổn định giữ thứ tự còn lại)
+      .sort((a, b) => a.categoryId - b.categoryId || Number(a.soldOut) - Number(b.soldOut));
 
     if (tagsParam) {
       const selectedTags = tagsParam.split(",").map(t => t.trim()).filter(Boolean);
@@ -134,38 +170,29 @@ export function menuRouter(prisma: PrismaClient) {
       }
     }
 
-    let favorites: typeof products = [];
+    // "Món quen": món khách hay gọi (kèm bộ tuỳ chọn quen) → không có thì gợi ý AI → không có nữa thì ẩn khối
+    type Favorite = (typeof products)[number] & { usual?: Awaited<ReturnType<typeof getUsualItems>>[number]["usual"]; usualNote?: string | null; timesOrdered?: number };
+    let favorites: Favorite[] = [];
+    let favoritesKind: "usual" | "ai" | "none" = "none";
 
-    if (customerId && !Number.isNaN(customerId)) {
-      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const details = await prisma.orderDetail.findMany({
-        where: {
-          order: {
-            customerId,
-            status: "Paid",
-            createdAt: { gte: since },
-          },
-        },
+    if (customerId) {
+      // Món quen không phụ thuộc ô tìm kiếm / chip ăn kiêng (thẻ món tự nhắc món không hợp); món chi nhánh tắt đã bị loại
+      const pmap = new Map(rows.map((p) => [p.id, shape(p)]));
+      const usual = await getUsualItems(prisma, customerId, { storeId: storeFromQuery(req.query.store), limit: 6 });
+      favorites = usual.flatMap((u) => {
+        const p = pmap.get(u.productId);
+        return p ? [{ ...p, usual: u.usual, usualNote: u.usualNote, timesOrdered: u.timesOrdered }] : [];
       });
-      // Đếm theo món (không tách theo ghi chú size/đá/đường) — tách ra thì cùng một món hiện nhiều lần
-      const freq = new Map<number, number>();
-      for (const d of details) freq.set(d.productId, (freq.get(d.productId) ?? 0) + d.quantity);
-      const pmap = new Map(products.map((p) => [p.id, p]));
-      favorites = [...freq.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .map(([pid]) => pmap.get(pid))
-        .filter(Boolean)
-        .slice(0, 3) as typeof products;
-
-      if (favorites.length === 0) {
+      if (favorites.length) favoritesKind = "usual";
+      else {
         try {
           const resp = await fetch(`${AI_URL}/recommendations?customer_id=${customerId}`, {
             signal: AbortSignal.timeout(2500),
           });
           if (resp.ok) {
             const data = (await resp.json()) as { product_ids?: number[] };
-            const ids = data.product_ids ?? [];
-            favorites = ids.map((id) => pmap.get(id)).filter(Boolean) as typeof products;
+            favorites = (data.product_ids ?? []).map((id) => pmap.get(id)).filter((p): p is (typeof products)[number] => !!p && !p.soldOut).slice(0, 6);
+            if (favorites.length) favoritesKind = "ai";
           }
         } catch {
           /* optional AI */
@@ -173,11 +200,7 @@ export function menuRouter(prisma: PrismaClient) {
       }
     }
 
-    if (favorites.length === 0) {
-      favorites = products.filter((p) => [7, 9, 11].includes(p.id)).slice(0, 3);
-    }
-
-    res.json({ categories, products, favorites });
+    res.json({ categories, products, favorites, favoritesKind });
   });
 
   return r;

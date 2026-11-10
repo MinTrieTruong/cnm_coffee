@@ -1,0 +1,18 @@
+{
+  "readable": true,
+  "invoiceNo": "MP-001502",
+  "lines": {
+    "Kem Béo": {
+      "receivedQty": 12,
+      "expiryDate": "2026-11-22"
+    },
+    "Sữa Đặc": {
+      "receivedQty": 24,
+      "expiryDate": "2027-04-30"
+    }
+  },
+  "flags": [
+    "NEAR_EXPIRY:Kem Béo"
+  ],
+  "sharpness": 3600
+}

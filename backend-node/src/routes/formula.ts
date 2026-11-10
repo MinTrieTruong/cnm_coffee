@@ -3,6 +3,7 @@ import type { PrismaClient } from "@prisma/client";
 import { attachStaff, requireRoles, type StaffRequest } from "../middleware/staff.js";
 import { audit } from "../lib/audit.js";
 import { productCosts, recalcProductCost } from "../lib/productCost.js";
+import { computeProductNutrition } from "../lib/nutrition/compute.js";
 
 type LineInput = { itemId: number; qtyS?: number | null; qtyM: number; qtyL?: number | null; note?: string | null };
 
@@ -81,6 +82,8 @@ export function formulaRouter(prisma: PrismaClient) {
       return costs.get(productId) ?? { S: 0, M: 0, L: 0 };
     });
     audit(me.id, "FORMULA_SAVE", product.name, `${lines.length} nguyên liệu · giá vốn M ${Math.round(cost.M)}đ`);
+    // Đổi công thức → dinh dưỡng món tính lại theo định mức mới
+    await computeProductNutrition(productId).catch((e) => console.error("[nutrition]", e));
     res.json({
       formulas: await prisma.productFormula.findMany({ where: { productId }, include, orderBy: { id: "asc" } }),
       cost: { S: Math.round(cost.S), M: Math.round(cost.M), L: Math.round(cost.L) },

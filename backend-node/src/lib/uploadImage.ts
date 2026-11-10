@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
 
@@ -23,6 +23,42 @@ export async function saveDataUrlImage(dataUrl: string): Promise<string> {
   const name = `${randomUUID()}.${ext}`;
   await writeFile(path.join(UPLOAD_DIR, name), buf);
   return `/uploads/${name}`;
+}
+
+/**
+ * Ảnh riêng tư (ảnh khuôn mặt lúc đăng ký FaceID): lưu ngoài thư mục /uploads công khai,
+ * chỉ đọc qua API có kiểm quyền. Trả về tên tệp (không phải URL).
+ */
+const PRIVATE_FACE_DIR = path.join(process.cwd(), "private-uploads", "face");
+
+export async function savePrivateFacePhoto(dataUrl: string): Promise<string> {
+  const m = /^data:image\/(?:png|jpeg|jpg|webp);base64,(.+)$/i.exec(dataUrl.trim());
+  if (!m) throw new Error("Ảnh khuôn mặt không hợp lệ.");
+  const buf = Buffer.from(m[1], "base64");
+  if (buf.length > 1_500_000) throw new Error("Ảnh khuôn mặt quá lớn.");
+  const ext = imageKind(buf);
+  if (!ext || ext === "gif") throw new Error("Ảnh khuôn mặt không hợp lệ.");
+  await mkdir(PRIVATE_FACE_DIR, { recursive: true });
+  const name = `${randomUUID()}.${ext}`;
+  await writeFile(path.join(PRIVATE_FACE_DIR, name), buf);
+  return name;
+}
+
+/** Đọc ảnh khuôn mặt riêng tư (tên tệp do savePrivateFacePhoto trả về); null nếu không có */
+export async function readPrivateFacePhoto(name: string): Promise<{ buf: Buffer; type: string } | null> {
+  if (!/^[0-9a-f-]{36}\.(png|jpg|webp)$/.test(name)) return null;
+  try {
+    const buf = await readFile(path.join(PRIVATE_FACE_DIR, name));
+    const ext = name.split(".").pop();
+    return { buf, type: ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg" };
+  } catch {
+    return null;
+  }
+}
+
+export async function deletePrivateFacePhoto(name: string | null | undefined) {
+  if (!name || !/^[0-9a-f-]{36}\.(png|jpg|webp)$/.test(name)) return;
+  await unlink(path.join(PRIVATE_FACE_DIR, name)).catch(() => undefined);
 }
 
 /** Loại ảnh theo magic bytes (null nếu không phải ảnh được hỗ trợ) */

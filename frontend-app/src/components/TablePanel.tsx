@@ -12,7 +12,10 @@ import {
   Utensils,
   X,
 } from "lucide-react";
-import { apiOrigin } from "../lib/api";
+import { apiOrigin, TEMP_TEXT, tempChoices, type ProductTemps, type Temp } from "../lib/api";
+import { PosVoiceBar } from "./VoiceOrder";
+import { lineFromProduct, voiceNote, type VoiceLine } from "../lib/voiceOrder";
+import { CustomerHabitCard, type HabitItem } from "./CustomerHabitCard";
 
 export type PanelProduct = {
   id: number;
@@ -25,6 +28,8 @@ export type PanelProduct = {
   discountPercent?: number | null;
   /** false = món 1 loại (bánh…): không chọn size */
   hasSizes?: boolean;
+  /** BOTH | ICED | HOT | NONE — món chỉ nóng / chỉ đá không cho chọn kiểu kia */
+  temps?: ProductTemps;
 };
 
 type Size = "S" | "M" | "L";
@@ -53,7 +58,7 @@ export type PanelOrder = {
   customer: { id: number; fullName: string; phone: string | null; points: number } | null;
   details: PanelDetail[];
 };
-export type OrderLine = { productId: number; quantity: number; size: Size; customNotes?: string };
+export type OrderLine = { productId: number; quantity: number; size: Size; temp?: Temp | null; customNotes?: string };
 
 type Mode = "items" | "order" | "move" | "merge" | "split";
 
@@ -259,6 +264,7 @@ function ItemsView({
           <div className="tp-customer">
             Khách <strong>{order.customer.fullName}</strong>
             {order.customer.phone && <> · {order.customer.phone}</>} · {order.customer.points} điểm
+            {order.customer.phone && <CustomerHabitCard phone={order.customer.phone} />}
           </div>
         )}
 
@@ -354,6 +360,13 @@ function OrderView({
   const [lines, setLines] = useState<Record<string, Line>>({});
   /** Size đang chọn cho từng món (mặc định M) */
   const [sizeOf, setSizeOf] = useState<Record<number, Size>>({});
+  /** Nóng/đá đang chọn cho từng món (mặc định kiểu đầu tiên món cho phép) */
+  const [tempOf, setTempOf] = useState<Record<number, Temp>>({});
+  const tempFor = (p: PanelProduct): Temp | null => {
+    const ch = tempChoices(p);
+    const want = tempOf[p.id];
+    return ch.length === 0 ? null : want && ch.includes(want) ? want : ch[0];
+  };
   const [phone, setPhone] = useState(initialPhone);
   // Món 1 loại (bánh…) không chọn size — theo cờ hasSizes của món (máy chủ cũng ép size M)
   const hasSizes = (p: PanelProduct) => p.hasSizes !== false;
@@ -366,14 +379,14 @@ function OrderView({
   const picked = Object.entries(lines)
     .filter(([, l]) => l.qty > 0)
     .map(([key, l]) => {
-      const [id, size] = key.split("|");
-      return { product: products.find((p) => p.id === Number(id)), size: size as Size, line: l };
+      const [id, size, temp] = key.split("|");
+      return { product: products.find((p) => p.id === Number(id)), size: size as Size, temp: (temp || null) as Temp | null, line: l };
     })
-    .filter((x): x is { product: PanelProduct; size: Size; line: Line } => !!x.product);
+    .filter((x): x is { product: PanelProduct; size: Size; temp: Temp | null; line: Line } => !!x.product);
   const count = picked.reduce((s, x) => s + x.line.qty, 0);
   const total = picked.reduce((s, x) => s + priceFor(x.product, x.size) * x.line.qty, 0);
 
-  const keyOf = (p: PanelProduct) => `${p.id}|${hasSizes(p) ? sizeOf[p.id] ?? "M" : "M"}`;
+  const keyOf = (p: PanelProduct) => `${p.id}|${hasSizes(p) ? sizeOf[p.id] ?? "M" : "M"}|${tempFor(p) ?? ""}`;
   const change = (key: string, d: number) =>
     setLines((prev) => {
       const cur = prev[key] ?? { qty: 0, note: "", showNote: false };
@@ -381,13 +394,44 @@ function OrderView({
       return { ...prev, [key]: { ...cur, qty } };
     });
 
+  /**
+   * Món đã xác nhận từ giọng nói → danh sách đang gọi. Cùng món + size + nóng/đá + ghi chú thì cộng dồn;
+   * khác ghi chú (VD 1 ly ít đá, 1 ly không đá) thì tách dòng riêng (khóa có thêm đuôi "|v…", phần gửi bếp bỏ qua đuôi).
+   */
+  const addVoice = (vls: VoiceLine[]) =>
+    setLines((prev) => {
+      const next = { ...prev };
+      for (const vl of vls) {
+        const p = products.find((x) => x.id === vl.productId);
+        if (!p) continue;
+        const size: Size = hasSizes(p) ? vl.size ?? "M" : "M";
+        const note = voiceNote(vl);
+        const base = `${p.id}|${size}|${vl.temp ?? ""}`;
+        const key = Object.keys(next).find((k) => (k === base || k.startsWith(`${base}|v`)) && (next[k].qty === 0 || next[k].note.trim() === note)) ?? `${base}|v${Date.now()}${Math.random().toString(36).slice(2, 5)}`;
+        const cur = next[key] ?? { qty: 0, note: "", showNote: false };
+        next[key] = { qty: cur.qty + vl.qty, note: cur.qty === 0 ? note : cur.note, showNote: !!note || cur.showNote };
+      }
+      return next;
+    });
+
+  /** "+" trên thẻ thói quen: thêm món đúng size / nóng-đá / đá / đường / ghi chú quen (ghi chú dạng giọng nói: "Ít đá · Ít đường") */
+  const addUsual = (it: HabitItem) => {
+    const p = products.find((x) => x.id === it.productId);
+    if (!p) return;
+    const lvl = (v: number | string | null) => (v == null ? null : ([0, 50, 100] as const).reduce((a, b) => (Math.abs(b - Number(v)) < Math.abs(a - Number(v)) ? b : a)));
+    const u = it.usual;
+    addVoice([lineFromProduct(p, { qty: 1, size: u.size ?? "M", temp: u.temperature, ice: lvl(u.icePct), sugar: lvl(u.sugar), note: it.usualNote })]);
+  };
+
   return (
     <>
       <div className="tp-body tp-body-order">
+        <PosVoiceBar products={products} onAdd={addVoice} />
         <div className="tp-order-tools">
           <input className="o-input" type="search" placeholder="Tìm món…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Tìm món" />
           <input className="o-input" type="tel" placeholder="SĐT khách (tích điểm)" value={phone} onChange={(e) => setPhone(e.target.value)} aria-label="SĐT khách" />
         </div>
+        <CustomerHabitCard phone={phone} onAdd={addUsual} />
         {!q && (
           <div className="tp-chips" role="tablist" aria-label="Danh mục">
             {cats.map((c) => (
@@ -404,8 +448,15 @@ function OrderView({
             const key = keyOf(p);
             const l = lines[key];
             const qty = l?.qty ?? 0;
-            // Các size khác của món này đã chọn (để phục vụ thấy tổng)
-            const others = SIZES.filter((s) => s !== size && (lines[`${p.id}|${s}`]?.qty ?? 0) > 0).map((s) => `${s}×${lines[`${p.id}|${s}`].qty}`);
+            const temps = tempChoices(p);
+            const temp = tempFor(p);
+            // Các lựa chọn khác (size / nóng-đá) của món này đã chọn (để phục vụ thấy tổng)
+            const others = Object.entries(lines)
+              .filter(([k, v]) => k.startsWith(`${p.id}|`) && k !== key && v.qty > 0)
+              .map(([k, v]) => {
+                const [, s, tp] = k.split("|");
+                return `${sized ? s : ""}${tp ? ` ${TEMP_TEXT[tp as Temp].toLowerCase()}` : ""}×${v.qty}`.trim();
+              });
             const img = p.imageUrl ? (p.imageUrl.startsWith("http") ? p.imageUrl : `${apiOrigin()}${p.imageUrl}`) : null;
             return (
               <li key={p.id} className={qty > 0 ? "tp-menu-item picked" : "tp-menu-item"}>
@@ -433,6 +484,23 @@ function OrderView({
                       ))}
                     </div>
                   )}
+                  {temps.length > 1 && temp && (
+                    <div role="group" aria-label={`Nóng / đá ${p.name}`} style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                      {temps.map((tp) => (
+                        <button
+                          key={tp}
+                          type="button"
+                          className={tp === temp ? "tp-chip active" : "tp-chip"}
+                          style={{ padding: "2px 10px" }}
+                          aria-pressed={tp === temp}
+                          onClick={() => setTempOf((prev) => ({ ...prev, [p.id]: tp }))}
+                        >
+                          {TEMP_TEXT[tp]}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {temps.length === 1 && <div className="tp-muted" style={{ marginTop: 4 }}>Chỉ {TEMP_TEXT[temps[0]].toLowerCase()}</div>}
                   {l?.showNote && (
                     <input
                       className="o-input tp-note-input"
@@ -465,6 +533,22 @@ function OrderView({
           {list.length === 0 && <li className="tp-muted" style={{ padding: 12 }}>Không có món phù hợp.</li>}
         </ul>
       </div>
+      {picked.length > 0 && (
+        <div className="tp-picked" aria-label="Món đã chọn">
+          {picked.map((x) => {
+            const key = Object.keys(lines).find((k) => lines[k] === x.line)!;
+            return (
+              <span key={key} className="tp-picked-item">
+                {x.line.qty}× {x.product.name}
+                {hasSizes(x.product) && x.size !== "M" ? ` ${x.size}` : ""}
+                {x.temp === "HOT" ? " nóng" : ""}
+                {x.line.note.trim() && <em> · {x.line.note.trim()}</em>}
+                <button type="button" onClick={() => setLines((prev) => ({ ...prev, [key]: { ...prev[key], qty: 0 } }))} aria-label={`Bỏ ${x.product.name}`}><X size={12} aria-hidden /></button>
+              </span>
+            );
+          })}
+        </div>
+      )}
       <footer className="tp-foot">
         <div className="tp-total">
           <span>{count ? `${count} món mới` : "Chưa chọn món"}</span>
@@ -480,8 +564,9 @@ function OrderView({
                 productId: x.product.id,
                 quantity: x.line.qty,
                 size: x.size,
-                // Ghi size vào ghi chú cho pha chế (giống đơn khách tự đặt)
-                customNotes: [hasSizes(x.product) ? `Size ${x.size}` : "", x.line.note.trim()].filter(Boolean).join(", ") || undefined,
+                temp: x.temp,
+                // Ghi size, nóng/đá vào ghi chú cho pha chế (giống đơn khách tự đặt)
+                customNotes: [hasSizes(x.product) ? `Size ${x.size}` : "", x.temp ? TEMP_TEXT[x.temp] : "", x.line.note.trim()].filter(Boolean).join(", ") || undefined,
               })),
               phone.trim(),
             )

@@ -1,23 +1,21 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { ChevronLeft, ImagePlus } from "lucide-react";
-import { clearStaffSession, getStaffInfo, getStaffToken, staffApi } from "../../lib/staffApi";
+import { ChevronLeft } from "lucide-react";
+import { clearStaffSession, getStaffInfo, getStaffToken } from "../../lib/staffApi";
 import { BottomNav } from "../BottomNav";
 import { staffNav, type NavItem } from "../../lib/navConfig";
 import { refreshBadges, useStaffBadges } from "../../lib/navBadges";
 import { useAttendanceToday } from "../../lib/attendanceReminder";
+import { useAiFeatures } from "../../lib/aiFeatures";
 import { AttendanceReminder } from "./AttendanceReminder";
 import { appPath, canSee, defaultRouteForRole, isLeaf, listed, locate, type MenuLeaf } from "../../apps/registry";
 import { LEAF_BADGES, buildSidebar, leavesOfGroup } from "../../apps/sidebar";
+import { buildSearchIndex, pushRecent } from "../../apps/sidebarSearch";
 import { Sidebar } from "./Sidebar";
 import { StoreSwitcher } from "./StoreSwitcher";
 import { PageHeader } from "./dashboard";
 import { roleLabel } from "../../lib/roles";
-import { Alert, Button, EmptyState, Field, Modal } from "./primitives";
-import { PasswordInput } from "../PasswordInput";
-import { CustomerAvatar } from "../CustomerAvatar";
-import { errMsg } from "./index";
-import { readFileAsDataUrl } from "../../modules/shared";
+import { EmptyState } from "./primitives";
 import { NotificationProvider, useNotifications } from "../../lib/notifications";
 import { unsubscribePush } from "../../lib/push";
 import { ImportantNotice, NotificationBell, NotificationToasts } from "./Notifications";
@@ -53,18 +51,26 @@ function Shell() {
   const { unread } = useNotifications();
   const loc = useLocation();
   const nav = useNavigate();
-  const [pwOpen, setPwOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   // Trang toàn màn hình tự thu gọn; mở tạm (peek) không ghi đè lựa chọn của người dùng
   const [peek, setPeek] = useState(false);
   const sourceBadges = useStaffBadges(info?.role, info?.id);
   const role = info?.role ?? "";
-  const groups = useMemo(() => buildSidebar(role), [role]);
+  const aiFeatures = useAiFeatures(role);
+  const groups = useMemo(() => buildSidebar(role, aiFeatures), [role, aiFeatures]);
+  // Chỉ mục "Tìm chức năng…" dựng một lần, dùng chung cho sidebar desktop và sheet "Thêm" trên điện thoại
+  const searchIndex = useMemo(() => buildSearchIndex(groups), [groups]);
   const attendance = useAttendanceToday(info ? role : undefined);
   const badges = { ...sourceBadges, attendance: attendance.reminder ? 1 : 0, notifications: unread };
   const onAttendancePage = loc.pathname === "/app/hr/attendance";
 
   useEffect(() => setPeek(false), [loc.pathname]);
+  // "Gần đây" của ô tìm chức năng: ghi nhận màn vừa mở (`app/leaf`)
+  const openedKey = locate(loc.pathname);
+  const recentKey = openedKey ? `${openedKey.app.id}/${openedKey.leaf.alias ?? openedKey.leaf.id}` : null;
+  useEffect(() => {
+    if (recentKey) pushRecent(recentKey);
+  }, [recentKey]);
   // Vừa rời màn có badge (duyệt đơn, mua hàng, tồn kho…) → badge tính lại ngay, không đợi 60 giây
   const prevPath = useRef(loc.pathname);
   useEffect(() => {
@@ -113,7 +119,7 @@ function Shell() {
   const labelOf = (l: MenuLeaf) => (l.labelFor ? l.labelFor(role) : l.label);
   const currentKey = `${app.id}/${leaf.alias ?? leaf.id}`;
   // Mobile: các mục con của app hiện tại, cuộn ngang
-  const appLeaves = app.menus.flatMap((m) => (isLeaf(m) ? [m] : m.children)).filter((l) => listed(l, role));
+  const appLeaves = app.menus.flatMap((m) => (isLeaf(m) ? [m] : m.children)).filter((l) => listed(l, role) && (!l.feature || aiFeatures.has(l.feature)));
   const mobileNav = staffNav(role);
   // "Thêm" trên điện thoại: đủ chức năng theo nhóm sidebar
   const moreGroups = groups.map((g) => ({
@@ -141,9 +147,11 @@ function Shell() {
         onToggle={toggleSide}
         badges={badges}
         profile={{ name: info.fullName ?? "Nhân viên", role: roleLabel(role) }}
-        onChangePassword={() => setPwOpen(true)}
+        onChangePassword={() => nav("/app/hr/me")}
         onLogout={logout}
         bell={<NotificationBell variant="side" />}
+        searchIndex={searchIndex}
+        disableSlash={full}
       />
 
       <div className="o-main">
@@ -181,104 +189,15 @@ function Shell() {
           items: mobileNav.more,
           apps: mobileNav.moreApps,
           groups: moreGroups,
+          search: { index: searchIndex, currentKey },
           profile: { name: info.fullName ?? "Nhân viên", role: roleLabel(role) },
-          onChangePassword: () => setPwOpen(true),
+          onChangePassword: () => nav("/app/hr/me"),
           onLogout: logout,
         }}
       />
       {!onAttendancePage && <AttendanceReminder reminder={attendance.reminder} />}
       <NotificationToasts />
       <ImportantNotice />
-      {pwOpen && <ChangePasswordDialog onClose={() => setPwOpen(false)} />}
     </div>
-  );
-}
-
-/** Ảnh đại diện nhân viên — hiện cạnh tin nhắn của bạn trong chat với khách (PATCH /api/staff/me) */
-function StaffAvatarField() {
-  const [info, setInfo] = useState(() => getStaffInfo());
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const input = useRef<HTMLInputElement>(null);
-  async function save(body: Record<string, unknown>) {
-    setBusy(true);
-    setErr(null);
-    try {
-      const r = await staffApi<{ avatarUrl: string | null }>("/api/staff/me", { method: "PATCH", body: JSON.stringify(body) });
-      const next = { ...getStaffInfo()!, avatarUrl: r.avatarUrl };
-      localStorage.setItem("cmn_staff_info", JSON.stringify(next));
-      setInfo(next);
-    } catch (e) {
-      setErr(errMsg(e, "Lỗi lưu ảnh"));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function pick(file: File | undefined) {
-    if (!file) return;
-    if (file.size > 2 * 1024 * 1024) return setErr("Ảnh tối đa 2MB.");
-    await save({ avatarDataUrl: await readFileAsDataUrl(file) });
-  }
-  const name = info?.fullName ?? "Nhân viên";
-  return (
-    <Field label="Ảnh đại diện">
-      <div className="o-row" style={{ gap: 12, flexWrap: "nowrap" }}>
-        <CustomerAvatar src={info?.avatarUrl} name={name} size={48} />
-        <div className="o-stack" style={{ gap: 4 }}>
-          <div className="o-row">
-            <Button size="sm" icon={ImagePlus} onClick={() => input.current?.click()} disabled={busy}>{busy ? "Đang lưu…" : "Đổi ảnh"}</Button>
-            {info?.avatarUrl && <Button size="sm" variant="link" onClick={() => void save({ removeAvatar: true })} disabled={busy}>Xóa ảnh</Button>}
-          </div>
-          <span className="o-hint" style={{ marginTop: 0 }}>Khách thấy ảnh này cạnh tin nhắn của bạn trong khung chat.</span>
-          {err && <span className="o-error" style={{ marginTop: 0 }}>{err}</span>}
-        </div>
-        <input ref={input} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ""; }} />
-      </div>
-    </Field>
-  );
-}
-
-/** Tài khoản của tôi: ảnh đại diện + đổi mật khẩu (POST /api/staff/me/change-password) */
-function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
-  const [cur, setCur] = useState("");
-  const [next, setNext] = useState("");
-  const [again, setAgain] = useState("");
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  async function submit() {
-    if (next.length < 6) return setMsg({ ok: false, text: "Mật khẩu mới tối thiểu 6 ký tự." });
-    if (next !== again) return setMsg({ ok: false, text: "Nhập lại mật khẩu mới không khớp." });
-    setBusy(true);
-    try {
-      await staffApi("/api/staff/me/change-password", { method: "POST", body: JSON.stringify({ currentPassword: cur, newPassword: next }) });
-      setMsg({ ok: true, text: "Đã đổi mật khẩu." });
-      setCur("");
-      setNext("");
-      setAgain("");
-    } catch (e) {
-      setMsg({ ok: false, text: e instanceof Error ? e.message : "Lỗi đổi mật khẩu" });
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <Modal
-      title="Tài khoản của tôi"
-      size="sm"
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="primary" onClick={() => void submit()} disabled={busy || !cur || !next}>Đổi mật khẩu</Button>
-          <Button onClick={onClose}>Đóng</Button>
-        </>
-      }
-    >
-      <StaffAvatarField />
-      <div className="o-group-title" style={{ marginTop: 16 }}>Đổi mật khẩu</div>
-      {msg && <Alert tone={msg.ok ? "info" : "danger"}>{msg.text}</Alert>}
-      <Field label="Mật khẩu hiện tại"><PasswordInput className="o-input" value={cur} onChange={(e) => setCur(e.target.value)} autoComplete="current-password" /></Field>
-      <Field label="Mật khẩu mới"><PasswordInput className="o-input" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" /></Field>
-      <Field label="Nhập lại"><PasswordInput className="o-input" value={again} onChange={(e) => setAgain(e.target.value)} autoComplete="new-password" /></Field>
-    </Modal>
   );
 }

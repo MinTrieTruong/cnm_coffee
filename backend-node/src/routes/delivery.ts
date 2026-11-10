@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { distanceM, parseProof } from "../lib/photoProof.js";
 import type { PrismaClient } from "@prisma/client";
 import type { Server } from "socket.io";
 import { attachStaff, requireRoles, requireStore, type StaffRequest } from "../middleware/staff.js";
@@ -291,12 +292,15 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
   r.post("/shipper/orders/:id/deliver", ...shipperOnly, async (req, res) => {
     const me = (req as StaffRequest).staffRow!;
     const id = Number(req.params.id);
-    const { photo, note } = req.body as { photo?: string; note?: string };
+    const { photo, note, proof } = req.body as { photo?: string; note?: string; proof?: unknown };
     const order = await prisma.order.findUnique({ where: { id }, include: { customer: true } });
     if (!order || !inStore(req, order) || (order.shipperId !== me.id && me.role === "Shipper")) return res.status(404).json({ error: "Không tìm thấy đơn" });
     if (order.deliveryStatus !== DS.Delivering) return res.status(400).json({ error: "Đơn chưa ở trạng thái đang giao" });
     if (!photo) return res.status(400).json({ error: "Cần chụp ảnh xác nhận đã giao" });
     if (order.status !== "Paid") return res.status(400).json({ error: "Đơn chưa thanh toán — liên hệ thu ngân trước khi giao" });
+    // Ảnh phải chụp bằng camera trong app, kèm GPS + giờ chụp còn mới
+    const pr = parseProof(proof);
+    if (!pr.ok) return res.status(400).json({ error: pr.error });
 
     let proofUrl: string;
     try {
@@ -314,6 +318,11 @@ export function deliveryRouter(prisma: PrismaClient, io: Server) {
         deliveryProofUrl: proofUrl,
         deliveryNote: note?.trim() || null,
         routeSeq: null,
+        proofLat: pr.meta.lat,
+        proofLng: pr.meta.lng,
+        proofAccuracy: pr.meta.accuracy,
+        proofTakenAt: pr.meta.takenAt,
+        proofDistanceM: distanceM(pr.meta, { lat: order.customerLat ?? undefined, lng: order.customerLng ?? undefined }),
       },
     });
 

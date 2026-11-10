@@ -9,6 +9,11 @@ import { optionalCustomerAuth } from "../middleware/customer.js";
 import { saveDataUrlImage } from "../lib/uploadImage.js";
 import { notify } from "../lib/notify.js";
 import { getStoreSettings } from "../lib/pricing.js";
+import { WAIT_FOR_STAFF, broadcastChat, escalateChat } from "../lib/chatBroadcast.js";
+import { agentFor, inSchedule } from "../ai/agent/config.js";
+import { fillPronouns, matchQuickReply } from "../ai/agent/quickReply.js";
+import { handOff, logRun, markAnswered } from "../ai/agent/engine.js";
+import { cancelReply, enqueueReply } from "../ai/agent/scheduler.js";
 import type { Request } from "express";
 
 type CustReq = Request & { customerId?: number };
@@ -44,8 +49,8 @@ function botReply(text: string, info: BotInfo): string | null {
   return null; // Không khớp → escalate lên nhân viên
 }
 
-/** Phòng socket riêng của khách — tên kèm mã bí mật, không đoán được từ số phiên */
-const customerRoom = (s: Pick<ChatSession, "id" | "accessKey">) => `chat:${s.id}:${s.accessKey}`;
+/** Tin ngoài giờ của AI: mỗi phiên tối đa 1 lần / 2 giờ */
+const OUT_OF_HOURS_GAP_MS = 2 * 60 * 60 * 1000;
 
 export function chatRouter(prisma: PrismaClient, io: Server) {
   const r = Router();
@@ -65,10 +70,7 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
   }
 
   /** Tin nhắn mới tới khách + nhân viên đúng nơi: khiếu nại → quản lý, chat → nhân viên chi nhánh */
-  function broadcast(session: ChatSession, event: string, payload: unknown) {
-    if (session.accessKey) io.to(customerRoom(session)).emit(event, payload);
-    toStore(io, session.kind === "COMPLAINT" ? "admin_room" : "staff", session.storeId).emit(event, payload);
-  }
+  const broadcast = (session: ChatSession, event: string, payload: unknown) => broadcastChat(io, session, event, payload);
 
   async function saveImage(dataUrl: unknown) {
     if (typeof dataUrl !== "string" || !dataUrl) return null;
@@ -130,6 +132,17 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
       });
     }
 
+    // AI tư vấn gán cho kênh + chi nhánh (đang bật). Phiên mới: lời chào của agent là tin đầu tiên
+    const agent = session.kind === "CHAT" ? await agentFor(session.channel, session.storeId) : null;
+    let greeting = null;
+    if (agent && session.aiAgentId !== agent.id) session = await prisma.chatSession.update({ where: { id: session.id }, data: { aiAgentId: agent.id } });
+    if (agent && isNew) {
+      greeting = await prisma.chatMessage.create({
+        data: { sessionId: session.id, sender: "bot", senderName: agent.botName, body: fillPronouns(agent.greeting, agent) },
+        include: msgInclude,
+      });
+    }
+
     const msg = await prisma.chatMessage.create({
       data: { sessionId: session.id, sender: "customer", senderName: session.guestName, body: text, imageUrl },
       include: msgInclude,
@@ -137,7 +150,7 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
     await prisma.chatSession.update({ where: { id: session.id }, data: { updatedAt: new Date() } });
     toStore(io, session.kind === "COMPLAINT" ? "admin_room" : "staff", session.storeId).emit("chat:reply", { sessionId: session.id, message: msg });
 
-    const out = { sessionId: session.id, key: session.accessKey, kind: session.kind, message: msg };
+    const out = { sessionId: session.id, key: session.accessKey, kind: session.kind, message: msg, greeting };
 
     if (session.kind === "COMPLAINT") {
       if (!isNew) return res.json({ ...out, reply: null });
@@ -163,7 +176,45 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
       return res.json({ ...out, reply: ack });
     }
 
-    // Chat: bot trả lời câu hỏi thường gặp (chỉ khi có chữ)
+    if (agent) {
+      const s = session;
+      const botMsg = (body: string) =>
+        prisma.chatMessage.create({ data: { sessionId: s.id, sender: "bot", senderName: agent.botName, body }, include: msgInclude });
+      // Nhân viên đã tiếp quản / đã chuyển nhân viên: AI im lặng, báo nhân viên có tin mới
+      if (s.aiPaused) {
+        escalateChat(io, s, text || "[Ảnh]");
+        return res.json({ ...out, reply: null, bot: false });
+      }
+      // Ngoài giờ hoạt động của AI: báo khách (tối đa 1 lần / 2 giờ) và để nhân viên xử lý
+      if (!inSchedule(agent)) {
+        escalateChat(io, s, text || "[Ảnh]");
+        if (s.aiOutOfHoursAt && Date.now() - s.aiOutOfHoursAt.getTime() < OUT_OF_HOURS_GAP_MS) return res.json({ ...out, reply: null, bot: false });
+        await prisma.chatSession.update({ where: { id: s.id }, data: { aiOutOfHoursAt: new Date() } });
+        const body = agent.outOfHoursMessage ? fillPronouns(agent.outOfHoursMessage, agent) : WAIT_FOR_STAFF;
+        void logRun({ agentId: agent.id, sessionId: s.id, channel: s.channel, storeId: s.storeId, kind: "OUT_OF_HOURS", input: text, output: body });
+        return res.json({ ...out, reply: await botMsg(body), bot: false });
+      }
+      // Mẫu trả lời nhanh: trả lời ngay, không gọi AI
+      const quick = agent.quickRepliesEnabled ? matchQuickReply(text, await prisma.aiQuickReply.findMany({ where: { agentId: agent.id } }), agent) : null;
+      if (quick) {
+        const run = await logRun({ agentId: agent.id, sessionId: s.id, channel: s.channel, storeId: s.storeId, kind: "QUICK_REPLY", input: text, output: `${quick.name}: ${quick.reply}` });
+        const reply = quick.reply
+          ? await prisma.chatMessage.create({ data: { sessionId: s.id, sender: "bot", senderName: agent.botName, body: quick.reply, aiRunId: run.id }, include: msgInclude })
+          : null;
+        await markAnswered(s.id, msg.id);
+        if (quick.action === "HANDOFF") {
+          cancelReply(s.id);
+          void handOff(s.id, agent, "Khách yêu cầu gặp nhân viên", [{ role: "user", text }]);
+        }
+        return res.json({ ...out, reply, bot: true });
+      }
+      // Còn lại (kể cả tin chỉ có ảnh — AI xem được ảnh): AI trả lời sau khi gộp tin / đợi nhân viên (kết quả qua socket "chat:reply")
+      const aiDelaySec = await enqueueReply(s.id, agent);
+      if (agent.staffWaitMinutes > 0) escalateChat(io, s, text || "[Ảnh]");
+      return res.json({ ...out, reply: null, bot: true, aiPending: true, aiDelaySec });
+    }
+
+    // Chưa cấu hình AI cho chi nhánh: bot trả lời câu hỏi thường gặp (chỉ khi có chữ)
     let auto: string | null = null;
     if (text) {
       // Giờ mở cửa / địa chỉ: theo chi nhánh của phiên, thiếu thì lấy thông tin công ty (Website › Thông tin công ty)
@@ -181,14 +232,21 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
       const bot = await prisma.chatMessage.create({ data: { sessionId: session.id, sender: "bot", senderName: "TD Bot", body: auto }, include: msgInclude });
       return res.json({ ...out, reply: bot, bot: true });
     }
-    toStore(io, "staff", session.storeId).emit("chat:escalate", {
-      sessionId: session.id, guestName: session.guestName, tableId: session.tableId, message: text || "[Ảnh]", at: new Date().toISOString(),
-    });
+    escalateChat(io, session, text || "[Ảnh]");
     const wait = await prisma.chatMessage.create({
-      data: { sessionId: session.id, sender: "bot", senderName: "TD Bot", body: "Đã chuyển yêu cầu tới nhân viên. Vui lòng chờ trong giây lát." },
+      data: { sessionId: session.id, sender: "bot", senderName: "TD Bot", body: WAIT_FOR_STAFF },
       include: msgInclude,
     });
     return res.json({ ...out, reply: wait, bot: false });
+  });
+
+  /* GET /chat/assistant?storeId=&tableId= — khung chat hiện tên + lời chào của AI tư vấn (nếu chi nhánh đang bật) */
+  r.get("/chat/assistant", async (req, res) => {
+    const num = (v: unknown) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : null);
+    const resolved = await resolveCustomerStore(prisma, num(req.query.tableId), num(req.query.storeId), { fallbackFirst: true });
+    const agent = "error" in resolved ? null : await agentFor("WEB", resolved.storeId);
+    if (!agent) return res.json({ enabled: false });
+    res.json({ enabled: true, botName: agent.botName, greeting: fillPronouns(agent.greeting, agent), online: inSchedule(agent) });
   });
 
   /* GET /chat/session/:id?key= — khách xem lịch sử phiên của mình */
@@ -227,6 +285,46 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
 
   /* ───────────────────────── Nhân viên: chat (không gồm khiếu nại) ───────────────────────── */
 
+  /**
+   * Badge "Tin nhắn": phiên chat đang mở có tin khách cần nhân viên, mới hơn lần cuối nhân viên chi nhánh mở xem / trả lời:
+   * - bot đã báo "chuyển tới nhân viên" (không có AI, hoặc AI chuyển), hoặc
+   * - AI đang dừng ở phiên (nhân viên tiếp quản / đã chuyển) mà khách nhắn thêm, hoặc
+   * - tin cuối là của khách chưa ai trả lời (VD đang trong thời gian đợi nhân viên trước khi AI trả lời).
+   */
+  r.get("/staff/chat/unread", ...staffAuth, async (req, res) => {
+    const sessions = await prisma.chatSession.findMany({
+      where: { ...storeWhere(req), status: "open", kind: "CHAT" },
+      select: { id: true, staffReadAt: true, aiPaused: true, messages: { orderBy: { id: "desc" }, take: 1, select: { sender: true } } },
+    });
+    if (!sessions.length) return res.json({ count: 0, sessionIds: [] });
+    const ids = sessions.map((x) => x.id);
+    const [lastWait, lastCustomer] = await Promise.all([
+      prisma.chatMessage.groupBy({ by: ["sessionId"], where: { sessionId: { in: ids }, sender: "bot", body: WAIT_FOR_STAFF }, _max: { createdAt: true } }),
+      prisma.chatMessage.groupBy({ by: ["sessionId"], where: { sessionId: { in: ids }, sender: "customer" }, _max: { createdAt: true } }),
+    ]);
+    const waitAt = new Map(lastWait.map((w) => [w.sessionId, w._max.createdAt]));
+    const custAt = new Map(lastCustomer.map((w) => [w.sessionId, w._max.createdAt]));
+    const newer = (d: Date | null | undefined, read: Date | null) => !!d && (!read || d > read);
+    const sessionIds = sessions
+      .filter((x) => newer(waitAt.get(x.id), x.staffReadAt) || ((x.aiPaused || x.messages[0]?.sender === "customer") && newer(custAt.get(x.id), x.staffReadAt)))
+      .map((x) => x.id);
+    res.json({ count: sessionIds.length, sessionIds });
+  });
+
+  /** Nhân viên đã xem phiên → hết "chưa đọc" cho cả chi nhánh (badge của đồng nghiệp tính lại) */
+  async function markStaffRead(session: ChatSession) {
+    if (session.kind !== "CHAT") return;
+    await prisma.chatSession.update({ where: { id: session.id }, data: { staffReadAt: new Date() } });
+    toStore(io, "staff", session.storeId).emit("chat:read", { sessionId: session.id });
+  }
+
+  r.post("/staff/chat/sessions/:id/read", ...staffAuth, async (req, res) => {
+    const s = await staffSession(req, Number(req.params.id));
+    if (!s) return res.status(404).json({ error: "Không tìm thấy" });
+    await markStaffRead(s);
+    res.json({ ok: true });
+  });
+
   r.get("/staff/chat/sessions", ...staffAuth, async (req, res) => {
     res.json(await prisma.chatSession.findMany({
       where: { ...storeWhere(req), status: "open", kind: "CHAT" },
@@ -258,6 +356,7 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
   r.get("/staff/chat/sessions/:id", attachStaff(prisma), requireRoles("Admin", "Cashier", "Waiter", "Kitchen"), async (req, res) => {
     const s = await staffSession(req, Number(req.params.id));
     if (!s) return res.status(404).json({ error: "Không tìm thấy" });
+    await markStaffRead(s);
     res.json(await prisma.chatSession.findUnique({ where: { id: s.id }, include: withMessages }));
   });
 
@@ -279,16 +378,22 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
       data: { sessionId: session.id, sender: "staff", senderName: staff.fullName || staff.username || "Nhân viên", staffId: staff.id, body: text, imageUrl },
       include: msgInclude,
     });
+    // Nhân viên trả lời chat → AI dừng ở phiên này (nhân viên tiếp quản), huỷ câu trả lời AI đang chờ
+    const takeover = session.kind === "CHAT" && session.aiAgentId != null && !session.aiPaused;
+    if (session.kind === "CHAT") cancelReply(session.id);
     // Quản lý trả lời khiếu nại mới → chuyển sang "Đang xử lý"
     const touched = await prisma.chatSession.update({
       where: { id: session.id },
       data: {
         updatedAt: new Date(),
+        ...(takeover ? { aiPaused: true, aiPausedReason: "STAFF_TAKEOVER" } : {}),
         ...(session.kind === "COMPLAINT" && session.complaintStatus === "NEW" ? { complaintStatus: "IN_PROGRESS", handledById: staff.id } : {}),
       },
     });
     const [out] = await withStaffAvatars([msg]);
     broadcast(touched, "chat:reply", { sessionId: session.id, message: out });
+    if (takeover) toStore(io, "staff", touched.storeId).emit("chat:ai_state", { sessionId: touched.id, aiPaused: true, aiPausedReason: "STAFF_TAKEOVER" });
+    await markStaffRead(touched);
     res.status(201).json(out);
   });
 
@@ -305,9 +410,30 @@ export function chatRouter(prisma: PrismaClient, io: Server) {
     }
   });
 
+  /* PATCH /staff/chat/sessions/:id/ai { paused } — "Tiếp quản" (AI dừng) / "Trả lại cho AI" */
+  r.patch("/staff/chat/sessions/:id/ai", ...staffAuth, async (req, res) => {
+    const cur = await staffSession(req, Number(req.params.id));
+    if (!cur || cur.kind !== "CHAT") return res.status(404).json({ error: "Không tìm thấy phiên" });
+    const paused = !!(req.body as { paused?: boolean }).paused;
+    if (!paused && !(await agentFor(cur.channel, cur.storeId))) return res.status(400).json({ error: "Chi nhánh chưa bật AI tư vấn cho chat web." });
+    if (paused) cancelReply(cur.id);
+    else {
+      // Trả lại cho AI: các tin cũ coi như đã xử lý, AI chỉ trả lời tin khách nhắn sau này
+      const last = await prisma.chatMessage.findFirst({ where: { sessionId: cur.id }, orderBy: { id: "desc" }, select: { id: true } });
+      if (last) await markAnswered(cur.id, last.id);
+    }
+    const updated = await prisma.chatSession.update({
+      where: { id: cur.id },
+      data: { aiPaused: paused, aiPausedReason: paused ? "MANUAL" : null, ...(paused ? {} : { aiHandoffSummary: null }) },
+    });
+    toStore(io, "staff", updated.storeId).emit("chat:ai_state", { sessionId: updated.id, aiPaused: updated.aiPaused, aiPausedReason: updated.aiPausedReason });
+    res.json({ aiPaused: updated.aiPaused, aiPausedReason: updated.aiPausedReason });
+  });
+
   r.patch("/staff/chat/sessions/:id/close", ...staffAuth, async (req, res) => {
     const cur = await staffSession(req, Number(req.params.id));
     if (!cur) return res.status(404).json({ error: "Không tìm thấy phiên" });
+    cancelReply(cur.id);
     const updated = await prisma.chatSession.update({ where: { id: cur.id }, data: { status: "closed" } });
     broadcast(updated, "chat:closed", { sessionId: cur.id });
     toStore(io, "staff", updated.storeId).emit("chat:session_closed", { sessionId: cur.id });

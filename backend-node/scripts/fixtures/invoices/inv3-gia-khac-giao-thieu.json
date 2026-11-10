@@ -1,0 +1,19 @@
+{
+  "readable": true,
+  "invoiceNo": "MP-001377",
+  "lines": {
+    "Kem Béo": {
+      "receivedQty": 12,
+      "expiryDate": "2027-06-12"
+    },
+    "Đường Cát": {
+      "receivedQty": 15,
+      "expiryDate": null
+    }
+  },
+  "flags": [
+    "PRICE:Kem Béo",
+    "SHORT:Đường Cát"
+  ],
+  "sharpness": 3420
+}

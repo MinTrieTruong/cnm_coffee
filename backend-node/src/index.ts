@@ -8,6 +8,7 @@ import cors from "cors";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { authRouter } from "./routes/auth.js";
+import { warnSocialConfig } from "./lib/socialAuth.js";
 import { prisma } from "./db.js";
 import { staffAuthRouter } from "./routes/staffAuth.js";
 import { catalogRouter } from "./routes/catalog.js";
@@ -19,6 +20,7 @@ import { chatRouter } from "./routes/chat.js";
 import { reviewsRouter } from "./routes/reviews.js";
 import { posRouter } from "./routes/pos.js";
 import { adminRouter } from "./routes/admin.js";
+import { customerInsightsRouter } from "./routes/customerInsights.js";
 import { staffOpsRouter, takeawayRouter } from "./routes/staffOps.js";
 import { formulaRouter } from "./routes/formula.js";
 import { vnpayRouter } from "./routes/vnpay.js";
@@ -31,10 +33,13 @@ import { vouchersRouter } from "./routes/vouchers.js";
 import { postsRouter } from "./routes/posts.js";
 import { scheduleRouter } from "./routes/schedule.js";
 import { hrConfigRouter } from "./routes/hrConfig.js";
+import { shiftWishesRouter } from "./routes/shiftWishes.js";
+import { startShiftWishReminder } from "./lib/shiftWish/context.js";
 import { kitchenRouter } from "./routes/kitchen.js";
 import { stockRequestsRouter } from "./routes/stockRequests.js";
 import { menuProposalsRouter } from "./routes/menuProposals.js";
 import { searchInsightsRouter } from "./routes/searchInsights.js";
+import { trackingRouter } from "./routes/tracking.js";
 import { promotionsRouter } from "./routes/promotions.js";
 import { gamesRouter } from "./routes/games.js";
 import { popupsRouter } from "./routes/popups.js";
@@ -42,12 +47,23 @@ import { contactButtonsRouter } from "./routes/contactButtons.js";
 import { siteRouter } from "./routes/site.js";
 import { startGiftClaimExpiryJob } from "./games/service.js";
 import { startSearchLogCleanup } from "./lib/searchInsights.js";
+import { startCustomerEventCleanup } from "./lib/customerEvents.js";
 import { branchProposalsRouter } from "./routes/branchProposals.js";
 import { inventoryCountsRouter } from "./routes/inventoryCounts.js";
 import { setRealtime } from "./lib/realtime.js";
 import { hrRequestsRouter } from "./routes/hrRequests.js";
 import { attendanceRouter } from "./routes/attendance.js";
 import { tasksRouter } from "./routes/tasks.js";
+import { knowledgeRouter } from "./routes/knowledge.js";
+import { aiAgentsRouter } from "./routes/aiAgents.js";
+import { resumeAiReplies, startAiLogCleanup } from "./ai/agent/scheduler.js";
+import { aiDashboardRouter } from "./routes/aiDashboard.js";
+import { analystRouter } from "./routes/analyst.js";
+import { voiceOrderRouter } from "./routes/voiceOrder.js";
+import { invoiceOcrRouter } from "./routes/invoiceOcr.js";
+import { nutritionRouter } from "./routes/nutrition.js";
+import { homeRouter } from "./routes/home.js";
+import { resumeKnowledgeQueue } from "./ai/knowledge/ingest.js";
 import { myStatsRouter } from "./routes/myStats.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { initNotify, startNotificationCleanup } from "./lib/notify.js";
@@ -61,6 +77,7 @@ import { addressesRouter } from "./routes/addresses.js";
 import { customerRouter } from "./routes/customer.js";
 import { deliveryRouter } from "./routes/delivery.js";
 import { storesRouter } from "./routes/stores.js";
+import { brandRouter } from "./routes/brand.js";
 import { stockTransferRouter } from "./routes/stockTransfer.js";
 import { startDispatchWorker } from "./lib/delivery.js";
 import { registerSocketHandlers } from "./socket/handlers.js";
@@ -100,12 +117,15 @@ app.use("/api/auth", authRouter(prisma));
 app.use("/api", staffAuthRouter(prisma));
 app.use("/api", shiftsRouter(prisma));
 app.use("/api", cashRouter(prisma));
+// Hồ sơ khách (thói quen, quay lại, lịch sử) — gắn trước adminRouter
+app.use("/api/admin", customerInsightsRouter(prisma));
 app.use("/api/admin", adminRouter(prisma));
 app.use("/api/admin", supplierRouter());
 app.use("/api/admin", auditRouter());
 app.use("/api/admin", reportsRouter());
 app.use("/api", formulaRouter(prisma));
 app.use("/api", storesRouter(prisma));
+app.use("/api", brandRouter(prisma));
 app.use("/api", catalogRouter(prisma));
 app.use("/api", menuRouter(prisma));
 app.use("/api", ordersRouter(prisma, io));
@@ -123,10 +143,14 @@ app.use("/api", vouchersRouter(prisma, io));
 app.use("/api", postsRouter(prisma));
 app.use("/api", scheduleRouter(prisma, io));
 app.use("/api", hrConfigRouter(prisma));
+// Nguyện vọng xếp ca viết tự nhiên (AI đọc câu → ràng buộc)
+app.use("/api", shiftWishesRouter(prisma));
 app.use("/api", kitchenRouter(prisma, io));
 app.use("/api", stockRequestsRouter(prisma, io));
 app.use("/api", menuProposalsRouter(prisma, io));
 app.use("/api", searchInsightsRouter(prisma));
+// Hành vi khách trên web: ghi sự kiện + trang "Hành vi khách"
+app.use("/api", trackingRouter(prisma));
 app.use("/api", promotionsRouter(prisma));
 app.use("/api", gamesRouter(prisma));
 app.use("/api", popupsRouter(prisma));
@@ -137,6 +161,19 @@ app.use("/api", inventoryCountsRouter(prisma, io));
 app.use("/api", hrRequestsRouter(prisma, io));
 app.use("/api", attendanceRouter(prisma));
 app.use("/api", tasksRouter(prisma, io));
+// AI tư vấn: kho tri thức (RAG)
+app.use("/api", knowledgeRouter(prisma));
+app.use("/api", aiAgentsRouter(prisma));
+app.use("/api", aiDashboardRouter(prisma));
+// Trợ lý AI hỏi số liệu (Owner / Admin) + bật / tắt tính năng AI
+app.use("/api", analystRouter(prisma));
+// Đặt món bằng giọng nói / câu tự nhiên (POS + web khách)
+app.use("/api", voiceOrderRouter(prisma));
+// Đọc hoá đơn NCC bằng AI khi nhận hàng
+app.use("/api", invoiceOcrRouter(prisma));
+// Dinh dưỡng nguyên liệu / món, sở thích ăn uống của khách
+app.use("/api", nutritionRouter(prisma));
+app.use("/api", homeRouter(prisma));
 app.use("/api", myStatsRouter(prisma));
 app.use("/api", notificationsRouter(prisma));
 app.use("/api", comboRouter(prisma));
@@ -170,7 +207,9 @@ startDispatchWorker(prisma, io);
 startNotificationCleanup();
 startOpenShiftJob();
 startBackorderReminder(prisma);
+startShiftWishReminder(prisma);
 startSearchLogCleanup(prisma);
+startCustomerEventCleanup(prisma);
 startGiftClaimExpiryJob(prisma);
 
 const port = Number(process.env.PORT) || 4000;
@@ -185,6 +224,10 @@ async function bootstrap() {
     process.exit(1);
   }
 
+  warnSocialConfig();
+  void resumeKnowledgeQueue();
+  void resumeAiReplies();
+  startAiLogCleanup();
   httpServer.listen(port, () => {
     console.log(`API + Socket.io: http://localhost:${port}`);
   });

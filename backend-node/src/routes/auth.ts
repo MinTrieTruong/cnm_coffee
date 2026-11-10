@@ -1,21 +1,12 @@
 import { Router } from "express";
 import type { Request } from "express";
-import { Prisma, type PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { signCustomerToken } from "../lib/jwt.js";
 import { normalizeVnPhone } from "../lib/contactLinks.js";
 import { customerAuth } from "../middleware/customer.js";
-import { rankTierFromLifetimeSpend } from "../lib/rank.js";
-
-async function syncCustomerRank(prisma: PrismaClient, customerId: number) {
-  const agg = await prisma.order.aggregate({
-    where: { customerId, status: "Paid" },
-    _sum: { totalAmount: true },
-  });
-  const tier = rankTierFromLifetimeSpend(agg._sum.totalAmount ?? 0);
-  await prisma.customer.update({ where: { id: customerId }, data: { rankTier: tier } });
-  return tier;
-}
+import { createCustomer, customerUser, logCustomerAuth, syncCustomerRank } from "../lib/customerAccount.js";
+import { socialRoutes } from "./socialAuth.js";
 
 export function authRouter(prisma: PrismaClient) {
   const r = Router();
@@ -25,20 +16,7 @@ export function authRouter(prisma: PrismaClient) {
     const tier = await syncCustomerRank(prisma, customerId);
     const c = await prisma.customer.findUnique({ where: { id: customerId } });
     if (!c) return res.status(404).json({ error: "Không tìm thấy khách." });
-    res.json({
-      user: {
-        customerId: c.id,
-        fullName: c.fullName,
-        phone: c.phone,
-        email: c.email,
-        points: c.points,
-        rankTier: tier,
-        address: c.address,
-        dob: c.dob,
-        gender: c.gender,
-        avatarUrl: c.avatarUrl,
-      },
-    });
+    res.json({ user: customerUser(c, tier) });
   });
 
   r.post("/register", async (req, res) => {
@@ -64,44 +42,16 @@ export function authRouter(prisma: PrismaClient) {
       if (e) return res.status(409).json({ error: "Email đã được đăng ký." });
     }
     const hash = await bcrypt.hash(password, 10);
-    // Customer_ID không tự tăng → cấp max+1; nhiều người đăng ký cùng lúc trùng ID thì thử lại với ID mới
-    let customer;
-    for (let attempt = 0; ; attempt++) {
-      const nextId = (await prisma.customer.aggregate({ _max: { id: true } }))._max.id ?? 0;
-      try {
-        customer = await prisma.customer.create({
-          data: {
-            id: nextId + 1 + attempt,
-            phone: normPhone,
-            email: email?.trim() || null,
-            fullName: fullName?.trim().slice(0, 255) || "Khách hàng",
-            passwordHash: hash,
-          },
-        });
-        break;
-      } catch (e) {
-        const target = String((e as Prisma.PrismaClientKnownRequestError).meta?.target ?? "");
-        const dupId = e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002" && !/phone|email/i.test(target);
-        if (!dupId || attempt >= 8) throw e;
-      }
-    }
-    const tier = await syncCustomerRank(prisma, customer.id);
-    const token = signCustomerToken(customer.id);
-    return res.status(201).json({
-      token,
-      user: {
-        customerId: customer.id,
-        fullName: customer.fullName,
-        phone: customer.phone,
-        email: customer.email,
-        points: customer.points,
-        rankTier: tier,
-        address: customer.address,
-        dob: customer.dob,
-        gender: customer.gender,
-        avatarUrl: customer.avatarUrl,
-      },
+    const customer = await createCustomer(prisma, {
+      phone: normPhone,
+      email: email?.trim() || null,
+      fullName: fullName?.trim().slice(0, 255) || "Khách hàng",
+      passwordHash: hash,
     });
+    const tier = await syncCustomerRank(prisma, customer.id);
+    logCustomerAuth(prisma, req, customer.id, "REGISTER", "PASSWORD");
+    const token = signCustomerToken(customer.id);
+    return res.status(201).json({ token, user: customerUser(customer, tier) });
   });
 
   r.post("/login", async (req, res) => {
@@ -124,23 +74,13 @@ export function authRouter(prisma: PrismaClient) {
     });
     const tier = await syncCustomerRank(prisma, customer.id);
     const fresh = await prisma.customer.findUnique({ where: { id: customer.id } });
+    logCustomerAuth(prisma, req, customer.id, "LOGIN", "PASSWORD");
     const token = signCustomerToken(customer.id);
-    return res.json({
-      token,
-      user: {
-        customerId: customer.id,
-        fullName: customer.fullName,
-        phone: customer.phone,
-        email: customer.email,
-        points: fresh?.points ?? customer.points,
-        rankTier: tier,
-        address: customer.address,
-        dob: customer.dob,
-        gender: customer.gender,
-        avatarUrl: customer.avatarUrl,
-      },
-    });
+    return res.json({ token, user: customerUser(fresh ?? customer, tier) });
   });
+
+  // Google / Facebook: /google, /facebook, /social/link, /phone, /identities…
+  r.use(socialRoutes(prisma));
 
   return r;
 }

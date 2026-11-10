@@ -10,6 +10,7 @@ import { resolveVoucher, voucherHold } from "../lib/vouchers.js";
 import { customerShipping, describeTier, refreshOrderPromotion } from "../lib/promotions.js";
 import { priceLines, type RawLine } from "../lib/menuPrice.js";
 import { optionalCustomerAuth } from "../middleware/customer.js";
+import { recordOrderPlaced } from "../lib/customerEvents.js";
 import { computeBill, computePointsEarned, getStoreSettings } from "../lib/pricing.js";
 import { DS, getStoreLocation, haversineKm, MAX_DELIVERY_KM, onKitchenProgress, shippingFeeForDistance } from "../lib/delivery.js";
 import { customerCancelDeadline, emitRefunded, refundOrderToPoints, RefundError } from "../lib/points.js";
@@ -311,6 +312,9 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       customerLat?: number;
       customerLng?: number;
       shippingFee?: number;
+      /** Mã ẩn danh + mã phiên của lib/track.ts — máy chủ tự ghi ORDER_PLACED */
+      trackSid?: string;
+      visitId?: string;
     };
     const lines = body.lines ?? [];
     if (!lines.length) {
@@ -331,6 +335,10 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
     // Đơn giao hàng trả trước, hủy thì hoàn ra điểm → bắt buộc có tài khoản
     if (isDelivery && !customerId) {
       return res.status(401).json({ error: "Vui lòng đăng nhập để đặt giao hàng." });
+    }
+    // Tài khoản tạo từ Google / Facebook chưa bổ sung SĐT → shipper không liên lạc được
+    if (isDelivery && !(await prisma.customer.findUnique({ where: { id: customerId! }, select: { phone: true } }))?.phone) {
+      return res.status(400).json({ code: "PHONE_REQUIRED", error: "Vui lòng bổ sung số điện thoại trong tài khoản để đặt giao hàng." });
     }
     if (isDelivery && !body.deliveryAddress) {
       return res.status(400).json({ error: "Đơn giao hàng bắt buộc phải có địa chỉ." });
@@ -392,6 +400,7 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
               quantity: l.quantity,
               unitPrice: l.unitPrice,
               size: l.size,
+              temperature: l.temperature,
               customNotes: merged || null,
               priority: isTakeaway,
               comboId: l.comboId,
@@ -431,6 +440,8 @@ export function ordersRouter(prisma: PrismaClient, io: Server) {
       pos.emit("order:confirmed", { orderId: order.id });
       pos.emit("payment:request", { orderId: order.id, tableId: order.tableId, fromCustomer: true });
     }
+    // Hành vi khách: mỗi món 1 dòng ORDER_PLACED (lỗi nuốt trong hàm, không chờ)
+    void recordOrderPlaced(prisma, { orderId: order.id, storeId, customerId, tableId: order.tableId, trackSid: body.trackSid, visitId: body.visitId, lines: priced.lines });
 
     res.status(201).json({
       ...fresh,
