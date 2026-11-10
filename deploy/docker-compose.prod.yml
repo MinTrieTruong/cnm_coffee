@@ -1,0 +1,63 @@
+# Chạy trên VPS: thư mục /opt/tdcoffee chứa file này (đổi tên thành docker-compose.yml) + file .env
+# GitHub Actions build image và đẩy lên GHCR; VPS chỉ việc `docker compose pull && docker compose up -d`.
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: coffee_shop_db
+      MYSQL_USER: coffee
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Ho_Chi_Minh
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # Không mở cổng 3306 ra Internet
+
+  backend:
+    image: ghcr.io/${GH_OWNER}/cnm-coffee-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: mysql://coffee:${MYSQL_PASSWORD}@mysql:3306/coffee_shop_db?connect_timeout=30&pool_timeout=30&connection_limit=10
+      AI_SERVICE_URL: http://ai:8000
+      PUBLIC_APP_URL: https://${DOMAIN}
+      FRONTEND_URL: https://${DOMAIN}
+      CORS_ORIGIN: https://${DOMAIN}
+      TZ: Asia/Ho_Chi_Minh
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  ai:
+    image: ghcr.io/${GH_OWNER}/cnm-coffee-ai:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/${GH_OWNER}/cnm-coffee-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      SITE_ADDRESS: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
+  uploads:
+  caddy_data:
+  caddy_config:

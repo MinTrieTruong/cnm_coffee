@@ -147,6 +147,7 @@ Mở Docker Desktop, đợi icon taskbar chuyển xanh rồi chạy lại `docke
 | `backend-node/` | Express + Prisma + Socket.io (API) |
 | `ai-service-python/` | Gợi ý món (tuỳ chọn, cổng 8000) |
 | `docs/cmn.md` | Tài liệu đề tài |
+| `docs/trien-khai.md` | **Hướng dẫn deploy lên Railway + CI/CD** |
 
 ## QR code
 

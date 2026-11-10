@@ -1,0 +1,25 @@
+# SITE_ADDRESS: địa chỉ Caddy lắng nghe.
+#   - Railway: ":8080" (Railway lo HTTPS, Caddy chỉ chạy HTTP nội bộ)
+#   - VPS: tên miền, ví dụ "tdcoffee.com" → Caddy tự xin chứng chỉ HTTPS Let's Encrypt
+# BACKEND_UPSTREAM: địa chỉ backend.
+#   - Railway: "backend.railway.internal:4000"
+#   - docker-compose: "backend:4000" (mặc định)
+{$SITE_ADDRESS:localhost} {
+	encode zstd gzip
+
+	# API, ảnh upload và Socket.io chuyển sang backend (cùng tên miền → không lỗi CORS / ảnh /uploads)
+	@backend path /api/* /uploads/* /socket.io/*
+	handle @backend {
+		reverse_proxy {$BACKEND_UPSTREAM:backend:4000}
+	}
+
+	# Giao diện React (SPA): đường dẫn không tồn tại → index.html
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+}
